@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite" // change to "postgresql" for Neon
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // e.g. postgresql://USER:PASSWORD@HOST:PORT/DB?sslmode=require
 }
 
 model WebhookEvent {
@@ -12,10 +12,13 @@ model WebhookEvent {
   sallaEvent   String
   orderId      String?
   status       String?
-  rawPayload   Json
+  rawPayload   Json      // maps to jsonb in Postgres
   signature    String?
-  receivedAt   DateTime @default(now())
-  uniqueKey    String?  @unique
+  receivedAt   DateTime  @default(now())
+  uniqueKey    String?   @unique
+
+  @@index([receivedAt])
+  @@index([orderId, status])
 }
 
 model MessageLog {
@@ -24,11 +27,14 @@ model MessageLog {
   toPhone      String
   channel      String   // "whatsapp"
   templateName String?
-  body         String?
+  body         String?  @db.Text   // body can be long; TEXT avoids length limits
   zokoMsgId    String?
   status       String   // "sent" | "failed"
-  error        String?
+  error        String?  @db.Text   // store full error safely
   createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([orderId])
 }
 
 model WebhookLog {
@@ -38,8 +44,8 @@ model WebhookLog {
   // Request metadata
   method          String
   url             String?
-  ip              String?
-  headers         Json
+  ip              String?  @db.Inet
+  headers         Json     // jsonb
 
   // Signature
   signature       String?
@@ -52,11 +58,11 @@ model WebhookLog {
   status          String?
 
   // Payload
-  rawText         String    // always store the raw body
-  json            Json?     // set only when JSON parse succeeds
+  rawText         String   @db.Text  // always store the raw body (no length cap)
+  json            Json?              // set only when JSON parse succeeds (jsonb)
 
   // Errors
-  parseError      String?
+  parseError      String?  @db.Text
 
   @@index([receivedAt])
   @@index([event])
