@@ -43,7 +43,7 @@ model WebhookLog {
 
   // Signature
   signature       String?
-  signatureHeader String?   // which header carried it
+  signatureHeader String?
   verified        Boolean
 
   // Parsed info (best effort)
@@ -53,8 +53,12 @@ model WebhookLog {
 
   // Payload
   rawText         String    // always store the raw body
-  json            Json?     // only when JSON parse succeeds
+  json            Json?     // set only when JSON parse succeeds
 
   // Errors
-  parseError      String?   // JSON parse error (if any)
+  parseError      String?
+
+  @@index([receivedAt])
+  @@index([event])
+  @@index([orderId, status])
 }
