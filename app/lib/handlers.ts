@@ -52,6 +52,8 @@ export async function processSallaWebhook(payload: AnyObj) {
   switch (event) {
     case "order.created":
       return process_salla_order_created(data);
+    case "order.updated":
+      return process_salla_order_updated(data);
     case "order.status.updated":
       return process_salla_order_status_updated(data);
     case "order.products.updated":
@@ -74,6 +76,10 @@ export async function processSallaWebhook(payload: AnyObj) {
 }
 
 // ---- Specific handlers (each with its own template) ----
+export async function process_salla_order_updated(data: AnyObj) {
+  
+}
+
 
 export async function process_salla_order_status_updated(data: AnyObj) {
   const order: AnyObj = data?.order ?? data ?? {};
