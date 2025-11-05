@@ -30,3 +30,31 @@ model MessageLog {
   error        String?
   createdAt    DateTime @default(now())
 }
+
+model WebhookLog {
+  id              String   @id @default(cuid())
+  receivedAt      DateTime @default(now())
+
+  // Request metadata
+  method          String
+  url             String?
+  ip              String?
+  headers         Json
+
+  // Signature
+  signature       String?
+  signatureHeader String?   // which header carried it
+  verified        Boolean
+
+  // Parsed info (best effort)
+  event           String?
+  orderId         String?
+  status          String?
+
+  // Payload
+  rawText         String    // always store the raw body
+  json            Json?     // only when JSON parse succeeds
+
+  // Errors
+  parseError      String?   // JSON parse error (if any)
+}
