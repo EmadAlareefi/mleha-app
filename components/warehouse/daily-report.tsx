@@ -127,7 +127,7 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
             </div>
             <div className="text-left">
               <Image
-                src="https://cdn.salla.sa/cdn-cgi/image/fit=scale-down,width=400,height=400,onerror=redirect,format=auto/AzEboQ/24kEZ9WcFl5vZaZNjQRqUYeMnZRqlrMyVOaFBtOn.jpg"
+                src="/logo.png"
                 alt="Mleha Logo"
                 width={120}
                 height={120}

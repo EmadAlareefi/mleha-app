@@ -3,9 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Scan, CheckCircle, AlertCircle } from 'lucide-react';
+import { Scan, CheckCircle, AlertCircle, ArrowUpFromLine, ArrowDownToLine } from 'lucide-react';
 
 interface ScannerInputProps {
   onScan: (trackingNumber: string, type: 'incoming' | 'outgoing') => Promise<void>;
@@ -56,47 +55,87 @@ export function ScannerInput({ onScan }: ScannerInputProps) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2">
           <Scan className="w-6 h-6" />
           مسح رقم الشحنة
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label htmlFor="tracking" className="block text-sm font-medium mb-2">
-                رقم التتبع
-              </label>
-              <Input
-                id="tracking"
-                ref={inputRef}
-                type="text"
-                value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="امسح أو أدخل رقم الشحنة"
-                disabled={isScanning}
-                className="text-lg"
-                autoComplete="off"
-                autoFocus
-              />
-            </div>
-            <div className="w-48">
-              <label htmlFor="type" className="block text-sm font-medium mb-2">
-                نوع الشحنة
-              </label>
-              <Select
-                id="type"
-                value={type}
-                onChange={(e) => setType(e.target.value as 'incoming' | 'outgoing')}
-                disabled={isScanning}
-              >
-                <option value="incoming">وارد</option>
-                <option value="outgoing">صادر</option>
-              </Select>
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Type Selection Tabs */}
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              type="button"
+              onClick={() => setType('outgoing')}
+              disabled={isScanning}
+              className={`relative p-6 rounded-lg border-2 transition-all ${
+                type === 'outgoing'
+                  ? 'border-blue-500 bg-blue-50 shadow-md'
+                  : 'border-gray-300 bg-white hover:border-blue-300'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <ArrowUpFromLine className={`w-10 h-10 ${type === 'outgoing' ? 'text-blue-600' : 'text-gray-400'}`} />
+                <div className={`text-xl font-bold ${type === 'outgoing' ? 'text-blue-900' : 'text-gray-700'}`}>
+                  صادر
+                </div>
+                <div className={`text-sm text-center ${type === 'outgoing' ? 'text-blue-700' : 'text-gray-500'}`}>
+                  طلبات المبيعات الصادرة
+                </div>
+              </div>
+              {type === 'outgoing' && (
+                <div className="absolute top-3 left-3">
+                  <CheckCircle className="w-6 h-6 text-blue-600" />
+                </div>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setType('incoming')}
+              disabled={isScanning}
+              className={`relative p-6 rounded-lg border-2 transition-all ${
+                type === 'incoming'
+                  ? 'border-green-500 bg-green-50 shadow-md'
+                  : 'border-gray-300 bg-white hover:border-green-300'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <ArrowDownToLine className={`w-10 h-10 ${type === 'incoming' ? 'text-green-600' : 'text-gray-400'}`} />
+                <div className={`text-xl font-bold ${type === 'incoming' ? 'text-green-900' : 'text-gray-700'}`}>
+                  وارد
+                </div>
+                <div className={`text-sm text-center ${type === 'incoming' ? 'text-green-700' : 'text-gray-500'}`}>
+                  المرتجعات والاستردادات
+                </div>
+              </div>
+              {type === 'incoming' && (
+                <div className="absolute top-3 left-3">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+              )}
+            </button>
+          </div>
+
+          {/* Tracking Input */}
+          <div>
+            <label htmlFor="tracking" className="block text-sm font-medium mb-2">
+              رقم التتبع
+            </label>
+            <Input
+              id="tracking"
+              ref={inputRef}
+              type="text"
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="امسح أو أدخل رقم الشحنة"
+              disabled={isScanning}
+              className="text-lg h-14"
+              autoComplete="off"
+              autoFocus
+            />
           </div>
 
           <Button

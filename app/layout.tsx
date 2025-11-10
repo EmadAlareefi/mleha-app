@@ -12,6 +12,10 @@ const tajawal = Tajawal({
 export const metadata: Metadata = {
   title: "نظام إدارة الشحنات - ملحة",
   description: "نظام إدارة الشحنات الواردة والصادرة للمستودع",
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
 };
 
 export default function RootLayout({
@@ -21,6 +25,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl">
+      <head>
+        <link rel="icon" href="/logo.png" />
+      </head>
       <body className={`${tajawal.variable} antialiased`}>
         {children}
       </body>

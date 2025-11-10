@@ -7,15 +7,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'cdn.salla.sa',
-        pathname: '/**',
-      },
-    ],
-  },
 };
 
 export default nextConfig;
