@@ -68,3 +68,18 @@ model WebhookLog {
   @@index([event])
   @@index([orderId, status])
 }
+
+model Shipment {
+  id              String   @id @default(cuid())
+  trackingNumber  String   @unique
+  company         String   // Detected company (e.g., "aramex", "smsa", "dhl", etc.)
+  type            String   // "incoming" or "outgoing"
+  scannedAt       DateTime @default(now())
+  scannedBy       String?  // Optional: user who scanned
+  notes           String?  @db.Text
+
+  @@index([scannedAt])
+  @@index([company])
+  @@index([type])
+  @@index([scannedAt, type])
+}
