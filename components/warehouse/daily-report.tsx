@@ -171,7 +171,7 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
           )}
 
           {/* Incoming Shipments */}
-          <div className="page-break-before">
+          <div className="mt-6">
             <h2 className="text-xl font-bold mb-4">الشحنات الواردة ({incomingShipments.length})</h2>
             {incomingShipments.length > 0 ? (
               <Table>
@@ -188,7 +188,7 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
                   {incomingShipments.map((shipment, index) => {
                     const company = getCompanyInfo(shipment.company);
                     return (
-                      <TableRow key={shipment.id}>
+                      <TableRow key={shipment.id} className="print-row-break">
                         <TableCell>{index + 1}</TableCell>
                         <TableCell className="font-mono">{shipment.trackingNumber}</TableCell>
                         <TableCell>{company.nameAr}</TableCell>
@@ -205,7 +205,7 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
           </div>
 
           {/* Outgoing Shipments */}
-          <div className="page-break-before">
+          <div className="mt-6">
             <h2 className="text-xl font-bold mb-4">الشحنات الصادرة ({outgoingShipments.length})</h2>
             {outgoingShipments.length > 0 ? (
               <Table>
@@ -222,7 +222,7 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
                   {outgoingShipments.map((shipment, index) => {
                     const company = getCompanyInfo(shipment.company);
                     return (
-                      <TableRow key={shipment.id}>
+                      <TableRow key={shipment.id} className="print-row-break">
                         <TableCell>{index + 1}</TableCell>
                         <TableCell className="font-mono">{shipment.trackingNumber}</TableCell>
                         <TableCell>{company.nameAr}</TableCell>
@@ -239,7 +239,7 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
           </div>
 
           {/* Footer */}
-          <div className="border-t pt-6 mt-8 text-center text-sm text-muted-foreground">
+          <div className="border-t pt-6 mt-8 text-center text-sm text-muted-foreground print-footer">
             <p>نظام إدارة الشحنات - ملحة</p>
             <p className="mt-2">تم الطباعة في: {format(new Date(), 'yyyy/MM/dd HH:mm:ss')}</p>
           </div>
@@ -247,8 +247,45 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
 
         <style jsx global>{`
           @media print {
-            .page-break-before {
-              page-break-before: always;
+            @page {
+              size: A4;
+              margin: 1.5cm;
+            }
+
+            body {
+              print-color-adjust: exact;
+              -webkit-print-color-adjust: exact;
+            }
+
+            /* Prevent page breaks inside table rows */
+            .print-row-break {
+              page-break-inside: avoid;
+              break-inside: avoid;
+            }
+
+            /* Ensure tables can span multiple pages */
+            table {
+              page-break-inside: auto;
+            }
+
+            thead {
+              display: table-header-group;
+            }
+
+            tr {
+              page-break-inside: avoid;
+              page-break-after: auto;
+            }
+
+            /* Keep footer at the end */
+            .print-footer {
+              page-break-inside: avoid;
+              break-inside: avoid;
+            }
+
+            /* Remove unnecessary spacing for print */
+            .space-y-6 > * + * {
+              margin-top: 1.5rem;
             }
           }
         `}</style>

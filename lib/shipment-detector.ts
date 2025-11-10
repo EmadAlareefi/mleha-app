@@ -64,6 +64,12 @@ export const SHIPMENT_COMPANIES: Record<string, ShipmentCompany> = {
     nameEn: 'Naqel',
     color: '#ff6b35',
   },
+  ajex: {
+    id: 'ajex',
+    nameAr: 'ايجكس',
+    nameEn: 'Ajex',
+    color: '#ff6600',
+  },
   unknown: {
     id: 'unknown',
     nameAr: 'غير معروف',
@@ -77,6 +83,12 @@ export const SHIPMENT_COMPANIES: Record<string, ShipmentCompany> = {
  */
 export function detectShipmentCompany(trackingNumber: string): ShipmentCompany {
   const cleaned = trackingNumber.trim().toUpperCase();
+
+  // Ajex: Starts with "AJEX" followed by numbers
+  // Pattern: AJEX123456789
+  if (cleaned.startsWith('AJEX') && /^AJEX\d+$/.test(cleaned)) {
+    return SHIPMENT_COMPANIES.ajex;
+  }
 
   // UPS: Starts with "1Z" followed by 16 characters - Check first (most specific)
   // Pattern: 1Z999AA10123456784
