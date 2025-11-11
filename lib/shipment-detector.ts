@@ -86,7 +86,7 @@ export function detectShipmentCompany(trackingNumber: string): ShipmentCompany {
 
   // Ajex: Starts with "AJEX" followed by numbers
   // Pattern: AJEX123456789
-  if (cleaned.startsWith('AJEX') && /^AJEX\d+$/.test(cleaned)) {
+  if (cleaned.startsWith('AJ') && /^AJ[A-Z0-9]+$/.test(cleaned)) {
     return SHIPMENT_COMPANIES.ajex;
   }
 
