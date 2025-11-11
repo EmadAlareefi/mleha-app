@@ -87,7 +87,7 @@ NEXT_PUBLIC_MERCHANT_LOGO=/logo.png
 #### Salla OAuth
 - Tokens are automatically stored when a merchant authorizes your app
 - The webhook at `/app/salla/webhook/route.ts` handles the `app.store.authorize` event
-- Tokens auto-refresh every 10 days via cron job
+- Tokens auto-refresh (at most once every 10 days per merchant) via the scheduled cron job, using a database mutex so duplicate refreshes never overlap
 
 ## API Endpoints
 

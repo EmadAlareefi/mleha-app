@@ -124,7 +124,7 @@ NEXTAUTH_URL=https://your-domain.com
 1. Merchant installs your Salla app
 2. Salla sends `app.store.authorize` webhook with tokens
 3. System stores tokens in database
-4. Tokens auto-refresh every 10 days via Vercel Cron
+4. Tokens auto-refresh at most once every 10 days (per merchant) via the scheduled cron, using database mutexes to prevent duplicate refreshes
 5. All API calls use fresh tokens automatically
 
 ## How Returns Work

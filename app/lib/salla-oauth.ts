@@ -3,6 +3,7 @@ import { log } from './logger';
 
 const SALLA_OAUTH_URL = 'https://accounts.salla.sa/oauth2/token';
 const TOKEN_REFRESH_BEFORE_EXPIRY_MS = 24 * 60 * 60 * 1000; // Refresh 1 day before expiry
+const FORCED_REFRESH_INTERVAL_MS = 10 * 24 * 60 * 60 * 1000; // Force refresh every 10 days
 
 interface SallaTokenResponse {
   access_token: string;
@@ -217,20 +218,45 @@ export async function refreshExpiringTokens(): Promise<void> {
   log.info('Starting scheduled token refresh check...');
 
   const expiryThreshold = new Date(Date.now() + TOKEN_REFRESH_BEFORE_EXPIRY_MS);
+  const forcedRefreshThreshold = new Date(Date.now() - FORCED_REFRESH_INTERVAL_MS);
 
-  const expiringAuths = await prisma.sallaAuth.findMany({
+  const authsNeedingRefresh = await prisma.sallaAuth.findMany({
     where: {
-      expiresAt: {
-        lte: expiryThreshold,
-      },
+      OR: [
+        {
+          expiresAt: {
+            lte: expiryThreshold,
+          },
+        },
+        {
+          lastRefreshedAt: {
+            lte: forcedRefreshThreshold,
+          },
+        },
+      ],
       isRefreshing: false, // Don't refresh if already in progress
     },
   });
 
-  log.info('Found expiring tokens', { count: expiringAuths.length });
+  log.info('Tokens selected for refresh', {
+    count: authsNeedingRefresh.length,
+    forcedRefreshThreshold,
+  });
 
-  for (const auth of expiringAuths) {
+  for (const auth of authsNeedingRefresh) {
     try {
+      const sinceLast = Date.now() - auth.lastRefreshedAt.getTime();
+      const daysSinceLast = Math.floor(sinceLast / (24 * 60 * 60 * 1000));
+      const reason = auth.expiresAt <= expiryThreshold ? 'expiry-window' : 'forced-interval';
+
+      log.info('Refreshing token for merchant', {
+        merchantId: auth.merchantId,
+        expiresAt: auth.expiresAt,
+        lastRefreshedAt: auth.lastRefreshedAt,
+        daysSinceLast,
+        reason,
+      });
+
       await refreshSallaToken(auth.merchantId);
     } catch (error) {
       log.error('Failed to refresh token for merchant', {
