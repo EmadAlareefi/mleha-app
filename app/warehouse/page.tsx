@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { ScannerInput } from '@/components/warehouse/scanner-input';
 import { StatsCards } from '@/components/warehouse/stats-cards';
 import { ShipmentsTable } from '@/components/warehouse/shipments-table';
@@ -130,6 +131,26 @@ export default function WarehousePage() {
                 </p>
               </div>
             </div>
+            <nav className="flex gap-3">
+              <Link
+                href="/warehouse"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium"
+              >
+                المستودع
+              </Link>
+              <Link
+                href="/local-shipping"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                شحن محلي
+              </Link>
+              <Link
+                href="/returns"
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
+              >
+                الإرجاع
+              </Link>
+            </nav>
           </div>
         </div>
       </header>

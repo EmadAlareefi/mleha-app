@@ -83,3 +83,107 @@ model Shipment {
   @@index([type])
   @@index([scannedAt, type])
 }
+
+model SallaAuth {
+  id                String   @id @default(cuid())
+  merchantId        String   @unique // Salla merchant ID
+  accessToken       String   @db.Text
+  refreshToken      String   @db.Text
+  expiresAt         DateTime // When the access token expires
+  scope             String?  // Permissions scope
+  tokenType         String   @default("bearer")
+
+  // Token refresh management
+  isRefreshing      Boolean  @default(false) // Mutex flag to prevent parallel refreshes
+  lastRefreshedAt   DateTime @default(now())
+  refreshAttempts   Int      @default(0) // Counter for failed refresh attempts
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@index([isRefreshing])
+}
+
+model ReturnRequest {
+  id                String   @id @default(cuid())
+  merchantId        String   // Salla merchant ID
+  orderId           String   // Salla order ID
+  orderNumber       String?  // Human-readable order number
+  customerId        String?  // Salla customer ID
+  customerName      String?
+  customerEmail     String?
+  customerPhone     String?
+
+  type              String   // "return" or "exchange"
+  status            String   @default("pending_review") // pending_review, approved, rejected, completed, cancelled
+  reason            String   // Predefined reason or "other"
+  reasonDetails     String?  @db.Text // Free-text explanation
+
+  // SMSA shipment info
+  smsaTrackingNumber String?  @unique
+  smsaAwbNumber      String?
+  smsaResponse       Json?    // Raw SMSA API response
+
+  totalRefundAmount  Decimal? @db.Decimal(10, 2)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  items             ReturnItem[]
+
+  @@index([merchantId])
+  @@index([orderId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReturnItem {
+  id                String   @id @default(cuid())
+  returnRequestId   String
+  returnRequest     ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+
+  productId         String   // Salla product ID
+  productName       String
+  productSku        String?
+  variantId         String?  // If product has variants
+  variantName       String?
+  quantity          Int
+  price             Decimal  @db.Decimal(10, 2)
+
+  createdAt         DateTime @default(now())
+
+  @@index([returnRequestId])
+  @@index([productId])
+}
+
+model LocalShipment {
+  id                String   @id @default(cuid())
+  merchantId        String   // Salla merchant ID
+  orderId           String   // Salla order ID
+  orderNumber       String   // Human-readable order number
+
+  // Customer/Shipping Info
+  customerName      String
+  customerPhone     String
+  shippingAddress   String   @db.Text
+  shippingCity      String
+  shippingPostcode  String?
+
+  // Order Info
+  orderTotal        Decimal  @db.Decimal(10, 2)
+  itemsCount        Int
+  orderItems        Json?    // Store order items for label display
+
+  // Label Info
+  trackingNumber    String   @unique // Generated local tracking number
+  generatedBy       String?  // User who generated the label
+  notes             String?  @db.Text
+
+  createdAt         DateTime @default(now())
+
+  @@index([merchantId])
+  @@index([orderId])
+  @@index([trackingNumber])
+  @@index([createdAt])
+}

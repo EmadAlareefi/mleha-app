@@ -2,6 +2,7 @@ import { normalizeKSA } from "@/app/lib/phone";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "@/app/lib/zoko";
 import { env } from "@/app/lib/env";
 import { log } from "@/app/lib/logger";
+import { storeSallaTokens } from "@/app/lib/salla-oauth";
 
 type AnyObj = Record<string, any>;
 
@@ -50,6 +51,8 @@ export async function processSallaWebhook(payload: AnyObj) {
   const data = payload?.data ?? payload?.order ?? payload;
 
   switch (event) {
+    case "app.store.authorize":
+      return process_app_store_authorize(payload);
     case "order.created":
       return process_salla_order_created(data);
     case "order.updated":
@@ -76,8 +79,36 @@ export async function processSallaWebhook(payload: AnyObj) {
 }
 
 // ---- Specific handlers (each with its own template) ----
+
+/**
+ * Handles Salla app authorization webhook
+ * Stores OAuth tokens for future API requests
+ */
+export async function process_app_store_authorize(payload: AnyObj) {
+  const merchantId = String(payload?.merchant ?? "");
+  const data = payload?.data ?? {};
+  const accessToken = data?.access_token ?? "";
+  const refreshToken = data?.refresh_token ?? "";
+  const expiresIn = Number(data?.expires ?? 0);
+  const scope = data?.scope ?? "";
+
+  if (!merchantId || !accessToken || !refreshToken || !expiresIn) {
+    log.error("Invalid app.store.authorize payload", { payload });
+    return { success: false, error: "missing_required_fields" };
+  }
+
+  try {
+    await storeSallaTokens(merchantId, accessToken, refreshToken, expiresIn, scope);
+    log.info("Salla app authorized successfully", { merchantId });
+    return { success: true, message: "tokens_stored", merchantId };
+  } catch (error) {
+    log.error("Failed to store Salla tokens", { merchantId, error });
+    return { success: false, error: "failed_to_store_tokens" };
+  }
+}
+
 export async function process_salla_order_updated(data: AnyObj) {
-  
+
 }
 
 
