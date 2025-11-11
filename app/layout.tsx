@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Tajawal } from "next/font/google";
 import "./globals.css";
+import SessionProvider from "@/components/SessionProvider";
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -29,7 +30,9 @@ export default function RootLayout({
         <link rel="icon" href="/logo.png" />
       </head>
       <body className={`${tajawal.variable} antialiased`}>
-        {children}
+        <SessionProvider>
+          {children}
+        </SessionProvider>
       </body>
     </html>
   );

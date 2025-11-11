@@ -67,28 +67,6 @@ export default function ReturnsPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4">
       <div className="max-w-4xl mx-auto">
-        {/* Navigation */}
-        <nav className="flex justify-center gap-3 mb-8">
-          <Link
-            href="/warehouse"
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            المستودع
-          </Link>
-          <Link
-            href="/local-shipping"
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-          >
-            شحن محلي
-          </Link>
-          <Link
-            href="/returns"
-            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
-          >
-            الإرجاع
-          </Link>
-        </nav>
-
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">طلب إرجاع أو استبدال</h1>

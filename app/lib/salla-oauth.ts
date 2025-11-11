@@ -259,7 +259,11 @@ export async function sallaMakeRequest<T>(
   }
 
   try {
-    const response = await fetch(`https://api.salla.dev${endpoint}`, {
+    // Salla API base URL - use admin/v2 for merchant API calls
+    const baseUrl = 'https://api.salla.dev/admin/v2';
+    const url = endpoint.startsWith('/') ? `${baseUrl}${endpoint}` : `${baseUrl}/${endpoint}`;
+
+    const response = await fetch(url, {
       ...options,
       headers: {
         'Authorization': `Bearer ${accessToken}`,

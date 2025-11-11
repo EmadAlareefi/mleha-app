@@ -112,17 +112,17 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
     try {
       const items = Array.from(selectedItems.entries()).map(([itemId, quantity]) => {
-        const orderItem = order.items.find(item => item.id === itemId);
+        const orderItem = order.items?.find((item: any) => item.id === itemId);
         if (!orderItem) throw new Error('Item not found');
 
         return {
-          productId: orderItem.product.id.toString(),
-          productName: orderItem.product.name,
-          productSku: orderItem.product.sku,
-          variantId: orderItem.variant?.id.toString(),
+          productId: (orderItem.product?.id || orderItem.id || itemId).toString(),
+          productName: orderItem.product?.name || orderItem.name || 'منتج',
+          productSku: orderItem.product?.sku || orderItem.sku,
+          variantId: orderItem.variant?.id?.toString(),
           variantName: orderItem.variant?.name,
           quantity,
-          price: orderItem.amounts.price.amount,
+          price: orderItem.amounts?.price?.amount || orderItem.price || 0,
         };
       });
 
@@ -167,16 +167,20 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-gray-600">رقم الطلب:</span>
-            <span className="font-medium">{order.reference_id}</span>
+            <span className="font-medium">{order.reference_id || order.id}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">حالة الطلب:</span>
-            <span className="font-medium">{order.status.name}</span>
+            <span className="font-medium">{order.status?.name || order.status?.slug || order.status}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">الإجمالي:</span>
-            <span className="font-medium">{order.amounts.total.amount} {order.amounts.total.currency}</span>
-          </div>
+          {order.amounts?.total?.amount && (
+            <div className="flex justify-between">
+              <span className="text-gray-600">الإجمالي:</span>
+              <span className="font-medium">
+                {order.amounts.total.amount} {order.amounts.total.currency || 'SAR'}
+              </span>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -213,22 +217,22 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4">اختر المنتجات</h3>
         <div className="space-y-4">
-          {order.items.map((item) => (
+          {order.items?.map((item: any) => (
             <div key={item.id} className="flex items-center gap-4 p-4 border rounded-lg">
-              {item.product.thumbnail && (
+              {item.product?.thumbnail && (
                 <img
                   src={item.product.thumbnail}
-                  alt={item.product.name}
+                  alt={item.product?.name || 'Product'}
                   className="w-16 h-16 object-cover rounded"
                 />
               )}
               <div className="flex-1">
-                <h4 className="font-medium">{item.product.name}</h4>
-                {item.variant && (
+                <h4 className="font-medium">{item.product?.name || item.name || 'منتج'}</h4>
+                {item.variant?.name && (
                   <p className="text-sm text-gray-600">{item.variant.name}</p>
                 )}
                 <p className="text-sm text-gray-600">
-                  السعر: {item.amounts.price.amount} {order.amounts.total.currency}
+                  السعر: {item.amounts?.price?.amount || item.price || 0} {order.amounts?.total?.currency || 'SAR'}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -236,15 +240,17 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                 <input
                   type="number"
                   min="0"
-                  max={item.quantity}
+                  max={item.quantity || 1}
                   value={selectedItems.get(item.id) || 0}
                   onChange={(e) => handleItemQuantityChange(item.id, parseInt(e.target.value) || 0)}
                   className="w-20 px-3 py-2 border rounded-md"
                 />
-                <span className="text-sm text-gray-500">من {item.quantity}</span>
+                <span className="text-sm text-gray-500">من {item.quantity || 1}</span>
               </div>
             </div>
-          ))}
+          )) || (
+            <p className="text-center text-gray-500">لا توجد منتجات في هذا الطلب</p>
+          )}
         </div>
       </Card>
 

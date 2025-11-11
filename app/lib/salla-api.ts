@@ -87,7 +87,7 @@ export async function getSallaOrder(
   try {
     const response = await sallaMakeRequest<SallaSingleOrderResponse>(
       merchantId,
-      `/v2/orders/${orderId}`
+      `/orders/${orderId}`
     );
 
     if (!response || !response.success) {
@@ -113,13 +113,20 @@ export async function getSallaOrderByReference(
     // Salla API supports filtering by reference_id
     const response = await sallaMakeRequest<SallaOrdersResponse>(
       merchantId,
-      `/v2/orders?reference_id=${encodeURIComponent(referenceId)}`
+      `/orders?reference_id=${encodeURIComponent(referenceId)}`
     );
 
     if (!response || !response.success || !response.data || response.data.length === 0) {
       log.warn('Order not found by reference', { merchantId, referenceId });
       return null;
     }
+
+    // Log the actual response structure for debugging
+    log.info('Salla order fetched successfully', {
+      merchantId,
+      referenceId,
+      orderStructure: JSON.stringify(response.data[0], null, 2)
+    });
 
     return response.data[0];
   } catch (error) {
@@ -139,7 +146,7 @@ export async function getCustomerOrders(
   try {
     const response = await sallaMakeRequest<SallaOrdersResponse>(
       merchantId,
-      `/v2/orders?customer=${customerId}&per_page=${limit}&sort_by=created&sort=desc`
+      `/orders?customer=${customerId}&per_page=${limit}&sort_by=created&sort=desc`
     );
 
     if (!response || !response.success) {
@@ -165,7 +172,7 @@ export async function findOrdersByCustomerContact(
     // Try searching by email first
     let response = await sallaMakeRequest<SallaOrdersResponse>(
       merchantId,
-      `/v2/orders?email=${encodeURIComponent(emailOrPhone)}&per_page=20&sort_by=created&sort=desc`
+      `/orders?email=${encodeURIComponent(emailOrPhone)}&per_page=20&sort_by=created&sort=desc`
     );
 
     if (response && response.success && response.data && response.data.length > 0) {
@@ -175,7 +182,7 @@ export async function findOrdersByCustomerContact(
     // Try searching by phone if email didn't work
     response = await sallaMakeRequest<SallaOrdersResponse>(
       merchantId,
-      `/v2/orders?mobile=${encodeURIComponent(emailOrPhone)}&per_page=20&sort_by=created&sort=desc`
+      `/orders?mobile=${encodeURIComponent(emailOrPhone)}&per_page=20&sort_by=created&sort=desc`
     );
 
     if (response && response.success) {
