@@ -47,9 +47,15 @@ Update your `.env` file with the following:
 
 ```env
 # SMSA API Configuration
-SMSA_API_BASE_URL=https://track.smsaexpress.com/api
-SMSA_PASS_KEY=your_actual_smsa_pass_key
-SMSA_ACCOUNT_NUMBER=your_actual_smsa_account_number
+SMSA_API_ENVIRONMENT=sandbox
+SMSA_API_BASE_URL=https://ecomapis-sandbox.azurewebsites.net/api
+SMSA_TEST_API_KEY=556c502d784a49cbb6fb2baf6fb08bfe
+SMSA_PRODUCTION_API_KEY=d34118ea30de40dd89e8f56535ab3069
+SMSA_SERVICE_CODE=EDCR
+SMSA_WAYBILL_TYPE=PDF
+# Optional overrides
+# SMSA_API_KEY=
+# SMSA_RETAIL_ID=
 
 # Cron Job Security
 CRON_SECRET=generate_a_secure_random_string_here
@@ -60,15 +66,23 @@ NEXT_PUBLIC_MERCHANT_NAME=اسم متجرك
 NEXT_PUBLIC_MERCHANT_PHONE=0501234567
 NEXT_PUBLIC_MERCHANT_ADDRESS=عنوان متجرك أو المستودع
 NEXT_PUBLIC_MERCHANT_CITY=الرياض
+NEXT_PUBLIC_MERCHANT_LOGO=/logo.png
 ```
 
 ### How to Get the Credentials
 
 #### SMSA Credentials
-1. Contact SMSA Express Saudi Arabia
-2. Sign up for their API service
-3. Request API credentials (passKey and account number)
-4. Get the API base URL (production or sandbox)
+1. Contact SMSA Express to onboard your account for API access.
+2. Download the official docs (`SMSA API DOCS.html` in this repo) for the latest keys and endpoints.
+3. Choose the environment you need:
+
+| Environment | Base URL | API Key |
+|-------------|----------|---------|
+| Sandbox/Test | `https://ecomapis-sandbox.azurewebsites.net` | `556c502d784a49cbb6fb2baf6fb08bfe` |
+| Production | `https://ecomapis.smsaexpress.com` | `d34118ea30de40dd89e8f56535ab3069` |
+
+4. Set `SMSA_API_ENVIRONMENT` to `sandbox` or `production` and keep the keys secret.
+5. Optionally set `SMSA_RETAIL_ID` if SMSA provided a preferred drop-off branch.
 
 #### Salla OAuth
 - Tokens are automatically stored when a merchant authorizes your app

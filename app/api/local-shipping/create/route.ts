@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
 import { PrismaClient } from '@prisma/client';
+import { buildOrderItemsPayload, serializeLocalShipment } from '../serializer';
 
 const prisma = new PrismaClient();
 
@@ -23,6 +24,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedOrderNumber = body.orderNumber.toString().trim();
+
     log.info('Creating local shipping label', {
       merchantId: body.merchantId,
       orderNumber: body.orderNumber
@@ -39,15 +42,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract shipping information
-    const shippingAddress = (order as any).shipping_address?.street_address ||
-                          (order as any).shipping?.pickup_address?.address ||
-                          'لم يتم توفير العنوان';
-    const shippingCity = (order as any).shipping_address?.city ||
-                        (order as any).shipping?.pickup_address?.city ||
-                        'الرياض';
-    const shippingPostcode = (order as any).shipping_address?.postal_code ||
-                            (order as any).shipping?.pickup_address?.postal_code ||
-                            '';
+    const shippingAddress =
+      (order as any).shipping_address?.street_address ||
+      (order as any).shipping?.pickup_address?.address ||
+      (order.customer?.city ? `مدينة العميل: ${order.customer.city}` : null) ||
+      'لم يتم توفير العنوان';
+    const shippingCity =
+      (order as any).shipping_address?.city ||
+      (order as any).shipping?.pickup_address?.city ||
+      order.customer?.city ||
+      'الرياض';
+    const shippingPostcode =
+      (order as any).shipping_address?.postal_code ||
+      (order as any).shipping?.pickup_address?.postal_code ||
+      '';
 
     // Generate unique tracking number (format: LOCAL-YYYYMMDD-XXXXX)
     const date = new Date();
@@ -56,22 +64,76 @@ export async function POST(request: NextRequest) {
     const trackingNumber = `LOCAL-${dateStr}-${randomNum}`;
 
     // Calculate items count
-    const itemsCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    const orderItems = Array.isArray(order.items) ? order.items : [];
+    const itemsCount = orderItems.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
+
+    const rawOrderTotal =
+      (order as any).amounts?.total?.amount ??
+      (order as any).total?.amount ??
+      0;
+    const orderTotalAmount = Number(rawOrderTotal) || 0;
+    const paymentMethodRaw = (
+      (order as any).payment_method ??
+      (order as any).payment_method_label ??
+      (order as any).payment?.method ??
+      ''
+    ).toString();
+    const normalizedPaymentMethod = paymentMethodRaw.toLowerCase();
+    const isCashOnDelivery =
+      normalizedPaymentMethod.includes('cod') ||
+      normalizedPaymentMethod.includes('cash on delivery') ||
+      normalizedPaymentMethod.includes('collect') ||
+      normalizedPaymentMethod.includes('الدفع عند الاستلام');
+    const collectionAmount = isCashOnDelivery ? Number(orderTotalAmount) : 0;
+    const paymentLabel = paymentMethodRaw || (isCashOnDelivery ? 'Cash On Delivery' : 'Prepaid');
+
+    // Ensure we reuse existing labels for the same order
+    const existingShipment = await prisma.localShipment.findFirst({
+      where: {
+        merchantId: body.merchantId,
+        orderNumber: normalizedOrderNumber,
+      },
+    });
+
+    if (existingShipment) {
+      log.info('Local shipping label already exists, returning existing label', {
+        orderNumber: normalizedOrderNumber,
+        trackingNumber: existingShipment.trackingNumber,
+      });
+
+      return NextResponse.json({
+        success: true,
+        reused: true,
+        shipment: serializeLocalShipment(existingShipment, {
+          collectionAmount,
+          paymentMethod: paymentLabel,
+        }),
+      });
+    }
+
+    const customerName =
+      `${order.customer?.first_name ?? ''} ${order.customer?.last_name ?? ''}`.trim() ||
+      order.customer?.full_name ||
+      'عميل غير معروف';
+    const customerPhone = `${order.customer?.mobile ?? ''}`.trim() || '0000000000';
 
     // Create local shipment in database
     const localShipment = await prisma.localShipment.create({
       data: {
         merchantId: body.merchantId,
         orderId: order.id.toString(),
-        orderNumber: order.reference_id,
-        customerName: `${order.customer.first_name} ${order.customer.last_name}`,
-        customerPhone: order.customer.mobile,
+        orderNumber: normalizedOrderNumber,
+        customerName,
+        customerPhone,
         shippingAddress,
         shippingCity,
         shippingPostcode,
-        orderTotal: order.amounts.total.amount,
+        orderTotal: orderTotalAmount,
         itemsCount,
-        orderItems: order.items,
+        orderItems: buildOrderItemsPayload(orderItems, {
+          collectionAmount,
+          paymentMethod: paymentLabel,
+        }),
         trackingNumber,
         generatedBy: body.generatedBy || 'system',
         notes: body.notes || null,
@@ -85,24 +147,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      shipment: {
-        id: localShipment.id,
-        trackingNumber: localShipment.trackingNumber,
-        orderNumber: localShipment.orderNumber,
-        customerName: localShipment.customerName,
-        customerPhone: localShipment.customerPhone,
-        shippingAddress: localShipment.shippingAddress,
-        shippingCity: localShipment.shippingCity,
-        shippingPostcode: localShipment.shippingPostcode,
-        orderTotal: localShipment.orderTotal,
-        itemsCount: localShipment.itemsCount,
-        orderItems: localShipment.orderItems,
-        createdAt: localShipment.createdAt,
-      },
+      shipment: serializeLocalShipment(localShipment, {
+        collectionAmount,
+        paymentMethod: paymentLabel,
+      }),
     });
 
   } catch (error) {
-    log.error('Error creating local shipping label', { error });
+    log.error('Error creating local shipping label', {
+      error: error instanceof Error ? error.message : error
+    });
     return NextResponse.json(
       { error: 'حدث خطأ أثناء إنشاء ملصق الشحن' },
       { status: 500 }

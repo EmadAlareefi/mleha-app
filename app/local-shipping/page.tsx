@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,23 +14,63 @@ const MERCHANT_CONFIG = {
   phone: process.env.NEXT_PUBLIC_MERCHANT_PHONE || '0501234567',
   address: process.env.NEXT_PUBLIC_MERCHANT_ADDRESS || 'شارع الملك فهد، الرياض',
   city: process.env.NEXT_PUBLIC_MERCHANT_CITY || 'الرياض',
+  logoUrl: process.env.NEXT_PUBLIC_MERCHANT_LOGO || '/logo.png',
 };
+
+const todayIso = () => new Date().toISOString().split('T')[0];
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(
+    Number.isFinite(value) ? value : 0
+  );
+
+const formatDateTime = (value: string) =>
+  new Date(value).toLocaleString('ar-SA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
 export default function LocalShippingPage() {
   const [orderNumber, setOrderNumber] = useState('');
   const [shipment, setShipment] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [dateRange, setDateRange] = useState({
+    start: todayIso(),
+    end: todayIso(),
+  });
   const labelRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = useReactToPrint({
-    content: () => labelRef.current,
-    documentTitle: `Shipping-Label-${orderNumber}`,
+    contentRef: labelRef,
+    documentTitle: `Shipping-Label-${shipment?.orderNumber || orderNumber || 'local'}`,
+    removeAfterPrint: true,
   });
+
+  const handlePrintClick = () => {
+    if (!labelRef.current) {
+      setError('لا يوجد ملصق متاح للطباعة بعد');
+      return;
+    }
+
+    try {
+      handlePrint?.();
+    } catch {
+      setError('حدث خطأ أثناء محاولة الطباعة، جرّب مرة أخرى.');
+    }
+  };
 
   const handleGenerateLabel = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfo('');
     setLoading(true);
 
     try {
@@ -51,6 +91,8 @@ export default function LocalShippingPage() {
       }
 
       setShipment(data.shipment);
+      setInfo(data.reused ? 'تم العثور على ملصق سابق لهذا الطلب وتم عرضه.' : '');
+      fetchHistory(dateRange);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
     } finally {
@@ -62,6 +104,56 @@ export default function LocalShippingPage() {
     setOrderNumber('');
     setShipment(null);
     setError('');
+    setInfo('');
+  };
+
+  async function fetchHistory(range = dateRange) {
+    try {
+      setHistoryLoading(true);
+      setHistoryError('');
+
+      const params = new URLSearchParams({
+        merchantId: MERCHANT_CONFIG.merchantId,
+        startDate: range.start,
+        endDate: range.end,
+      });
+
+      const response = await fetch(`/api/local-shipping/list?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'تعذر تحميل الشحنات');
+      }
+
+      setHistory(data.shipments || []);
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل السجل');
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchHistory({ start: todayIso(), end: todayIso() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleHistorySubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    fetchHistory();
+  };
+
+  const handleRangeChange = (key: 'start' | 'end', value: string) => {
+    setDateRange((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleHistorySelect = (record: any) => {
+    setShipment(record);
+    setInfo('تم تحميل الملصق من سجل الشحنات.');
+    setTimeout(() => {
+      labelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   };
 
   return (
@@ -114,9 +206,17 @@ export default function LocalShippingPage() {
                 />
               </div>
 
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-red-800 text-sm">{error}</p>
+              {(error || info) && (
+                <div
+                  className={`rounded-lg p-4 border ${
+                    error
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-blue-50 border-blue-200'
+                  }`}
+                >
+                  <p className={`text-sm ${error ? 'text-red-800' : 'text-blue-800'}`}>
+                    {error || info}
+                  </p>
                 </div>
               )}
 
@@ -142,10 +242,18 @@ export default function LocalShippingPage() {
                 <p className="text-gray-600">
                   رقم التتبع: <span className="font-mono font-bold">{shipment.trackingNumber}</span>
                 </p>
+                {typeof shipment.collectionAmount === 'number' && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    مبلغ التحصيل:
+                    <span className="font-semibold text-gray-800 ml-1">
+                      {formatCurrency(shipment.collectionAmount)}
+                    </span>
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-4 justify-center mb-6">
-                <Button onClick={handlePrint} className="flex items-center gap-2">
+                <Button onClick={handlePrintClick} className="flex items-center gap-2" type="button">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="20"
@@ -176,6 +284,94 @@ export default function LocalShippingPage() {
             </div>
           </div>
         )}
+
+        {/* History Section */}
+        <section className="mt-10">
+          <Card className="p-6 space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">سجل الشحنات المحلية</h2>
+                <p className="text-sm text-gray-500">استعرض الشحنات حسب التاريخ</p>
+              </div>
+              <form
+                onSubmit={handleHistorySubmit}
+                className="flex flex-col gap-3 md:flex-row md:items-center"
+              >
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">من تاريخ</label>
+                  <input
+                    type="date"
+                    value={dateRange.start}
+                    onChange={(e) => handleRangeChange('start', e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">إلى تاريخ</label>
+                  <input
+                    type="date"
+                    value={dateRange.end}
+                    onChange={(e) => handleRangeChange('end', e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    required
+                  />
+                </div>
+                <Button type="submit" disabled={historyLoading}>
+                  {historyLoading ? 'جاري التحميل...' : 'عرض الشحنات'}
+                </Button>
+              </form>
+            </div>
+
+            {historyError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+                {historyError}
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left bg-gray-100">
+                    <th className="px-3 py-2">التاريخ</th>
+                    <th className="px-3 py-2">رقم الطلب</th>
+                    <th className="px-3 py-2">العميل</th>
+                    <th className="px-3 py-2">المدينة</th>
+                    <th className="px-3 py-2">مبلغ التحصيل</th>
+                    <th className="px-3 py-2">رقم التتبع</th>
+                    <th className="px-3 py-2 text-center">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.length === 0 && !historyLoading && (
+                    <tr>
+                      <td colSpan={7} className="text-center text-gray-500 py-6">
+                        لا توجد شحنات في هذا التاريخ
+                      </td>
+                    </tr>
+                  )}
+                  {history.map((record) => (
+                    <tr key={record.id} className="border-b last:border-none">
+                      <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(record.createdAt)}</td>
+                      <td className="px-3 py-2 font-mono">{record.orderNumber}</td>
+                      <td className="px-3 py-2">{record.customerName}</td>
+                      <td className="px-3 py-2">{record.shippingCity}</td>
+                      <td className="px-3 py-2 font-semibold">
+                        {formatCurrency(record.collectionAmount ?? 0)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">{record.trackingNumber}</td>
+                      <td className="px-3 py-2 text-center">
+                        <Button size="sm" type="button" onClick={() => handleHistorySelect(record)}>
+                          عرض الملصق
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </section>
       </div>
     </div>
   );

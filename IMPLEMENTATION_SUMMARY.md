@@ -85,9 +85,16 @@ Username/password authentication protecting all admin routes while keeping retur
 ### Environment Variables to Update
 
 ```env
-# SMSA API (Get from SMSA)
-SMSA_PASS_KEY=your_actual_smsa_pass_key
-SMSA_ACCOUNT_NUMBER=your_actual_smsa_account_number
+# SMSA API (see SMSA API DOCS.html)
+SMSA_API_ENVIRONMENT=sandbox
+SMSA_API_BASE_URL=https://ecomapis-sandbox.azurewebsites.net/api
+SMSA_TEST_API_KEY=556c502d784a49cbb6fb2baf6fb08bfe
+SMSA_PRODUCTION_API_KEY=d34118ea30de40dd89e8f56535ab3069
+SMSA_SERVICE_CODE=EDCR
+SMSA_WAYBILL_TYPE=PDF
+# Optional overrides per deployment
+# SMSA_API_KEY=
+# SMSA_RETAIL_ID=
 
 # Merchant Info
 NEXT_PUBLIC_MERCHANT_ID=your_salla_merchant_id
@@ -95,6 +102,7 @@ NEXT_PUBLIC_MERCHANT_NAME=اسم متجرك
 NEXT_PUBLIC_MERCHANT_PHONE=05xxxxxxxx
 NEXT_PUBLIC_MERCHANT_ADDRESS=عنوان المستودع
 NEXT_PUBLIC_MERCHANT_CITY=المدينة
+NEXT_PUBLIC_MERCHANT_LOGO=/logo.png
 
 # Authentication (Change for Production!)
 ADMIN_USERNAME=admin
