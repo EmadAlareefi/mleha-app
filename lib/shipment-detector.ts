@@ -118,9 +118,10 @@ export function detectShipmentCompany(trackingNumber: string): ShipmentCompany {
     return SHIPMENT_COMPANIES.naqel;
   }
 
-  // SMSA: 12 digits starting with 29, 30, or contains "SMSA"
-  // Pattern: 291536303713, 300123456789
-  if (cleaned.startsWith('SMSA') || /^(29|30)\d{10}$/.test(cleaned) || /^4\d{11}$/.test(cleaned)) {
+  // SMSA: 12 digits starting with 23, 29, 30, or contains "SMSA"
+  // Pattern: 231234567890, 291536303713, 300123456789
+  // Some older accounts also issue 12-digit numbers starting with 4
+  if (cleaned.startsWith('SMSA') || /^(23|29|30)\d{10}$/.test(cleaned) || /^4\d{11}$/.test(cleaned)) {
     return SHIPMENT_COMPANIES.smsa;
   }
 
