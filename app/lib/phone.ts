@@ -1,6 +1,7 @@
 // Normalize KSA numbers → E.164 (+966xxxxxxxxx)
-export function normalizeKSA(msisdn?: string | null): string {
-  let p = (msisdn || "").replace(/\D/g, "");
+export function normalizeKSA(msisdn?: string | number | null): string {
+  const raw = msisdn == null ? "" : String(msisdn);
+  let p = raw.replace(/\D/g, "");
   if (!p) return p;
   if (p.startsWith("00966")) p = p.replace(/^00966/, "966");
   if (p.startsWith("00")) p = p.replace(/^00/, "");
