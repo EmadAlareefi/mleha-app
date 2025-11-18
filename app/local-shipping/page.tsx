@@ -119,12 +119,31 @@ export default function LocalShippingPage() {
       });
 
       const response = await fetch(`/api/local-shipping/list?${params.toString()}`);
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+
+      const parseJson = async () => {
+        try {
+          return await response.json();
+        } catch {
+          return null;
+        }
+      };
 
       if (!response.ok) {
-        throw new Error(data.error || 'تعذر تحميل الشحنات');
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('لا تملك صلاحية للوصول إلى سجل الشحنات. يرجى تسجيل الدخول بحساب مخوّل.');
+        }
+        const data = contentType.includes('application/json') ? await parseJson() : null;
+        const text = !contentType.includes('application/json') ? await response.text() : null;
+        throw new Error(data?.error || text || 'تعذر تحميل الشحنات');
       }
 
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(text || 'استجابة غير متوقعة من الخادم، يرجى إعادة المحاولة.');
+      }
+
+      const data = await response.json();
       setHistory(data.shipments || []);
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل السجل');

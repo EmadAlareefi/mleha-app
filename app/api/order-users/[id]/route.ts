@@ -2,8 +2,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import bcrypt from 'bcryptjs';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/lib/auth';
+import { OrderUserRole } from '@prisma/client';
 
 export const runtime = 'nodejs';
+
+const ROLE_MAP: Record<string, OrderUserRole> = {
+  orders: OrderUserRole.ORDERS,
+  store_manager: OrderUserRole.STORE_MANAGER,
+  warehouse: OrderUserRole.WAREHOUSE,
+};
+
+function normalizeRole(role?: string | null): OrderUserRole {
+  if (!role) return OrderUserRole.ORDERS;
+  const normalized = role.toLowerCase();
+  if (!ROLE_MAP[normalized]) {
+    throw new Error('دور المستخدم غير صالح');
+  }
+  return ROLE_MAP[normalized];
+}
 
 /**
  * PUT /api/order-users/[id]
@@ -13,6 +31,14 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const session = await getServerSession(authOptions);
+  if (!session || (session.user as any)?.role !== 'admin') {
+    return NextResponse.json(
+      { error: 'غير مصرح لك بتحديث المستخدمين' },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await request.json();
     const {
@@ -25,6 +51,7 @@ export async function PUT(
       autoAssign,
       maxOrders,
       password,
+      role: roleInput,
     } = body;
 
     const updateData: any = {
@@ -37,6 +64,17 @@ export async function PUT(
       autoAssign,
       maxOrders,
     };
+
+    if (roleInput) {
+      try {
+        updateData.role = normalizeRole(roleInput);
+      } catch (roleError) {
+        return NextResponse.json(
+          { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
+          { status: 400 }
+        );
+      }
+    }
 
     // Only update password if provided
     if (password && password.trim()) {
@@ -58,6 +96,7 @@ export async function PUT(
         name: user.name,
         email: user.email,
         phone: user.phone,
+        role: user.role.toLowerCase(),
         orderType: user.orderType,
         specificStatus: user.specificStatus,
         isActive: user.isActive,
@@ -82,6 +121,14 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const session = await getServerSession(authOptions);
+  if (!session || (session.user as any)?.role !== 'admin') {
+    return NextResponse.json(
+      { error: 'غير مصرح لك بحذف المستخدمين' },
+      { status: 403 }
+    );
+  }
+
   try {
     await prisma.orderUser.delete({
       where: { id: params.id },

@@ -38,13 +38,21 @@ function LoginForm() {
         if (session?.user) {
           const role = (session.user as any).role;
 
-          // Redirect based on role
-          if (role === 'order_user') {
-            router.push('/order-prep');
-          } else if (role === 'admin') {
-            router.push(defaultCallbackUrl === '/order-prep' ? '/' : defaultCallbackUrl);
-          } else {
-            router.push(defaultCallbackUrl);
+          switch (role) {
+            case 'orders':
+              router.push('/order-prep');
+              break;
+            case 'store_manager':
+              router.push('/returns-management');
+              break;
+            case 'warehouse':
+              router.push('/warehouse');
+              break;
+            case 'admin':
+              router.push(defaultCallbackUrl === '/order-prep' ? '/' : defaultCallbackUrl);
+              break;
+            default:
+              router.push(defaultCallbackUrl);
           }
         } else {
           router.push(defaultCallbackUrl);

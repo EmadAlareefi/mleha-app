@@ -6,18 +6,45 @@ export default withAuth(
     const token = req.nextauth.token;
     const path = req.nextUrl.pathname;
 
-    // If user is authenticated, check role-based access
     if (token) {
-      const role = token.role as string;
+      const role = token.role as string | undefined;
 
-      // Order users can only access /order-prep
-      if (role === 'order_user' && !path.startsWith('/order-prep')) {
-        return NextResponse.redirect(new URL('/order-prep', req.url));
-      }
+      const roleAccess: Record<
+        string,
+        { home: string; allowed: RegExp[] }
+      > = {
+        orders: {
+          home: '/order-prep',
+          allowed: [/^\/$/, /^\/order-prep(\/.*)?$/],
+        },
+        store_manager: {
+          home: '/returns-management',
+          allowed: [/^\/$/, /^\/returns-management(\/.*)?$/],
+        },
+        warehouse: {
+          home: '/warehouse',
+          allowed: [
+            /^\/$/,
+            /^\/warehouse(\/.*)?$/,
+            /^\/local-shipping(\/.*)?$/,
+            /^\/api\/shipments(\/.*)?$/,
+            /^\/api\/local-shipping(\/.*)?$/,
+          ],
+        },
+      };
 
-      // Admin users cannot access /order-prep
       if (role === 'admin' && path.startsWith('/order-prep')) {
         return NextResponse.redirect(new URL('/', req.url));
+      }
+
+      const restrictions = role ? roleAccess[role] : undefined;
+      if (restrictions) {
+        const isAllowed = restrictions.allowed.some((pattern) =>
+          pattern.test(path)
+        );
+        if (!isAllowed) {
+          return NextResponse.redirect(new URL(restrictions.home, req.url));
+        }
       }
     }
 

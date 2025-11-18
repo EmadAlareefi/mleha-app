@@ -5,10 +5,13 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
+type UserRole = 'orders' | 'store_manager' | 'warehouse';
+
 interface OrderUser {
   id: string;
   username: string;
   name: string;
+  role: UserRole;
   email?: string;
   phone?: string;
   orderType: string;
@@ -29,9 +32,22 @@ const ORDER_TYPE_LABELS: Record<string, string> = {
   specific_status: 'حالة محددة',
 };
 
+const ROLE_LABELS: Record<UserRole, string> = {
+  orders: 'مستخدم الطلبات',
+  store_manager: 'مدير المتجر (الإرجاع)',
+  warehouse: 'موظف المستودع',
+};
+
+const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
+  orders: 'الوصول إلى لوحة تحضير الطلبات فقط',
+  store_manager: 'الوصول إلى صفحات الإرجاع/إدارة الطلبات المرتجعة',
+  warehouse: 'الوصول إلى المستودع والشحن المحلي',
+};
+
 export default function OrderUsersManagementPage() {
   const [users, setUsers] = useState<OrderUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<OrderUser | null>(null);
 
@@ -42,6 +58,7 @@ export default function OrderUsersManagementPage() {
     name: '',
     email: '',
     phone: '',
+    role: 'orders' as UserRole,
     orderType: 'all',
     specificStatus: '',
     isActive: true,
@@ -55,8 +72,16 @@ export default function OrderUsersManagementPage() {
 
   const loadUsers = async () => {
     setLoading(true);
+    setAccessDenied(false);
     try {
       const response = await fetch('/api/order-users');
+
+      if (response.status === 403) {
+        setAccessDenied(true);
+        setUsers([]);
+        return;
+      }
+
       const data = await response.json();
       if (data.success) {
         setUsers(data.users);
@@ -78,10 +103,19 @@ export default function OrderUsersManagementPage() {
 
       const method = editingUser ? 'PUT' : 'POST';
 
+      const payload = {
+        ...formData,
+        orderType: formData.role === 'orders' ? formData.orderType : 'all',
+        specificStatus:
+          formData.role === 'orders' ? formData.specificStatus : '',
+        autoAssign: formData.role === 'orders' ? formData.autoAssign : false,
+        maxOrders: formData.role === 'orders' ? formData.maxOrders : 50,
+      };
+
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -108,6 +142,7 @@ export default function OrderUsersManagementPage() {
       name: user.name,
       email: user.email || '',
       phone: user.phone || '',
+      role: user.role,
       orderType: user.orderType,
       specificStatus: user.specificStatus || '',
       isActive: user.isActive,
@@ -170,6 +205,7 @@ export default function OrderUsersManagementPage() {
       name: '',
       email: '',
       phone: '',
+      role: 'orders',
       orderType: 'all',
       specificStatus: '',
       isActive: true,
@@ -186,7 +222,7 @@ export default function OrderUsersManagementPage() {
           <div>
             <h1 className="text-3xl font-bold mb-2">إدارة مستخدمي الطلبات</h1>
             <p className="text-gray-600">
-              إنشاء وإدارة المستخدمين المخصصين لتحضير الطلبات
+              إنشاء وإدارة حسابات موظفي التحضير، المستودع، ومدراء الإرجاع
             </p>
           </div>
           <div className="flex gap-3">
@@ -196,7 +232,7 @@ export default function OrderUsersManagementPage() {
                 resetForm();
                 setShowForm(true);
               }}
-              disabled={showForm}
+              disabled={showForm || accessDenied}
             >
               + إضافة مستخدم
             </Button>
@@ -207,7 +243,7 @@ export default function OrderUsersManagementPage() {
         </div>
 
         {/* Form */}
-        {showForm && (
+        {showForm && !accessDenied && (
           <Card className="p-6 mb-6">
             <h2 className="text-xl font-bold mb-4">
               {editingUser ? 'تعديل مستخدم' : 'إضافة مستخدم جديد'}
@@ -274,47 +310,79 @@ export default function OrderUsersManagementPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2">نوع الطلبات *</label>
+                  <label className="block text-sm font-medium mb-2">دور المستخدم *</label>
                   <select
-                    value={formData.orderType}
-                    onChange={(e) => setFormData({ ...formData, orderType: e.target.value })}
+                    value={formData.role}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        role: e.target.value as UserRole,
+                      })
+                    }
                     className="w-full px-4 py-2 border rounded-lg"
-                    required
                   >
-                    <option value="all">جميع الطلبات</option>
-                    <option value="cod">الدفع عند الاستلام فقط</option>
-                    <option value="prepaid">المدفوعة مسبقاً فقط</option>
-                    <option value="specific_status">حالة محددة</option>
+                    {(Object.keys(ROLE_LABELS) as UserRole[]).map((roleKey) => (
+                      <option key={roleKey} value={roleKey}>
+                        {ROLE_LABELS[roleKey]}
+                      </option>
+                    ))}
                   </select>
-                </div>
-
-                {formData.orderType === 'specific_status' && (
-                  <div>
-                    <label className="block text-sm font-medium mb-2">الحالة المحددة</label>
-                    <input
-                      type="text"
-                      value={formData.specificStatus}
-                      onChange={(e) => setFormData({ ...formData, specificStatus: e.target.value })}
-                      className="w-full px-4 py-2 border rounded-lg"
-                      placeholder="مثال: pending, processing"
-                    />
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">عدد الطلبات لكل دفعة</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formData.maxOrders}
-                    onChange={(e) => setFormData({ ...formData, maxOrders: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                    required
-                  />
                   <p className="text-xs text-gray-500 mt-1">
-                    عدد الطلبات التي يتم تعيينها في كل مرة (لا يوجد حد أقصى إجمالي)
+                    {ROLE_DESCRIPTIONS[formData.role]}
                   </p>
                 </div>
+
+                {formData.role === 'orders' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">نوع الطلبات *</label>
+                      <select
+                        value={formData.orderType}
+                        onChange={(e) => setFormData({ ...formData, orderType: e.target.value })}
+                        className="w-full px-4 py-2 border rounded-lg"
+                        required={formData.role === 'orders'}
+                      >
+                        <option value="all">جميع الطلبات</option>
+                        <option value="cod">الدفع عند الاستلام فقط</option>
+                        <option value="prepaid">المدفوعة مسبقاً فقط</option>
+                        <option value="specific_status">حالة محددة</option>
+                      </select>
+                    </div>
+
+                    {formData.orderType === 'specific_status' && (
+                      <div>
+                        <label className="block text-sm font-medium mb-2">الحالة المحددة</label>
+                        <input
+                          type="text"
+                          value={formData.specificStatus}
+                          onChange={(e) => setFormData({ ...formData, specificStatus: e.target.value })}
+                          className="w-full px-4 py-2 border rounded-lg"
+                          placeholder="مثال: pending, processing"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">عدد الطلبات لكل دفعة</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={formData.maxOrders}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            maxOrders: Math.max(1, Number(e.target.value) || 1),
+                          })
+                        }
+                        className="w-full px-4 py-2 border rounded-lg"
+                        required={formData.role === 'orders'}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        عدد الطلبات التي يتم تعيينها في كل مرة (لا يوجد حد أقصى إجمالي)
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex gap-4">
@@ -328,15 +396,17 @@ export default function OrderUsersManagementPage() {
                   <span>نشط</span>
                 </label>
 
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.autoAssign}
-                    onChange={(e) => setFormData({ ...formData, autoAssign: e.target.checked })}
-                    className="w-4 h-4"
-                  />
-                  <span>التعيين التلقائي</span>
-                </label>
+                {formData.role === 'orders' && (
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.autoAssign}
+                      onChange={(e) => setFormData({ ...formData, autoAssign: e.target.checked })}
+                      className="w-4 h-4"
+                    />
+                    <span>التعيين التلقائي</span>
+                  </label>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -360,7 +430,12 @@ export default function OrderUsersManagementPage() {
         )}
 
         {/* Users List */}
-        {loading ? (
+        {accessDenied ? (
+          <Card className="p-10 text-center border-red-200 bg-red-50 text-red-800">
+            <p className="font-semibold mb-2">لا تملك صلاحية الوصول لهذه الصفحة</p>
+            <p className="text-sm">فقط حساب المسؤول يمكنه إدارة المستخدمين.</p>
+          </Card>
+        ) : loading ? (
           <div className="text-center py-12">
             <p>جاري التحميل...</p>
           </div>
@@ -377,35 +452,48 @@ export default function OrderUsersManagementPage() {
                     <h3 className="text-lg font-bold">{user.name}</h3>
                     <p className="text-sm text-gray-600">@{user.username}</p>
                   </div>
-                  <div
-                    className={`px-3 py-1 rounded-full text-sm ${
-                      user.isActive
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    {user.isActive ? 'نشط' : 'غير نشط'}
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
+                      {ROLE_LABELS[user.role]}
+                    </span>
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm ${
+                        user.isActive
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {user.isActive ? 'نشط' : 'غير نشط'}
+                    </span>
                   </div>
                 </div>
 
                 <div className="space-y-2 text-sm mb-4">
-                  <div>
-                    <strong>نوع الطلبات:</strong> {ORDER_TYPE_LABELS[user.orderType]}
-                  </div>
-                  {user.specificStatus && (
-                    <div>
-                      <strong>الحالة:</strong> {user.specificStatus}
+                  {user.role === 'orders' ? (
+                    <>
+                      <div>
+                        <strong>نوع الطلبات:</strong> {ORDER_TYPE_LABELS[user.orderType]}
+                      </div>
+                      {user.specificStatus && (
+                        <div>
+                          <strong>الحالة:</strong> {user.specificStatus}
+                        </div>
+                      )}
+                      <div>
+                        <strong>الطلبات النشطة:</strong> {user._count.assignments}
+                      </div>
+                      <div>
+                        <strong>حجم الدفعة:</strong> {user.maxOrders} طلب
+                      </div>
+                      <div>
+                        <strong>التعيين التلقائي:</strong> {user.autoAssign ? 'مفعّل' : 'معطّل'}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-gray-600">
+                      {ROLE_DESCRIPTIONS[user.role]}
                     </div>
                   )}
-                  <div>
-                    <strong>الطلبات النشطة:</strong> {user._count.assignments}
-                  </div>
-                  <div>
-                    <strong>حجم الدفعة:</strong> {user.maxOrders} طلب
-                  </div>
-                  <div>
-                    <strong>التعيين التلقائي:</strong> {user.autoAssign ? 'مفعّل' : 'معطّل'}
-                  </div>
                 </div>
 
                 <div className="flex flex-col gap-2">
@@ -425,7 +513,7 @@ export default function OrderUsersManagementPage() {
                       حذف
                     </Button>
                   </div>
-                  {user._count.assignments > 0 && (
+                  {user.role === 'orders' && user._count.assignments > 0 && (
                     <Button
                       variant="outline"
                       onClick={() => handleResetOrders(user.id, user.name)}

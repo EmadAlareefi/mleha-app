@@ -214,6 +214,12 @@ model LocalShipment {
   @@index([createdAt])
 }
 
+enum OrderUserRole {
+  ORDERS
+  STORE_MANAGER
+  WAREHOUSE
+}
+
 model OrderUser {
   id              String   @id @default(cuid())
   username        String   @unique
@@ -221,6 +227,7 @@ model OrderUser {
   name            String
   email           String?
   phone           String?
+  role            OrderUserRole @default(ORDERS)
 
   // Order type assignment
   orderType       String   // "all", "cod", "prepaid", "specific_status"

@@ -132,6 +132,7 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
                 width={120}
                 height={120}
                 className="object-contain"
+                unoptimized
               />
             </div>
           </div>

@@ -11,8 +11,8 @@ const tajawal = Tajawal({
 });
 
 export const metadata: Metadata = {
-  title: "نظام إدارة الشحنات - ملحة",
-  description: "نظام إدارة الشحنات الواردة والصادرة للمستودع",
+  title: "متجر مليحة للفساتين",
+  description: "نظام إدارة طلبات متجر مليحة",
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',

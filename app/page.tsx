@@ -5,16 +5,30 @@ import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
+type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse';
+
+type ServiceCard = {
+  title: string;
+  description: string;
+  icon: string;
+  href: string;
+  color: string;
+  badge?: string;
+  allowedRoles?: Role[];
+};
+
 export default function AdminDashboard() {
   const { data: session } = useSession();
+  const userRole: Role = ((session?.user as any)?.role || 'admin') as Role;
 
-  const services = [
+  const services: ServiceCard[] = [
     {
       title: 'المستودع',
       description: 'إدارة الشحنات الواردة والصادرة',
       icon: '📦',
       href: '/warehouse',
       color: 'from-blue-500 to-blue-600',
+      allowedRoles: ['admin', 'warehouse'],
     },
     {
       title: 'الشحن المحلي',
@@ -22,6 +36,7 @@ export default function AdminDashboard() {
       icon: '🚚',
       href: '/local-shipping',
       color: 'from-green-500 to-green-600',
+      allowedRoles: ['admin', 'warehouse'],
     },
     {
       title: 'الإرجاع والاستبدال',
@@ -37,6 +52,7 @@ export default function AdminDashboard() {
       icon: '📋',
       href: '/returns-management',
       color: 'from-red-500 to-red-600',
+      allowedRoles: ['admin', 'store_manager'],
     },
     {
       title: 'الإعدادات',
@@ -44,6 +60,7 @@ export default function AdminDashboard() {
       icon: '⚙️',
       href: '/settings',
       color: 'from-purple-500 to-purple-600',
+      allowedRoles: ['admin'],
     },
     {
       title: 'إدارة مستخدمي الطلبات',
@@ -51,6 +68,7 @@ export default function AdminDashboard() {
       icon: '👥',
       href: '/order-users-management',
       color: 'from-indigo-500 to-indigo-600',
+      allowedRoles: ['admin'],
     },
     {
       title: 'تقارير الطلبات',
@@ -58,8 +76,14 @@ export default function AdminDashboard() {
       icon: '📊',
       href: '/order-reports',
       color: 'from-teal-500 to-teal-600',
+      allowedRoles: ['admin'],
     },
   ];
+
+  const visibleServices = services.filter(
+    (service) =>
+      !service.allowedRoles || service.allowedRoles.includes(userRole)
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -98,7 +122,12 @@ export default function AdminDashboard() {
 
         {/* Services Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {services.map((service) => (
+          {visibleServices.length === 0 && (
+            <Card className="p-6 text-center text-gray-600">
+              لا توجد خدمات متاحة لهذا الحساب.
+            </Card>
+          )}
+          {visibleServices.map((service) => (
             <Link key={service.href} href={service.href}>
               <Card className="p-6 hover:shadow-xl transition-all duration-200 cursor-pointer group h-full">
                 <div className="flex flex-col h-full">

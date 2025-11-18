@@ -44,6 +44,11 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (orderUser) {
+          const orderUserRole =
+            (orderUser.role || 'ORDERS').toLowerCase() as
+              | 'orders'
+              | 'store_manager'
+              | 'warehouse';
           // Check if user is active
           if (!orderUser.isActive) {
             return null;
@@ -59,13 +64,16 @@ export const authOptions: NextAuthOptions = {
             id: orderUser.id,
             name: orderUser.name,
             username: orderUser.username,
-            role: 'order_user',
-            orderUserData: {
-              autoAssign: orderUser.autoAssign,
-              maxOrders: orderUser.maxOrders,
-              orderType: orderUser.orderType,
-              specificStatus: orderUser.specificStatus,
-            },
+            role: orderUserRole,
+            orderUserData:
+              orderUserRole === 'orders'
+                ? {
+                    autoAssign: orderUser.autoAssign,
+                    maxOrders: orderUser.maxOrders,
+                    orderType: orderUser.orderType,
+                    specificStatus: orderUser.specificStatus,
+                  }
+                : undefined,
           };
         }
 

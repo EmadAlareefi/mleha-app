@@ -34,6 +34,15 @@ The system now has two types of access:
 - `/local-shipping` - Local shipping management
 - All other routes
 
+## User Roles & Access
+
+- **Admin**: Full access to every dashboard plus the ability to create/edit/delete other users through `/order-users-management`.
+- **Orders User (`orders`)**: Limited to the order preparation workspace at `/order-prep` (auto-assignment settings still apply).
+- **Store Manager (`store_manager`)**: Access to the returns workflow, mainly `/returns-management` (customer-facing `/returns` stays public).
+- **Warehouse User (`warehouse`)**: Access to operational tools under `/warehouse` and `/local-shipping`.
+
+Each user type gets redirected to its home area after login, and middleware prevents visiting pages outside the assigned scope.
+
 ## Default Credentials
 
 **Username:** `admin`

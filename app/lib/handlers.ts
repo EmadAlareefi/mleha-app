@@ -58,8 +58,8 @@ function extractOrderStatus(order: AnyObj): string | null {
   return null;
 }
 
-const TEST_WHATSAPP_RECIPIENT =
-  process.env.ZOKO_TEST_PHONE || "+966501466365";
+const DEBUG_WHATSAPP_RECIPIENT =
+  process.env.ZOKO_DEBUG_PHONE || process.env.ZOKO_TEST_PHONE || "+966501466365";
 
 const TPL = {
   ORDER_CONFIRMATION:
@@ -129,8 +129,13 @@ function getShipmentDetails(order: AnyObj, data?: AnyObj) {
   };
 }
 
-function resolveRecipient(to?: string | null) {
-  return TEST_WHATSAPP_RECIPIENT || to || "";
+function collectRecipients(to?: string | null): string[] {
+  const recipients = new Set<string>();
+  const primary = to?.replace?.(/\s/g, "");
+  if (primary) recipients.add(primary);
+  const debug = DEBUG_WHATSAPP_RECIPIENT?.replace?.(/\s/g, "");
+  if (debug) recipients.add(debug);
+  return Array.from(recipients);
 }
 
 const STATUS_TEMPLATE_MAP: Record<string, StatusTemplateConfig> = {
@@ -198,28 +203,35 @@ const STATUS_TEMPLATE_MAP: Record<string, StatusTemplateConfig> = {
 
 // Common safe sender
 async function sendTpl(
-  to: string,
+  to?: string | null,
   templateId: string | undefined,
   args: (string | number)[],
   lang: string = env.WHATSAPP_DEFAULT_LANG || "ar"
 ) {
-  const recipient = resolveRecipient(to);
-  if (!recipient) {
+  const recipients = collectRecipients(to);
+  if (recipients.length === 0) {
     log.warn("No WhatsApp recipient available for sendTpl");
     return { skipped: "no_recipient" };
   }
 
-  if (!templateId) {
-    // Fallback to a simple text if no template configured
-    const fallback = `إشعار: ${args.map(String).join(" - ")}`;
-    return sendWhatsAppText(recipient, fallback);
+  const responses: any[] = [];
+  for (const recipient of recipients) {
+    if (!templateId) {
+      const fallback = `إشعار: ${args.map(String).join(" - ")}`;
+      responses.push(await sendWhatsAppText(recipient, fallback));
+      continue;
+    }
+    responses.push(
+      await sendWhatsAppTemplate({
+        to: recipient,
+        templateId,
+        lang,
+        args,
+      })
+    );
   }
-  return sendWhatsAppTemplate({
-    to: recipient,
-    templateId,
-    lang,
-    args,
-  });
+
+  return responses.length === 1 ? responses[0] : responses;
 }
 
 export async function processSallaWebhook(payload: AnyObj, meta?: WebhookMeta) {
@@ -337,7 +349,7 @@ export async function process_salla_order_status_updated(
   const args =
     statusConfig.buildArgs?.(templateCtx) ?? [customerName, orderNumber];
 
-  const resp = await sendTpl(phone || TEST_WHATSAPP_RECIPIENT, templateId, args);
+  const resp = await sendTpl(phone, templateId, args);
   return { success: true, message: "sent", zoko: resp };
 }
 
@@ -349,11 +361,10 @@ export async function process_salla_order_created(data: AnyObj) {
   const orderNumber =
     getOrderNumber(order) || String(order?.id ?? order?.order_id ?? "");
 
-  const resp = await sendTpl(
-    phone || TEST_WHATSAPP_RECIPIENT,
-    TPL.ORDER_CONFIRMATION,
-    [customerName, orderNumber]
-  );
+  const resp = await sendTpl(phone, TPL.ORDER_CONFIRMATION, [
+    customerName,
+    orderNumber,
+  ]);
   return { success: true, message: "sent", zoko: resp };
 }
 
@@ -390,11 +401,13 @@ export async function process_salla_shipment_created(data: AnyObj) {
   const orderNumber = getOrderNumber(order) || orderId;
   const { carrier, trackingNumber, trackingLink } = getShipmentDetails(order, data);
 
-  const resp = await sendTpl(
-    phone || TEST_WHATSAPP_RECIPIENT,
-    TPL.ORDER_SHIPPED,
-    [customerName, orderNumber, carrier, trackingNumber, trackingLink]
-  );
+  const resp = await sendTpl(phone, TPL.ORDER_SHIPPED, [
+    customerName,
+    orderNumber,
+    carrier,
+    trackingNumber,
+    trackingLink,
+  ]);
   return { success: true, message: "sent", zoko: resp };
 }
 

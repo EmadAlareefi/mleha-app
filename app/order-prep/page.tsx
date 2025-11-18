@@ -24,6 +24,8 @@ interface OrderAssignment {
 
 export default function OrderPrepPage() {
   const { data: session, status } = useSession();
+  const role = (session?.user as any)?.role;
+  const isOrdersUser = role === 'orders';
   const [user, setUser] = useState<OrderUser | null>(null);
 
   const [assignments, setAssignments] = useState<OrderAssignment[]>([]);
@@ -33,7 +35,7 @@ export default function OrderPrepPage() {
 
   // Load user from session
   useEffect(() => {
-    if (session?.user && (session.user as any).role === 'order_user') {
+    if (session?.user && isOrdersUser) {
       const sessionUser = session.user as any;
       setUser({
         id: sessionUser.id,
@@ -43,7 +45,7 @@ export default function OrderPrepPage() {
         maxOrders: sessionUser.orderUserData?.maxOrders || 50,
       });
     }
-  }, [session]);
+  }, [session, isOrdersUser]);
 
   useEffect(() => {
     if (user && user.autoAssign) {
@@ -249,6 +251,26 @@ export default function OrderPrepPage() {
           <Button onClick={() => window.location.href = '/login'} className="w-full">
             تسجيل الدخول
           </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>جاري التحميل...</p>
+      </div>
+    );
+  }
+
+  if (!isOrdersUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 text-center">
+        <Card className="p-8 max-w-md">
+          <p className="text-lg font-semibold text-gray-700">
+            ليس لديك صلاحية للوصول إلى لوحة تحضير الطلبات.
+          </p>
         </Card>
       </div>
     );
