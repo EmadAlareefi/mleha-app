@@ -30,6 +30,34 @@ interface StatusTemplateConfig {
   buildArgs?: (ctx: TemplateContext) => (string | number)[];
 }
 
+function normalizeStatusValue(value: any): string | null {
+  if (!value) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    return value.toString().toLowerCase();
+  }
+  if (typeof value === "object") {
+    const candidate =
+      value.slug ?? value.code ?? value.status ?? value.name ?? value.id ?? null;
+    return candidate ? String(candidate).toLowerCase() : null;
+  }
+  return null;
+}
+
+function extractOrderStatus(order: AnyObj): string | null {
+  if (!order) return null;
+  const candidates = [
+    order.status,
+    order.order_status,
+    order.state,
+    order.orderStatus,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeStatusValue(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 const TEST_WHATSAPP_RECIPIENT =
   process.env.ZOKO_TEST_PHONE || "+966501466365";
 
@@ -267,7 +295,11 @@ export async function process_salla_order_status_updated(
 ) {
   const order: AnyObj = data?.order ?? data ?? {};
   const orderId = String(order?.id ?? order?.order_id ?? "");
-  const status = String(order?.status ?? order?.order_status ?? "").toLowerCase();
+  const status = extractOrderStatus(order);
+  if (!status) {
+    log.warn("No status found on order payload", { orderId });
+    return { success: true, skipped: "no_status" };
+  }
   const customer = order?.customer ?? order?.customer_info ?? {};
   const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
   const orderNumber = getOrderNumber(order) || orderId;

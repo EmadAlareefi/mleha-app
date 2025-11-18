@@ -31,6 +31,34 @@ function getClientIp(req: NextRequest): string | undefined {
       || undefined;
 }
 
+function normalizeStatusValue(value: any): string | null {
+  if (!value) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    return value.toString().toLowerCase();
+  }
+  if (typeof value === "object") {
+    const candidate =
+      value.slug ?? value.code ?? value.status ?? value.name ?? value.id ?? null;
+    return candidate ? String(candidate).toLowerCase() : null;
+  }
+  return null;
+}
+
+function extractOrderStatus(order: any): string | null {
+  if (!order) return null;
+  const candidates = [
+    order.status,
+    order.order_status,
+    order.state,
+    order.orderStatus,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeStatusValue(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   const { value: signature, headerName: signatureHeader } = extractSig(req);
 
@@ -56,9 +84,7 @@ export async function POST(req: NextRequest) {
     order?.order_id?.toString?.() ||
     order?.orderId?.toString?.() ||
     null;
-  const status = (order?.status || order?.order_status || order?.state || "")
-    ?.toString?.()
-    ?.toLowerCase?.() || null;
+  const status = extractOrderStatus(order);
 
   // ALWAYS save the call to WebhookLog (append-only)
   try {
