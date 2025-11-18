@@ -38,6 +38,16 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Debug: Log order items structure
+      if (order.items && order.items.length > 0) {
+        log.info('Order items structure', {
+          firstItem: JSON.stringify(order.items[0], null, 2),
+          itemKeys: Object.keys(order.items[0]),
+          amounts: order.items[0].amounts,
+          product: order.items[0].product
+        });
+      }
+
       return NextResponse.json({
         success: true,
         order,

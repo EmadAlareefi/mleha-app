@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/';
+  const defaultCallbackUrl = searchParams.get('callbackUrl') || '/';
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +31,24 @@ function LoginForm() {
       if (result?.error) {
         setError('اسم المستخدم أو كلمة المرور غير صحيحة');
       } else if (result?.ok) {
-        router.push(callbackUrl);
+        // Fetch session to determine redirect based on role
+        const response = await fetch('/api/auth/session');
+        const session = await response.json();
+
+        if (session?.user) {
+          const role = (session.user as any).role;
+
+          // Redirect based on role
+          if (role === 'order_user') {
+            router.push('/order-prep');
+          } else if (role === 'admin') {
+            router.push(defaultCallbackUrl === '/order-prep' ? '/' : defaultCallbackUrl);
+          } else {
+            router.push(defaultCallbackUrl);
+          }
+        } else {
+          router.push(defaultCallbackUrl);
+        }
         router.refresh();
       }
     } catch (err) {
@@ -106,11 +123,13 @@ function LoginForm() {
           </form>
 
           {/* Info */}
-          <div className="mt-6 pt-6 border-t text-center text-sm text-gray-600">
-            <p>صفحة الإرجاع والاستبدال متاحة للعملاء بدون تسجيل دخول</p>
-            <a href="/returns" className="text-blue-600 hover:underline mt-2 inline-block">
-              الانتقال إلى صفحة الإرجاع ←
-            </a>
+          <div className="mt-6 pt-6 border-t">
+            <div className="text-center text-sm text-gray-600">
+              <p>صفحة الإرجاع والاستبدال متاحة للعملاء بدون تسجيل دخول</p>
+              <a href="/returns" className="text-blue-600 hover:underline mt-2 inline-block">
+                الانتقال إلى صفحة الإرجاع ←
+              </a>
+            </div>
           </div>
         </Card>
 

@@ -102,6 +102,26 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // If this is an incoming shipment, check if it's linked to a return request
+    if (type === 'incoming') {
+      const returnRequest = await prisma.returnRequest.findUnique({
+        where: { smsaTrackingNumber: trackingNumber.trim() },
+      });
+
+      if (returnRequest) {
+        // Update return request status to 'delivered'
+        await prisma.returnRequest.update({
+          where: { id: returnRequest.id },
+          data: {
+            status: 'delivered',
+            updatedAt: new Date(),
+          },
+        });
+
+        console.log(`Updated return request ${returnRequest.id} status to 'delivered'`);
+      }
+    }
+
     return NextResponse.json(shipment, { status: 201 });
   } catch (error) {
     console.error('Error creating shipment:', error);

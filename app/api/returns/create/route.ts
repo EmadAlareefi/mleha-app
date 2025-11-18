@@ -140,6 +140,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if multiple return requests are allowed
+    let allowMultiple = false;
+    try {
+      const multipleSetting = await prisma.settings.findUnique({
+        where: { key: 'allow_multiple_return_requests' },
+      });
+      if (multipleSetting && multipleSetting.value === 'true') {
+        allowMultiple = true;
+      }
+    } catch (err) {
+      log.warn('Failed to fetch multiple requests setting', { error: err });
+    }
+
+    // If multiple requests are not allowed, check if there's already a request for this order
+    if (!allowMultiple) {
+      const existingRequest = await prisma.returnRequest.findFirst({
+        where: {
+          orderId: body.orderId.toString(),
+          merchantId: body.merchantId,
+          status: {
+            notIn: ['rejected', 'cancelled'], // Don't count rejected/cancelled requests
+          },
+        },
+      });
+
+      if (existingRequest) {
+        return NextResponse.json(
+          { error: 'يوجد طلب إرجاع نشط لهذا الطلب. لا يمكن إنشاء طلب جديد.' },
+          { status: 400 }
+        );
+      }
+    }
+
     // Fetch order from Salla to validate and get customer details
     log.info('Fetching order from Salla', { merchantId: body.merchantId, orderId: body.orderId });
 
@@ -166,14 +199,37 @@ export async function POST(request: NextRequest) {
     const parcels = Math.max(1, totalQuantity);
     const estimatedWeight = totalQuantity * 0.5; // Estimate 0.5 kg per item
     const shipmentWeight = Math.max(0.5, Number(estimatedWeight.toFixed(2)));
-    const orderReference = order.reference_id || order.id.toString();
+    const orderReference = String(order.reference_id || order.id);
     const shipmentCurrency = order.amounts?.total?.currency?.toUpperCase() || 'SAR';
 
-    // Calculate total refund amount
-    const totalRefundAmount = body.items.reduce(
+    // Calculate total items amount
+    const totalItemsAmount = body.items.reduce(
       (sum, item) => sum + item.price * item.quantity,
       0
     );
+
+    // Get return fee from settings - only apply for returns, not exchanges
+    let returnFee = 0;
+    if (body.type === 'return') {
+      try {
+        const feeSetting = await prisma.settings.findUnique({
+          where: { key: 'return_fee' },
+        });
+        if (feeSetting && feeSetting.value) {
+          returnFee = parseFloat(feeSetting.value) || 0;
+        }
+      } catch (err) {
+        log.warn('Failed to fetch return fee setting', { error: err });
+      }
+    }
+
+    // Get shipping amount from order (non-refundable) - include tax
+    const shippingCostWithoutTax = order.amounts?.shipping_cost?.amount ?? 0;
+    const shippingTax = order.amounts?.shipping_tax?.amount ?? 0;
+    const shippingAmount = shippingCostWithoutTax + shippingTax;
+
+    // Calculate total refund: items total - return fee (fee only applies to returns)
+    const totalRefundAmount = Math.max(0, totalItemsAmount - returnFee);
     const declaredValue = Math.max(0.1, Number(totalRefundAmount.toFixed(2)));
 
     const pickupAddress = buildPickupAddress(order);
@@ -207,9 +263,24 @@ export async function POST(request: NextRequest) {
     });
 
     if (!smsaResult.success) {
-      log.error('SMSA shipment creation failed', { error: smsaResult.error });
+      log.error('SMSA shipment creation failed', {
+        error: smsaResult.error,
+        errorCode: smsaResult.errorCode,
+        rawResponse: smsaResult.rawResponse
+      });
+
+      // Provide user-friendly error message
+      let userMessage = 'فشل إنشاء شحنة الإرجاع';
+      if (smsaResult.errorCode === 'MISSING_CREDENTIALS') {
+        userMessage = 'خطأ في إعدادات النظام. الرجاء التواصل مع الدعم الفني.';
+      } else if (smsaResult.error?.includes('authentication')) {
+        userMessage = 'خطأ في مصادقة خدمة الشحن. الرجاء التواصل مع الدعم الفني.';
+      } else {
+        userMessage = `فشل إنشاء شحنة الإرجاع: ${smsaResult.error}`;
+      }
+
       return NextResponse.json(
-        { error: `فشل إنشاء شحنة الإرجاع: ${smsaResult.error}` },
+        { error: userMessage },
         { status: 500 }
       );
     }
@@ -224,11 +295,11 @@ export async function POST(request: NextRequest) {
       data: {
         merchantId: body.merchantId,
         orderId: body.orderId.toString(),
-        orderNumber: order.reference_id,
+        orderNumber: order.reference_id ? String(order.reference_id) : order.id.toString(),
         customerId: order.customer.id.toString(),
-        customerName: `${order.customer.first_name} ${order.customer.last_name}`,
-        customerEmail: order.customer.email,
-        customerPhone: order.customer.mobile,
+        customerName: `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim(),
+        customerEmail: order.customer.email ? String(order.customer.email) : '',
+        customerPhone: order.customer.mobile ? String(order.customer.mobile) : '',
 
         type: body.type,
         status: 'pending_review',
@@ -240,6 +311,8 @@ export async function POST(request: NextRequest) {
         smsaResponse: smsaResult.rawResponse as any,
 
         totalRefundAmount,
+        returnFee,
+        shippingAmount,
 
         items: {
           create: body.items.map(item => ({
@@ -277,7 +350,11 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    log.error('Error creating return request', { error });
+    log.error('Error creating return request', {
+      error,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      errorStack: error instanceof Error ? error.stack : undefined,
+    });
     return NextResponse.json(
       { error: 'حدث خطأ أثناء إنشاء طلب الإرجاع' },
       { status: 500 }

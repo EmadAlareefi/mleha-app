@@ -116,7 +116,7 @@ model ReturnRequest {
   customerPhone     String?
 
   type              String   // "return" or "exchange"
-  status            String   @default("pending_review") // pending_review, approved, rejected, completed, cancelled
+  status            String   @default("pending_review") // pending_review, approved, rejected, shipped, delivered, completed, cancelled
   reason            String   // Predefined reason or "other"
   reasonDetails     String?  @db.Text // Free-text explanation
 
@@ -125,7 +125,20 @@ model ReturnRequest {
   smsaAwbNumber      String?
   smsaResponse       Json?    // Raw SMSA API response
 
+  // Financial details
   totalRefundAmount  Decimal? @db.Decimal(10, 2)
+  returnFee          Decimal? @db.Decimal(10, 2) // Return processing fee
+  shippingAmount     Decimal? @db.Decimal(10, 2) // Original shipping cost (non-refundable)
+
+  // Coupon for exchanges
+  couponCode         String?  @unique // Generated coupon code for exchanges
+  couponId           String?  // Salla coupon ID
+  couponCreatedAt    DateTime? // When coupon was created
+
+  // Admin notes
+  adminNotes         String?  @db.Text
+  reviewedBy         String?  // Admin who reviewed
+  reviewedAt         DateTime?
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -135,7 +148,9 @@ model ReturnRequest {
   @@index([merchantId])
   @@index([orderId])
   @@index([status])
+  @@index([type])
   @@index([createdAt])
+  @@index([smsaTrackingNumber])
 }
 
 model ReturnItem {
@@ -155,6 +170,17 @@ model ReturnItem {
 
   @@index([returnRequestId])
   @@index([productId])
+}
+
+model Settings {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
 }
 
 model LocalShipment {
@@ -186,4 +212,97 @@ model LocalShipment {
   @@index([orderId])
   @@index([trackingNumber])
   @@index([createdAt])
+}
+
+model OrderUser {
+  id              String   @id @default(cuid())
+  username        String   @unique
+  password        String   // Hashed password
+  name            String
+  email           String?
+  phone           String?
+
+  // Order type assignment
+  orderType       String   // "all", "cod", "prepaid", "specific_status"
+  specificStatus  String?  // If orderType is "specific_status"
+
+  // Settings
+  isActive        Boolean  @default(true)
+  autoAssign      Boolean  @default(true) // Auto-assign orders when user logs in
+  maxOrders       Int      @default(50)   // Max orders to assign at once
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignments     OrderAssignment[]
+
+  @@index([username])
+  @@index([isActive])
+}
+
+model OrderAssignment {
+  id              String   @id @default(cuid())
+
+  // User
+  userId          String
+  user            OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Order info
+  merchantId      String
+  orderId         String   // Salla order ID
+  orderNumber     String   // Human-readable order number
+  orderData       Json     // Full order data from Salla
+
+  // Assignment details
+  status          String   @default("assigned") // assigned, preparing, prepared, completed, cancelled, removed
+  assignedAt      DateTime @default(now())
+  startedAt       DateTime? // When user started preparing
+  completedAt     DateTime? // When user marked as prepared
+  removedAt       DateTime? // When order was removed (status changed in Salla)
+
+  // Salla status tracking
+  sallaStatus     String?  // Current status in Salla
+  sallaUpdated    Boolean  @default(false) // Whether we updated status in Salla
+
+  notes           String?  @db.Text
+
+  @@index([userId])
+  @@index([status])
+  @@index([merchantId, orderId])
+  @@index([assignedAt])
+  @@unique([userId, orderId])
+}
+
+model OrderHistory {
+  id              String   @id @default(cuid())
+
+  // User
+  userId          String
+  userName        String   // Store user name for historical reference
+
+  // Order info
+  merchantId      String
+  orderId         String   // Salla order ID
+  orderNumber     String   // Human-readable order number
+  orderData       Json     // Full order data from Salla
+
+  // History details
+  status          String   // Final status: completed, cancelled, removed
+  assignedAt      DateTime
+  startedAt       DateTime?
+  finishedAt      DateTime // When order was finished/removed
+
+  // Duration tracking
+  durationMinutes Int?     // Total time spent on order
+
+  // Salla status at finish
+  finalSallaStatus String?
+
+  notes           String?  @db.Text
+
+  @@index([userId])
+  @@index([status])
+  @@index([merchantId, orderId])
+  @@index([finishedAt])
+  @@index([assignedAt])
 }

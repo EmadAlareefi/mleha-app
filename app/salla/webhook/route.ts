@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
   // }
 
   // Your idempotent event saver (optional; keep if you like your uniqueKey logic)
+  let isDuplicateStatus = false;
   if (payload && orderId && status) {
     const uniqueKey = `${orderId}:${status}`;
     try {
@@ -104,6 +105,9 @@ export async function POST(req: NextRequest) {
       });
     } catch (e: any) {
       // Ignore duplicates (P2002), don’t fail the webhook
+      if (e?.code === "P2002") {
+        isDuplicateStatus = true;
+      }
     }
   }
 
@@ -112,6 +116,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, parsed: false, reason: "invalid json, logged" });
   }
 
-  const result = await processSallaWebhook(payload);
+  const result = await processSallaWebhook(payload, {
+    orderId,
+    status,
+    isDuplicateStatus,
+  });
   return NextResponse.json({ ok: true, verified, ...result });
 }

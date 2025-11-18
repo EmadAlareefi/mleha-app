@@ -15,8 +15,10 @@ const resolvedEnv: SmsaEnvironment =
 
 const resolveBaseUrl = (): string => {
   const configuredBase = process.env.SMSA_API_BASE_URL ?? DEFAULT_BASE_URLS[resolvedEnv];
+  // Remove trailing slash
   const trimmed = configuredBase.replace(/\/$/, '');
-  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+  // Remove /api suffix if present (it will be added in the endpoint path)
+  return trimmed.replace(/\/api$/, '');
 };
 
 const resolveApiKey = (): string => {
@@ -88,7 +90,9 @@ export interface SMSAShipmentResponse {
 
 const buildSmsaUrl = (path: string): string => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${SMSA_API_BASE_URL}${normalizedPath}`;
+  // Ensure the path starts with /api/ (all SMSA endpoints use /api prefix)
+  const apiPath = normalizedPath.startsWith('/api/') ? normalizedPath : `/api${normalizedPath}`;
+  return `${SMSA_API_BASE_URL}${apiPath}`;
 };
 
 /**
@@ -98,10 +102,16 @@ export async function createSMSAReturnShipment(
   shipmentData: SMSAReturnRequest
 ): Promise<SMSAShipmentResponse> {
   if (!SMSA_API_KEY) {
-    log.error('SMSA credentials not configured');
+    log.error('SMSA credentials not configured', {
+      hasKey: !!process.env.SMSA_API_KEY,
+      hasProdKey: !!process.env.SMSA_PRODUCTION_API_KEY,
+      hasTestKey: !!process.env.SMSA_TEST_API_KEY,
+      hasSandboxKey: !!process.env.SMSA_SANDBOX_API_KEY,
+      env: resolvedEnv,
+    });
     return {
       success: false,
-      error: 'SMSA API credentials not configured',
+      error: 'SMSA API credentials not configured. Please check your environment variables.',
       errorCode: 'MISSING_CREDENTIALS',
     };
   }
@@ -120,12 +130,20 @@ export async function createSMSAReturnShipment(
       payload.SMSARetailID = SMSA_RETAIL_ID;
     }
 
+    const url = buildSmsaUrl('/c2b/new');
+
     log.info('Creating SMSA return shipment', {
       reference1: shipmentData.OrderNumber,
       env: resolvedEnv,
+      baseUrl: SMSA_API_BASE_URL,
+      url,
+      hasApiKey: !!SMSA_API_KEY,
+      apiKeyLength: SMSA_API_KEY?.length || 0,
+      apiKeyFirst4: SMSA_API_KEY?.substring(0, 4),
+      payloadKeys: Object.keys(payload),
     });
 
-    const response = await fetch(buildSmsaUrl('/c2b/new'), {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -139,12 +157,23 @@ export async function createSMSAReturnShipment(
       const errorText = await response.text();
       log.error('SMSA API request failed', {
         status: response.status,
+        statusText: response.statusText,
         error: errorText,
+        env: resolvedEnv,
+        baseUrl: SMSA_API_BASE_URL,
       });
+
+      // Provide more specific error messages
+      let errorMessage = `SMSA API error: ${response.status}`;
+      if (response.status === 401) {
+        errorMessage = 'SMSA API authentication failed. Please verify your API key is correct for the environment.';
+      } else if (response.status === 403) {
+        errorMessage = 'SMSA API access forbidden. Your API key may not have the required permissions.';
+      }
 
       return {
         success: false,
-        error: `SMSA API error: ${response.status}`,
+        error: errorMessage,
         errorCode: 'API_ERROR',
         rawResponse: errorText,
       };
@@ -215,6 +244,67 @@ export async function trackC2BShipment(awbNumber: string): Promise<any> {
   } catch (error) {
     log.error('Error tracking SMSA shipment', { awbNumber, error });
     return null;
+  }
+}
+
+/**
+ * Cancels a C2B (return) shipment by AWB number
+ */
+export async function cancelC2BShipment(awbNumber: string): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  if (!SMSA_API_KEY) {
+    log.error('SMSA credentials not configured');
+    return {
+      success: false,
+      error: 'SMSA API credentials not configured',
+    };
+  }
+
+  try {
+    log.info('Cancelling SMSA C2B shipment', { awbNumber });
+
+    const response = await fetch(buildSmsaUrl(`/c2b/cancel/${encodeURIComponent(awbNumber)}`), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        ApiKey: SMSA_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      log.error('SMSA cancel shipment request failed', { status: response.status, awbNumber, error: errorText });
+
+      // Provide user-friendly error messages
+      let errorMessage = `Failed to cancel shipment: ${response.status}`;
+      if (response.status === 404) {
+        errorMessage = 'Shipment not found or cannot be cancelled. It may have already been picked up or delivered.';
+      } else if (errorText.includes('not found') || errorText.includes('No Shipment')) {
+        errorMessage = 'Shipment not found in the system. Please verify the tracking number.';
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+
+    const text = await response.text();
+    log.info('SMSA shipment cancelled successfully', { awbNumber, response: text });
+
+    return {
+      success: true,
+      message: text || 'Shipment cancelled successfully',
+    };
+  } catch (error) {
+    log.error('Error cancelling SMSA shipment', { awbNumber, error });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
   }
 }
 

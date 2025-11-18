@@ -14,6 +14,14 @@ export interface SallaOrder {
       amount: number;
       currency: string;
     };
+    shipping_cost?: {
+      amount: number;
+      currency: string;
+    };
+    shipping_tax?: {
+      amount: number;
+      currency: string;
+    };
   };
   date: {
     created: string;
@@ -36,7 +44,41 @@ export interface SallaOrder {
 
 export interface SallaOrderItem {
   id: number;
-  product: {
+  name: string;
+  sku?: string;
+  quantity: number;
+  currency: string;
+  weight?: number;
+  weight_label?: string;
+  amounts: {
+    price_without_tax: {
+      amount: number;
+      currency: string;
+    };
+    total_discount: {
+      amount: number;
+      currency: string;
+    };
+    tax: {
+      percent: string;
+      amount: {
+        amount: number;
+        currency: string;
+      };
+    };
+    total: {
+      amount: number;
+      currency: string;
+    };
+  };
+  notes?: string;
+  options?: any[];
+  images?: any[];
+  codes?: any[];
+  files?: any[];
+  reservations?: any[];
+  // Legacy fields for backward compatibility
+  product?: {
     id: number;
     name: string;
     sku?: string;
@@ -46,15 +88,6 @@ export interface SallaOrderItem {
   variant?: {
     id: number;
     name: string;
-  };
-  quantity: number;
-  amounts: {
-    price: {
-      amount: number;
-    };
-    total: {
-      amount: number;
-    };
   };
 }
 
@@ -78,6 +111,42 @@ export interface SallaSingleOrderResponse {
 }
 
 /**
+ * Fetches order items with full details including prices
+ */
+export async function getSallaOrderItems(
+  merchantId: string,
+  orderId: string
+): Promise<SallaOrderItem[] | null> {
+  try {
+    const response = await sallaMakeRequest<{
+      status: number;
+      success: boolean;
+      data: SallaOrderItem[];
+    }>(
+      merchantId,
+      `/orders/items?order_id=${orderId}`
+    );
+
+    if (!response || !response.success) {
+      log.error('Failed to fetch Salla order items', { merchantId, orderId, response });
+      return null;
+    }
+
+    log.info('Fetched order items', {
+      merchantId,
+      orderId,
+      itemCount: response.data.length,
+      firstItemKeys: response.data[0] ? Object.keys(response.data[0]) : []
+    });
+
+    return response.data;
+  } catch (error) {
+    log.error('Error fetching Salla order items', { merchantId, orderId, error });
+    return null;
+  }
+}
+
+/**
  * Fetches a specific order by ID from Salla
  */
 export async function getSallaOrder(
@@ -95,6 +164,12 @@ export async function getSallaOrder(
       return null;
     }
 
+    // Fetch full item details
+    const items = await getSallaOrderItems(merchantId, orderId);
+    if (items) {
+      response.data.items = items;
+    }
+
     return response.data;
   } catch (error) {
     log.error('Error fetching Salla order', { merchantId, orderId, error });
@@ -110,25 +185,38 @@ export async function getSallaOrderByReference(
   referenceId: string
 ): Promise<SallaOrder | null> {
   try {
-    // Salla API supports filtering by reference_id
-    const response = await sallaMakeRequest<SallaOrdersResponse>(
+    // First, search by reference_id to get the order ID
+    const searchResponse = await sallaMakeRequest<SallaOrdersResponse>(
       merchantId,
       `/orders?reference_id=${encodeURIComponent(referenceId)}`
     );
 
-    if (!response || !response.success || !response.data || response.data.length === 0) {
+    if (!searchResponse || !searchResponse.success || !searchResponse.data || searchResponse.data.length === 0) {
       log.warn('Order not found by reference', { merchantId, referenceId });
       return null;
+    }
+
+    const orderId = searchResponse.data[0].id;
+
+    // Now fetch the complete order details by ID (includes full item info with prices)
+    log.info('Fetching full order details', { merchantId, orderId, referenceId });
+    const fullOrder = await getSallaOrder(merchantId, orderId.toString());
+
+    if (!fullOrder) {
+      log.error('Failed to fetch full order details', { merchantId, orderId });
+      return searchResponse.data[0]; // Fallback to search result
     }
 
     // Log the actual response structure for debugging
     log.info('Salla order fetched successfully', {
       merchantId,
       referenceId,
-      orderStructure: JSON.stringify(response.data[0], null, 2)
+      orderId,
+      itemsCount: fullOrder.items?.length,
+      firstItemKeys: fullOrder.items?.[0] ? Object.keys(fullOrder.items[0]) : []
     });
 
-    return response.data[0];
+    return fullOrder;
   } catch (error) {
     log.error('Error fetching Salla order by reference', { merchantId, referenceId, error });
     return null;

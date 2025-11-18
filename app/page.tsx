@@ -31,6 +31,34 @@ export default function AdminDashboard() {
       color: 'from-orange-500 to-orange-600',
       badge: 'عام',
     },
+    {
+      title: 'إدارة طلبات الإرجاع',
+      description: 'متابعة ومراجعة طلبات الإرجاع والاستبدال',
+      icon: '📋',
+      href: '/returns-management',
+      color: 'from-red-500 to-red-600',
+    },
+    {
+      title: 'الإعدادات',
+      description: 'إدارة إعدادات النظام والرسوم',
+      icon: '⚙️',
+      href: '/settings',
+      color: 'from-purple-500 to-purple-600',
+    },
+    {
+      title: 'إدارة مستخدمي الطلبات',
+      description: 'إنشاء وتعيين مستخدمين لتحضير الطلبات',
+      icon: '👥',
+      href: '/order-users-management',
+      color: 'from-indigo-500 to-indigo-600',
+    },
+    {
+      title: 'تقارير الطلبات',
+      description: 'عرض تقارير الطلبات المكتملة وإحصائيات المستخدمين',
+      icon: '📊',
+      href: '/order-reports',
+      color: 'from-teal-500 to-teal-600',
+    },
   ];
 
   return (

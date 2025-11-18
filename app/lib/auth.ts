@@ -1,21 +1,12 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { compare } from 'bcryptjs';
+import { prisma } from '@/lib/prisma';
 
 // In production, store users in database
 // For now, using environment variables
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || '';
-
-// Simple in-memory user store (replace with database in production)
-const users = [
-  {
-    id: '1',
-    username: ADMIN_USERNAME,
-    name: 'مسؤول النظام',
-    role: 'admin',
-  },
-];
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -30,28 +21,56 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        // Find user
-        const user = users.find(u => u.username === credentials.username);
-        if (!user) {
+        // First, check if it's an admin user
+        if (credentials.username === ADMIN_USERNAME) {
+          const isValidPassword = ADMIN_PASSWORD_HASH
+            ? await compare(credentials.password, ADMIN_PASSWORD_HASH)
+            : credentials.password === process.env.ADMIN_PASSWORD;
+
+          if (isValidPassword) {
+            return {
+              id: 'admin-1',
+              name: 'مسؤول النظام',
+              username: ADMIN_USERNAME,
+              role: 'admin',
+            };
+          }
           return null;
         }
 
-        // For development: allow simple password comparison
-        // In production: use bcrypt hash comparison
-        const isValidPassword = ADMIN_PASSWORD_HASH
-          ? await compare(credentials.password, ADMIN_PASSWORD_HASH)
-          : credentials.password === process.env.ADMIN_PASSWORD;
+        // Check if it's an order user
+        const orderUser = await prisma.orderUser.findUnique({
+          where: { username: credentials.username },
+        });
 
-        if (!isValidPassword) {
-          return null;
+        if (orderUser) {
+          // Check if user is active
+          if (!orderUser.isActive) {
+            return null;
+          }
+
+          // Verify password
+          const isValidPassword = await compare(credentials.password, orderUser.password);
+          if (!isValidPassword) {
+            return null;
+          }
+
+          return {
+            id: orderUser.id,
+            name: orderUser.name,
+            username: orderUser.username,
+            role: 'order_user',
+            orderUserData: {
+              autoAssign: orderUser.autoAssign,
+              maxOrders: orderUser.maxOrders,
+              orderType: orderUser.orderType,
+              specificStatus: orderUser.specificStatus,
+            },
+          };
         }
 
-        return {
-          id: user.id,
-          name: user.name,
-          username: user.username,
-          role: user.role,
-        };
+        // User not found
+        return null;
       },
     }),
   ],
@@ -64,6 +83,7 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.username = (user as any).username;
         token.role = (user as any).role;
+        token.orderUserData = (user as any).orderUserData;
       }
       return token;
     },
@@ -72,6 +92,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).id = token.id;
         (session.user as any).username = token.username;
         (session.user as any).role = token.role;
+        (session.user as any).orderUserData = token.orderUserData;
       }
       return session;
     },

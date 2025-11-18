@@ -3,7 +3,10 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(npx prisma db push:*)",
-      "Bash(npx prisma migrate:*)"
+      "Bash(npx prisma migrate:*)",
+      "Bash(cat:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.salla.dev)"
     ],
     "deny": [],
     "ask": []
