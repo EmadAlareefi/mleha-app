@@ -5,8 +5,8 @@ type SmsaEnvironment = 'production' | 'sandbox' | 'test';
 const DEFAULT_ENVIRONMENT: SmsaEnvironment = 'sandbox';
 const DEFAULT_BASE_URLS: Record<SmsaEnvironment, string> = {
   production: 'https://ecomapis.smsaexpress.com',
-  sandbox: 'https://ecomapis-sandbox.azurewebsites.net',
-  test: 'https://ecomapis-sandbox.azurewebsites.net',
+  sandbox: 'https://ecomapis.smsaexpress.com',
+  test: 'https://ecomapis.smsaexpress.com',
 };
 
 const rawEnvInput = (process.env.SMSA_API_ENVIRONMENT ?? process.env.SMSA_ENVIRONMENT ?? DEFAULT_ENVIRONMENT).toLowerCase();
