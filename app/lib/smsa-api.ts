@@ -9,21 +9,56 @@ const DEFAULT_BASE_URLS: Record<SmsaEnvironment, string> = {
   test: 'https://ecomapis-sandbox.azurewebsites.net',
 };
 
-const rawEnv = (process.env.SMSA_API_ENVIRONMENT ?? process.env.SMSA_ENVIRONMENT ?? DEFAULT_ENVIRONMENT).toLowerCase();
+const rawEnvInput = (process.env.SMSA_API_ENVIRONMENT ?? process.env.SMSA_ENVIRONMENT ?? DEFAULT_ENVIRONMENT).toLowerCase();
+const isCustomEnv = rawEnvInput === 'custom';
 const resolvedEnv: SmsaEnvironment =
-  rawEnv === 'production' ? 'production' : rawEnv === 'test' ? 'test' : 'sandbox';
+  rawEnvInput === 'production' ? 'production' : rawEnvInput === 'test' ? 'test' : 'sandbox';
+const resolvedEnvLabel = isCustomEnv ? 'custom' : resolvedEnv;
+
+const sanitizeBase = (value: string): string =>
+  value.replace(/\/$/, '').replace(/\/api$/, '');
 
 const resolveBaseUrl = (): string => {
-  const configuredBase = process.env.SMSA_API_BASE_URL ?? DEFAULT_BASE_URLS[resolvedEnv];
-  // Remove trailing slash
-  const trimmed = configuredBase.replace(/\/$/, '');
-  // Remove /api suffix if present (it will be added in the endpoint path)
-  return trimmed.replace(/\/api$/, '');
+  const configuredBase = process.env.SMSA_API_BASE_URL;
+  const defaultBase = sanitizeBase(DEFAULT_BASE_URLS[resolvedEnv]);
+
+  if (!configuredBase) {
+    return defaultBase;
+  }
+
+  const sanitized = sanitizeBase(configuredBase);
+
+  if (isCustomEnv) {
+    if (!sanitized) {
+      log.warn('SMSA_API_ENVIRONMENT set to custom but SMSA_API_BASE_URL is empty. Falling back to sandbox default.', {
+        fallback: defaultBase,
+      });
+      return defaultBase;
+    }
+    return sanitized;
+  }
+
+  if (sanitized === defaultBase) {
+    return sanitized;
+  }
+
+  log.warn('SMSA base URL override ignored because it does not match the selected environment', {
+    selectedEnv: resolvedEnvLabel,
+    configuredBase: sanitized,
+    expectedBase: defaultBase,
+  });
+
+  return defaultBase;
 };
 
 const resolveApiKey = (): string => {
   if (process.env.SMSA_API_KEY) {
     return process.env.SMSA_API_KEY;
+  }
+
+  if (isCustomEnv) {
+    log.warn('SMSA_API_ENVIRONMENT set to custom but SMSA_API_KEY is not provided');
+    return '';
   }
 
   if (resolvedEnv === 'production' && process.env.SMSA_PRODUCTION_API_KEY) {
@@ -107,7 +142,7 @@ export async function createSMSAReturnShipment(
       hasProdKey: !!process.env.SMSA_PRODUCTION_API_KEY,
       hasTestKey: !!process.env.SMSA_TEST_API_KEY,
       hasSandboxKey: !!process.env.SMSA_SANDBOX_API_KEY,
-      env: resolvedEnv,
+      env: resolvedEnvLabel,
     });
     return {
       success: false,
@@ -134,7 +169,7 @@ export async function createSMSAReturnShipment(
 
     log.info('Creating SMSA return shipment', {
       reference1: shipmentData.OrderNumber,
-      env: resolvedEnv,
+      env: resolvedEnvLabel,
       baseUrl: SMSA_API_BASE_URL,
       url,
       hasApiKey: !!SMSA_API_KEY,
@@ -159,7 +194,7 @@ export async function createSMSAReturnShipment(
         status: response.status,
         statusText: response.statusText,
         error: errorText,
-        env: resolvedEnv,
+        env: resolvedEnvLabel,
         baseUrl: SMSA_API_BASE_URL,
       });
 
