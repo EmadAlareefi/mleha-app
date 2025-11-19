@@ -51,6 +51,32 @@ const resolveBaseUrl = (): string => {
   return defaultBase;
 };
 
+const enforceBaseForEnv = (base: string): string => {
+  if (isCustomEnv) {
+    return base;
+  }
+
+  const defaultBase = sanitizeBase(DEFAULT_BASE_URLS[resolvedEnv]);
+
+  const lowerBase = base.toLowerCase();
+
+  if (resolvedEnv !== 'production' && lowerBase.includes('smsaexpress.com') && base !== defaultBase) {
+    log.warn('SMSA base host looks like production while environment is set to sandbox/test. Forcing sandbox base URL.', {
+      selectedEnv: resolvedEnvLabel,
+      providedBase: base,
+      forcedBase: defaultBase,
+    });
+    return defaultBase;
+  }
+
+  if (resolvedEnv === 'production' && lowerBase.includes('smsaexpress.com') === false) {
+    log.warn('SMSA base host does not look like production even though environment is production. Using provided base but please verify.', {
+      providedBase: base,
+    });
+  }
+
+  return base;
+};
 const resolveApiKey = (): string => {
   if (process.env.SMSA_API_KEY) {
     return process.env.SMSA_API_KEY;
@@ -73,7 +99,7 @@ const resolveApiKey = (): string => {
   return '';
 };
 
-const SMSA_API_BASE_URL = resolveBaseUrl();
+const SMSA_API_BASE_URL = enforceBaseForEnv(resolveBaseUrl());
 const SMSA_API_KEY = resolveApiKey();
 const SMSA_SERVICE_CODE = process.env.SMSA_SERVICE_CODE ?? 'EDCR';
 const SMSA_RETAIL_ID = process.env.SMSA_RETAIL_ID;
