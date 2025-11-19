@@ -60,6 +60,31 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
+          const warehouseAssignments =
+            orderUserRole === 'warehouse'
+              ? await prisma.warehouseAssignment.findMany({
+                  where: {
+                    userId: orderUser.id,
+                    warehouse: { isActive: true },
+                  },
+                  include: {
+                    warehouse: true,
+                  },
+                })
+              : [];
+
+          const warehouseData =
+            orderUserRole === 'warehouse'
+              ? {
+                  warehouses: warehouseAssignments.map((assignment) => ({
+                    id: assignment.warehouse.id,
+                    name: assignment.warehouse.name,
+                    code: assignment.warehouse.code,
+                    location: assignment.warehouse.location,
+                  })),
+                }
+              : undefined;
+
           return {
             id: orderUser.id,
             name: orderUser.name,
@@ -74,6 +99,7 @@ export const authOptions: NextAuthOptions = {
                     specificStatus: orderUser.specificStatus,
                   }
                 : undefined,
+            warehouseData,
           };
         }
 
@@ -92,6 +118,7 @@ export const authOptions: NextAuthOptions = {
         token.username = (user as any).username;
         token.role = (user as any).role;
         token.orderUserData = (user as any).orderUserData;
+        token.warehouseData = (user as any).warehouseData;
       }
       return token;
     },
@@ -101,6 +128,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).username = token.username;
         (session.user as any).role = token.role;
         (session.user as any).orderUserData = token.orderUserData;
+        (session.user as any).warehouseData = token.warehouseData;
       }
       return session;
     },

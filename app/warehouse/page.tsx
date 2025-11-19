@@ -9,6 +9,8 @@ import { DailyReport } from '@/components/warehouse/daily-report';
 import { addDays, format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import Image from 'next/image';
+import { useSession } from 'next-auth/react';
+import { useWarehouseSelection, WarehouseInfo } from '@/components/warehouse/useWarehouseSelection';
 
 interface Shipment {
   id: string;
@@ -27,6 +29,12 @@ interface Stats {
 }
 
 export default function WarehousePage() {
+  const { data: session } = useSession();
+  const userRole = ((session?.user as any)?.role || 'admin') as 'admin' | 'warehouse' | string;
+  const availableWarehouses: WarehouseInfo[] =
+    userRole === 'warehouse'
+      ? ((session?.user as any)?.warehouseData?.warehouses ?? [])
+      : [];
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [stats, setStats] = useState<Stats>({
     total: 0,
@@ -36,6 +44,12 @@ export default function WarehousePage() {
   });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
+
+  const {
+    selectedWarehouse,
+    selectWarehouse,
+    needsSelection,
+  } = useWarehouseSelection(availableWarehouses);
 
   const formattedDate = useMemo(
     () => format(selectedDate, 'yyyy-MM-dd'),

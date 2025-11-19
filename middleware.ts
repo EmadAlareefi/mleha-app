@@ -1,10 +1,30 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 
+const PUBLIC_PATHS = [
+  '/returns',
+  '/api/returns',
+  '/api/orders/lookup',
+  '/api/order-users',
+  '/api/order-assignments',
+  '/api/auth',
+  '/salla/webhook',
+];
+
+const isPublicPath = (pathname: string) =>
+  PUBLIC_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
+  );
+
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token;
     const path = req.nextUrl.pathname;
+
+    // Skip auth logic for explicitly public paths
+    if (isPublicPath(path)) {
+      return NextResponse.next();
+    }
 
     if (token) {
       const role = token.role as string | undefined;
@@ -52,7 +72,12 @@ export default withAuth(
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ req, token }) => {
+        if (isPublicPath(req.nextUrl.pathname)) {
+          return true;
+        }
+        return !!token;
+      },
     },
     pages: {
       signIn: '/login',

@@ -23,6 +23,46 @@ function normalizeRole(role?: string | null): OrderUserRole {
   return ROLE_MAP[normalized];
 }
 
+function serializeWarehouses(assignments: any[]) {
+  return assignments
+    .map((assignment) => assignment?.warehouse)
+    .filter(Boolean)
+    .map((warehouse: any) => ({
+      id: warehouse.id,
+      name: warehouse.name,
+      code: warehouse.code,
+      location: warehouse.location,
+    }));
+}
+
+async function syncWarehouseAssignments(userId: string, warehouseIds: string[]) {
+  await prisma.warehouseAssignment.deleteMany({
+    where: {
+      userId,
+      warehouseId: {
+        notIn: warehouseIds,
+      },
+    },
+  });
+
+  const existing = await prisma.warehouseAssignment.findMany({
+    where: { userId },
+    select: { warehouseId: true },
+  });
+  const existingIds = new Set(existing.map((assignment) => assignment.warehouseId));
+
+  for (const warehouseId of warehouseIds) {
+    if (!existingIds.has(warehouseId)) {
+      await prisma.warehouseAssignment.create({
+        data: {
+          userId,
+          warehouseId,
+        },
+      });
+    }
+  }
+}
+
 /**
  * GET /api/order-users
  * Get all order users
@@ -62,6 +102,11 @@ export async function GET(request: NextRequest) {
             },
           },
         },
+        warehouseAssignments: {
+          include: {
+            warehouse: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -70,10 +115,14 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      users: users.map((user) => ({
-        ...user,
-        role: user.role.toLowerCase(),
-      })),
+      users: users.map((user) => {
+        const { warehouseAssignments, ...rest } = user;
+        return {
+          ...rest,
+          role: user.role.toLowerCase(),
+          warehouses: serializeWarehouses(warehouseAssignments),
+        };
+      }),
     });
   } catch (error) {
     log.error('Error fetching order users', { error });
@@ -110,6 +159,7 @@ export async function POST(request: NextRequest) {
       autoAssign,
       maxOrders,
       role: roleInput,
+      warehouseIds = [],
     } = body;
 
     // Validation
@@ -145,6 +195,13 @@ export async function POST(request: NextRequest) {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    if (prismaRole === OrderUserRole.WAREHOUSE && (!Array.isArray(warehouseIds) || warehouseIds.length === 0)) {
+      return NextResponse.json(
+        { error: 'يجب ربط مستخدم المستودع بمستودع واحد على الأقل' },
+        { status: 400 }
+      );
+    }
+
     // Create user
     const user = await prisma.orderUser.create({
       data: {
@@ -154,12 +211,36 @@ export async function POST(request: NextRequest) {
         email,
         phone,
         role: prismaRole,
-        orderType,
-        specificStatus: orderType === 'specific_status' ? specificStatus : null,
-        autoAssign: autoAssign !== false,
-        maxOrders: maxOrders || 50,
+        orderType: prismaRole === OrderUserRole.ORDERS ? orderType : 'all',
+        specificStatus:
+          prismaRole === OrderUserRole.ORDERS && orderType === 'specific_status'
+            ? specificStatus
+            : null,
+        autoAssign: prismaRole === OrderUserRole.ORDERS ? autoAssign !== false : false,
+        maxOrders: prismaRole === OrderUserRole.ORDERS ? maxOrders || 50 : 0,
       },
     });
+
+    let assignedWarehouses: Array<{
+      id: string;
+      name: string;
+      code: string | null;
+      location: string | null;
+    }> = [];
+
+    if (prismaRole === OrderUserRole.WAREHOUSE) {
+      const warehouseIdArray = Array.isArray(warehouseIds) ? warehouseIds : [];
+      await syncWarehouseAssignments(user.id, warehouseIdArray);
+      assignedWarehouses = await prisma.warehouse.findMany({
+        where: { id: { in: warehouseIdArray } },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          location: true,
+        },
+      });
+    }
 
     log.info('Order user created', { userId: user.id, username });
 
@@ -177,6 +258,7 @@ export async function POST(request: NextRequest) {
         isActive: user.isActive,
         autoAssign: user.autoAssign,
         maxOrders: user.maxOrders,
+        warehouses: assignedWarehouses,
       },
     });
   } catch (error) {

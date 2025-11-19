@@ -23,6 +23,46 @@ function normalizeRole(role?: string | null): OrderUserRole {
   return ROLE_MAP[normalized];
 }
 
+function serializeWarehouses(assignments: any[]) {
+  return assignments
+    .map((assignment) => assignment?.warehouse)
+    .filter(Boolean)
+    .map((warehouse: any) => ({
+      id: warehouse.id,
+      name: warehouse.name,
+      code: warehouse.code,
+      location: warehouse.location,
+    }));
+}
+
+async function syncWarehouseAssignments(userId: string, warehouseIds: string[]) {
+  await prisma.warehouseAssignment.deleteMany({
+    where: {
+      userId,
+      warehouseId: {
+        notIn: warehouseIds,
+      },
+    },
+  });
+
+  const existing = await prisma.warehouseAssignment.findMany({
+    where: { userId },
+    select: { warehouseId: true },
+  });
+  const existingIds = new Set(existing.map((assignment) => assignment.warehouseId));
+
+  for (const warehouseId of warehouseIds) {
+    if (!existingIds.has(warehouseId)) {
+      await prisma.warehouseAssignment.create({
+        data: {
+          userId,
+          warehouseId,
+        },
+      });
+    }
+  }
+}
+
 /**
  * PUT /api/order-users/[id]
  * Update an order user
@@ -52,28 +92,51 @@ export async function PUT(
       maxOrders,
       password,
       role: roleInput,
+      warehouseIds = [],
     } = body;
 
-    const updateData: any = {
-      name,
-      email,
-      phone,
-      orderType,
-      specificStatus: orderType === 'specific_status' ? specificStatus : null,
-      isActive,
-      autoAssign,
-      maxOrders,
-    };
-
+    let prismaRole: OrderUserRole | undefined;
     if (roleInput) {
       try {
-        updateData.role = normalizeRole(roleInput);
+        prismaRole = normalizeRole(roleInput);
       } catch (roleError) {
         return NextResponse.json(
           { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
           { status: 400 }
         );
       }
+    }
+
+    const effectiveRole = prismaRole ?? undefined;
+
+    const updateData: any = {
+      name,
+      email,
+      phone,
+      isActive,
+    };
+
+    const finalRole = effectiveRole || undefined;
+    if (finalRole) {
+      updateData.role = finalRole;
+    }
+
+    const roleToUse = finalRole || (await prisma.orderUser.findUnique({
+      where: { id: params.id },
+      select: { role: true },
+    }))?.role || OrderUserRole.ORDERS;
+
+    if (roleToUse === OrderUserRole.ORDERS) {
+      updateData.orderType = orderType;
+      updateData.specificStatus =
+        orderType === 'specific_status' ? specificStatus : null;
+      updateData.autoAssign = autoAssign;
+      updateData.maxOrders = maxOrders;
+    } else {
+      updateData.orderType = 'all';
+      updateData.specificStatus = null;
+      updateData.autoAssign = false;
+      updateData.maxOrders = 0;
     }
 
     // Only update password if provided
@@ -84,7 +147,37 @@ export async function PUT(
     const user = await prisma.orderUser.update({
       where: { id: params.id },
       data: updateData,
+      include: {
+        warehouseAssignments: {
+          include: { warehouse: true },
+        },
+      },
     });
+
+    let warehouses = serializeWarehouses(user.warehouseAssignments);
+
+    if (roleToUse === OrderUserRole.WAREHOUSE) {
+      const ids = Array.isArray(warehouseIds) ? warehouseIds : [];
+      if (ids.length === 0) {
+        return NextResponse.json(
+          { error: 'يجب ربط مستخدم المستودع بمستودع واحد على الأقل' },
+          { status: 400 }
+        );
+      }
+      await syncWarehouseAssignments(user.id, ids);
+      warehouses = await prisma.warehouse.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          location: true,
+        },
+      });
+    } else {
+      await syncWarehouseAssignments(user.id, []);
+      warehouses = [];
+    }
 
     log.info('Order user updated', { userId: user.id, username: user.username });
 
@@ -102,6 +195,7 @@ export async function PUT(
         isActive: user.isActive,
         autoAssign: user.autoAssign,
         maxOrders: user.maxOrders,
+        warehouses,
       },
     });
   } catch (error) {

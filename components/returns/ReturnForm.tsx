@@ -82,14 +82,23 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
   // Load return fee setting on mount
   useEffect(() => {
-    fetch('/api/settings?key=return_fee')
-      .then(res => res.json())
-      .then(data => {
-        if (data.setting && data.setting.value) {
-          setReturnFee(parseFloat(data.setting.value) || 0);
+    const loadReturnConfig = async () => {
+      try {
+        const response = await fetch('/api/returns/config');
+        if (!response.ok) {
+          throw new Error(`Config request failed: ${response.status}`);
         }
-      })
-      .catch(err => console.error('Failed to load return fee:', err));
+
+        const data = await response.json();
+        if (typeof data.returnFee === 'number' && !Number.isNaN(data.returnFee)) {
+          setReturnFee(data.returnFee);
+        }
+      } catch (err) {
+        console.error('Failed to load return config:', err);
+      }
+    };
+
+    loadReturnConfig();
   }, []);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
