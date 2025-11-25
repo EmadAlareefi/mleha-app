@@ -56,6 +56,12 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-gray-100 text-gray-600 border-gray-300',
 };
 
+const gregorianDateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+  day: '2-digit',
+  month: 'long',
+  year: 'numeric',
+});
+
 export default function ReturnsManagementPage() {
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -335,7 +341,9 @@ export default function ReturnsManagementPage() {
                         {request.smsaTrackingNumber && (
                           <p><strong>رقم التتبع:</strong> {request.smsaTrackingNumber}</p>
                         )}
-                        <p><strong>التاريخ:</strong> {new Date(request.createdAt).toLocaleDateString('ar-SA')}</p>
+                        <p>
+                          <strong>التاريخ:</strong> {gregorianDateFormatter.format(new Date(request.createdAt))}
+                        </p>
                       </div>
                     </div>
 
