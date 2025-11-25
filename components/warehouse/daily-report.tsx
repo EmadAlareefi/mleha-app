@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
 import {
   Table,
@@ -26,6 +26,11 @@ interface Shipment {
   type: string;
   scannedAt: string;
   notes?: string | null;
+  warehouse?: {
+    id: string;
+    name: string;
+    code?: string | null;
+  } | null;
 }
 
 interface DailyReportProps {
@@ -37,9 +42,10 @@ interface DailyReportProps {
     byCompany: Array<{ company: string; count: number }>;
   };
   date: Date;
+  warehouseName?: string | null;
 }
 
-export function DailyReport({ shipments, stats, date }: DailyReportProps) {
+export function DailyReport({ shipments, stats, date, warehouseName }: DailyReportProps) {
   const componentRef = useRef<HTMLDivElement>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
 
@@ -118,8 +124,9 @@ export function DailyReport({ shipments, stats, date }: DailyReportProps) {
               <h1 className="text-3xl font-bold">
                 {selectedCompanyInfo
                   ? `تقرير شحنات ${selectedCompanyInfo.nameAr}`
-                  : 'تقرير الشحنات اليومي'
-                }
+                  : warehouseName
+                    ? `تقرير الشحنات - ${warehouseName}`
+                    : 'تقرير الشحنات اليومي'}
               </h1>
               <p className="text-lg text-muted-foreground mt-2">
                 {format(date, 'EEEE، d MMMM yyyy', { locale: ar })}

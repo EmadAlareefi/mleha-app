@@ -46,6 +46,7 @@ export async function createSallaCoupon(
       status: number;
       success: boolean;
       data: SallaCoupon;
+      error?: string;
     }>(merchantId, '/coupons', {
       method: 'POST',
       body: JSON.stringify(couponData),

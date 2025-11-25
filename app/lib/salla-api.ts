@@ -33,6 +33,8 @@ export interface SallaOrder {
     last_name: string;
     mobile: string;
     email: string;
+    city?: string;
+    full_name?: string;
   };
   items: SallaOrderItem[];
   shipping?: {

@@ -71,6 +71,14 @@ export default function AdminDashboard() {
       allowedRoles: ['admin'],
     },
     {
+      title: 'إدارة المستودعات',
+      description: 'إضافة المستودعات وتحديث بياناتها',
+      icon: '🏗️',
+      href: '/warehouse-management',
+      color: 'from-sky-500 to-sky-600',
+      allowedRoles: ['admin'],
+    },
+    {
       title: 'تقارير الطلبات',
       description: 'عرض تقارير الطلبات المكتملة وإحصائيات المستخدمين',
       icon: '📊',
@@ -97,13 +105,27 @@ export default function AdminDashboard() {
                 مرحباً، {session?.user?.name || 'المسؤول'}
               </p>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => signOut({ callbackUrl: '/login' })}
-              className="text-red-600 hover:bg-red-50 hover:text-red-700"
-            >
-              تسجيل الخروج
-            </Button>
+            <div className="flex items-center gap-3">
+              {userRole === 'admin' && (
+                <Link href="/warehouse-management">
+                  <Button variant="outline" className="hover:bg-indigo-50 hover:text-indigo-700">
+                    إدارة المستودعات
+                  </Button>
+                </Link>
+              )}
+              <Link href="/warehouse">
+                <Button variant="outline" className="hover:bg-indigo-50 hover:text-indigo-700">
+                  المستودعات
+                </Button>
+              </Link>
+              <Button
+                variant="outline"
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+              >
+                تسجيل الخروج
+              </Button>
+            </div>
           </div>
         </div>
       </header>

@@ -23,6 +23,11 @@ interface Shipment {
   type: string;
   scannedAt: string;
   notes?: string | null;
+  warehouse?: {
+    id: string;
+    name: string;
+    code?: string | null;
+  } | null;
 }
 
 interface ShipmentsTableProps {
@@ -32,6 +37,7 @@ interface ShipmentsTableProps {
 
 export function ShipmentsTable({ shipments, onDelete }: ShipmentsTableProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const showWarehouseColumn = shipments.some((shipment) => !!shipment.warehouse);
 
   const handleDelete = async (id: string) => {
     if (!confirm('هل أنت متأكد من حذف هذه الشحنة؟')) return;
@@ -39,7 +45,7 @@ export function ShipmentsTable({ shipments, onDelete }: ShipmentsTableProps) {
     setDeletingId(id);
     try {
       await onDelete(id);
-    } catch (error) {
+    } catch {
       alert('فشل في حذف الشحنة');
     } finally {
       setDeletingId(null);
@@ -70,6 +76,7 @@ export function ShipmentsTable({ shipments, onDelete }: ShipmentsTableProps) {
                 <TableRow>
                   <TableHead>رقم التتبع</TableHead>
                   <TableHead>شركة الشحن</TableHead>
+                  {showWarehouseColumn && <TableHead>المستودع</TableHead>}
                   <TableHead>النوع</TableHead>
                   <TableHead>وقت المسح</TableHead>
                   <TableHead>ملاحظات</TableHead>
@@ -95,6 +102,11 @@ export function ShipmentsTable({ shipments, onDelete }: ShipmentsTableProps) {
                           {company.nameAr}
                         </span>
                       </TableCell>
+                      {showWarehouseColumn && (
+                        <TableCell className="text-sm text-gray-600">
+                          {shipment.warehouse?.name || '-'}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <span
                           className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${

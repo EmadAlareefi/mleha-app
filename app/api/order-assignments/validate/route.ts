@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { Prisma } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
                 merchantId: assignment.merchantId,
                 orderId: assignment.orderId,
                 orderNumber: assignment.orderNumber,
-                orderData: assignment.orderData,
+                orderData: assignment.orderData ?? Prisma.JsonNull,
                 status: 'removed',
                 assignedAt: assignment.assignedAt,
                 startedAt: assignment.startedAt,

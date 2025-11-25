@@ -11,6 +11,8 @@ import { ar } from 'date-fns/locale';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { useWarehouseSelection, WarehouseInfo } from '@/components/warehouse/useWarehouseSelection';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 interface Shipment {
   id: string;
@@ -31,10 +33,16 @@ interface Stats {
 export default function WarehousePage() {
   const { data: session } = useSession();
   const userRole = ((session?.user as any)?.role || 'admin') as 'admin' | 'warehouse' | string;
-  const availableWarehouses: WarehouseInfo[] =
-    userRole === 'warehouse'
-      ? ((session?.user as any)?.warehouseData?.warehouses ?? [])
-      : [];
+  const sessionWarehouses: WarehouseInfo[] = useMemo(() => {
+    if (userRole !== 'warehouse') {
+      return [];
+    }
+    const warehouses = (session?.user as any)?.warehouseData?.warehouses ?? [];
+    return Array.isArray(warehouses) ? warehouses : [];
+  }, [session, userRole]);
+  const [adminWarehouses, setAdminWarehouses] = useState<WarehouseInfo[]>([]);
+  const [warehousesLoading, setWarehousesLoading] = useState(userRole === 'admin');
+  const [warehouseError, setWarehouseError] = useState<string | null>(null);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [stats, setStats] = useState<Stats>({
     total: 0,
@@ -45,10 +53,12 @@ export default function WarehousePage() {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
 
+  const availableWarehouses: WarehouseInfo[] =
+    userRole === 'warehouse' ? sessionWarehouses : adminWarehouses;
+
   const {
     selectedWarehouse,
     selectWarehouse,
-    needsSelection,
   } = useWarehouseSelection(availableWarehouses);
 
   const formattedDate = useMemo(
@@ -56,11 +66,36 @@ export default function WarehousePage() {
     [selectedDate]
   );
 
+  const selectedWarehouseId = selectedWarehouse?.id || '';
+
   const fetchData = useCallback(async () => {
     try {
+      if (availableWarehouses.length === 0) {
+        setShipments([]);
+        setStats({ total: 0, incoming: 0, outgoing: 0, byCompany: [] });
+        setLoading(false);
+        return;
+      }
+
+      if (!selectedWarehouseId) {
+        setShipments([]);
+        setStats({ total: 0, incoming: 0, outgoing: 0, byCompany: [] });
+        setLoading(false);
+        return;
+      }
+
+      const params = new URLSearchParams({
+        date: formattedDate,
+        limit: '100',
+      });
+      if (selectedWarehouseId) {
+        params.set('warehouseId', selectedWarehouseId);
+      }
+
+      const queryString = params.toString();
       const [shipmentsRes, statsRes] = await Promise.all([
-        fetch(`/api/shipments?date=${formattedDate}&limit=100`),
-        fetch(`/api/shipments/stats?date=${formattedDate}`),
+        fetch(`/api/shipments?${queryString}`),
+        fetch(`/api/shipments/stats?${queryString}`),
       ]);
 
       if (shipmentsRes.ok) {
@@ -97,7 +132,7 @@ export default function WarehousePage() {
     } finally {
       setLoading(false);
     }
-  }, [formattedDate]);
+  }, [formattedDate, selectedWarehouseId, availableWarehouses.length]);
 
   useEffect(() => {
     setLoading(true);
@@ -116,10 +151,13 @@ export default function WarehousePage() {
   const handlePreviousDay = () => handleDateChange(addDays(selectedDate, -1));
 
   const handleScan = async (trackingNumber: string, type: 'incoming' | 'outgoing') => {
+    if (!selectedWarehouse) {
+      throw new Error('يرجى اختيار المستودع أولاً');
+    }
     const response = await fetch('/api/shipments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trackingNumber, type }),
+      body: JSON.stringify({ trackingNumber, type, warehouseId: selectedWarehouse.id }),
     });
 
     if (!response.ok) {
@@ -143,6 +181,64 @@ export default function WarehousePage() {
     // Refresh data after successful deletion
     await fetchData();
   };
+
+  useEffect(() => {
+    if (userRole !== 'admin') {
+      setAdminWarehouses([]);
+      setWarehousesLoading(false);
+      setWarehouseError(null);
+      return;
+    }
+
+    let active = true;
+    const loadWarehouses = async () => {
+      setWarehousesLoading(true);
+      setWarehouseError(null);
+      try {
+        const response = await fetch('/api/warehouses?all=true');
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'تعذر تحميل المستودعات');
+        }
+        if (active) {
+          setAdminWarehouses(data.warehouses || []);
+        }
+      } catch (error) {
+        if (active) {
+          setWarehouseError(error instanceof Error ? error.message : 'تعذر تحميل المستودعات');
+          setAdminWarehouses([]);
+        }
+      } finally {
+        if (active) {
+          setWarehousesLoading(false);
+        }
+      }
+    };
+
+    loadWarehouses();
+    return () => {
+      active = false;
+    };
+  }, [userRole]);
+
+  const refreshAdminWarehouses = useCallback(() => {
+    if (userRole !== 'admin') return;
+    setWarehousesLoading(true);
+    setWarehouseError(null);
+    fetch('/api/warehouses?all=true')
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'تعذر تحميل المستودعات');
+        }
+        setAdminWarehouses(data.warehouses || []);
+      })
+      .catch((error) => {
+        setWarehouseError(error instanceof Error ? error.message : 'تعذر تحميل المستودعات');
+        setAdminWarehouses([]);
+      })
+      .finally(() => setWarehousesLoading(false));
+  }, [userRole]);
 
   if (loading) {
     return (
@@ -229,17 +325,93 @@ export default function WarehousePage() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">
+          <Card className="p-4">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-gray-500">المستودع الحالي</p>
+                  <p className="text-lg font-semibold">
+                    {selectedWarehouse?.name || (warehousesLoading ? 'جاري التحميل...' : 'لم يتم الاختيار')}
+                  </p>
+                </div>
+                {userRole === 'admin' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={refreshAdminWarehouses}
+                    disabled={warehousesLoading}
+                  >
+                    {warehousesLoading ? '...جاري التحديث' : 'تحديث القائمة'}
+                  </Button>
+                )}
+              </div>
+              {warehousesLoading ? (
+                <p className="text-sm text-gray-500">جاري تحميل قائمة المستودعات...</p>
+              ) : availableWarehouses.length === 0 ? (
+                <p className="text-sm text-red-600">
+                  {userRole === 'admin'
+                    ? 'لا يوجد مستودعات متاحة. استخدم صفحة إدارة المستودعات لإنشاء مستودع جديد.'
+                    : 'لم يتم ربط أي مستودع بحسابك. يرجى التواصل مع المسؤول.'}
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {availableWarehouses.map((warehouse) => {
+                    const isSelected = warehouse.id === selectedWarehouseId;
+                    return (
+                      <button
+                        key={warehouse.id}
+                        type="button"
+                        onClick={() => selectWarehouse(warehouse.id)}
+                        className={`px-4 py-2 rounded-lg border text-sm transition-colors ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm'
+                            : 'border-gray-300 bg-white hover:border-blue-400'
+                        }`}
+                      >
+                        <div className="font-semibold">{warehouse.name}</div>
+                        {warehouse.code && (
+                          <div className="text-xs text-gray-500">رمز: {warehouse.code}</div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {warehouseError && (
+                <p className="text-sm text-red-600">{warehouseError}</p>
+              )}
+            </div>
+          </Card>
+
           {/* Scanner Input */}
-          <ScannerInput onScan={handleScan} />
+          <ScannerInput
+            onScan={handleScan}
+            selectedWarehouseName={selectedWarehouse?.name}
+            disabled={!selectedWarehouse}
+            disabledMessage={
+              availableWarehouses.length === 0
+                ? userRole === 'admin'
+                  ? 'لا يوجد مستودعات متاحة. قم بإنشائها أولاً.'
+                  : 'لم يتم ربط أي مستودع بحسابك.'
+                : !selectedWarehouse
+                  ? 'يرجى اختيار مستودع من القائمة أعلاه قبل تسجيل الشحنات.'
+                  : undefined
+            }
+          />
 
           {/* Stats Cards */}
-          <StatsCards stats={stats} />
+          <StatsCards stats={stats} warehouseName={selectedWarehouse?.name} />
 
           {/* Shipments Table */}
           <ShipmentsTable shipments={shipments} onDelete={handleDelete} />
 
           {/* Daily Report */}
-          <DailyReport shipments={shipments} stats={stats} date={selectedDate} />
+          <DailyReport
+            shipments={shipments}
+            stats={stats}
+            date={selectedDate}
+            warehouseName={selectedWarehouse?.name}
+          />
         </div>
       </main>
     </div>

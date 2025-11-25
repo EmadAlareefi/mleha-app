@@ -51,7 +51,6 @@ export default function LocalShippingPage() {
   const handlePrint = useReactToPrint({
     contentRef: labelRef,
     documentTitle: `Shipping-Label-${shipment?.orderNumber || orderNumber || 'local'}`,
-    removeAfterPrint: true,
   });
 
   const handlePrintClick = () => {

@@ -204,8 +204,8 @@ const STATUS_TEMPLATE_MAP: Record<string, StatusTemplateConfig> = {
 // Common safe sender
 async function sendTpl(
   to?: string | null,
-  templateId: string | undefined,
-  args: (string | number)[],
+  templateId?: string,
+  args: (string | number)[] = [],
   lang: string = env.WHATSAPP_DEFAULT_LANG || "ar"
 ) {
   const recipients = collectRecipients(to);

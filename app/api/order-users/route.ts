@@ -4,7 +4,7 @@ import { log } from '@/app/lib/logger';
 import bcrypt from 'bcryptjs';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-import { OrderUserRole } from '@prisma/client';
+import { OrderUserRole, Prisma } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -63,11 +63,29 @@ async function syncWarehouseAssignments(userId: string, warehouseIds: string[]) 
   }
 }
 
+function isWarehouseSchemaMissing(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021'
+  );
+}
+
+async function isWarehouseSchemaReady() {
+  try {
+    await prisma.warehouse.count();
+    return true;
+  } catch (error) {
+    if (isWarehouseSchemaMissing(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 /**
  * GET /api/order-users
  * Get all order users
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session || (session.user as any)?.role !== 'admin') {
     return NextResponse.json(
@@ -77,37 +95,42 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const users = await prisma.orderUser.findMany({
-      select: {
-        id: true,
-        username: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        orderType: true,
-        specificStatus: true,
-        isActive: true,
-        autoAssign: true,
-        maxOrders: true,
-        createdAt: true,
-        _count: {
-          select: {
-            assignments: {
-              where: {
-                status: {
-                  in: ['assigned', 'preparing'],
-                },
-              },
-            },
+    const warehousesAvailable = await isWarehouseSchemaReady();
+    const select: any = {
+      id: true,
+      username: true,
+      name: true,
+      email: true,
+      phone: true,
+      role: true,
+      orderType: true,
+      specificStatus: true,
+      isActive: true,
+      autoAssign: true,
+      maxOrders: true,
+      createdAt: true,
+      assignments: {
+        where: {
+          status: {
+            in: ['assigned', 'preparing'],
           },
         },
-        warehouseAssignments: {
-          include: {
-            warehouse: true,
-          },
+        select: {
+          id: true,
         },
       },
+    };
+
+    if (warehousesAvailable) {
+      select.warehouseAssignments = {
+        include: {
+          warehouse: true,
+        },
+      };
+    }
+
+    const users = await prisma.orderUser.findMany({
+      select,
       orderBy: {
         createdAt: 'desc',
       },
@@ -115,12 +138,18 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      users: users.map((user) => {
-        const { warehouseAssignments, ...rest } = user;
+      warehousesSupported: warehousesAvailable,
+      users: users.map((user: any) => {
+        const { warehouseAssignments, assignments, role, ...rest } = user;
         return {
           ...rest,
-          role: user.role.toLowerCase(),
-          warehouses: serializeWarehouses(warehouseAssignments),
+          role: (role || OrderUserRole.ORDERS).toLowerCase(),
+          _count: {
+            assignments: assignments.length,
+          },
+          warehouses: warehousesAvailable
+            ? serializeWarehouses(warehouseAssignments)
+            : [],
         };
       }),
     });
@@ -195,11 +224,25 @@ export async function POST(request: NextRequest) {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    if (prismaRole === OrderUserRole.WAREHOUSE && (!Array.isArray(warehouseIds) || warehouseIds.length === 0)) {
-      return NextResponse.json(
-        { error: 'يجب ربط مستخدم المستودع بمستودع واحد على الأقل' },
-        { status: 400 }
-      );
+    if (prismaRole === OrderUserRole.WAREHOUSE) {
+      const schemaReady = await isWarehouseSchemaReady();
+      if (!schemaReady) {
+        return NextResponse.json(
+          {
+            error:
+              'يجب تحديث قاعدة البيانات لدعم مستخدمي المستودعات. شغّل `prisma migrate deploy` ثم أعد المحاولة.',
+            missingWarehousesTable: true,
+          },
+          { status: 503 }
+        );
+      }
+
+      if (!Array.isArray(warehouseIds) || warehouseIds.length === 0) {
+        return NextResponse.json(
+          { error: 'يجب ربط مستخدم المستودع بمستودع واحد على الأقل' },
+          { status: 400 }
+        );
+      }
     }
 
     // Create user

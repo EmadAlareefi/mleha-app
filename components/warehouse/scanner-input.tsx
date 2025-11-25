@@ -8,9 +8,17 @@ import { Scan, CheckCircle, AlertCircle, ArrowUpFromLine, ArrowDownToLine } from
 
 interface ScannerInputProps {
   onScan: (trackingNumber: string, type: 'incoming' | 'outgoing') => Promise<void>;
+  selectedWarehouseName?: string;
+  disabled?: boolean;
+  disabledMessage?: string;
 }
 
-export function ScannerInput({ onScan }: ScannerInputProps) {
+export function ScannerInput({
+  onScan,
+  selectedWarehouseName,
+  disabled = false,
+  disabledMessage,
+}: ScannerInputProps) {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [type, setType] = useState<'incoming' | 'outgoing'>('outgoing');
   const [isScanning, setIsScanning] = useState(false);
@@ -24,7 +32,7 @@ export function ScannerInput({ onScan }: ScannerInputProps) {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!trackingNumber.trim() || isScanning) return;
+    if (disabled || !trackingNumber.trim() || isScanning) return;
 
     setIsScanning(true);
     setMessage(null);
@@ -47,7 +55,7 @@ export function ScannerInput({ onScan }: ScannerInputProps) {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Auto-submit when Enter is pressed (barcode scanners send Enter)
-    if (e.key === 'Enter' && trackingNumber.trim() && !isScanning) {
+    if (e.key === 'Enter' && trackingNumber.trim() && !isScanning && !disabled) {
       e.preventDefault();
       handleSubmit();
     }
@@ -61,14 +69,27 @@ export function ScannerInput({ onScan }: ScannerInputProps) {
           مسح رقم الشحنة
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between text-sm text-gray-600">
+          <div>
+            المستودع الحالي:{' '}
+            <span className="font-semibold text-gray-900">
+              {selectedWarehouseName || '—'}
+            </span>
+          </div>
+        </div>
+        {disabled && disabledMessage && (
+          <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+            {disabledMessage}
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Type Selection Tabs */}
           <div className="grid grid-cols-2 gap-4">
             <button
               type="button"
               onClick={() => setType('outgoing')}
-              disabled={isScanning}
+              disabled={isScanning || disabled}
               className={`relative p-6 rounded-lg border-2 transition-all ${
                 type === 'outgoing'
                   ? 'border-blue-500 bg-blue-50 shadow-md'
@@ -94,7 +115,7 @@ export function ScannerInput({ onScan }: ScannerInputProps) {
             <button
               type="button"
               onClick={() => setType('incoming')}
-              disabled={isScanning}
+              disabled={isScanning || disabled}
               className={`relative p-6 rounded-lg border-2 transition-all ${
                 type === 'incoming'
                   ? 'border-green-500 bg-green-50 shadow-md'
@@ -140,7 +161,7 @@ export function ScannerInput({ onScan }: ScannerInputProps) {
 
           <Button
             type="submit"
-            disabled={!trackingNumber.trim() || isScanning}
+            disabled={!trackingNumber.trim() || isScanning || disabled}
             className="w-full"
             size="lg"
           >

@@ -6,7 +6,9 @@ import { Card } from '@/components/ui/card';
 
 interface OrderItem {
   id: number;
-  product: {
+  name?: string;
+  sku?: string;
+  product?: {
     id: number;
     name: string;
     sku?: string;
@@ -18,11 +20,22 @@ interface OrderItem {
     name: string;
   };
   quantity: number;
-  amounts: {
+  amounts?: {
     price: {
       amount: number;
     };
     total: {
+      amount: number;
+    };
+    price_without_tax?: {
+      amount: number;
+    };
+    tax?: {
+      amount?: {
+        amount: number;
+      };
+    };
+    total_discount?: {
       amount: number;
     };
   };
@@ -34,11 +47,17 @@ interface Order {
   status: {
     name: string;
     slug: string;
-  };
+  } | string;
   amounts: {
     total: {
       amount: number;
       currency: string;
+    };
+    shipping_cost?: {
+      amount: number;
+    };
+    shipping_tax?: {
+      amount: number;
     };
   };
   customer: {
@@ -210,7 +229,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">حالة الطلب:</span>
-            <span className="font-medium">{order.status?.name || order.status?.slug || order.status}</span>
+            <span className="font-medium">
+              {typeof order.status === 'string' ? order.status : (order.status?.name || order.status?.slug)}
+            </span>
           </div>
           {order.amounts?.total?.amount && (
             <div className="flex justify-between">
@@ -256,11 +277,6 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4">اختر المنتجات</h3>
         <p className="text-sm text-gray-600 mb-4">انقر على المنتج لتحديده. انقر مرة أخرى لزيادة الكمية أو إلغاء التحديد.</p>
-        {typeof window !== 'undefined' && console.log('Order items check:', {
-          hasItems: !!order.items,
-          itemsLength: order.items?.length,
-          items: order.items
-        })}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {order.items && order.items.length > 0 ? (
             order.items.map((item: any, index: number) => {

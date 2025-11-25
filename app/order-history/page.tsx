@@ -47,7 +47,7 @@ export default function OrderHistoryPage() {
   }, [status, router]);
 
   useEffect(() => {
-    if (session?.user?.id) {
+    if ((session?.user as any)?.id) {
       fetchHistory();
     }
   }, [session, startDate, endDate, filterStatus]);
@@ -56,7 +56,7 @@ export default function OrderHistoryPage() {
     try {
       setLoading(true);
       const params = new URLSearchParams({
-        userId: session?.user?.id || '',
+        userId: (session?.user as any)?.id || '',
       });
 
       if (startDate) params.append('startDate', startDate);

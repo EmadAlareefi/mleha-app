@@ -108,6 +108,40 @@ model SallaAuth {
   @@index([isRefreshing])
 }
 
+model SallaInvoice {
+  id             String   @id @default(cuid())
+  merchantId     String
+  invoiceId      String
+  orderId        String?
+  orderNumber    String?
+  invoiceNumber  String?
+  status         String?
+  paymentStatus  String?
+  currency       String?
+  subtotalAmount Decimal? @db.Decimal(12, 2)
+  taxAmount      Decimal? @db.Decimal(12, 2)
+  totalAmount    Decimal? @db.Decimal(12, 2)
+  shippingAmount Decimal? @db.Decimal(12, 2)
+  discountAmount Decimal? @db.Decimal(12, 2)
+  issueDate      DateTime?
+  dueDate        DateTime?
+  customerId     String?
+  customerName   String?
+  customerMobile String?
+  customerEmail  String?
+  notes          String?  @db.Text
+  rawInvoice     Json
+  rawOrder       Json?
+  erpSyncedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([merchantId, invoiceId])
+  @@index([merchantId, status])
+  @@index([merchantId, orderId])
+  @@index([merchantId, erpSyncedAt])
+}
+
 model ReturnRequest {
   id                String   @id @default(cuid())
   merchantId        String   // Salla merchant ID

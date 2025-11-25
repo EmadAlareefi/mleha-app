@@ -7,6 +7,13 @@ import Link from 'next/link';
 
 type UserRole = 'orders' | 'store_manager' | 'warehouse';
 
+interface WarehouseOption {
+  id: string;
+  name: string;
+  code?: string | null;
+  location?: string | null;
+}
+
 interface OrderUser {
   id: string;
   username: string;
@@ -23,6 +30,7 @@ interface OrderUser {
   _count: {
     assignments: number;
   };
+  warehouses?: WarehouseOption[];
 }
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
@@ -50,6 +58,9 @@ export default function OrderUsersManagementPage() {
   const [accessDenied, setAccessDenied] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<OrderUser | null>(null);
+  const [warehouseOptions, setWarehouseOptions] = useState<WarehouseOption[]>([]);
+  const [warehousesLoading, setWarehousesLoading] = useState(true);
+  const [warehousesError, setWarehousesError] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -64,10 +75,12 @@ export default function OrderUsersManagementPage() {
     isActive: true,
     autoAssign: true,
     maxOrders: 50,
+    warehouseIds: [] as string[],
   });
 
   useEffect(() => {
     loadUsers();
+    loadWarehouses();
   }, []);
 
   const loadUsers = async () => {
@@ -93,8 +106,51 @@ export default function OrderUsersManagementPage() {
     }
   };
 
+  const loadWarehouses = async () => {
+    setWarehousesLoading(true);
+    setWarehousesError(null);
+    try {
+      const response = await fetch('/api/warehouses');
+
+      if (response.status === 403) {
+        setWarehousesError('لا توجد صلاحية لعرض المستودعات');
+        setWarehouseOptions([]);
+        return;
+      }
+
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 503 && data?.missingWarehousesTable) {
+          setWarehousesError(
+            'ميزة المستودعات غير مفعّلة بعد. يرجى تشغيل prisma migrate deploy ثم إعادة المحاولة.'
+          );
+          setWarehouseOptions([]);
+          return;
+        }
+        throw new Error(data?.error || 'فشل تحميل المستودعات');
+      }
+
+      if (data.success) {
+        setWarehouseOptions(data.warehouses || []);
+      } else {
+        setWarehousesError('تعذر تحميل قائمة المستودعات');
+      }
+    } catch (error) {
+      console.error('Error loading warehouses:', error);
+      setWarehousesError('تعذر تحميل قائمة المستودعات');
+      setWarehouseOptions([]);
+    } finally {
+      setWarehousesLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (formData.role === 'warehouse' && formData.warehouseIds.length === 0) {
+      alert('يرجى اختيار مستودع واحد على الأقل لمستخدم المستودع');
+      return;
+    }
 
     try {
       const url = editingUser
@@ -110,6 +166,7 @@ export default function OrderUsersManagementPage() {
           formData.role === 'orders' ? formData.specificStatus : '',
         autoAssign: formData.role === 'orders' ? formData.autoAssign : false,
         maxOrders: formData.role === 'orders' ? formData.maxOrders : 50,
+        warehouseIds: formData.role === 'warehouse' ? formData.warehouseIds : [],
       };
 
       const response = await fetch(url, {
@@ -134,6 +191,18 @@ export default function OrderUsersManagementPage() {
     }
   };
 
+  const toggleWarehouseSelection = (warehouseId: string) => {
+    setFormData((prev) => {
+      const exists = prev.warehouseIds.includes(warehouseId);
+      return {
+        ...prev,
+        warehouseIds: exists
+          ? prev.warehouseIds.filter((id) => id !== warehouseId)
+          : [...prev.warehouseIds, warehouseId],
+      };
+    });
+  };
+
   const handleEdit = (user: OrderUser) => {
     setEditingUser(user);
     setFormData({
@@ -148,7 +217,16 @@ export default function OrderUsersManagementPage() {
       isActive: user.isActive,
       autoAssign: user.autoAssign,
       maxOrders: user.maxOrders,
+      warehouseIds: user.warehouses?.map((w) => w.id) || [],
     });
+    if (user.warehouses?.length) {
+      setWarehouseOptions((prev) => {
+        const existingIds = new Set(prev.map((warehouse) => warehouse.id));
+        const extras = (user.warehouses || [])
+          .filter((warehouse) => !existingIds.has(warehouse.id));
+        return extras.length > 0 ? [...prev, ...extras] : prev;
+      });
+    }
     setShowForm(true);
   };
 
@@ -211,6 +289,7 @@ export default function OrderUsersManagementPage() {
       isActive: true,
       autoAssign: true,
       maxOrders: 50,
+       warehouseIds: [],
     });
   };
 
@@ -383,6 +462,64 @@ export default function OrderUsersManagementPage() {
                     </div>
                   </>
                 )}
+
+                {formData.role === 'warehouse' && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium mb-2">
+                      ربط المستودعات *
+                    </label>
+                    {warehousesLoading ? (
+                      <p className="text-sm text-gray-500">جاري تحميل المستودعات...</p>
+                    ) : warehousesError ? (
+                      <div className="space-y-3">
+                        <p className="text-sm text-red-600">{warehousesError}</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={loadWarehouses}
+                        >
+                          إعادة المحاولة
+                        </Button>
+                      </div>
+                    ) : warehouseOptions.length === 0 ? (
+                      <p className="text-sm text-gray-500">
+                        لا يوجد مستودعات نشطة. يرجى إنشاء مستودعات من صفحة المستودع أولاً.
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto border rounded-lg p-3 bg-gray-50">
+                        {warehouseOptions.map((warehouse) => {
+                          const isSelected = formData.warehouseIds.includes(warehouse.id);
+                          return (
+                            <label
+                              key={warehouse.id}
+                              className="flex items-center gap-3 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleWarehouseSelection(warehouse.id)}
+                                className="w-4 h-4"
+                              />
+                              <div>
+                                <p className="font-medium">{warehouse.name}</p>
+                                {(warehouse.code || warehouse.location) && (
+                                  <p className="text-xs text-gray-500">
+                                    {warehouse.code && `رمز: ${warehouse.code}`}
+                                    {warehouse.code && warehouse.location ? ' • ' : ''}
+                                    {warehouse.location}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2">
+                      يمكن ربط مستخدم المستودع بأكثر من مستودع واحد.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-4">
@@ -489,6 +626,25 @@ export default function OrderUsersManagementPage() {
                         <strong>التعيين التلقائي:</strong> {user.autoAssign ? 'مفعّل' : 'معطّل'}
                       </div>
                     </>
+                  ) : user.role === 'warehouse' ? (
+                    <div className="space-y-2 text-gray-600">
+                      <div>{ROLE_DESCRIPTIONS[user.role]}</div>
+                      {user.warehouses && user.warehouses.length > 0 ? (
+                        <div>
+                          <strong>المستودعات المرتبطة:</strong>
+                          <ul className="list-disc pr-5 mt-1 text-gray-700 text-xs space-y-1">
+                            {user.warehouses.map((warehouse) => (
+                              <li key={warehouse.id}>
+                                {warehouse.name}
+                                {warehouse.code ? ` (${warehouse.code})` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-red-600">لم يتم ربط أي مستودع بهذا المستخدم</p>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-gray-600">
                       {ROLE_DESCRIPTIONS[user.role]}

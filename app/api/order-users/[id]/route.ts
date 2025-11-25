@@ -4,7 +4,7 @@ import { log } from '@/app/lib/logger';
 import bcrypt from 'bcryptjs';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-import { OrderUserRole } from '@prisma/client';
+import { OrderUserRole, Prisma } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -63,13 +63,31 @@ async function syncWarehouseAssignments(userId: string, warehouseIds: string[]) 
   }
 }
 
+function isWarehouseSchemaMissing(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021'
+  );
+}
+
+async function isWarehouseSchemaReady() {
+  try {
+    await prisma.warehouse.count();
+    return true;
+  } catch (error) {
+    if (isWarehouseSchemaMissing(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 /**
  * PUT /api/order-users/[id]
  * Update an order user
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session || (session.user as any)?.role !== 'admin') {
@@ -78,6 +96,8 @@ export async function PUT(
       { status: 403 }
     );
   }
+
+  const { id } = await params;
 
   try {
     const body = await request.json();
@@ -122,7 +142,7 @@ export async function PUT(
     }
 
     const roleToUse = finalRole || (await prisma.orderUser.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { role: true },
     }))?.role || OrderUserRole.ORDERS;
 
@@ -144,17 +164,36 @@ export async function PUT(
       updateData.password = await bcrypt.hash(password, 10);
     }
 
-    const user = await prisma.orderUser.update({
-      where: { id: params.id },
+    const warehousesAvailable = await isWarehouseSchemaReady();
+    if (roleToUse === OrderUserRole.WAREHOUSE && !warehousesAvailable) {
+      return NextResponse.json(
+        {
+          error:
+            'لا يمكن تحديث مستخدم المستودع قبل تطبيق مخطط المستودعات. يرجى تشغيل `prisma migrate deploy` أولاً.',
+          missingWarehousesTable: true,
+        },
+        { status: 503 }
+      );
+    }
+
+    const updateArgs: any = {
+      where: { id },
       data: updateData,
-      include: {
+    };
+
+    if (warehousesAvailable) {
+      updateArgs.include = {
         warehouseAssignments: {
           include: { warehouse: true },
         },
-      },
-    });
+      };
+    }
 
-    let warehouses = serializeWarehouses(user.warehouseAssignments);
+    const user = await prisma.orderUser.update(updateArgs);
+
+    let warehouses = warehousesAvailable && (user as any).warehouseAssignments
+      ? serializeWarehouses((user as any).warehouseAssignments)
+      : [];
 
     if (roleToUse === OrderUserRole.WAREHOUSE) {
       const ids = Array.isArray(warehouseIds) ? warehouseIds : [];
@@ -174,7 +213,7 @@ export async function PUT(
           location: true,
         },
       });
-    } else {
+    } else if (warehousesAvailable) {
       await syncWarehouseAssignments(user.id, []);
       warehouses = [];
     }
@@ -213,7 +252,7 @@ export async function PUT(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session || (session.user as any)?.role !== 'admin') {
@@ -223,12 +262,14 @@ export async function DELETE(
     );
   }
 
+  const { id } = await params;
+
   try {
     await prisma.orderUser.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
-    log.info('Order user deleted', { userId: params.id });
+    log.info('Order user deleted', { userId: id });
 
     return NextResponse.json({
       success: true,

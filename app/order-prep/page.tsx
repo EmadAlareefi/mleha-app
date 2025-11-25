@@ -256,14 +256,6 @@ export default function OrderPrepPage() {
     );
   }
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>جاري التحميل...</p>
-      </div>
-    );
-  }
-
   if (!isOrdersUser) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center">
