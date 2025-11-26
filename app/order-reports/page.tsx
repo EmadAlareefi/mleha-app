@@ -606,24 +606,26 @@ export default function OrderReportsPage() {
                     عرض {formatNumber(orders.length)} من {formatNumber(stats.total)} طلب
                   </p>
                 )}
-                <Button
-                  onClick={clearDebugInvoices}
-                  disabled={clearingDebugInvoices || syncingOrders.size > 0}
-                  variant="outline"
-                  size="sm"
-                >
-                  {clearingDebugInvoices ? (
-                    <>
-                      <LoaderCircle className="ml-2 h-4 w-4 animate-spin" />
-                      جاري الحذف...
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="ml-2 h-4 w-4" />
-                      حذف الفواتير التجريبية
-                    </>
-                  )}
-                </Button>
+                {process.env.NODE_ENV === 'development' && (
+                  <Button
+                    onClick={clearDebugInvoices}
+                    disabled={clearingDebugInvoices || syncingOrders.size > 0}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {clearingDebugInvoices ? (
+                      <>
+                        <LoaderCircle className="ml-2 h-4 w-4 animate-spin" />
+                        جاري الحذف...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="ml-2 h-4 w-4" />
+                        حذف الفواتير التجريبية
+                      </>
+                    )}
+                  </Button>
+                )}
                 <Button
                   onClick={syncAllUnsyncedOrders}
                   disabled={syncingOrders.size > 0 || clearingDebugInvoices}
