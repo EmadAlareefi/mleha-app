@@ -8,7 +8,9 @@
     "start": "next start",
     "vercel-build": "prisma generate && next build",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "sync:salla-invoices": "node scripts/run-sync-salla-invoices.js",
+    "sync:salla-orders": "node scripts/run-sync-salla-orders.js"
   },
   "dependencies": {
     "@prisma/client": "^6.16.1",

@@ -6,7 +6,10 @@
       "Bash(npx prisma migrate:*)",
       "Bash(cat:*)",
       "WebSearch",
-      "WebFetch(domain:docs.salla.dev)"
+      "WebFetch(domain:docs.salla.dev)",
+      "Bash(npm run build:*)",
+      "Bash(chmod:*)",
+      "Bash(npx ts-node:*)"
     ],
     "deny": [],
     "ask": []

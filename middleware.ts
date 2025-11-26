@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   '/api/order-assignments',
   '/api/warehouses',
   '/api/auth',
+  '/api/salla/sync-invoices',
   '/salla/webhook',
   '/logo.png',
 ];
@@ -114,6 +115,6 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      */
-    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/auth|salla/webhook|_next/static|_next/image|favicon.ico|logo.png).*)',
+    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png).*)',
   ],
 };

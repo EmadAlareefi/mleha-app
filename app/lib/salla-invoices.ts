@@ -7,11 +7,14 @@ import { log } from './logger';
 type AnyRecord = Record<string, any>;
 
 interface PaginationMeta {
-  count: number;
-  total: number;
-  per_page: number;
-  current_page: number;
-  total_pages: number;
+  count?: number;
+  total?: number;
+  per_page?: number;
+  current_page?: number;
+  total_pages?: number;
+  perPage?: number;
+  currentPage?: number;
+  totalPages?: number;
 }
 
 interface SallaInvoicesResponse {
@@ -24,6 +27,8 @@ interface SallaInvoicesResponse {
 interface SyncOptions {
   merchantId?: string;
   perPage?: number;
+  startDate?: Date | string; // Filter invoices from this date
+  endDate?: Date | string;   // Filter invoices until this date
 }
 
 interface SyncStats {
@@ -131,6 +136,25 @@ function pickFirst<T>(...values: (T | null | undefined)[]): T | null {
   for (const value of values) {
     if (value !== null && value !== undefined) return value;
   }
+  return null;
+}
+
+function getTotalPages(meta?: PaginationMeta | null): number | null {
+  if (!meta) return null;
+
+  if (typeof meta.total_pages === 'number') {
+    return meta.total_pages;
+  }
+  if (typeof meta.totalPages === 'number') {
+    return meta.totalPages;
+  }
+
+  const total = meta.total ?? meta.count;
+  const perPage = meta.per_page ?? meta.perPage;
+  if (typeof total === 'number' && typeof perPage === 'number' && perPage > 0) {
+    return Math.ceil(total / perPage);
+  }
+
   return null;
 }
 
@@ -276,13 +300,30 @@ function extractDueDate(invoice: AnyRecord): Date | null {
 export async function fetchInvoicesPage(
   merchantId: string,
   page: number,
-  perPage: number
+  perPage: number,
+  options?: { startDate?: Date | string; endDate?: Date | string }
 ): Promise<SallaInvoicesResponse | null> {
   const query = new URLSearchParams({
     page: page.toString(),
     per_page: perPage.toString(),
   });
-  return sallaMakeRequest<SallaInvoicesResponse>(merchantId, `/invoices?${query.toString()}`);
+
+  // Add date filters if provided
+  if (options?.startDate) {
+    const startDateStr = options.startDate instanceof Date
+      ? options.startDate.toISOString().split('T')[0]
+      : options.startDate;
+    query.append('date_from', startDateStr);
+  }
+
+  if (options?.endDate) {
+    const endDateStr = options.endDate instanceof Date
+      ? options.endDate.toISOString().split('T')[0]
+      : options.endDate;
+    query.append('date_to', endDateStr);
+  }
+
+  return sallaMakeRequest<SallaInvoicesResponse>(merchantId, `/orders/invoices?${query.toString()}`);
 }
 
 export async function syncSallaInvoices(options: SyncOptions = {}): Promise<SyncStats[]> {
@@ -299,7 +340,7 @@ export async function syncSallaInvoices(options: SyncOptions = {}): Promise<Sync
 
   const stats: SyncStats[] = [];
   for (const merchant of merchants) {
-    stats.push(await syncInvoicesForMerchant(merchant.merchantId, options.perPage));
+    stats.push(await syncInvoicesForMerchant(merchant.merchantId, options));
   }
 
   return stats;
@@ -307,8 +348,9 @@ export async function syncSallaInvoices(options: SyncOptions = {}): Promise<Sync
 
 async function syncInvoicesForMerchant(
   merchantId: string,
-  perPage: number = DEFAULT_PER_PAGE
+  options: SyncOptions = {}
 ): Promise<SyncStats> {
+  const perPage = options.perPage ?? DEFAULT_PER_PAGE;
   let page = 1;
   let fetched = 0;
   let stored = 0;
@@ -318,7 +360,10 @@ async function syncInvoicesForMerchant(
   const orderCache = new Map<string, AnyRecord | null>();
 
   while (true) {
-    const response = await fetchInvoicesPage(merchantId, page, perPage);
+    const response = await fetchInvoicesPage(merchantId, page, perPage, {
+      startDate: options.startDate,
+      endDate: options.endDate,
+    });
     if (!response || !response.success) {
       const message = response
         ? `Salla API returned an unsuccessful response for page ${page}`
@@ -434,11 +479,12 @@ async function syncInvoicesForMerchant(
       }
     }
 
-    const totalPages = response.pagination?.total_pages;
-    if (!totalPages && invoices.length < perPage) {
-      break;
-    }
-    if (totalPages && page >= totalPages) {
+    const totalPages = getTotalPages(response.pagination);
+    if (totalPages) {
+      if (page >= totalPages) {
+        break;
+      }
+    } else if (invoices.length === 0) {
       break;
     }
 

@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -133,12 +134,58 @@ model SallaInvoice {
   rawInvoice     Json
   rawOrder       Json?
   erpSyncedAt    DateTime?
+  erpSyncError   String?  @db.Text
+  erpSyncAttempts Int     @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@unique([merchantId, invoiceId])
   @@index([merchantId, status])
   @@index([merchantId, orderId])
+  @@index([merchantId, erpSyncedAt])
+}
+
+model SallaOrder {
+  id                 String   @id @default(cuid())
+  merchantId         String
+  orderId            String
+  referenceId        String?
+  orderNumber        String?
+  statusSlug         String?
+  statusName         String?
+  fulfillmentStatus  String?
+  paymentStatus      String?
+  currency           String?
+  subtotalAmount     Decimal? @db.Decimal(12, 2)
+  taxAmount          Decimal? @db.Decimal(12, 2)
+  shippingAmount     Decimal? @db.Decimal(12, 2)
+  discountAmount     Decimal? @db.Decimal(12, 2)
+  totalAmount        Decimal? @db.Decimal(12, 2)
+  customerId         String?
+  customerName       String?
+  customerMobile     String?
+  customerEmail      String?
+  customerCity       String?
+  customerCountry    String?
+  paymentMethod      String?
+  fulfillmentCompany String?
+  trackingNumber     String?
+  placedAt           DateTime?
+  updatedAtRemote    DateTime?
+  rawOrder           Json
+
+  // ERP sync tracking
+  erpSyncedAt        DateTime?
+  erpInvoiceId       String?
+  erpSyncError       String?  @db.Text
+  erpSyncAttempts    Int      @default(0)
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([merchantId, placedAt])
+  @@index([merchantId, statusSlug])
   @@index([merchantId, erpSyncedAt])
 }
 

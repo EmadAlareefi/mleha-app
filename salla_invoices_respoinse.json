@@ -1,0 +1,631 @@
+{
+    "status": 200,
+    "success": true,
+    "data": [
+        {
+            "id": 2118139799,
+            "invoice_number": "1",
+            "uuid": "5a9a1d32-1837-4857-b38f-20d7d160735f",
+            "order_id": 63998839,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-08-17",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 47.83,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 26.09,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 8.7,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 12.39,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 95.01,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 7290307,
+            "invoice_number": "2",
+            "uuid": "e20173bd-f24a-4f1f-882d-b0205f99ac9a",
+            "order_id": 1227962424,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-08-27",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 132.17,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 25,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 25.54,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 195.75,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 579143022,
+            "invoice_number": "3",
+            "uuid": "aa09c005-edff-41c5-a416-0314edd80ef8",
+            "order_id": 132233000,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-08-27",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 232.17,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 34.78,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 42.01,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 322,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 1167638530,
+            "invoice_number": "4",
+            "uuid": "7e29c930-ca29-4222-827e-575046385886",
+            "order_id": 255926469,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-08-28",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 68.7,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 34.78,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 17.49,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 134.01,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 620131880,
+            "invoice_number": "5",
+            "uuid": "785627b5-72d3-495e-9e3b-31162d6a4e4a",
+            "order_id": 813610703,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-08-28",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 82.61,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 20.87,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 17.48,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 134,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 1119823829,
+            "invoice_number": "1",
+            "uuid": "03431295-6736-481a-a7be-ae069c283205",
+            "order_id": 132233000,
+            "invoice_reference_id": "3",
+            "type": "فاتورة مرتجع مبيعات",
+            "slug": 2,
+            "date": "2025-08-29",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 232.17,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 34.78,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 42.01,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 322,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 169124817,
+            "invoice_number": "2",
+            "uuid": "e4ab3d0a-8ff5-45a5-877e-ac266a62abb2",
+            "order_id": 813610703,
+            "invoice_reference_id": "5",
+            "type": "فاتورة مرتجع مبيعات",
+            "slug": 2,
+            "date": "2025-08-29",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 82.61,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 20.87,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 17.48,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 134,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 62587100,
+            "invoice_number": "3",
+            "uuid": "0ba38209-fcef-46c3-ba79-64cbea056fa9",
+            "order_id": 255926469,
+            "invoice_reference_id": "4",
+            "type": "فاتورة مرتجع مبيعات",
+            "slug": 2,
+            "date": "2025-08-29",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 68.7,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 34.78,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 17.49,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 134.01,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 2034920927,
+            "invoice_number": "4",
+            "uuid": "410637ff-04ed-4a17-ba93-54aaa88d2e6c",
+            "order_id": 1227962424,
+            "invoice_reference_id": "2",
+            "type": "فاتورة مرتجع مبيعات",
+            "slug": 2,
+            "date": "2025-08-29",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 132.17,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 25,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 13.04,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 25.54,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 195.75,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 1994050266,
+            "invoice_number": "5",
+            "uuid": "6f695280-af3b-4e8c-8c32-74d767dd2e35",
+            "order_id": 63998839,
+            "invoice_reference_id": "1",
+            "type": "فاتورة مرتجع مبيعات",
+            "slug": 2,
+            "date": "2025-08-29",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 47.83,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 26.09,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 8.7,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 12.39,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 95.01,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 1781187817,
+            "invoice_number": "6",
+            "uuid": "75c135ef-65c9-4506-820c-1aaa31a62b16",
+            "order_id": 1014523154,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-09-02",
+            "qr_code": null,
+            "payment_method": "mada",
+            "sub_total": {
+                "amount": 82.61,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 25,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 0,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 16.14,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 123.75,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 1999866261,
+            "invoice_number": "7",
+            "uuid": "2a7e9923-4ca4-467e-b858-eac1b74af016",
+            "order_id": 550912409,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-09-02",
+            "qr_code": null,
+            "payment_method": "tabby_installment",
+            "sub_total": {
+                "amount": 82.61,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 30,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 0,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 0,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 16.89,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 129.5,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 1972639351,
+            "invoice_number": "8",
+            "uuid": "9e79155b-c3b6-4b50-9e77-cb4f208a75ea",
+            "order_id": 756985546,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-09-03",
+            "qr_code": null,
+            "payment_method": "credit_card",
+            "sub_total": {
+                "amount": 82.61,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 25,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 0,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 4.13,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 15.52,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 119,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 1524809182,
+            "invoice_number": "9",
+            "uuid": "4ce84b96-9dec-4582-91d2-c14bc0940d66",
+            "order_id": 1203745944,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-09-03",
+            "qr_code": null,
+            "payment_method": "credit_card",
+            "sub_total": {
+                "amount": 82.61,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 25,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 0,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 4.13,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 15.52,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 119,
+                "currency": "SAR"
+            }
+        },
+        {
+            "id": 364290800,
+            "invoice_number": "10",
+            "uuid": "66d2a954-fa05-46a2-a38f-de0d27c00d90",
+            "order_id": 1393298093,
+            "invoice_reference_id": null,
+            "type": "فاتورة ضريبية",
+            "slug": 1,
+            "date": "2025-09-03",
+            "qr_code": null,
+            "payment_method": "cod",
+            "sub_total": {
+                "amount": 165.22,
+                "currency": "SAR"
+            },
+            "shipping_cost": {
+                "amount": 25,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "cod_cost": {
+                "amount": 10,
+                "taxable": true,
+                "currency": "SAR"
+            },
+            "discount": {
+                "amount": 82.61,
+                "currency": "SAR"
+            },
+            "tax": {
+                "percent": 15,
+                "amount": {
+                    "amount": 17.64,
+                    "currency": "SAR"
+                }
+            },
+            "total": {
+                "amount": 135.25,
+                "currency": "SAR"
+            }
+        }
+    ],
+    "pagination": {
+        "count": 15,
+        "total": 19,
+        "perPage": 15,
+        "currentPage": 1,
+        "totalPages": 2,
+        "links": {
+            "next": "http://api.salla.dev/admin/v2/orders/invoices?from_date=&order_id=&to_date=&connected_app_id=1342797627&page=2"
+        }
+    }
+}

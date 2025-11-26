@@ -25,11 +25,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ar" dir="rtl">
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/logo.png" />
       </head>
-      <body className={`${tajawal.variable} antialiased`}>
+      <body className={`${tajawal.variable} antialiased`} suppressHydrationWarning>
         <SessionProvider>
           {children}
         </SessionProvider>

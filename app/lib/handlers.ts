@@ -3,6 +3,7 @@ import { sendWhatsAppTemplate, sendWhatsAppText } from "@/app/lib/zoko";
 import { env } from "@/app/lib/env";
 import { log } from "@/app/lib/logger";
 import { storeSallaTokens } from "@/app/lib/salla-oauth";
+import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
 
 type AnyObj = Record<string, any>;
 
@@ -324,6 +325,8 @@ export async function process_salla_order_status_updated(
 
   const { carrier, trackingNumber, trackingLink } = getShipmentDetails(order, data);
 
+  await upsertSallaOrderFromPayload(data);
+
   if (
     meta?.isDuplicateStatus &&
     meta?.orderId === orderId &&
@@ -400,6 +403,8 @@ export async function process_salla_shipment_created(data: AnyObj) {
   const customerName = getCustomerName(customer);
   const orderNumber = getOrderNumber(order) || orderId;
   const { carrier, trackingNumber, trackingLink } = getShipmentDetails(order, data);
+
+  await upsertSallaOrderFromPayload(data);
 
   const resp = await sendTpl(phone, TPL.ORDER_SHIPPED, [
     customerName,

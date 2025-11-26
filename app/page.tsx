@@ -86,6 +86,14 @@ export default function AdminDashboard() {
       color: 'from-teal-500 to-teal-600',
       allowedRoles: ['admin'],
     },
+    {
+      title: 'الفواتير',
+      description: 'عرض ومزامنة فواتير سلة مع نظام ERP',
+      icon: '🧾',
+      href: '/invoices',
+      color: 'from-pink-500 to-pink-600',
+      allowedRoles: ['admin', 'store_manager'],
+    },
   ];
 
   const visibleServices = services.filter(
