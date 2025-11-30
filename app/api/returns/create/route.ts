@@ -285,6 +285,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Update Salla order status to 'restoring' (قيد الاسترجاع)
+    try {
+      const { getSallaAccessToken } = await import('@/app/lib/salla-oauth');
+      const accessToken = await getSallaAccessToken(body.merchantId);
+
+      if (accessToken) {
+        const baseUrl = 'https://api.salla.dev/admin/v2';
+        const url = `${baseUrl}/orders/${body.orderId}/status`;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ slug: 'restoring' }),
+        });
+
+        if (response.ok) {
+          log.info('Salla order status updated to restoring', {
+            orderId: body.orderId,
+          });
+        } else {
+          const errorText = await response.text();
+          log.warn('Failed to update Salla order status to restoring', {
+            orderId: body.orderId,
+            status: response.status,
+            error: errorText,
+          });
+        }
+      }
+    } catch (error) {
+      log.error('Error updating Salla order status to restoring', {
+        orderId: body.orderId,
+        error
+      });
+      // Continue with return request creation even if Salla update fails
+    }
+
     // Store return request in database
     log.info('Storing return request in database', {
       orderId: body.orderId,
