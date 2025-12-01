@@ -45,9 +45,6 @@ function LoginForm() {
             case 'store_manager':
               router.push('/returns-management');
               break;
-            case 'warehouse':
-              router.push('/warehouse');
-              break;
             case 'admin':
               router.push(defaultCallbackUrl === '/order-prep' ? '/' : defaultCallbackUrl);
               break;

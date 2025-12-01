@@ -24,6 +24,14 @@ export default function AdminDashboard() {
 
   const services: ServiceCard[] = [
     {
+      title: 'تحضير الطلبات',
+      description: 'تحضير وإدارة الطلبات المعينة',
+      icon: '📝',
+      href: '/order-prep',
+      color: 'from-amber-500 to-amber-600',
+      allowedRoles: ['orders'],
+    },
+    {
       title: 'المستودع',
       description: 'إدارة الشحنات الواردة والصادرة',
       icon: '📦',
@@ -39,14 +47,14 @@ export default function AdminDashboard() {
       color: 'from-green-500 to-green-600',
       allowedRoles: ['admin', 'warehouse'],
     },
-    {
-      title: 'الإرجاع والاستبدال',
-      description: 'إدارة طلبات الإرجاع والاستبدال',
-      icon: '🔄',
-      href: '/returns',
-      color: 'from-orange-500 to-orange-600',
-      badge: 'عام',
-    },
+    // {
+    //   title: 'الإرجاع والاستبدال',
+    //   description: 'إدارة طلبات الإرجاع والاستبدال',
+    //   icon: '🔄',
+    //   href: '/returns',
+    //   color: 'from-orange-500 to-orange-600',
+    //   badge: 'عام',
+    // },
     {
       title: 'إدارة طلبات الإرجاع',
       description: 'متابعة ومراجعة طلبات الإرجاع والاستبدال',

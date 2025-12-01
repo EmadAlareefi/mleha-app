@@ -102,6 +102,7 @@ export async function PUT(
   try {
     const body = await request.json();
     const {
+      username,
       name,
       email,
       phone,
@@ -112,6 +113,7 @@ export async function PUT(
       maxOrders,
       password,
       role: roleInput,
+      roles: rolesInput, // New: array of roles
       warehouseIds = [],
     } = body;
 
@@ -129,12 +131,39 @@ export async function PUT(
 
     const effectiveRole = prismaRole ?? undefined;
 
+    // Check if username is being changed and validate uniqueness
+    if (username) {
+      const currentUser = await prisma.orderUser.findUnique({
+        where: { id },
+        select: { username: true },
+      });
+
+      if (currentUser && username !== currentUser.username) {
+        // Username is being changed, check if new username is already taken
+        const existingUser = await prisma.orderUser.findUnique({
+          where: { username },
+        });
+
+        if (existingUser) {
+          return NextResponse.json(
+            { error: 'اسم المستخدم موجود بالفعل. الرجاء اختيار اسم مستخدم آخر.' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     const updateData: any = {
       name,
       email,
       phone,
       isActive,
     };
+
+    // Add username to update data if provided
+    if (username) {
+      updateData.username = username;
+    }
 
     const finalRole = effectiveRole || undefined;
     if (finalRole) {
@@ -191,11 +220,23 @@ export async function PUT(
 
     const user = await prisma.orderUser.update(updateArgs);
 
+    // Handle multi-role assignments
+    if (rolesInput && Array.isArray(rolesInput) && rolesInput.length > 0) {
+      const rolesToAssign = rolesInput.map((r: string) => normalizeRole(r));
+      const { setUserRoles } = await import('@/app/lib/user-roles');
+      await setUserRoles(user.id, rolesToAssign, (session.user as any)?.username || 'admin');
+    }
+
     let warehouses = warehousesAvailable && (user as any).warehouseAssignments
       ? serializeWarehouses((user as any).warehouseAssignments)
       : [];
 
-    if (roleToUse === OrderUserRole.WAREHOUSE) {
+    // Check if user has warehouse role from roles array
+    const hasWarehouseRole = rolesInput && Array.isArray(rolesInput)
+      ? rolesInput.some((r: string) => normalizeRole(r) === OrderUserRole.WAREHOUSE)
+      : roleToUse === OrderUserRole.WAREHOUSE;
+
+    if (hasWarehouseRole) {
       const ids = Array.isArray(warehouseIds) ? warehouseIds : [];
       if (ids.length === 0) {
         return NextResponse.json(

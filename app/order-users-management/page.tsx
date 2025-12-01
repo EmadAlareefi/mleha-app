@@ -18,7 +18,8 @@ interface OrderUser {
   id: string;
   username: string;
   name: string;
-  role: UserRole;
+  role: UserRole; // Legacy single role (primary role)
+  roles?: UserRole[]; // New: array of all roles
   email?: string;
   phone?: string;
   orderType: string;
@@ -69,7 +70,8 @@ export default function OrderUsersManagementPage() {
     name: '',
     email: '',
     phone: '',
-    role: 'orders' as UserRole,
+    role: 'orders' as UserRole, // Legacy field (for backward compatibility)
+    roles: ['orders'] as UserRole[], // New: array of selected roles
     orderType: 'all',
     specificStatus: '',
     isActive: true,
@@ -144,10 +146,39 @@ export default function OrderUsersManagementPage() {
     }
   };
 
+  const toggleRole = (role: UserRole) => {
+    const currentRoles = formData.roles;
+    const hasRole = currentRoles.includes(role);
+
+    if (hasRole) {
+      // Remove role (but keep at least one role)
+      if (currentRoles.length > 1) {
+        setFormData({
+          ...formData,
+          roles: currentRoles.filter(r => r !== role),
+          role: currentRoles.filter(r => r !== role)[0], // Update primary role
+        });
+      } else {
+        alert('يجب أن يكون للمستخدم دور واحد على الأقل');
+      }
+    } else {
+      // Add role
+      setFormData({
+        ...formData,
+        roles: [...currentRoles, role],
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (formData.role === 'warehouse' && formData.warehouseIds.length === 0) {
+    if (formData.roles.length === 0) {
+      alert('يجب اختيار دور واحد على الأقل');
+      return;
+    }
+
+    if (formData.roles.includes('warehouse') && formData.warehouseIds.length === 0) {
       alert('يرجى اختيار مستودع واحد على الأقل لمستخدم المستودع');
       return;
     }
@@ -159,14 +190,17 @@ export default function OrderUsersManagementPage() {
 
       const method = editingUser ? 'PUT' : 'POST';
 
+      const hasOrdersRole = formData.roles.includes('orders');
+      const hasWarehouseRole = formData.roles.includes('warehouse');
+
       const payload = {
         ...formData,
-        orderType: formData.role === 'orders' ? formData.orderType : 'all',
-        specificStatus:
-          formData.role === 'orders' ? formData.specificStatus : '',
-        autoAssign: formData.role === 'orders' ? formData.autoAssign : false,
-        maxOrders: formData.role === 'orders' ? formData.maxOrders : 50,
-        warehouseIds: formData.role === 'warehouse' ? formData.warehouseIds : [],
+        role: formData.roles[0], // Primary role (first selected)
+        orderType: hasOrdersRole ? formData.orderType : 'all',
+        specificStatus: hasOrdersRole ? formData.specificStatus : '',
+        autoAssign: hasOrdersRole ? formData.autoAssign : false,
+        maxOrders: hasOrdersRole ? formData.maxOrders : 50,
+        warehouseIds: hasWarehouseRole ? formData.warehouseIds : [],
       };
 
       const response = await fetch(url, {
@@ -212,6 +246,7 @@ export default function OrderUsersManagementPage() {
       email: user.email || '',
       phone: user.phone || '',
       role: user.role,
+      roles: user.roles || [user.role], // Use roles array if available, fallback to single role
       orderType: user.orderType,
       specificStatus: user.specificStatus || '',
       isActive: user.isActive,
@@ -284,12 +319,13 @@ export default function OrderUsersManagementPage() {
       email: '',
       phone: '',
       role: 'orders',
+      roles: ['orders'], // Reset to single role
       orderType: 'all',
       specificStatus: '',
       isActive: true,
       autoAssign: true,
       maxOrders: 50,
-       warehouseIds: [],
+      warehouseIds: [],
     });
   };
 
@@ -339,8 +375,12 @@ export default function OrderUsersManagementPage() {
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                     className="w-full px-4 py-2 border rounded-lg"
                     required
-                    disabled={!!editingUser}
                   />
+                  {editingUser && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      يمكنك تغيير اسم المستخدم إذا لزم الأمر
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -388,30 +428,32 @@ export default function OrderUsersManagementPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium mb-2">دور المستخدم *</label>
-                  <select
-                    value={formData.role}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        role: e.target.value as UserRole,
-                      })
-                    }
-                    className="w-full px-4 py-2 border rounded-lg"
-                  >
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">أدوار المستخدم * (يمكن اختيار أكثر من دور)</label>
+                  <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
                     {(Object.keys(ROLE_LABELS) as UserRole[]).map((roleKey) => (
-                      <option key={roleKey} value={roleKey}>
-                        {ROLE_LABELS[roleKey]}
-                      </option>
+                      <label key={roleKey} className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.roles.includes(roleKey)}
+                          onChange={() => toggleRole(roleKey)}
+                          className="w-5 h-5 mt-0.5"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">{ROLE_LABELS[roleKey]}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{ROLE_DESCRIPTIONS[roleKey]}</div>
+                        </div>
+                      </label>
                     ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {ROLE_DESCRIPTIONS[formData.role]}
-                  </p>
+                  </div>
+                  {formData.roles.length > 1 && (
+                    <p className="text-xs text-blue-600 font-medium mt-2">
+                      ✓ مستخدم متعدد الأدوار: {formData.roles.map(r => ROLE_LABELS[r]).join(' + ')}
+                    </p>
+                  )}
                 </div>
 
-                {formData.role === 'orders' && (
+                {formData.roles.includes('orders') && (
                   <>
                     <div>
                       <label className="block text-sm font-medium mb-2">نوع الطلبات *</label>
@@ -419,7 +461,7 @@ export default function OrderUsersManagementPage() {
                         value={formData.orderType}
                         onChange={(e) => setFormData({ ...formData, orderType: e.target.value })}
                         className="w-full px-4 py-2 border rounded-lg"
-                        required={formData.role === 'orders'}
+                        required={formData.roles.includes('orders')}
                       >
                         <option value="all">جميع الطلبات</option>
                         <option value="cod">الدفع عند الاستلام فقط</option>
@@ -454,7 +496,7 @@ export default function OrderUsersManagementPage() {
                           })
                         }
                         className="w-full px-4 py-2 border rounded-lg"
-                        required={formData.role === 'orders'}
+                        required={formData.roles.includes('orders')}
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         عدد الطلبات التي يتم تعيينها في كل مرة (لا يوجد حد أقصى إجمالي)
@@ -463,7 +505,7 @@ export default function OrderUsersManagementPage() {
                   </>
                 )}
 
-                {formData.role === 'warehouse' && (
+                {formData.roles.includes('warehouse') && (
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-2">
                       ربط المستودعات *
@@ -533,7 +575,7 @@ export default function OrderUsersManagementPage() {
                   <span>نشط</span>
                 </label>
 
-                {formData.role === 'orders' && (
+                {formData.roles.includes('orders') && (
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -590,9 +632,13 @@ export default function OrderUsersManagementPage() {
                     <p className="text-sm text-gray-600">@{user.username}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    <span className="px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
-                      {ROLE_LABELS[user.role]}
-                    </span>
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {(user.roles || [user.role]).map((role) => (
+                        <span key={role} className="px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
+                          {ROLE_LABELS[role]}
+                        </span>
+                      ))}
+                    </div>
                     <span
                       className={`px-3 py-1 rounded-full text-sm ${
                         user.isActive

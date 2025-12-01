@@ -35,7 +35,7 @@ export default withAuth(
 
       const roleAccess: Record<
         string,
-        { home: string; allowed: RegExp[] }
+        { home?: string; allowed: RegExp[] }
       > = {
         orders: {
           home: '/order-prep',
@@ -46,7 +46,6 @@ export default withAuth(
           allowed: [/^\/$/, /^\/returns-management(\/.*)?$/, /^\/api\/returns(\/.*)?$/],
         },
         warehouse: {
-          home: '/warehouse',
           allowed: [
             /^\/$/,
             /^\/warehouse(\/.*)?$/,
@@ -72,7 +71,7 @@ export default withAuth(
       // If path requires role-based access and user doesn't have permission
       if (!hasAccess && role !== 'admin') {
         const primaryRestrictions = role ? roleAccess[role] : undefined;
-        if (primaryRestrictions) {
+        if (primaryRestrictions && primaryRestrictions.home) {
           // Redirect to primary role's home page
           return NextResponse.redirect(new URL(primaryRestrictions.home, req.url));
         }

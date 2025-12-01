@@ -109,6 +109,11 @@ export async function GET() {
       autoAssign: true,
       maxOrders: true,
       createdAt: true,
+      roleAssignments: {
+        select: {
+          role: true,
+        },
+      },
       assignments: {
         where: {
           status: {
@@ -140,10 +145,17 @@ export async function GET() {
       success: true,
       warehousesSupported: warehousesAvailable,
       users: users.map((user: any) => {
-        const { warehouseAssignments, assignments, role, ...rest } = user;
+        const { warehouseAssignments, assignments, role, roleAssignments, ...rest } = user;
+
+        // Get roles array from roleAssignments, fallback to single role
+        const rolesArray = roleAssignments && roleAssignments.length > 0
+          ? roleAssignments.map((ra: any) => ra.role.toLowerCase())
+          : [(role || OrderUserRole.ORDERS).toLowerCase()];
+
         return {
           ...rest,
-          role: (role || OrderUserRole.ORDERS).toLowerCase(),
+          role: (role || OrderUserRole.ORDERS).toLowerCase(), // Primary role for backward compatibility
+          roles: rolesArray, // Array of all roles
           _count: {
             assignments: assignments.length,
           },
@@ -188,6 +200,7 @@ export async function POST(request: NextRequest) {
       autoAssign,
       maxOrders,
       role: roleInput,
+      roles: rolesInput, // New: array of roles
       warehouseIds = [],
     } = body;
 
@@ -264,6 +277,15 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Handle multi-role assignments
+    const rolesToAssign = rolesInput && Array.isArray(rolesInput) && rolesInput.length > 0
+      ? rolesInput.map((r: string) => normalizeRole(r))
+      : [prismaRole];
+
+    // Create role assignments
+    const { setUserRoles } = await import('@/app/lib/user-roles');
+    await setUserRoles(user.id, rolesToAssign, username);
+
     let assignedWarehouses: Array<{
       id: string;
       name: string;
@@ -271,7 +293,8 @@ export async function POST(request: NextRequest) {
       location: string | null;
     }> = [];
 
-    if (prismaRole === OrderUserRole.WAREHOUSE) {
+    // Handle warehouse assignments if user has warehouse role
+    if (rolesToAssign.includes(OrderUserRole.WAREHOUSE)) {
       const warehouseIdArray = Array.isArray(warehouseIds) ? warehouseIds : [];
       await syncWarehouseAssignments(user.id, warehouseIdArray);
       assignedWarehouses = await prisma.warehouse.findMany({
@@ -285,7 +308,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    log.info('Order user created', { userId: user.id, username });
+    log.info('Order user created', { userId: user.id, username, roles: rolesToAssign });
 
     return NextResponse.json({
       success: true,
