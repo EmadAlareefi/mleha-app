@@ -9,7 +9,9 @@
       "WebFetch(domain:docs.salla.dev)",
       "Bash(npm run build:*)",
       "Bash(chmod:*)",
-      "Bash(npx ts-node:*)"
+      "Bash(npx ts-node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx prisma format:*)"
     ],
     "deny": [],
     "ask": []

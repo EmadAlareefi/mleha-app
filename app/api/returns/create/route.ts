@@ -62,39 +62,49 @@ const formatCoordinates = (address: Record<string, any>): string | undefined => 
   return undefined;
 };
 
-const buildPickupAddress = (order: SallaOrder): ShipmentAddress => {
+const buildCustomerAddress = (order: SallaOrder): ShipmentAddress => {
+  // Try to get customer's delivery address from multiple sources
+  // shipping_address is the primary customer delivery address
+  // shipping.pickup_address can also contain customer address in some Salla configurations
+  const shippingAddress = (order as any).shipping_address ?? {};
   const pickupAddress = order.shipping?.pickup_address ?? {};
+
+  // Prefer shipping_address, fall back to pickup_address, then customer data
+  const addressSource = Object.keys(shippingAddress).length > 0 ? shippingAddress : pickupAddress;
+
   const city =
-    pickupAddress.city ??
-    pickupAddress.city_en ??
-    pickupAddress.city_ar ??
-    pickupAddress.region ??
+    addressSource.city ??
+    addressSource.city_en ??
+    addressSource.city_ar ??
+    addressSource.region ??
+    order.customer.city ??
     'Riyadh';
 
   return {
     ContactName: `${order.customer.first_name} ${order.customer.last_name}`.trim(),
     ContactPhoneNumber: String(
-      pickupAddress.phone ?? pickupAddress.mobile ?? order.customer.mobile ?? '0000000000'
+      addressSource.phone ?? addressSource.mobile ?? order.customer.mobile ?? '0000000000'
     ).trim(),
     AddressLine1: ensureAddressLine(
-      pickupAddress.address ??
-        pickupAddress.address_line1 ??
-        pickupAddress.address_line_1 ??
-        pickupAddress.street ??
-        pickupAddress.description,
+      addressSource.address ??
+        addressSource.street_address ??
+        addressSource.address_line1 ??
+        addressSource.address_line_1 ??
+        addressSource.street ??
+        addressSource.description,
       `${city} customer`
     ),
     AddressLine2:
-      pickupAddress.address_line2 ??
-      pickupAddress.district ??
-      pickupAddress.neighborhood ??
-      pickupAddress.area,
+      addressSource.address_line2 ??
+      addressSource.district ??
+      addressSource.neighborhood ??
+      addressSource.area,
     City: city,
-    Country: pickupAddress.country ?? pickupAddress.country_code ?? 'SA',
-    Coordinates: formatCoordinates(pickupAddress),
-    District: pickupAddress.district ?? pickupAddress.area ?? undefined,
-    PostalCode: pickupAddress.postal_code ?? pickupAddress.zip_code ?? undefined,
-    ShortCode: pickupAddress.shortcode ?? pickupAddress.short_code ?? undefined,
+    Country: addressSource.country ?? addressSource.country_code ?? 'SA',
+    Coordinates: formatCoordinates(addressSource),
+    District: addressSource.district ?? addressSource.area ?? undefined,
+    PostalCode: addressSource.postal_code ?? addressSource.zip_code ?? undefined,
+    ShortCode: addressSource.shortcode ?? addressSource.short_code ?? undefined,
   };
 };
 
@@ -232,8 +242,11 @@ export async function POST(request: NextRequest) {
     const totalRefundAmount = Math.max(0, totalItemsAmount - returnFee);
     const declaredValue = Math.max(0.1, Number(totalRefundAmount.toFixed(2)));
 
-    const pickupAddress = buildPickupAddress(order);
-    const returnAddress = buildReturnAddress(body);
+    // For return shipments, addresses need to be flipped from the original order:
+    // - PickupAddress: where SMSA picks up FROM = customer's location (where order was delivered)
+    // - ReturnToAddress: where SMSA delivers TO = merchant's warehouse
+    const customerAddress = buildCustomerAddress(order);
+    const merchantAddress = buildReturnAddress(body);
     const waybillType = process.env.SMSA_WAYBILL_TYPE as 'PDF' | 'ZPL' | undefined;
     const serviceCode = process.env.SMSA_SERVICE_CODE;
     const smsRetailId = process.env.SMSA_RETAIL_ID;
@@ -243,6 +256,7 @@ export async function POST(request: NextRequest) {
       orderId: body.orderId,
       totalQuantity: parcels,
       merchantCity: body.merchantCity,
+      customerCity: customerAddress.City,
       declaredValue,
     });
 
@@ -255,8 +269,11 @@ export async function POST(request: NextRequest) {
       Weight: shipmentWeight,
       WeightUnit: 'KG',
       ContentDescription: `Return for Order ${orderReference}`,
-      PickupAddress: pickupAddress,
-      ReturnToAddress: returnAddress,
+      // Return shipment addresses (C2B - Customer to Business):
+      // - PickupAddress: Customer's location (where SMSA picks up the return FROM)
+      // - ReturnToAddress: Merchant's warehouse (where SMSA delivers the return TO)
+      PickupAddress: customerAddress,      // Customer location
+      ReturnToAddress: merchantAddress,    // Merchant warehouse
       WaybillType: waybillType,
       ServiceCode: serviceCode,
       SMSARetailID: smsRetailId,

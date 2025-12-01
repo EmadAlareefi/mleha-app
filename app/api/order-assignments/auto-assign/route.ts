@@ -93,11 +93,15 @@ export async function POST(request: NextRequest) {
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
 
     // Build query based on order type
-    // Default: fetch orders with status ID 449146439 (طلب جديد - New Order)
-    let statusFilter = '449146439'; // New Order status ID
+    // Default: fetch orders with status "under_review" (تحت المراجعة)
+    let statusFilter: string;
 
     if (user.orderType === 'specific_status' && user.specificStatus) {
       statusFilter = user.specificStatus;
+    } else {
+      // Use dynamic lookup instead of hardcoded ID
+      const underReviewStatus = getStatusBySlug(statuses, 'under_review');
+      statusFilter = underReviewStatus?.id.toString() || '566146469'; // Fallback to default ID
     }
 
     // Try to get status info for logging
@@ -113,12 +117,21 @@ export async function POST(request: NextRequest) {
     const baseUrl = 'https://api.salla.dev/admin/v2';
     const url = `${baseUrl}/orders?status=${statusFilter}&per_page=${availableSlots}&sort_by=created_at-asc`;
 
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    // Use retry logic for fetching orders
+    const { fetchSallaWithRetry } = await import('@/app/lib/fetch-with-retry');
+    let response: Response;
+
+    try {
+      response = await fetchSallaWithRetry(url, accessToken);
+    } catch (error) {
+      log.error('Failed to fetch orders from Salla after retries', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return NextResponse.json(
+        { error: 'فشل جلب الطلبات من سلة' },
+        { status: 500 }
+      );
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -172,28 +185,18 @@ export async function POST(request: NextRequest) {
     const ordersWithDetails = await Promise.all(
       ordersToAssign.map(async (order: any) => {
         try {
-          // Fetch order details
+          // Fetch order details with retry logic
           const detailUrl = `${baseUrl}/orders/${order.id}`;
-          const detailResponse = await fetch(detailUrl, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-          });
+          const detailResponse = await fetchSallaWithRetry(detailUrl, accessToken);
 
           if (detailResponse.ok) {
             const detailData = await detailResponse.json();
             const orderDetail = detailData.data || order;
 
-            // Fetch order items separately using query parameter
+            // Fetch order items separately using query parameter with retry logic
             try {
               const itemsUrl = `${baseUrl}/orders/items?order_id=${order.id}`;
-              const itemsResponse = await fetch(itemsUrl, {
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                  'Content-Type': 'application/json',
-                },
-              });
+              const itemsResponse = await fetchSallaWithRetry(itemsUrl, accessToken);
 
               if (itemsResponse.ok) {
                 const itemsData = await itemsResponse.json();
@@ -243,9 +246,9 @@ export async function POST(request: NextRequest) {
 
     // Update Salla status to "جاري التجهيز" (processing/preparing) for newly assigned orders
     // This prevents overlap between users as the order is immediately marked as being processed
-    // Status ID: 1956875584 (جاري التجهيز)
-    const preparingStatusId = '1956875584';
-    const preparingStatus = statuses.find(s => s.id.toString() === preparingStatusId);
+    // Use dynamic lookup instead of hardcoded ID
+    const preparingStatus = getStatusBySlug(statuses, 'in_progress');
+    const preparingStatusId = preparingStatus?.id.toString() || '1939592358'; // Fallback to default ID
 
     for (const assignment of assignments) {
       try {

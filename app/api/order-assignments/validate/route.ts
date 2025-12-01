@@ -6,11 +6,10 @@ import { Prisma } from '@prisma/client';
 export const runtime = 'nodejs';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
-const NEW_ORDER_STATUS_ID = '449146439'; // طلب جديد
 
 /**
  * POST /api/order-assignments/validate
- * Validate assigned orders - remove orders that are no longer in "طلب جديد" status
+ * Validate assigned orders - remove orders that are no longer in the expected status
  * and move them to history
  */
 export async function POST(request: NextRequest) {
@@ -67,6 +66,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get order statuses for dynamic lookup
+    const { getSallaOrderStatuses, getStatusBySlug } = await import('@/app/lib/salla-statuses');
+    const statuses = await getSallaOrderStatuses(MERCHANT_ID);
+
+    // Get valid statuses for assigned orders (under_review and in_progress)
+    const underReviewStatus = getStatusBySlug(statuses, 'under_review');
+    const inProgressStatus = getStatusBySlug(statuses, 'in_progress');
+
+    const validStatusIds = [
+      underReviewStatus?.id.toString(),
+      inProgressStatus?.id.toString(),
+    ].filter(Boolean); // Remove any undefined values
+
     const baseUrl = 'https://api.salla.dev/admin/v2';
     const removedOrders: string[] = [];
 
@@ -86,8 +98,8 @@ export async function POST(request: NextRequest) {
           const order = data.data;
           const currentStatusId = order.status?.id?.toString();
 
-          // If order is no longer in "طلب جديد" status, remove it and archive to history
-          if (currentStatusId !== NEW_ORDER_STATUS_ID) {
+          // If order is no longer in valid status (under_review or in_progress), remove it and archive to history
+          if (!validStatusIds.includes(currentStatusId)) {
             log.info('Order status changed - removing from assignment', {
               orderId: assignment.orderId,
               orderNumber: assignment.orderNumber,

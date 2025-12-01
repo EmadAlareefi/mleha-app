@@ -9,14 +9,14 @@ datasource db {
 }
 
 model WebhookEvent {
-  id           String   @id @default(cuid())
-  sallaEvent   String
-  orderId      String?
-  status       String?
-  rawPayload   Json      // maps to jsonb in Postgres
-  signature    String?
-  receivedAt   DateTime  @default(now())
-  uniqueKey    String?   @unique
+  id         String   @id @default(cuid())
+  sallaEvent String
+  orderId    String?
+  status     String?
+  rawPayload Json // maps to jsonb in Postgres
+  signature  String?
+  receivedAt DateTime @default(now())
+  uniqueKey  String?  @unique
 
   @@index([receivedAt])
   @@index([orderId, status])
@@ -26,12 +26,12 @@ model MessageLog {
   id           String   @id @default(cuid())
   orderId      String?
   toPhone      String
-  channel      String   // "whatsapp"
+  channel      String // "whatsapp"
   templateName String?
-  body         String?  @db.Text   // body can be long; TEXT avoids length limits
+  body         String?  @db.Text // body can be long; TEXT avoids length limits
   zokoMsgId    String?
-  status       String   // "sent" | "failed"
-  error        String?  @db.Text   // store full error safely
+  status       String // "sent" | "failed"
+  error        String?  @db.Text // store full error safely
   createdAt    DateTime @default(now())
 
   @@index([createdAt])
@@ -39,14 +39,14 @@ model MessageLog {
 }
 
 model WebhookLog {
-  id              String   @id @default(cuid())
-  receivedAt      DateTime @default(now())
+  id         String   @id @default(cuid())
+  receivedAt DateTime @default(now())
 
   // Request metadata
-  method          String
-  url             String?
-  ip              String?  @db.Inet
-  headers         Json     // jsonb
+  method  String
+  url     String?
+  ip      String? @db.Inet
+  headers Json // jsonb
 
   // Signature
   signature       String?
@@ -54,16 +54,16 @@ model WebhookLog {
   verified        Boolean
 
   // Parsed info (best effort)
-  event           String?
-  orderId         String?
-  status          String?
+  event   String?
+  orderId String?
+  status  String?
 
   // Payload
-  rawText         String   @db.Text  // always store the raw body (no length cap)
-  json            Json?              // set only when JSON parse succeeds (jsonb)
+  rawText String @db.Text // always store the raw body (no length cap)
+  json    Json? // set only when JSON parse succeeds (jsonb)
 
   // Errors
-  parseError      String?  @db.Text
+  parseError String? @db.Text
 
   @@index([receivedAt])
   @@index([event])
@@ -71,15 +71,15 @@ model WebhookLog {
 }
 
 model Shipment {
-  id              String   @id @default(cuid())
-  trackingNumber  String   @unique
-  company         String   // Detected company (e.g., "aramex", "smsa", "dhl", etc.)
-  type            String   // "incoming" or "outgoing"
-  scannedAt       DateTime @default(now())
-  scannedBy       String?  // Optional: user who scanned
-  notes           String?  @db.Text
-  warehouseId     String?
-  warehouse       Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  id             String     @id @default(cuid())
+  trackingNumber String     @unique
+  company        String // Detected company (e.g., "aramex", "smsa", "dhl", etc.)
+  type           String // "incoming" or "outgoing"
+  scannedAt      DateTime   @default(now())
+  scannedBy      String? // Optional: user who scanned
+  notes          String?    @db.Text
+  warehouseId    String?
+  warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([scannedAt])
   @@index([company])
@@ -89,55 +89,55 @@ model Shipment {
 }
 
 model SallaAuth {
-  id                String   @id @default(cuid())
-  merchantId        String   @unique // Salla merchant ID
-  accessToken       String   @db.Text
-  refreshToken      String   @db.Text
-  expiresAt         DateTime // When the access token expires
-  scope             String?  // Permissions scope
-  tokenType         String   @default("bearer")
+  id           String   @id @default(cuid())
+  merchantId   String   @unique // Salla merchant ID
+  accessToken  String   @db.Text
+  refreshToken String   @db.Text
+  expiresAt    DateTime // When the access token expires
+  scope        String? // Permissions scope
+  tokenType    String   @default("bearer")
 
   // Token refresh management
-  isRefreshing      Boolean  @default(false) // Mutex flag to prevent parallel refreshes
-  lastRefreshedAt   DateTime @default(now())
-  refreshAttempts   Int      @default(0) // Counter for failed refresh attempts
+  isRefreshing    Boolean  @default(false) // Mutex flag to prevent parallel refreshes
+  lastRefreshedAt DateTime @default(now())
+  refreshAttempts Int      @default(0) // Counter for failed refresh attempts
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([expiresAt])
   @@index([isRefreshing])
 }
 
 model SallaInvoice {
-  id             String   @id @default(cuid())
-  merchantId     String
-  invoiceId      String
-  orderId        String?
-  orderNumber    String?
-  invoiceNumber  String?
-  status         String?
-  paymentStatus  String?
-  currency       String?
-  subtotalAmount Decimal? @db.Decimal(12, 2)
-  taxAmount      Decimal? @db.Decimal(12, 2)
-  totalAmount    Decimal? @db.Decimal(12, 2)
-  shippingAmount Decimal? @db.Decimal(12, 2)
-  discountAmount Decimal? @db.Decimal(12, 2)
-  issueDate      DateTime?
-  dueDate        DateTime?
-  customerId     String?
-  customerName   String?
-  customerMobile String?
-  customerEmail  String?
-  notes          String?  @db.Text
-  rawInvoice     Json
-  rawOrder       Json?
-  erpSyncedAt    DateTime?
-  erpSyncError   String?  @db.Text
-  erpSyncAttempts Int     @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String    @id @default(cuid())
+  merchantId      String
+  invoiceId       String
+  orderId         String?
+  orderNumber     String?
+  invoiceNumber   String?
+  status          String?
+  paymentStatus   String?
+  currency        String?
+  subtotalAmount  Decimal?  @db.Decimal(12, 2)
+  taxAmount       Decimal?  @db.Decimal(12, 2)
+  totalAmount     Decimal?  @db.Decimal(12, 2)
+  shippingAmount  Decimal?  @db.Decimal(12, 2)
+  discountAmount  Decimal?  @db.Decimal(12, 2)
+  issueDate       DateTime?
+  dueDate         DateTime?
+  customerId      String?
+  customerName    String?
+  customerMobile  String?
+  customerEmail   String?
+  notes           String?   @db.Text
+  rawInvoice      Json
+  rawOrder        Json?
+  erpSyncedAt     DateTime?
+  erpSyncError    String?   @db.Text
+  erpSyncAttempts Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([merchantId, invoiceId])
   @@index([merchantId, status])
@@ -146,7 +146,7 @@ model SallaInvoice {
 }
 
 model SallaOrder {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   merchantId         String
   orderId            String
   referenceId        String?
@@ -156,11 +156,11 @@ model SallaOrder {
   fulfillmentStatus  String?
   paymentStatus      String?
   currency           String?
-  subtotalAmount     Decimal? @db.Decimal(12, 2)
-  taxAmount          Decimal? @db.Decimal(12, 2)
-  shippingAmount     Decimal? @db.Decimal(12, 2)
-  discountAmount     Decimal? @db.Decimal(12, 2)
-  totalAmount        Decimal? @db.Decimal(12, 2)
+  subtotalAmount     Decimal?  @db.Decimal(12, 2)
+  taxAmount          Decimal?  @db.Decimal(12, 2)
+  shippingAmount     Decimal?  @db.Decimal(12, 2)
+  discountAmount     Decimal?  @db.Decimal(12, 2)
+  totalAmount        Decimal?  @db.Decimal(12, 2)
   customerId         String?
   customerName       String?
   customerMobile     String?
@@ -175,13 +175,13 @@ model SallaOrder {
   rawOrder           Json
 
   // ERP sync tracking
-  erpSyncedAt        DateTime?
-  erpInvoiceId       String?
-  erpSyncError       String?  @db.Text
-  erpSyncAttempts    Int      @default(0)
+  erpSyncedAt     DateTime?
+  erpInvoiceId    String?
+  erpSyncError    String?   @db.Text
+  erpSyncAttempts Int       @default(0)
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([merchantId, orderId])
   @@index([merchantId, placedAt])
@@ -190,44 +190,44 @@ model SallaOrder {
 }
 
 model ReturnRequest {
-  id                String   @id @default(cuid())
-  merchantId        String   // Salla merchant ID
-  orderId           String   // Salla order ID
-  orderNumber       String?  // Human-readable order number
-  customerId        String?  // Salla customer ID
-  customerName      String?
-  customerEmail     String?
-  customerPhone     String?
+  id            String  @id @default(cuid())
+  merchantId    String // Salla merchant ID
+  orderId       String // Salla order ID
+  orderNumber   String? // Human-readable order number
+  customerId    String? // Salla customer ID
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
 
-  type              String   // "return" or "exchange"
-  status            String   @default("pending_review") // pending_review, approved, rejected, shipped, delivered, completed, cancelled
-  reason            String   // Predefined reason or "other"
-  reasonDetails     String?  @db.Text // Free-text explanation
+  type          String // "return" or "exchange"
+  status        String  @default("pending_review") // pending_review, approved, rejected, shipped, delivered, completed, cancelled
+  reason        String // Predefined reason or "other"
+  reasonDetails String? @db.Text // Free-text explanation
 
   // SMSA shipment info
-  smsaTrackingNumber String?  @unique
+  smsaTrackingNumber String? @unique
   smsaAwbNumber      String?
-  smsaResponse       Json?    // Raw SMSA API response
+  smsaResponse       Json? // Raw SMSA API response
 
   // Financial details
-  totalRefundAmount  Decimal? @db.Decimal(10, 2)
-  returnFee          Decimal? @db.Decimal(10, 2) // Return processing fee
-  shippingAmount     Decimal? @db.Decimal(10, 2) // Original shipping cost (non-refundable)
+  totalRefundAmount Decimal? @db.Decimal(10, 2)
+  returnFee         Decimal? @db.Decimal(10, 2) // Return processing fee
+  shippingAmount    Decimal? @db.Decimal(10, 2) // Original shipping cost (non-refundable)
 
   // Coupon for exchanges
-  couponCode         String?  @unique // Generated coupon code for exchanges
-  couponId           String?  // Salla coupon ID
-  couponCreatedAt    DateTime? // When coupon was created
+  couponCode      String?   @unique // Generated coupon code for exchanges
+  couponId        String? // Salla coupon ID
+  couponCreatedAt DateTime? // When coupon was created
 
   // Admin notes
-  adminNotes         String?  @db.Text
-  reviewedBy         String?  // Admin who reviewed
-  reviewedAt         DateTime?
+  adminNotes String?   @db.Text
+  reviewedBy String? // Admin who reviewed
+  reviewedAt DateTime?
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  items             ReturnItem[]
+  items ReturnItem[]
 
   @@index([merchantId])
   @@index([orderId])
@@ -238,19 +238,19 @@ model ReturnRequest {
 }
 
 model ReturnItem {
-  id                String   @id @default(cuid())
-  returnRequestId   String
-  returnRequest     ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
 
-  productId         String   // Salla product ID
-  productName       String
-  productSku        String?
-  variantId         String?  // If product has variants
-  variantName       String?
-  quantity          Int
-  price             Decimal  @db.Decimal(10, 2)
+  productId   String // Salla product ID
+  productName String
+  productSku  String?
+  variantId   String? // If product has variants
+  variantName String?
+  quantity    Int
+  price       Decimal @db.Decimal(10, 2)
 
-  createdAt         DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([returnRequestId])
   @@index([productId])
@@ -268,31 +268,31 @@ model Settings {
 }
 
 model LocalShipment {
-  id                String   @id @default(cuid())
-  merchantId        String   // Salla merchant ID
-  orderId           String   // Salla order ID
-  orderNumber       String   // Human-readable order number
+  id          String @id @default(cuid())
+  merchantId  String // Salla merchant ID
+  orderId     String // Salla order ID
+  orderNumber String // Human-readable order number
 
   // Customer/Shipping Info
-  customerName      String
-  customerPhone     String
-  shippingAddress   String   @db.Text
-  shippingCity      String
-  shippingPostcode  String?
+  customerName     String
+  customerPhone    String
+  shippingAddress  String  @db.Text
+  shippingCity     String
+  shippingPostcode String?
 
   // Order Info
-  orderTotal        Decimal  @db.Decimal(10, 2)
-  itemsCount        Int
-  orderItems        Json?    // Store order items for label display
+  orderTotal Decimal @db.Decimal(10, 2)
+  itemsCount Int
+  orderItems Json? // Store order items for label display
 
   // Label Info
-  trackingNumber    String   @unique // Generated local tracking number
-  generatedBy       String?  // User who generated the label
-  notes             String?  @db.Text
-  warehouseId       String?
-  warehouse         Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  trackingNumber String     @unique // Generated local tracking number
+  generatedBy    String? // User who generated the label
+  notes          String?    @db.Text
+  warehouseId    String?
+  warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
-  createdAt         DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([merchantId])
   @@index([orderId])
@@ -308,64 +308,81 @@ enum OrderUserRole {
 }
 
 model OrderUser {
-  id              String   @id @default(cuid())
-  username        String   @unique
-  password        String   // Hashed password
-  name            String
-  email           String?
-  phone           String?
-  role            OrderUserRole @default(ORDERS)
+  id       String        @id @default(cuid())
+  username String        @unique
+  password String // Hashed password
+  name     String
+  email    String?
+  phone    String?
+  role     OrderUserRole @default(ORDERS) // @deprecated - use roleAssignments instead
 
   // Order type assignment
-  orderType       String   // "all", "cod", "prepaid", "specific_status"
-  specificStatus  String?  // If orderType is "specific_status"
+  orderType      String // "all", "cod", "prepaid", "specific_status"
+  specificStatus String? // If orderType is "specific_status"
 
   // Settings
-  isActive        Boolean  @default(true)
-  autoAssign      Boolean  @default(true) // Auto-assign orders when user logs in
-  maxOrders       Int      @default(50)   // Max orders to assign at once
+  isActive   Boolean @default(true)
+  autoAssign Boolean @default(true) // Auto-assign orders when user logs in
+  maxOrders  Int     @default(50) // Max orders to assign at once
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  assignments     OrderAssignment[]
+  assignments          OrderAssignment[]
   warehouseAssignments WarehouseAssignment[]
+  roleAssignments      UserRoleAssignment[]
 
   @@index([username])
   @@index([isActive])
 }
 
+// New table for multiple role support
+model UserRoleAssignment {
+  id     String        @id @default(cuid())
+  userId String
+  role   OrderUserRole
+
+  assignedAt DateTime @default(now())
+  assignedBy String? // Username of admin who assigned this role
+
+  user OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([userId])
+  @@index([role])
+}
+
 model OrderAssignment {
-  id              String   @id @default(cuid())
+  id String @id @default(cuid())
 
   // User
-  userId          String
-  user            OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Order info
-  merchantId      String
-  orderId         String   // Salla order ID
-  orderNumber     String   // Human-readable order number
-  orderData       Json     // Full order data from Salla
+  merchantId  String
+  orderId     String // Salla order ID
+  orderNumber String // Human-readable order number
+  orderData   Json // Full order data from Salla
 
   // Assignment details
-  status          String   @default("assigned") // assigned, preparing, prepared, completed, cancelled, removed
-  assignedAt      DateTime @default(now())
-  startedAt       DateTime? // When user started preparing
-  completedAt     DateTime? // When user marked as prepared
-  removedAt       DateTime? // When order was removed (status changed in Salla)
+  status      String    @default("assigned") // assigned, preparing, prepared, completed, cancelled, removed
+  assignedAt  DateTime  @default(now())
+  startedAt   DateTime? // When user started preparing
+  completedAt DateTime? // When user marked as prepared
+  removedAt   DateTime? // When order was removed (status changed in Salla)
 
   // Salla status tracking
-  sallaStatus     String?  // Current status in Salla
-  sallaUpdated    Boolean  @default(false) // Whether we updated status in Salla
+  sallaStatus  String? // Current status in Salla
+  sallaUpdated Boolean @default(false) // Whether we updated status in Salla
 
-  notes           String?  @db.Text
+  notes String? @db.Text
 
+  @@unique([userId, orderId])
   @@index([userId])
   @@index([status])
   @@index([merchantId, orderId])
   @@index([assignedAt])
-  @@unique([userId, orderId])
 }
 
 model Warehouse {
@@ -378,9 +395,9 @@ model Warehouse {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  shipments        Shipment[]
-  localShipments   LocalShipment[]
-  assignments      WarehouseAssignment[]
+  shipments      Shipment[]
+  localShipments LocalShipment[]
+  assignments    WarehouseAssignment[]
 
   @@index([isActive])
 }
@@ -392,39 +409,39 @@ model WarehouseAssignment {
   role        String?
   createdAt   DateTime @default(now())
 
-  user       OrderUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  warehouse  Warehouse  @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  user      OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
 
   @@unique([userId, warehouseId])
   @@index([warehouseId])
 }
 
 model OrderHistory {
-  id              String   @id @default(cuid())
+  id String @id @default(cuid())
 
   // User
-  userId          String
-  userName        String   // Store user name for historical reference
+  userId   String
+  userName String // Store user name for historical reference
 
   // Order info
-  merchantId      String
-  orderId         String   // Salla order ID
-  orderNumber     String   // Human-readable order number
-  orderData       Json     // Full order data from Salla
+  merchantId  String
+  orderId     String // Salla order ID
+  orderNumber String // Human-readable order number
+  orderData   Json // Full order data from Salla
 
   // History details
-  status          String   // Final status: completed, cancelled, removed
-  assignedAt      DateTime
-  startedAt       DateTime?
-  finishedAt      DateTime // When order was finished/removed
+  status     String // Final status: completed, cancelled, removed
+  assignedAt DateTime
+  startedAt  DateTime?
+  finishedAt DateTime // When order was finished/removed
 
   // Duration tracking
-  durationMinutes Int?     // Total time spent on order
+  durationMinutes Int? // Total time spent on order
 
   // Salla status at finish
   finalSallaStatus String?
 
-  notes           String?  @db.Text
+  notes String? @db.Text
 
   @@index([userId])
   @@index([status])

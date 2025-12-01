@@ -44,11 +44,6 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (orderUser) {
-          const orderUserRole =
-            (orderUser.role || 'ORDERS').toLowerCase() as
-              | 'orders'
-              | 'store_manager'
-              | 'warehouse';
           // Check if user is active
           if (!orderUser.isActive) {
             return null;
@@ -60,45 +55,63 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const warehouseAssignments =
-            orderUserRole === 'warehouse'
-              ? await prisma.warehouseAssignment.findMany({
-                  where: {
-                    userId: orderUser.id,
-                    warehouse: { isActive: true },
-                  },
-                  include: {
-                    warehouse: true,
-                  },
-                })
-              : [];
+          // Get user roles from role assignments table (with fallback to legacy single role)
+          const roleAssignments = await prisma.userRoleAssignment.findMany({
+            where: { userId: orderUser.id },
+            select: { role: true },
+          });
 
-          const warehouseData =
-            orderUserRole === 'warehouse'
-              ? {
-                  warehouses: warehouseAssignments.map((assignment) => ({
-                    id: assignment.warehouse.id,
-                    name: assignment.warehouse.name,
-                    code: assignment.warehouse.code,
-                    location: assignment.warehouse.location,
-                  })),
-                }
-              : undefined;
+          // If no role assignments, use legacy role field
+          const userRoles = roleAssignments.length > 0
+            ? roleAssignments.map(ra => ra.role.toLowerCase() as 'orders' | 'store_manager' | 'warehouse')
+            : [(orderUser.role || 'ORDERS').toLowerCase() as 'orders' | 'store_manager' | 'warehouse'];
+
+          // Primary role is the first role (for backward compatibility)
+          const primaryRole = userRoles[0];
+
+          // Get warehouse assignments if user has warehouse role
+          const hasWarehouseRole = userRoles.includes('warehouse');
+          const warehouseAssignments = hasWarehouseRole
+            ? await prisma.warehouseAssignment.findMany({
+                where: {
+                  userId: orderUser.id,
+                  warehouse: { isActive: true },
+                },
+                include: {
+                  warehouse: true,
+                },
+              })
+            : [];
+
+          const warehouseData = hasWarehouseRole
+            ? {
+                warehouses: warehouseAssignments.map((assignment) => ({
+                  id: assignment.warehouse.id,
+                  name: assignment.warehouse.name,
+                  code: assignment.warehouse.code,
+                  location: assignment.warehouse.location,
+                })),
+              }
+            : undefined;
+
+          // Include order data if user has orders role
+          const hasOrdersRole = userRoles.includes('orders');
+          const orderUserData = hasOrdersRole
+            ? {
+                autoAssign: orderUser.autoAssign,
+                maxOrders: orderUser.maxOrders,
+                orderType: orderUser.orderType,
+                specificStatus: orderUser.specificStatus,
+              }
+            : undefined;
 
           return {
             id: orderUser.id,
             name: orderUser.name,
             username: orderUser.username,
-            role: orderUserRole,
-            orderUserData:
-              orderUserRole === 'orders'
-                ? {
-                    autoAssign: orderUser.autoAssign,
-                    maxOrders: orderUser.maxOrders,
-                    orderType: orderUser.orderType,
-                    specificStatus: orderUser.specificStatus,
-                  }
-                : undefined,
+            role: primaryRole, // Primary role for backward compatibility
+            roles: userRoles, // Array of all roles
+            orderUserData,
             warehouseData,
           };
         }
@@ -116,7 +129,8 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.username = (user as any).username;
-        token.role = (user as any).role;
+        token.role = (user as any).role; // Primary role for backward compatibility
+        token.roles = (user as any).roles || [(user as any).role]; // Array of all roles
         token.orderUserData = (user as any).orderUserData;
         token.warehouseData = (user as any).warehouseData;
       }
@@ -126,7 +140,8 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).id = token.id;
         (session.user as any).username = token.username;
-        (session.user as any).role = token.role;
+        (session.user as any).role = token.role; // Primary role for backward compatibility
+        (session.user as any).roles = token.roles || [token.role]; // Array of all roles
         (session.user as any).orderUserData = token.orderUserData;
         (session.user as any).warehouseData = token.warehouseData;
       }

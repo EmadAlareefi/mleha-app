@@ -20,6 +20,7 @@ type ServiceCard = {
 export default function AdminDashboard() {
   const { data: session } = useSession();
   const userRole: Role = ((session?.user as any)?.role || 'admin') as Role;
+  const userRoles: Role[] = ((session?.user as any)?.roles || [userRole]) as Role[];
 
   const services: ServiceCard[] = [
     {
@@ -98,7 +99,8 @@ export default function AdminDashboard() {
 
   const visibleServices = services.filter(
     (service) =>
-      !service.allowedRoles || service.allowedRoles.includes(userRole)
+      !service.allowedRoles ||
+      service.allowedRoles.some(role => userRoles.includes(role))
   );
 
   return (

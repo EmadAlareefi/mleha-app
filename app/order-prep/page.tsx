@@ -25,7 +25,8 @@ interface OrderAssignment {
 export default function OrderPrepPage() {
   const { data: session, status } = useSession();
   const role = (session?.user as any)?.role;
-  const isOrdersUser = role === 'orders';
+  const roles = ((session?.user as any)?.roles || [role]) as string[];
+  const isOrdersUser = roles.includes('orders');
   const [user, setUser] = useState<OrderUser | null>(null);
 
   const [assignments, setAssignments] = useState<OrderAssignment[]>([]);
@@ -198,31 +199,10 @@ export default function OrderPrepPage() {
       const data = await response.json();
 
       if (data.success) {
-        console.log('=== ITEMS ENDPOINT DEBUG ===');
-        console.log('Full response:', data);
-        console.log('Raw items response:', data.debug?.rawResponse);
-        console.log('Parsed items:', data.debug?.itemsData);
-        console.log('First item details:', data.debug?.firstItem);
-        console.log('Items count:', data.itemsCount);
-        console.log('===========================');
-
-        // Make data available globally for easy copying
-        (window as any).itemsDebugData = {
-          fullResponse: data,
-          rawResponse: data.debug?.rawResponse,
-          items: data.debug?.itemsData,
-          firstItem: data.debug?.firstItem,
-          itemsCount: data.itemsCount,
-        };
-
-        console.log('📋 Data saved to window.itemsDebugData');
-        console.log('📋 To copy, run: copy(JSON.stringify(window.itemsDebugData, null, 2))');
-
         // Reload orders to get the updated data
         await loadMyOrders();
-        alert(`تم تحديث المنتجات بنجاح - عدد المنتجات: ${data.itemsCount}\n\nافتح Console (F12) وشاهد البيانات`);
+        alert(`تم تحديث المنتجات بنجاح - عدد المنتجات: ${data.itemsCount}`);
       } else {
-        console.error('Error refreshing items:', data);
         alert(data.error || 'فشل تحديث المنتجات');
       }
     } catch (error) {

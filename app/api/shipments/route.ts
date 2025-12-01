@@ -114,7 +114,10 @@ export async function POST(request: NextRequest) {
     }
 
     const role = (session.user as any)?.role;
-    if (role !== 'admin' && role !== 'warehouse') {
+    const roles = ((session.user as any)?.roles || [role]) as string[];
+    const hasPermission = roles.includes('admin') || roles.includes('warehouse');
+
+    if (!hasPermission) {
       return NextResponse.json(
         { error: 'لا تملك صلاحية لتسجيل الشحنات' },
         { status: 403 }

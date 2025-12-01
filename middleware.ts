@@ -31,6 +31,7 @@ export default withAuth(
 
     if (token) {
       const role = token.role as string | undefined;
+      const roles = (token.roles as string[]) || (role ? [role] : []);
 
       const roleAccess: Record<
         string,
@@ -38,11 +39,11 @@ export default withAuth(
       > = {
         orders: {
           home: '/order-prep',
-          allowed: [/^\/$/, /^\/order-prep(\/.*)?$/],
+          allowed: [/^\/$/, /^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/, /^\/api\/order-assignments(\/.*)?$/],
         },
         store_manager: {
           home: '/returns-management',
-          allowed: [/^\/$/, /^\/returns-management(\/.*)?$/],
+          allowed: [/^\/$/, /^\/returns-management(\/.*)?$/, /^\/api\/returns(\/.*)?$/],
         },
         warehouse: {
           home: '/warehouse',
@@ -56,17 +57,24 @@ export default withAuth(
         },
       };
 
+      // Admin can't access order-prep (it's for order users only)
       if (role === 'admin' && path.startsWith('/order-prep')) {
         return NextResponse.redirect(new URL('/', req.url));
       }
 
-      const restrictions = role ? roleAccess[role] : undefined;
-      if (restrictions) {
-        const isAllowed = restrictions.allowed.some((pattern) =>
-          pattern.test(path)
-        );
-        if (!isAllowed) {
-          return NextResponse.redirect(new URL(restrictions.home, req.url));
+      // Check if user has any role that allows access to this path
+      const hasAccess = roles.some(userRole => {
+        const restrictions = roleAccess[userRole];
+        if (!restrictions) return false;
+        return restrictions.allowed.some((pattern) => pattern.test(path));
+      });
+
+      // If path requires role-based access and user doesn't have permission
+      if (!hasAccess && role !== 'admin') {
+        const primaryRestrictions = role ? roleAccess[role] : undefined;
+        if (primaryRestrictions) {
+          // Redirect to primary role's home page
+          return NextResponse.redirect(new URL(primaryRestrictions.home, req.url));
         }
       }
     }
