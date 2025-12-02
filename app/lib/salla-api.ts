@@ -304,3 +304,54 @@ export function getMaxReturnableQuantity(item: SallaOrderItem): number {
   // In a real implementation, you might want to check for already returned quantities
   return item.quantity;
 }
+
+/**
+ * Fetches product details including category from Salla
+ */
+export async function getSallaProduct(
+  merchantId: string,
+  productId: string
+): Promise<{
+  id: number;
+  name: string;
+  sku?: string;
+  category?: string;
+  categories?: Array<{ id: number; name: string }>;
+} | null> {
+  try {
+    const response = await sallaMakeRequest<{
+      status: number;
+      success: boolean;
+      data: {
+        id: number;
+        name: string;
+        sku?: string;
+        categories?: Array<{ id: number; name: string }>;
+      };
+    }>(
+      merchantId,
+      `/products/${productId}`
+    );
+
+    if (!response || !response.success) {
+      log.error('Failed to fetch Salla product', { merchantId, productId, response });
+      return null;
+    }
+
+    const product = response.data;
+    const category = product.categories && product.categories.length > 0
+      ? product.categories[0].name
+      : undefined;
+
+    return {
+      id: product.id,
+      name: product.name,
+      sku: product.sku,
+      category,
+      categories: product.categories,
+    };
+  } catch (error) {
+    log.error('Error fetching Salla product', { merchantId, productId, error });
+    return null;
+  }
+}

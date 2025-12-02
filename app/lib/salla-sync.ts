@@ -13,6 +13,7 @@ import {
   extractReferenceId,
   extractPaymentMethod,
   deriveStatusInfo,
+  extractCampaign,
 } from '@/app/lib/salla-orders';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
@@ -54,6 +55,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   const currency = extractCurrency(order);
   const dates = extractDates(order);
   const { slug: statusSlug, name: statusName } = deriveStatusInfo(order);
+  const campaign = extractCampaign(order);
 
   await prisma.sallaOrder.upsert({
     where: {
@@ -94,6 +96,9 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
       placedAt: dates.created ?? undefined,
       updatedAtRemote: dates.updated ?? undefined,
+      campaignSource: campaign.source ?? undefined,
+      campaignMedium: campaign.medium ?? undefined,
+      campaignName: campaign.name ?? undefined,
       rawOrder: order,
     },
     update: {
@@ -126,6 +131,9 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
       placedAt: dates.created ?? undefined,
       updatedAtRemote: dates.updated ?? undefined,
+      campaignSource: campaign.source ?? undefined,
+      campaignMedium: campaign.medium ?? undefined,
+      campaignName: campaign.name ?? undefined,
       rawOrder: order,
     },
   });

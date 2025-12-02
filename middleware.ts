@@ -54,6 +54,10 @@ export default withAuth(
             /^\/api\/local-shipping(\/.*)?$/,
           ],
         },
+        accountant: {
+          home: '/order-reports',
+          allowed: [/^\/$/, /^\/order-reports(\/.*)?$/, /^\/api\/order-history(\/.*)?$/],
+        },
       };
 
       // Admin can't access order-prep (it's for order users only)

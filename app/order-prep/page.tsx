@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession, signOut } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import AppNavbar from '@/components/AppNavbar';
 
 interface OrderUser {
   id: string;
@@ -250,25 +251,9 @@ export default function OrderPrepPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="w-full">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-4">
-          <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold">تحضير الطلبات</h1>
-              <p className="text-gray-600 text-sm md:text-base mt-1">مرحباً، {user.name}</p>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={() => window.location.href = '/order-history'} variant="outline" className="text-sm md:text-base">
-                سجل الطلبات
-              </Button>
-              <Button onClick={() => signOut({ callbackUrl: '/login' })} variant="outline" className="text-sm md:text-base">
-                تسجيل الخروج
-              </Button>
-            </div>
-          </div>
-        </div>
+      <AppNavbar title="تحضير الطلبات" subtitle={`مرحباً، ${user.name}`} />
 
+      <div className="w-full">
         {/* Content */}
         <div className="px-4 md:px-6 py-6">
           {/* Stats */}

@@ -12,6 +12,7 @@ const ROLE_MAP: Record<string, OrderUserRole> = {
   orders: OrderUserRole.ORDERS,
   store_manager: OrderUserRole.STORE_MANAGER,
   warehouse: OrderUserRole.WAREHOUSE,
+  accountant: OrderUserRole.ACCOUNTANT,
 };
 
 function normalizeRole(role?: string | null): OrderUserRole {

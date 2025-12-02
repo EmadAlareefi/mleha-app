@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import type { Prisma } from '@prisma/client';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -34,11 +36,36 @@ function getStatusCategory(slug: string | null): 'completed' | 'cancelled' | 'in
  */
 export async function GET(request: NextRequest) {
   try {
+    // Check user session and role
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const userRole = (session.user as any)?.role;
+    const userRoles = (session.user as any)?.roles || [];
+    const isAccountant = userRole === 'accountant' || userRoles.includes('accountant');
+    const isAdmin = userRole === 'admin';
+
+    // Only admin and accountant can access this endpoint
+    if (!isAdmin && !isAccountant) {
+      return NextResponse.json(
+        { error: 'Forbidden' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const merchantId = searchParams.get('merchantId');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const status = searchParams.get('status');
+    const campaignSource = searchParams.get('campaignSource');
+    const campaignName = searchParams.get('campaignName');
+    const paymentMethod = searchParams.get('paymentMethod');
     const sortDirectionParam = searchParams.get('sortDirection');
     const pageParam = searchParams.get('page');
     const limitParam = searchParams.get('limit');
@@ -74,7 +101,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const [orders, totalCount, amountStats, statusBreakdown] = await Promise.all([
+    if (campaignSource) {
+      where.campaignSource = campaignSource;
+    }
+
+    if (campaignName) {
+      where.campaignName = campaignName;
+    }
+
+    if (paymentMethod) {
+      where.paymentMethod = paymentMethod;
+    }
+
+    const [orders, totalCount, amountStats, statusBreakdown, paymentMethodBreakdown] = await Promise.all([
       prisma.sallaOrder.findMany({
         where,
         orderBy: {
@@ -93,6 +132,13 @@ export async function GET(request: NextRequest) {
       prisma.sallaOrder.groupBy({
         where,
         by: ['statusSlug', 'statusName'],
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.sallaOrder.groupBy({
+        where: merchantId ? { merchantId } : {},
+        by: ['paymentMethod'],
         _count: {
           _all: true,
         },
@@ -136,42 +182,75 @@ export async function GET(request: NextRequest) {
 
     const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / limit);
 
-    const serializedOrders = orders.map((order) => ({
-      id: order.id,
-      merchantId: order.merchantId,
-      orderId: order.orderId,
-      orderNumber: order.orderNumber,
-      statusSlug: order.statusSlug,
-      statusName: order.statusName,
-      fulfillmentStatus: order.fulfillmentStatus,
-      paymentStatus: order.paymentStatus,
-      paymentMethod: order.paymentMethod,
-      currency: order.currency,
-      subtotalAmount: order.subtotalAmount ? Number(order.subtotalAmount) : null,
-      taxAmount: order.taxAmount ? Number(order.taxAmount) : null,
-      erpSyncedAt: order.erpSyncedAt ? order.erpSyncedAt.toISOString() : null,
-      erpInvoiceId: order.erpInvoiceId,
-      erpSyncError: order.erpSyncError,
-      shippingAmount: order.shippingAmount ? Number(order.shippingAmount) : null,
-      discountAmount: order.discountAmount ? Number(order.discountAmount) : null,
-      totalAmount: order.totalAmount ? Number(order.totalAmount) : null,
-      customerId: order.customerId,
-      customerName: order.customerName,
-      customerMobile: order.customerMobile,
-      customerEmail: order.customerEmail,
-      customerCity: order.customerCity,
-      customerCountry: order.customerCountry,
-      fulfillmentCompany: order.fulfillmentCompany,
-      trackingNumber: order.trackingNumber,
-      placedAt: order.placedAt?.toISOString() ?? null,
-      updatedAtRemote: order.updatedAtRemote?.toISOString() ?? null,
-      rawOrder: order.rawOrder,
-    }));
+    const serializedOrders = orders.map((order) => {
+      const baseOrder = {
+        id: order.id,
+        merchantId: order.merchantId,
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        statusSlug: order.statusSlug,
+        statusName: order.statusName,
+        fulfillmentStatus: order.fulfillmentStatus,
+        paymentStatus: order.paymentStatus,
+        paymentMethod: order.paymentMethod,
+        currency: order.currency,
+        subtotalAmount: order.subtotalAmount ? Number(order.subtotalAmount) : null,
+        taxAmount: order.taxAmount ? Number(order.taxAmount) : null,
+        erpSyncedAt: order.erpSyncedAt ? order.erpSyncedAt.toISOString() : null,
+        erpInvoiceId: order.erpInvoiceId,
+        erpSyncError: order.erpSyncError,
+        shippingAmount: order.shippingAmount ? Number(order.shippingAmount) : null,
+        discountAmount: order.discountAmount ? Number(order.discountAmount) : null,
+        totalAmount: order.totalAmount ? Number(order.totalAmount) : null,
+        fulfillmentCompany: order.fulfillmentCompany,
+        trackingNumber: order.trackingNumber,
+        placedAt: order.placedAt?.toISOString() ?? null,
+        updatedAtRemote: order.updatedAtRemote?.toISOString() ?? null,
+        campaignSource: order.campaignSource,
+        campaignMedium: order.campaignMedium,
+        campaignName: order.campaignName,
+      };
+
+      // Hide customer information for accountants
+      if (isAccountant) {
+        return {
+          ...baseOrder,
+          customerId: null,
+          customerName: null,
+          customerMobile: null,
+          customerEmail: null,
+          customerCity: null,
+          customerCountry: null,
+          rawOrder: {}, // Hide raw order data which may contain customer info
+        };
+      }
+
+      // Return full data for admins
+      return {
+        ...baseOrder,
+        customerId: order.customerId,
+        customerName: order.customerName,
+        customerMobile: order.customerMobile,
+        customerEmail: order.customerEmail,
+        customerCity: order.customerCity,
+        customerCountry: order.customerCountry,
+        rawOrder: order.rawOrder,
+      };
+    });
 
     const availableStatuses = statusStats.map((status) => ({
       slug: status.slug,
       name: status.name,
     }));
+
+    const availablePaymentMethods = paymentMethodBreakdown
+      .filter((pm) => pm.paymentMethod)
+      .map((pm) => ({
+        value: pm.paymentMethod,
+        label: pm.paymentMethod,
+        count: pm._count._all,
+      }))
+      .sort((a, b) => b.count - a.count);
 
     return NextResponse.json({
       success: true,
@@ -180,6 +259,7 @@ export async function GET(request: NextRequest) {
       statusStats,
       filters: {
         statuses: availableStatuses,
+        paymentMethods: availablePaymentMethods,
       },
       pagination: {
         page,

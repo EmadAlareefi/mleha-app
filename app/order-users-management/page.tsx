@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import AppNavbar from '@/components/AppNavbar';
 
-type UserRole = 'orders' | 'store_manager' | 'warehouse';
+type UserRole = 'orders' | 'store_manager' | 'warehouse' | 'accountant';
 
 interface WarehouseOption {
   id: string;
@@ -45,12 +45,14 @@ const ROLE_LABELS: Record<UserRole, string> = {
   orders: 'مستخدم الطلبات',
   store_manager: 'مدير المتجر (الإرجاع)',
   warehouse: 'موظف المستودع',
+  accountant: 'محاسب',
 };
 
 const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   orders: 'الوصول إلى لوحة تحضير الطلبات فقط',
   store_manager: 'الوصول إلى صفحات الإرجاع/إدارة الطلبات المرتجعة',
   warehouse: 'الوصول إلى المستودع والشحن المحلي',
+  accountant: 'الوصول إلى تقارير الطلبات بدون معلومات العملاء',
 };
 
 export default function OrderUsersManagementPage() {
@@ -330,31 +332,22 @@ export default function OrderUsersManagementPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gray-50">
+      <AppNavbar title="إدارة مستخدمي الطلبات" subtitle="إنشاء وإدارة حسابات الموظفين" />
+
+      <div className="max-w-7xl mx-auto py-8 px-4">
         {/* Header */}
-        <div className="mb-8 flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">إدارة مستخدمي الطلبات</h1>
-            <p className="text-gray-600">
-              إنشاء وإدارة حسابات موظفي التحضير، المستودع، ومدراء الإرجاع
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <Button
-              onClick={() => {
-                setEditingUser(null);
-                resetForm();
-                setShowForm(true);
-              }}
-              disabled={showForm || accessDenied}
-            >
-              + إضافة مستخدم
-            </Button>
-            <Link href="/">
-              <Button variant="outline">← العودة للرئيسية</Button>
-            </Link>
-          </div>
+        <div className="mb-8 flex justify-end items-center">
+          <Button
+            onClick={() => {
+              setEditingUser(null);
+              resetForm();
+              setShowForm(true);
+            }}
+            disabled={showForm || accessDenied}
+          >
+            + إضافة مستخدم
+          </Button>
         </div>
 
         {/* Form */}
@@ -690,6 +683,18 @@ export default function OrderUsersManagementPage() {
                       ) : (
                         <p className="text-xs text-red-600">لم يتم ربط أي مستودع بهذا المستخدم</p>
                       )}
+                    </div>
+                  ) : user.role === 'accountant' ? (
+                    <div className="space-y-2 text-gray-600">
+                      <div>{ROLE_DESCRIPTIONS[user.role]}</div>
+                      <div className="text-xs bg-blue-50 border border-blue-200 rounded p-2 mt-2">
+                        <strong className="text-blue-900">الصلاحيات:</strong>
+                        <ul className="list-disc pr-5 mt-1 text-blue-800 space-y-1">
+                          <li>عرض تقارير الطلبات والإحصائيات</li>
+                          <li>لا يمكن رؤية بيانات العملاء</li>
+                          <li>عرض المبالغ المالية وحالات الطلبات</li>
+                        </ul>
+                      </div>
                     </div>
                   ) : (
                     <div className="text-gray-600">

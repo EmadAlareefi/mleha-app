@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import AppNavbar from '@/components/AppNavbar';
 import {
   ArrowRight,
   Calendar,
@@ -19,8 +20,8 @@ import {
   CheckCircle2,
   XCircle,
   RefreshCw,
+  Megaphone,
 } from 'lucide-react';
-import SaudiCurrencyIcon from '@/components/icons/SaudiCurrencyIcon';
 
 interface OrderRecord {
   id: string;
@@ -52,6 +53,9 @@ interface OrderRecord {
   erpSyncedAt: string | null;
   erpInvoiceId: string | null;
   erpSyncError: string | null;
+  campaignSource: string | null;
+  campaignMedium: string | null;
+  campaignName: string | null;
 }
 
 interface Stats {
@@ -106,6 +110,9 @@ export default function OrderReportsPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterCampaignSource, setFilterCampaignSource] = useState('');
+  const [filterCampaignName, setFilterCampaignName] = useState('');
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'stats'>('stats');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -114,6 +121,12 @@ export default function OrderReportsPage() {
   const [syncingOrders, setSyncingOrders] = useState<Set<string>>(new Set());
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [clearingDebugInvoices, setClearingDebugInvoices] = useState(false);
+  const [paymentMethodOptions, setPaymentMethodOptions] = useState<{ value: string; label: string; count: number }[]>([]);
+
+  // Check if user is accountant
+  const userRole = (session?.user as any)?.role;
+  const userRoles = (session?.user as any)?.roles || [];
+  const isAccountant = userRole === 'accountant' || userRoles.includes('accountant');
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -133,6 +146,9 @@ export default function OrderReportsPage() {
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       if (filterStatus) params.append('status', filterStatus);
+      if (filterCampaignSource) params.append('campaignSource', filterCampaignSource);
+      if (filterCampaignName) params.append('campaignName', filterCampaignName);
+      if (filterPaymentMethod) params.append('paymentMethod', filterPaymentMethod);
       params.append('page', pageToLoad.toString());
       params.append('limit', HISTORY_PAGE_SIZE.toString());
       params.append('sortDirection', sortDirection);
@@ -142,7 +158,7 @@ export default function OrderReportsPage() {
         `/api/order-history/admin${query ? `?${query}` : ''}`
       );
       const data = await response.json();
-
+      console.log(data);
       if (data.success) {
         const fetchedOrders: OrderRecord[] = data.orders ?? [];
         setOrders((prev) => (append ? [...prev, ...fetchedOrders] : fetchedOrders));
@@ -151,6 +167,7 @@ export default function OrderReportsPage() {
         setStatusOptions(
           data.filters?.statuses?.length ? data.filters.statuses : DEFAULT_STATUS_OPTIONS
         );
+        setPaymentMethodOptions(data.filters?.paymentMethods || []);
         setHasMore(Boolean(data.pagination?.hasMore));
         setPage(data.pagination?.page ?? pageToLoad);
       }
@@ -163,7 +180,7 @@ export default function OrderReportsPage() {
         setLoading(false);
       }
     }
-  }, [startDate, endDate, filterStatus, sortDirection]);
+  }, [startDate, endDate, filterStatus, filterCampaignSource, filterCampaignName, filterPaymentMethod, sortDirection]);
 
   useEffect(() => {
     if (session?.user) {
@@ -206,7 +223,10 @@ export default function OrderReportsPage() {
         {currency ? (
           <span className="text-xs uppercase text-gray-500">{currency}</span>
         ) : (
-          <SaudiCurrencyIcon className="h-5 w-5" />
+          <svg className="h-5 w-5 text-gray-600" viewBox="0 0 1124.14 1256.39" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path d="M699.62,1113.02h0c-20.06,44.48-33.32,92.75-38.4,143.37l424.51-90.24c20.06-44.47,33.31-92.75,38.4-143.37l-424.51,90.24Z"/>
+            <path d="M1085.73,895.8c20.06-44.47,33.32-92.75,38.4-143.37l-330.68,70.33v-135.2l292.27-62.11c20.06-44.47,33.32-92.75,38.4-143.37l-330.68,70.27V66.13c-50.67,28.45-95.67,66.32-132.25,110.99v403.35l-132.25,28.11V0c-50.67,28.44-95.67,66.32-132.25,110.99v525.69l-295.91,62.88c-20.06,44.47-33.33,92.75-38.42,143.37l334.33-71.05v170.26l-358.3,76.14c-20.06,44.47-33.32,92.75-38.4,143.37l375.04-79.7c30.53-6.35,56.77-24.4,73.83-49.24l68.78-101.97v-.02c7.14-10.55,11.3-23.27,11.3-36.97v-149.98l132.25-28.11v270.4l424.53-90.28Z"/>
+          </svg>
         )}
       </span>
     );
@@ -214,6 +234,29 @@ export default function OrderReportsPage() {
 
   const formatNumber = (value: number) => {
     return value.toLocaleString('en-US');
+  };
+
+  const translatePaymentMethod = (method: string): string => {
+    const translations: Record<string, string> = {
+      'cash': 'الدفع عند الاستلام',
+      'cod': 'الدفع عند الاستلام',
+      'credit_card': 'بطاقة ائتمان',
+      'bank': 'تحويل بنكي',
+      'bank_transfer': 'تحويل بنكي',
+      'mada': 'مدى',
+      'visa': 'فيزا',
+      'mastercard': 'ماستركارد',
+      'apple_pay': 'آبل باي',
+      'stc_pay': 'STC Pay',
+      'tabby': 'تابي',
+      'tabby_installment': 'تابي',
+      'tamara': 'تمارا',
+      'tamara_installment': 'تمارا',
+      'wallet': 'محفظة إلكترونية',
+      'free': 'مجاني',
+      'waiting': 'بانتظار الدفع',
+    };
+    return translations[method.toLowerCase()] || method;
   };
 
   const syncOrderToERP = async (orderId: string, orderNumber: string | null) => {
@@ -404,20 +447,10 @@ export default function OrderReportsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <Button
-            onClick={() => router.push('/')}
-            variant="ghost"
-            className="mb-4"
-          >
-            <ArrowRight className="ml-2 h-4 w-4" />
-            العودة
-          </Button>
-          <h1 className="text-3xl font-bold text-gray-900">تقارير الطلبات</h1>
-        </div>
+    <div className="min-h-screen bg-gray-50">
+      <AppNavbar title="تقارير الطلبات" subtitle="عرض وتحليل بيانات الطلبات" />
+
+      <div className="max-w-7xl mx-auto p-4">
 
         {/* Sync Message */}
         {syncMessage && (
@@ -432,7 +465,7 @@ export default function OrderReportsPage() {
           </div>
         )}
 
-        {/* View Mode Toggle */}
+        {/* Action Buttons */}
         <div className="flex gap-2 mb-6">
           <Button
             onClick={() => setViewMode('stats')}
@@ -488,7 +521,7 @@ export default function OrderReportsPage() {
 
         {/* Filters */}
         <Card className="p-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 حالة الطلب
@@ -541,12 +574,56 @@ export default function OrderReportsPage() {
                 <option value="asc">من الأقدم إلى الأحدث</option>
               </select>
             </div>
-            <div className="flex items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                مصدر الحملة
+              </label>
+              <input
+                type="text"
+                value={filterCampaignSource}
+                onChange={(e) => setFilterCampaignSource(e.target.value)}
+                placeholder="مثال: coupon"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                اسم الحملة
+              </label>
+              <input
+                type="text"
+                value={filterCampaignName}
+                onChange={(e) => setFilterCampaignName(e.target.value)}
+                placeholder="مثال: ml"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                طريقة الدفع
+              </label>
+              <select
+                value={filterPaymentMethod}
+                onChange={(e) => setFilterPaymentMethod(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              >
+                <option value="">الكل</option>
+                {paymentMethodOptions.map((pm, index) => (
+                  <option key={`${pm.value}-${index}`} value={pm.value}>
+                    {translatePaymentMethod(pm.value)} ({pm.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2 lg:col-span-1 flex items-end">
               <Button
                 onClick={() => {
                   setStartDate('');
                   setEndDate('');
                   setFilterStatus('');
+                  setFilterCampaignSource('');
+                  setFilterCampaignName('');
+                  setFilterPaymentMethod('');
                   setSortDirection('desc');
                 }}
                 variant="outline"
@@ -671,19 +748,19 @@ export default function OrderReportsPage() {
                             </span>
                           </div>
                           <div className="text-sm text-gray-600 space-y-1">
-                            {order.customerName && (
+                            {!isAccountant && order.customerName && (
                               <div className="flex items-center gap-2">
                                 <User className="h-4 w-4" />
                                 <span className="font-medium">{order.customerName}</span>
                               </div>
                             )}
-                            {order.customerMobile && (
+                            {!isAccountant && order.customerMobile && (
                               <div className="flex items-center gap-2">
                                 <Phone className="h-4 w-4" />
                                 <span>{order.customerMobile}</span>
                               </div>
                             )}
-                            {order.customerCity && (
+                            {!isAccountant && order.customerCity && (
                               <div className="flex items-center gap-2">
                                 <MapPin className="h-4 w-4" />
                                 <span>{order.customerCity}</span>
@@ -697,6 +774,17 @@ export default function OrderReportsPage() {
                               <div className="flex items-center gap-2">
                                 <Package className="h-4 w-4" />
                                 <span>شركة الشحن: {order.fulfillmentCompany}</span>
+                              </div>
+                            )}
+                            {(order.campaignSource || order.campaignMedium || order.campaignName) && (
+                              <div className="flex items-center gap-2">
+                                <Megaphone className="h-4 w-4" />
+                                <span>
+                                  الحملة: {order.campaignName || 'غير محدد'}
+                                  {order.campaignSource && ` (${order.campaignSource}`}
+                                  {order.campaignMedium && ` / ${order.campaignMedium}`}
+                                  {(order.campaignSource || order.campaignMedium) && ')'}
+                                </span>
                               </div>
                             )}
                           </div>

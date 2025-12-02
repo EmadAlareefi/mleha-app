@@ -188,6 +188,7 @@ export function getRoleDisplayName(role: OrderUserRole | string): string {
     ORDERS: 'تحضير الطلبات',
     STORE_MANAGER: 'إدارة المرتجعات',
     WAREHOUSE: 'المستودع',
+    ACCOUNTANT: 'المحاسبة',
     admin: 'مدير النظام',
   };
 

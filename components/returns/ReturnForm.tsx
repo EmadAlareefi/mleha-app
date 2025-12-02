@@ -98,6 +98,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [returnFee, setReturnFee] = useState(0);
+  const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
 
   // Load return fee setting on mount
   useEffect(() => {
@@ -119,6 +120,47 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
     loadReturnConfig();
   }, []);
+
+  // Fetch categories for all items
+  useEffect(() => {
+    const fetchCategories = async () => {
+      if (!order.items || order.items.length === 0) return;
+
+      const categories: Record<string, string> = {};
+      const productIds = new Set<string>();
+
+      // Get unique product IDs
+      order.items.forEach((item: any) => {
+        const productId = item.product?.id ?? item.id;
+        if (productId) {
+          productIds.add(String(productId));
+        }
+      });
+
+      // Fetch categories for all products
+      await Promise.all(
+        Array.from(productIds).map(async (productId) => {
+          try {
+            const response = await fetch(
+              `/api/products/category?merchantId=${merchantId}&productId=${productId}`
+            );
+            if (response.ok) {
+              const data = await response.json();
+              if (data.category) {
+                categories[productId] = data.category;
+              }
+            }
+          } catch (err) {
+            console.error(`Failed to fetch category for product ${productId}`, err);
+          }
+        })
+      );
+
+      setItemCategories(categories);
+    };
+
+    fetchCategories();
+  }, [order, merchantId]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
     const newSelectedItems = new Map(selectedItems);
@@ -298,6 +340,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const discountAmount = item.amounts?.total_discount?.amount ?? 0;
               const itemPrice = priceWithoutTax + taxAmount - discountAmount;
 
+              // Get product ID for category lookup
+              const productId = String(item.product?.id ?? item.id);
+              const category = itemCategories[productId];
+
               return (
                 <button
                   key={`item-${item.id}-${index}`}
@@ -329,6 +375,13 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     <h4 className="font-medium text-gray-900 mb-1 line-clamp-2">
                       {item.name || item.product?.name || 'منتج'}
                     </h4>
+                    {category && (
+                      <div className="mb-2">
+                        <span className="inline-block px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-md">
+                          {category}
+                        </span>
+                      </div>
+                    )}
                     {item.sku && (
                       <p className="text-xs text-gray-500 mb-1">SKU: {item.sku}</p>
                     )}

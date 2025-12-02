@@ -27,6 +27,40 @@ export default function ReturnsPage() {
   const [canCreateNew, setCanCreateNew] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
+
+  const fetchItemCategories = async (returns: any[]) => {
+    const categories: Record<string, string> = {};
+
+    // Get all unique product IDs from all return items
+    const productIds = new Set<string>();
+    returns.forEach(ret => {
+      ret.items.forEach((item: any) => {
+        productIds.add(item.productId);
+      });
+    });
+
+    // Fetch categories for all products
+    await Promise.all(
+      Array.from(productIds).map(async (productId) => {
+        try {
+          const response = await fetch(
+            `/api/products/category?merchantId=${MERCHANT_CONFIG.merchantId}&productId=${productId}`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.category) {
+              categories[productId] = data.category;
+            }
+          }
+        } catch (err) {
+          console.error(`Failed to fetch category for product ${productId}`, err);
+        }
+      })
+    );
+
+    setItemCategories(categories);
+  };
 
   const handleLookupOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +93,8 @@ export default function ReturnsPage() {
 
       if (returnsData.hasExistingReturns && returnsData.returns.length > 0) {
         setExistingReturns(returnsData.returns);
+        // Fetch categories for all items
+        await fetchItemCategories(returnsData.returns);
         setStep('existing');
       } else {
         setStep('form');
@@ -258,11 +294,21 @@ export default function ReturnsPage() {
 
                     <div className="border-t pt-4 mt-4">
                       <h4 className="font-medium mb-2">المنتجات:</h4>
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         {returnReq.items.map((item: any) => (
-                          <div key={item.id} className="flex justify-between text-sm">
-                            <span>{item.productName}</span>
-                            <span className="text-gray-600">الكمية: {item.quantity}</span>
+                          <div key={item.id} className="bg-gray-50 p-3 rounded-lg">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-medium">{item.productName}</span>
+                              <span className="text-gray-600 text-sm">الكمية: {item.quantity}</span>
+                            </div>
+                            {itemCategories[item.productId] && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-xs text-gray-500">التصنيف:</span>
+                                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-md">
+                                  {itemCategories[item.productId]}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

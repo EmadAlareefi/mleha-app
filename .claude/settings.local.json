@@ -11,7 +11,11 @@
       "Bash(chmod:*)",
       "Bash(npx ts-node:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx prisma format:*)"
+      "Bash(npx prisma format:*)",
+      "Bash(npx prisma generate:*)",
+      "Bash(npm run sync:salla-orders:*)",
+      "Bash(next build)",
+      "Bash(npx next build)"
     ],
     "deny": [],
     "ask": []

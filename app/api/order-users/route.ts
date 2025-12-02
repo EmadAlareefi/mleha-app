@@ -12,6 +12,7 @@ const ROLE_MAP: Record<string, OrderUserRole> = {
   orders: OrderUserRole.ORDERS,
   store_manager: OrderUserRole.STORE_MANAGER,
   warehouse: OrderUserRole.WAREHOUSE,
+  accountant: OrderUserRole.ACCOUNTANT,
 };
 
 function normalizeRole(role?: string | null): OrderUserRole {
@@ -273,7 +274,7 @@ export async function POST(request: NextRequest) {
             ? specificStatus
             : null,
         autoAssign: prismaRole === OrderUserRole.ORDERS ? autoAssign !== false : false,
-        maxOrders: prismaRole === OrderUserRole.ORDERS ? maxOrders || 50 : 0,
+        maxOrders: prismaRole === OrderUserRole.ORDERS ? maxOrders || 50 : 50,
       },
     });
 

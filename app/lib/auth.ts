@@ -63,8 +63,8 @@ export const authOptions: NextAuthOptions = {
 
           // If no role assignments, use legacy role field
           const userRoles = roleAssignments.length > 0
-            ? roleAssignments.map(ra => ra.role.toLowerCase() as 'orders' | 'store_manager' | 'warehouse')
-            : [(orderUser.role || 'ORDERS').toLowerCase() as 'orders' | 'store_manager' | 'warehouse'];
+            ? roleAssignments.map(ra => ra.role.toLowerCase() as 'orders' | 'store_manager' | 'warehouse' | 'accountant')
+            : [(orderUser.role || 'ORDERS').toLowerCase() as 'orders' | 'store_manager' | 'warehouse' | 'accountant'];
 
           // Primary role is the first role (for backward compatibility)
           const primaryRole = userRoles[0];

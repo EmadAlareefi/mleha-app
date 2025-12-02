@@ -1,11 +1,11 @@
 'use client';
 
-import { useSession, signOut } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import AppNavbar from '@/components/AppNavbar';
 
-type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse';
+type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse' | 'accountant';
 
 type ServiceCard = {
   title: string;
@@ -93,7 +93,7 @@ export default function AdminDashboard() {
       icon: '📊',
       href: '/order-reports',
       color: 'from-teal-500 to-teal-600',
-      allowedRoles: ['admin'],
+      allowedRoles: ['admin', 'accountant'],
     },
     {
       title: 'الفواتير',
@@ -113,40 +113,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">لوحة التحكم</h1>
-              <p className="text-sm text-gray-600 mt-1">
-                مرحباً، {session?.user?.name || 'المسؤول'}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {userRole === 'admin' && (
-                <Link href="/warehouse-management">
-                  <Button variant="outline" className="hover:bg-indigo-50 hover:text-indigo-700">
-                    إدارة المستودعات
-                  </Button>
-                </Link>
-              )}
-              <Link href="/warehouse">
-                <Button variant="outline" className="hover:bg-indigo-50 hover:text-indigo-700">
-                  المستودعات
-                </Button>
-              </Link>
-              <Button
-                variant="outline"
-                onClick={() => signOut({ callbackUrl: '/login' })}
-                className="text-red-600 hover:bg-red-50 hover:text-red-700"
-              >
-                تسجيل الخروج
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppNavbar />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
@@ -216,43 +183,6 @@ export default function AdminDashboard() {
               </Card>
             </Link>
           ))}
-        </div>
-
-        {/* Info Cards */}
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Public Access Note */}
-          <Card className="p-6 bg-blue-50 border-blue-200">
-            <div className="flex items-start gap-3">
-              <div className="text-2xl">ℹ️</div>
-              <div>
-                <h4 className="font-semibold text-blue-900 mb-1">
-                  الوصول العام
-                </h4>
-                <p className="text-sm text-blue-800">
-                  صفحة الإرجاع والاستبدال متاحة للعملاء بدون تسجيل دخول على:
-                  <br />
-                  <code className="bg-blue-100 px-2 py-1 rounded mt-1 inline-block">
-                    /returns
-                  </code>
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          {/* System Info */}
-          <Card className="p-6 bg-green-50 border-green-200">
-            <div className="flex items-start gap-3">
-              <div className="text-2xl">✅</div>
-              <div>
-                <h4 className="font-semibold text-green-900 mb-1">
-                  النظام نشط
-                </h4>
-                <p className="text-sm text-green-800">
-                  جميع الخدمات تعمل بشكل طبيعي. يتم تحديث رموز Salla تلقائياً كل 10 أيام.
-                </p>
-              </div>
-            </div>
-          </Card>
         </div>
       </main>
 

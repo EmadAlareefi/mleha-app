@@ -318,6 +318,31 @@ export function deriveStatusInfo(order: AnyRecord): { slug: string | null; name:
   return { slug, name };
 }
 
+export function extractCampaign(order: AnyRecord): {
+  source: string | null;
+  medium: string | null;
+  name: string | null;
+} {
+  const campaign = order.campaign ?? order.Campaign ?? order.utm ?? null;
+
+  return {
+    source: pickFirst(
+      normalizers.string(campaign?.source),
+      normalizers.string(order.utm_source),
+      normalizers.string(order.source_details?.value)
+    ),
+    medium: pickFirst(
+      normalizers.string(campaign?.medium),
+      normalizers.string(order.utm_medium)
+    ),
+    name: pickFirst(
+      normalizers.string(campaign?.campaign),
+      normalizers.string(campaign?.name),
+      normalizers.string(order.utm_campaign)
+    ),
+  };
+}
+
 async function fetchOrdersPage(
   merchantId: string,
   page: number,
@@ -423,6 +448,7 @@ async function syncOrdersForMerchant(
         const currency = extractCurrency(order);
         const dates = extractDates(order);
         const statusInfo = deriveStatusInfo(order);
+        const campaign = extractCampaign(order);
 
         await prisma.sallaOrder.upsert({
           where: {
@@ -463,6 +489,9 @@ async function syncOrdersForMerchant(
             trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
             placedAt: dates.created ?? undefined,
             updatedAtRemote: dates.updated ?? undefined,
+            campaignSource: campaign.source ?? undefined,
+            campaignMedium: campaign.medium ?? undefined,
+            campaignName: campaign.name ?? undefined,
             rawOrder: order,
           },
           update: {
@@ -495,6 +524,9 @@ async function syncOrdersForMerchant(
             trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
             placedAt: dates.created ?? undefined,
             updatedAtRemote: dates.updated ?? undefined,
+            campaignSource: campaign.source ?? undefined,
+            campaignMedium: campaign.medium ?? undefined,
+            campaignName: campaign.name ?? undefined,
             rawOrder: order,
           },
         });
