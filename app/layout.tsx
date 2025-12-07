@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Tajawal } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
+import PwaProvider from "@/components/PwaProvider";
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -13,9 +14,12 @@ const tajawal = Tajawal({
 export const metadata: Metadata = {
   title: "متجر مليحة للفساتين",
   description: "نظام إدارة طلبات متجر مليحة",
+  applicationName: "متجر مليحة للفساتين",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#11101a",
   icons: {
-    icon: '/logo.png',
-    apple: '/logo.png',
+    icon: "/logo.png",
+    apple: "/logo.png",
   },
 };
 
@@ -33,6 +37,7 @@ export default function RootLayout({
         <SessionProvider>
           {children}
         </SessionProvider>
+        <PwaProvider />
       </body>
     </html>
   );
