@@ -2,8 +2,8 @@ import { prisma } from '@/lib/prisma';
 import { log } from './logger';
 
 const SALLA_OAUTH_URL = 'https://accounts.salla.sa/oauth2/token';
-const TOKEN_REFRESH_BEFORE_EXPIRY_MS = 24 * 60 * 60 * 1000; // Refresh 1 day before expiry
-const FORCED_REFRESH_INTERVAL_MS = 10 * 24 * 60 * 60 * 1000; // Force refresh every 10 days
+const TOKEN_REFRESH_BEFORE_EXPIRY_MS = 2 * 24 * 60 * 60 * 1000; // Refresh 2 days before expiry
+const FORCED_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // Force refresh every 7 days (Salla tokens expire every 14 days)
 
 interface SallaTokenResponse {
   access_token: string;
@@ -144,6 +144,8 @@ export async function refreshSallaToken(merchantId: string): Promise<string | nu
         },
         body: JSON.stringify({
           grant_type: 'refresh_token',
+          client_id: process.env.SALLA_CLIENT_ID,
+          client_secret: process.env.SALLA_CLIENT_SECRET,
           refresh_token: auth.refreshToken,
         }),
       });

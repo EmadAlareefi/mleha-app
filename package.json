@@ -10,7 +10,9 @@
     "lint": "eslint",
     "postinstall": "prisma generate",
     "sync:salla-invoices": "node scripts/run-sync-salla-invoices.js",
-    "sync:salla-orders": "node scripts/run-sync-salla-orders.js"
+    "sync:salla-orders": "node scripts/run-sync-salla-orders.js",
+    "refresh:salla-tokens": "node scripts/run-refresh-tokens.js",
+    "check:salla-tokens": "node scripts/run-check-token-status.js"
   },
   "dependencies": {
     "@prisma/client": "^6.16.1",
@@ -26,7 +28,8 @@
     "react-barcode": "^1.6.1",
     "react-dom": "19.1.0",
     "react-to-print": "^3.2.0",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -134,6 +134,8 @@ export async function POST(request: NextRequest) {
           collectionAmount,
           paymentMethod: paymentLabel,
         }),
+        paymentMethod: isCashOnDelivery ? 'cod' : 'prepaid',
+        isCOD: isCashOnDelivery,
         trackingNumber,
         generatedBy: body.generatedBy || 'system',
         notes: body.notes || null,

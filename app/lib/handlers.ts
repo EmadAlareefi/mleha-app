@@ -278,7 +278,10 @@ export async function process_app_store_authorize(payload: AnyObj) {
   const data = payload?.data ?? {};
   const accessToken = data?.access_token ?? "";
   const refreshToken = data?.refresh_token ?? "";
-  const expiresIn = Number(data?.expires ?? 0);
+  // Support both 'expires' (timestamp) and 'expires_in' (seconds) from Salla
+  const expiresIn = data?.expires
+    ? Math.max(0, Math.floor((Number(data.expires) * 1000 - Date.now()) / 1000))
+    : Number(data?.expires_in ?? 0);
   const scope = data?.scope ?? "";
 
   if (!merchantId || !accessToken || !refreshToken || !expiresIn) {

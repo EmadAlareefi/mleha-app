@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import AppNavbar from '@/components/AppNavbar';
 
-type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse' | 'accountant';
+type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse' | 'accountant' | 'delivery_agent';
 
 type ServiceCard = {
   title: string;
@@ -46,6 +46,30 @@ export default function AdminDashboard() {
       href: '/local-shipping',
       color: 'from-green-500 to-green-600',
       allowedRoles: ['admin', 'warehouse'],
+    },
+    {
+      title: 'تعيين الشحنات',
+      description: 'تعيين الشحنات المحلية للمناديب',
+      icon: '📍',
+      href: '/shipment-assignments',
+      color: 'from-cyan-500 to-cyan-600',
+      allowedRoles: ['admin', 'warehouse'],
+    },
+    {
+      title: 'متابعة التحصيل (COD)',
+      description: 'تتبع وإدارة مبالغ الدفع عند الاستلام',
+      icon: '💵',
+      href: '/cod-tracker',
+      color: 'from-amber-500 to-amber-600',
+      allowedRoles: ['admin', 'warehouse', 'accountant'],
+    },
+    {
+      title: 'شحناتي',
+      description: 'عرض وإدارة الشحنات المُعيّنة لي',
+      icon: '🚛',
+      href: '/my-deliveries',
+      color: 'from-lime-500 to-lime-600',
+      allowedRoles: ['delivery_agent'],
     },
     // {
     //   title: 'الإرجاع والاستبدال',
@@ -102,6 +126,14 @@ export default function AdminDashboard() {
       href: '/invoices',
       color: 'from-pink-500 to-pink-600',
       allowedRoles: ['admin', 'store_manager'],
+    },
+    {
+      title: 'إدارة المصروفات',
+      description: 'تتبع وإدارة جميع مصروفات المتجر',
+      icon: '💰',
+      href: '/expenses',
+      color: 'from-emerald-500 to-emerald-600',
+      allowedRoles: ['admin', 'accountant'],
     },
   ];
 

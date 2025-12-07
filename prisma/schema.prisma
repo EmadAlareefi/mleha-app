@@ -292,6 +292,17 @@ model LocalShipment {
   itemsCount Int
   orderItems Json? // Store order items for label display
 
+  // Payment Method
+  paymentMethod String  @default("prepaid") // "cod" or "prepaid"
+  isCOD         Boolean @default(false) // True if cash on delivery
+
+  // Shipment Status
+  status             String    @default("pending") // pending, assigned, picked_up, in_transit, delivered, cancelled
+  deliveryNotes      String?   @db.Text
+  deliveredAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?   @db.Text
+
   // Label Info
   trackingNumber String     @unique // Generated local tracking number
   generatedBy    String? // User who generated the label
@@ -300,12 +311,19 @@ model LocalShipment {
   warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  // Relations
+  assignment    ShipmentAssignment?
+  codCollection CODCollection?
 
   @@index([merchantId])
   @@index([orderId])
   @@index([trackingNumber])
   @@index([createdAt])
   @@index([warehouseId])
+  @@index([status])
+  @@index([isCOD])
 }
 
 enum OrderUserRole {
@@ -313,6 +331,7 @@ enum OrderUserRole {
   STORE_MANAGER
   WAREHOUSE
   ACCOUNTANT
+  DELIVERY_AGENT
 }
 
 model OrderUser {
@@ -339,6 +358,7 @@ model OrderUser {
   assignments          OrderAssignment[]
   warehouseAssignments WarehouseAssignment[]
   roleAssignments      UserRoleAssignment[]
+  deliveryAssignments  ShipmentAssignment[]  @relation("DeliveryAssignments")
 
   @@index([username])
   @@index([isActive])
@@ -456,4 +476,137 @@ model OrderHistory {
   @@index([merchantId, orderId])
   @@index([finishedAt])
   @@index([assignedAt])
+}
+
+model Expense {
+  id String @id @default(cuid())
+
+  // Basic info
+  merchantId  String // Salla merchant ID
+  title       String // Expense title/description
+  description String? @db.Text // Optional detailed description
+
+  // Financial details
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("SAR")
+
+  // Category
+  category String // e.g., "shipping", "packaging", "marketing", "operations", "other"
+
+  // Date
+  expenseDate DateTime @default(now()) // Date of expense
+
+  // Attachments
+  attachments Json? // Array of attachment URLs/metadata
+
+  // Tracking
+  createdBy String // User who created the expense
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Approval workflow (optional for future)
+  status     String    @default("pending") // pending, approved, rejected
+  approvedBy String? // User who approved/rejected
+  approvedAt DateTime?
+
+  // Notes
+  notes String? @db.Text
+
+  @@index([merchantId])
+  @@index([category])
+  @@index([expenseDate])
+  @@index([status])
+  @@index([createdBy])
+  @@index([createdAt])
+}
+
+model ShipmentAssignment {
+  id String @id @default(cuid())
+
+  // Shipment
+  shipmentId String        @unique
+  shipment   LocalShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  // Delivery Agent
+  deliveryAgentId String
+  deliveryAgent   OrderUser @relation("DeliveryAssignments", fields: [deliveryAgentId], references: [id], onDelete: Cascade)
+
+  // Assignment details
+  status      String    @default("assigned") // assigned, picked_up, in_transit, delivered, failed, cancelled
+  assignedAt  DateTime  @default(now())
+  assignedBy  String? // Admin who assigned
+  pickedUpAt  DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+  cancelledAt DateTime?
+
+  // Failure/cancellation details
+  failureReason      String? @db.Text
+  cancellationReason String? @db.Text
+
+  // Delivery proof
+  deliveryProofUrl   String? // Photo of delivery proof
+  recipientName      String? // Name of person who received
+  recipientSignature String? // Signature URL (if captured)
+
+  // Notes
+  notes String? @db.Text
+
+  updatedAt DateTime @updatedAt
+
+  @@index([deliveryAgentId])
+  @@index([status])
+  @@index([assignedAt])
+  @@index([deliveredAt])
+}
+
+model CODCollection {
+  id String @id @default(cuid())
+
+  // Shipment
+  shipmentId String        @unique
+  shipment   LocalShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  // Collection details
+  collectionAmount Decimal  @db.Decimal(10, 2) // Amount to collect from customer
+  collectedAmount  Decimal? @db.Decimal(10, 2) // Actual amount collected
+  currency         String   @default("SAR")
+
+  // Collection status
+  status       String    @default("pending") // pending, collected, deposited, reconciled, failed
+  collectedAt  DateTime? // When delivery agent collected from customer
+  depositedAt  DateTime? // When delivery agent deposited to warehouse/company
+  reconciledAt DateTime? // When accounting reconciled
+
+  // Collected by
+  collectedBy  String? // Delivery agent who collected
+  depositedBy  String? // User who recorded deposit
+  reconciledBy String? // Accountant who reconciled
+
+  // Payment proof
+  receiptUrl String? // Photo of receipt
+
+  // Deposit details
+  depositMethod    String? // "cash", "bank_transfer", "mobile_wallet"
+  depositReference String? // Bank reference number or transaction ID
+  depositNotes     String? @db.Text
+
+  // Reconciliation details
+  reconciliationNotes String?  @db.Text
+  discrepancyAmount   Decimal? @db.Decimal(10, 2) // If collected != expected
+  discrepancyReason   String?  @db.Text
+
+  // Notes
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([collectedAt])
+  @@index([depositedAt])
+  @@index([reconciledAt])
+  @@index([collectedBy])
+  @@index([depositedBy])
+  @@index([reconciledBy])
 }

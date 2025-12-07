@@ -7,7 +7,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
 import {
-  ArrowRight,
   Calendar,
   Package,
   TrendingUp,
@@ -21,7 +20,9 @@ import {
   XCircle,
   RefreshCw,
   Megaphone,
+  FileSpreadsheet,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface OrderRecord {
   id: string;
@@ -58,6 +59,8 @@ interface OrderRecord {
   campaignName: string | null;
 }
 
+type OrderReportRow = Record<string, string | number | null | undefined>;
+
 interface Stats {
   total: number;
   completed: number;
@@ -75,6 +78,7 @@ interface StatusStats {
 }
 
 const HISTORY_PAGE_SIZE = 25;
+const EXPORT_PAGE_SIZE = 200;
 const DEFAULT_STATUS_OPTIONS = [
   { slug: 'completed', name: 'تم التنفيذ' },
   { slug: 'delivered', name: 'تم التوصيل' },
@@ -122,6 +126,7 @@ export default function OrderReportsPage() {
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [clearingDebugInvoices, setClearingDebugInvoices] = useState(false);
   const [paymentMethodOptions, setPaymentMethodOptions] = useState<{ value: string; label: string; count: number }[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Check if user is accountant
   const userRole = (session?.user as any)?.role;
@@ -134,6 +139,20 @@ export default function OrderReportsPage() {
     }
   }, [status, router]);
 
+  const buildQueryParams = useCallback((pageToLoad: number, limit: number) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (filterStatus) params.append('status', filterStatus);
+    if (filterCampaignSource) params.append('campaignSource', filterCampaignSource);
+    if (filterCampaignName) params.append('campaignName', filterCampaignName);
+    if (filterPaymentMethod) params.append('paymentMethod', filterPaymentMethod);
+    params.append('page', pageToLoad.toString());
+    params.append('limit', limit.toString());
+    params.append('sortDirection', sortDirection);
+    return params;
+  }, [startDate, endDate, filterStatus, filterCampaignSource, filterCampaignName, filterPaymentMethod, sortDirection]);
+
   const fetchOrders = useCallback(async (pageToLoad = 1, append = false) => {
     try {
       if (append) {
@@ -142,18 +161,7 @@ export default function OrderReportsPage() {
         setLoading(true);
         setHasMore(false);
       }
-      const params = new URLSearchParams();
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
-      if (filterStatus) params.append('status', filterStatus);
-      if (filterCampaignSource) params.append('campaignSource', filterCampaignSource);
-      if (filterCampaignName) params.append('campaignName', filterCampaignName);
-      if (filterPaymentMethod) params.append('paymentMethod', filterPaymentMethod);
-      params.append('page', pageToLoad.toString());
-      params.append('limit', HISTORY_PAGE_SIZE.toString());
-      params.append('sortDirection', sortDirection);
-
-      const query = params.toString();
+      const query = buildQueryParams(pageToLoad, HISTORY_PAGE_SIZE).toString();
       const response = await fetch(
         `/api/order-history/admin${query ? `?${query}` : ''}`
       );
@@ -180,7 +188,7 @@ export default function OrderReportsPage() {
         setLoading(false);
       }
     }
-  }, [startDate, endDate, filterStatus, filterCampaignSource, filterCampaignName, filterPaymentMethod, sortDirection]);
+  }, [buildQueryParams]);
 
   useEffect(() => {
     if (session?.user) {
@@ -259,6 +267,111 @@ export default function OrderReportsPage() {
     return translations[method.toLowerCase()] || method;
   };
 
+  const handleExportToExcel = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setSyncMessage(null);
+
+    try {
+      const allOrders: OrderRecord[] = [];
+      let exportPage = 1;
+      let hasMorePages = true;
+
+      while (hasMorePages) {
+        const query = buildQueryParams(exportPage, EXPORT_PAGE_SIZE).toString();
+        const response = await fetch(`/api/order-history/admin${query ? `?${query}` : ''}`);
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(data.error || data.message || 'فشل في جلب بيانات الطلبات');
+        }
+
+        const fetchedOrders: OrderRecord[] = data.orders ?? [];
+        allOrders.push(...fetchedOrders);
+
+        const pagination = data.pagination;
+        if (pagination?.hasMore && fetchedOrders.length > 0) {
+          exportPage = (pagination.page ?? exportPage) + 1;
+        } else {
+          hasMorePages = false;
+        }
+
+        if (!fetchedOrders.length) {
+          hasMorePages = false;
+        }
+      }
+
+      if (allOrders.length === 0) {
+        setSyncMessage({
+          type: 'error',
+          text: 'لا توجد بيانات مطابقة للفلاتر الحالية لتصديرها',
+        });
+        setTimeout(() => setSyncMessage(null), 5000);
+        return;
+      }
+
+      const rows = allOrders.map<OrderReportRow>((order, index) => ({
+        '#': index + 1,
+        'رقم الطلب': order.orderNumber ?? order.orderId,
+        'معرف الطلب': order.orderId,
+        'تاريخ الطلب': formatDate(order.placedAt ?? order.updatedAtRemote),
+        'الحالة': formatStatusText(order.statusName, order.statusSlug),
+        'حالة الدفع': order.paymentStatus ?? '',
+        'طريقة الدفع': order.paymentMethod ? translatePaymentMethod(order.paymentMethod) : '',
+        'القيمة الإجمالية': order.totalAmount ?? '',
+        'العملة': order.currency ?? '',
+        'اسم العميل': !isAccountant ? order.customerName ?? '' : '',
+        'جوال العميل': !isAccountant ? order.customerMobile ?? '' : '',
+        'المدينة': !isAccountant ? order.customerCity ?? '' : '',
+        'مصدر الحملة': order.campaignSource ?? '',
+        'Medium الحملة': order.campaignMedium ?? '',
+        'اسم الحملة': order.campaignName ?? '',
+        'شركة الشحن': order.fulfillmentCompany ?? '',
+        'رقم التتبع': order.trackingNumber ?? '',
+        'متزامن مع ERP': order.erpSyncedAt ? 'نعم' : 'لا',
+        'تاريخ المزامنة': order.erpSyncedAt ? formatDate(order.erpSyncedAt) : '',
+        'فاتورة ERP': order.erpInvoiceId ?? '',
+        'خطأ المزامنة': order.erpSyncError ?? '',
+      }));
+
+      const columnKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const columnsWithData = columnKeys.filter(key =>
+        rows.some(row => {
+          const value = row[key];
+          return value !== '' && value !== null && value !== undefined;
+        })
+      );
+      const trimmedRows = rows.map(row => {
+        const trimmedRow: Record<string, any> = {};
+        columnsWithData.forEach(key => {
+          trimmedRow[key] = row[key];
+        });
+        return trimmedRow;
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(trimmedRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Order Reports');
+      const timestamp = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(workbook, `order-reports-${timestamp}.xlsx`);
+
+      setSyncMessage({
+        type: 'success',
+        text: `تم تصدير ${allOrders.length} طلب في ملف Excel`,
+      });
+      setTimeout(() => setSyncMessage(null), 5000);
+    } catch (error) {
+      console.error('Error exporting orders:', error);
+      setSyncMessage({
+        type: 'error',
+        text: 'حدث خطأ أثناء تصدير الملف، حاول مرة أخرى',
+      });
+      setTimeout(() => setSyncMessage(null), 5000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const syncOrderToERP = async (orderId: string, orderNumber: string | null) => {
     setSyncingOrders(prev => new Set(prev).add(orderId));
     setSyncMessage(null);
@@ -302,6 +415,7 @@ export default function OrderReportsPage() {
         );
       }
     } catch (error) {
+      console.error('Error syncing order to ERP:', error);
       setSyncMessage({
         type: 'error',
         text: 'حدث خطأ أثناء المزامنة',
@@ -370,6 +484,7 @@ export default function OrderReportsPage() {
           );
         }
       } catch (error) {
+        console.error('Error while syncing batch of orders:', error);
         failCount++;
       }
 
@@ -425,6 +540,7 @@ export default function OrderReportsPage() {
         });
       }
     } catch (error) {
+      console.error('Error clearing debug ERP invoices:', error);
       setSyncMessage({
         type: 'error',
         text: 'حدث خطأ أثناء حذف الفواتير التجريبية',
@@ -683,6 +799,24 @@ export default function OrderReportsPage() {
                     عرض {formatNumber(orders.length)} من {formatNumber(stats.total)} طلب
                   </p>
                 )}
+                <Button
+                  onClick={handleExportToExcel}
+                  disabled={isExporting}
+                  variant="outline"
+                  size="sm"
+                >
+                  {isExporting ? (
+                    <>
+                      <LoaderCircle className="ml-2 h-4 w-4 animate-spin" />
+                      جاري التصدير...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="ml-2 h-4 w-4" />
+                      تصدير إلى Excel
+                    </>
+                  )}
+                </Button>
                 {process.env.NODE_ENV === 'development' && (
                   <Button
                     onClick={clearDebugInvoices}

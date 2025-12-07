@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ErrorDialog } from '@/components/ui/error-dialog';
 import ReturnForm from '@/components/returns/ReturnForm';
 import SuccessScreen from '@/components/returns/SuccessScreen';
 
@@ -27,6 +28,13 @@ export default function ReturnsPage() {
   const [canCreateNew, setCanCreateNew] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+  const [errorDetails, setErrorDetails] = useState<{
+    title?: string;
+    message: string;
+    description?: string;
+    variant?: 'error' | 'warning' | 'info';
+  } | null>(null);
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
 
   const fetchItemCategories = async (returns: any[]) => {
@@ -65,6 +73,8 @@ export default function ReturnsPage() {
   const handleLookupOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setErrorDialogOpen(false);
+    setErrorDetails(null);
     setLoading(true);
 
     try {
@@ -76,17 +86,141 @@ export default function ReturnsPage() {
       const orderData = await orderResponse.json();
 
       if (!orderResponse.ok) {
-        throw new Error(orderData.error || 'فشل في العثور على الطلب');
+        const errorMessage = orderData.error || 'فشل في العثور على الطلب';
+        setErrorDetails({
+          title: 'لم يتم العثور على الطلب',
+          message: errorMessage,
+          description: 'يرجى التحقق من رقم الطلب والمحاولة مرة أخرى. يمكنك العثور على رقم الطلب في رسالة التأكيد المرسلة إليك عبر البريد الإلكتروني أو الرسائل النصية.',
+          variant: 'error',
+        });
+        setErrorDialogOpen(true);
+        setLoading(false);
+        return;
       }
 
       setOrder(orderData.order);
 
+      // Debug: Log the full order structure to see what fields are available
+      console.log('Full order data received:', orderData.order);
+      console.log('All possible date fields:', {
+        'date.updated': orderData.order.date?.updated,
+        'date.created': orderData.order.date?.created,
+        'updated_at': orderData.order.updated_at,
+        'created_at': orderData.order.created_at,
+        'updatedAt': orderData.order.updatedAt,
+        'createdAt': orderData.order.createdAt,
+        'updatedAtRemote': orderData.order.updatedAtRemote,
+        'placedAt': orderData.order.placedAt,
+      });
+
       // Check if there are existing return requests for this order
-      const returnsResponse = await fetch(
-        `/api/returns/check?merchantId=${MERCHANT_CONFIG.merchantId}&orderId=${orderData.order.id}`
-      );
+      // Priority: Use updatedAt (most recent activity), fallback to created date
+      // Try multiple possible field locations based on different API response structures
+      let orderUpdatedAtRaw =
+        orderData.order.date?.updated ||      // Salla API: date.updated (ISO string or object)
+        orderData.order.date?.created ||      // Salla API: date.created (fallback)
+        orderData.order.updated_at ||         // Snake case variation
+        orderData.order.created_at ||         // Snake case created
+        orderData.order.updatedAt ||          // Camel case updatedAt
+        orderData.order.createdAt ||          // Camel case createdAt
+        orderData.order.updatedAtRemote ||    // Database field
+        orderData.order.placedAt;             // Database placedAt field
+
+      // Handle case where date is an object instead of string
+      let orderUpdatedAt: string | undefined;
+      if (typeof orderUpdatedAtRaw === 'string') {
+        orderUpdatedAt = orderUpdatedAtRaw;
+      } else if (typeof orderUpdatedAtRaw === 'object' && orderUpdatedAtRaw !== null) {
+        // If it's an object, try to extract date string from common properties
+        const dateObj = orderUpdatedAtRaw as any;
+        orderUpdatedAt = dateObj.date || dateObj.datetime || dateObj.value || dateObj.timestamp;
+
+        console.log('Date is an object, extracted:', {
+          originalObject: orderUpdatedAtRaw,
+          extractedDate: orderUpdatedAt,
+        });
+      } else {
+        orderUpdatedAt = undefined;
+      }
+
+      // Log which date field was used (helps debug date extraction issues)
+      const dateSource = orderData.order.date?.updated
+        ? 'date.updated'
+        : orderData.order.date?.created
+        ? 'date.created'
+        : orderData.order.updated_at
+        ? 'updated_at'
+        : orderData.order.created_at
+        ? 'created_at'
+        : orderData.order.updatedAt
+        ? 'updatedAt'
+        : orderData.order.createdAt
+        ? 'createdAt'
+        : orderData.order.updatedAtRemote
+        ? 'updatedAtRemote'
+        : orderData.order.placedAt
+        ? 'placedAt'
+        : 'none';
+
+      console.log('Return eligibility check:', {
+        orderId: orderData.order.id,
+        dateSource,
+        dateValue: orderUpdatedAt,
+      });
+
+      // Validate date before proceeding
+      if (!orderUpdatedAt) {
+        console.error('No date found for return validation', {
+          orderId: orderData.order.id,
+          orderData: orderData.order,
+        });
+
+        setErrorDetails({
+          title: 'خطأ في التحقق من الطلب',
+          message: 'لا يمكن التحقق من تاريخ الطلب',
+          description: 'لم نتمكن من العثور على تاريخ الطلب. يرجى الاتصال بالدعم.',
+          variant: 'error',
+        });
+        setErrorDialogOpen(true);
+        setLoading(false);
+        return;
+      }
+
+      const checkUrl = new URL('/api/returns/check', window.location.origin);
+      checkUrl.searchParams.set('merchantId', MERCHANT_CONFIG.merchantId);
+      checkUrl.searchParams.set('orderId', orderData.order.id.toString());
+      checkUrl.searchParams.set('orderUpdatedAt', orderUpdatedAt);
+
+      const returnsResponse = await fetch(checkUrl.toString());
 
       const returnsData = await returnsResponse.json();
+
+      // Handle return period expiration and date validation errors
+      if (!returnsResponse.ok) {
+        if (returnsData.errorCode === 'RETURN_PERIOD_EXPIRED') {
+          setErrorDetails({
+            title: 'انتهت مدة الإرجاع',
+            message: returnsData.message || returnsData.error,
+            description: returnsData.daysSinceUpdate
+              ? `مرت ${returnsData.daysSinceUpdate} يوم على آخر تحديث للطلب. الحد الأقصى المسموح به هو 3 أيام.`
+              : undefined,
+            variant: 'error',
+          });
+          setErrorDialogOpen(true);
+          setLoading(false);
+          return;
+        } else if (returnsData.errorCode === 'MISSING_ORDER_DATE' || returnsData.errorCode === 'INVALID_DATE_FORMAT') {
+          setErrorDetails({
+            title: 'خطأ في التحقق من الطلب',
+            message: returnsData.message || returnsData.error,
+            description: 'لم نتمكن من التحقق من تاريخ الطلب. يرجى الاتصال بالدعم الفني.',
+            variant: 'error',
+          });
+          setErrorDialogOpen(true);
+          setLoading(false);
+          return;
+        }
+      }
 
       // Store whether new requests can be created
       setCanCreateNew(returnsData.canCreateNew !== false);
@@ -100,7 +234,14 @@ export default function ReturnsPage() {
         setStep('form');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
+      const errorMessage = err instanceof Error ? err.message : 'حدث خطأ غير متوقع';
+      setErrorDetails({
+        title: 'حدث خطأ',
+        message: errorMessage,
+        description: 'حدث خطأ أثناء البحث عن الطلب. يرجى المحاولة مرة أخرى.',
+        variant: 'error',
+      });
+      setErrorDialogOpen(true);
     } finally {
       setLoading(false);
     }
@@ -155,7 +296,14 @@ export default function ReturnsPage() {
         setStep('form');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
+      const errorMessage = err instanceof Error ? err.message : 'حدث خطأ غير متوقع';
+      setErrorDetails({
+        title: 'خطأ في الإلغاء',
+        message: errorMessage,
+        description: 'لم نتمكن من إلغاء طلب الإرجاع. يرجى المحاولة مرة أخرى.',
+        variant: 'error',
+      });
+      setErrorDialogOpen(true);
     } finally {
       setLoading(false);
     }
@@ -385,6 +533,21 @@ export default function ReturnsPage() {
           <SuccessScreen
             returnRequest={returnRequest}
             onReset={handleReset}
+          />
+        )}
+
+        {/* Error Dialog */}
+        {errorDetails && (
+          <ErrorDialog
+            open={errorDialogOpen}
+            onClose={() => {
+              setErrorDialogOpen(false);
+              setErrorDetails(null);
+            }}
+            title={errorDetails.title}
+            message={errorDetails.message}
+            description={errorDetails.description}
+            variant={errorDetails.variant}
           />
         )}
       </div>

@@ -195,6 +195,65 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if order last updated date exceeds 3 days
+    // Use updatedAt date (most recent activity), fallback to created date
+    const orderDateToCheck = order.date?.updated || order.date?.created;
+
+    if (!orderDateToCheck) {
+      log.error('No date found on order for 3-day validation', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        orderDateFields: {
+          dateUpdated: order.date?.updated,
+          dateCreated: order.date?.created,
+        },
+      });
+
+      return NextResponse.json({
+        error: 'لا يمكن التحقق من تاريخ الطلب',
+        errorCode: 'MISSING_ORDER_DATE',
+        message: 'لم يتم العثور على تاريخ الطلب للتحقق من صلاحية الإرجاع.',
+      }, { status: 400 });
+    }
+
+    const updatedDate = new Date(orderDateToCheck);
+
+    // Validate date format
+    if (isNaN(updatedDate.getTime())) {
+      log.error('Invalid date format on order', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        orderDateToCheck,
+      });
+
+      return NextResponse.json({
+        error: 'تاريخ الطلب غير صالح',
+        errorCode: 'INVALID_DATE_FORMAT',
+        message: 'تاريخ الطلب غير صالح.',
+      }, { status: 400 });
+    }
+
+    const now = new Date();
+    const daysDifference = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24);
+
+    // Allow returns within 3 days (exceeds means > 3 days, with small epsilon for floating point)
+    const EPSILON = 0.001; // ~1.5 minutes tolerance
+    if (daysDifference > 3 + EPSILON) {
+      log.warn('Order update date exceeds 3 days', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        orderUpdatedAt: orderDateToCheck,
+        daysDifference: daysDifference.toFixed(2),
+      });
+
+      return NextResponse.json({
+        error: 'انتهت مدة الإرجاع المسموحة',
+        errorCode: 'RETURN_PERIOD_EXPIRED',
+        message: 'لقد تجاوز الطلب مدة 3 أيام من آخر تحديث. لا يمكن إنشاء طلب إرجاع.',
+        daysSinceUpdate: Math.floor(daysDifference),
+      }, { status: 400 });
+    }
+
     // Validate order status - should be delivered or completed
     const returnableStatuses = ['delivered', 'completed'];
     if (!returnableStatuses.includes(order.status.slug.toLowerCase())) {

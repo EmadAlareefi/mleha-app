@@ -50,13 +50,22 @@ export default withAuth(
             /^\/$/,
             /^\/warehouse(\/.*)?$/,
             /^\/local-shipping(\/.*)?$/,
+            /^\/shipment-assignments(\/.*)?$/,
+            /^\/cod-tracker(\/.*)?$/,
             /^\/api\/shipments(\/.*)?$/,
             /^\/api\/local-shipping(\/.*)?$/,
+            /^\/api\/shipment-assignments(\/.*)?$/,
+            /^\/api\/delivery-agents(\/.*)?$/,
+            /^\/api\/cod-collections(\/.*)?$/,
           ],
         },
         accountant: {
           home: '/order-reports',
-          allowed: [/^\/$/, /^\/order-reports(\/.*)?$/, /^\/api\/order-history(\/.*)?$/],
+          allowed: [/^\/$/, /^\/order-reports(\/.*)?$/, /^\/api\/order-history(\/.*)?$/, /^\/expenses(\/.*)?$/, /^\/api\/expenses(\/.*)?$/, /^\/cod-tracker(\/.*)?$/, /^\/api\/cod-collections(\/.*)?$/],
+        },
+        delivery_agent: {
+          home: '/my-deliveries',
+          allowed: [/^\/$/, /^\/my-deliveries(\/.*)?$/, /^\/api\/shipment-assignments(\/.*)?$/, /^\/api\/cod-collections(\/.*)?$/],
         },
       };
 

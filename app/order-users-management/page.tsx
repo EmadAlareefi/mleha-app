@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
 
-type UserRole = 'orders' | 'store_manager' | 'warehouse' | 'accountant';
+type UserRole = 'orders' | 'store_manager' | 'warehouse' | 'accountant' | 'delivery_agent';
 
 interface WarehouseOption {
   id: string;
@@ -46,6 +46,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   store_manager: 'مدير المتجر (الإرجاع)',
   warehouse: 'موظف المستودع',
   accountant: 'محاسب',
+  delivery_agent: 'مندوب توصيل',
 };
 
 const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
@@ -53,6 +54,7 @@ const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   store_manager: 'الوصول إلى صفحات الإرجاع/إدارة الطلبات المرتجعة',
   warehouse: 'الوصول إلى المستودع والشحن المحلي',
   accountant: 'الوصول إلى تقارير الطلبات بدون معلومات العملاء',
+  delivery_agent: 'الوصول إلى الشحنات المعينة وتحديث حالة التوصيل',
 };
 
 export default function OrderUsersManagementPage() {

@@ -38,6 +38,17 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Debug: Log order structure to help identify date fields
+      log.info('Order retrieved from Salla', {
+        orderId: order.id,
+        dateFields: {
+          'date.updated': order.date?.updated,
+          'date.created': order.date?.created,
+        },
+        hasDate: !!order.date,
+        dateKeys: order.date ? Object.keys(order.date) : [],
+      });
+
       // Debug: Log order items structure
       if (order.items && order.items.length > 0) {
         log.info('Order items structure', {
