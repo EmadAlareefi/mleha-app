@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       durationMinutes = Math.floor(diff / 60000);
     }
 
-    // Move to history
+    // Move to history (for reporting)
     await prisma.orderHistory.create({
       data: {
         userId: assignment.userId,
@@ -65,9 +65,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Delete from assignments
-    await prisma.orderAssignment.delete({
+    // Update assignment status to 'completed' instead of deleting (keep for reports)
+    await prisma.orderAssignment.update({
       where: { id: assignmentId },
+      data: {
+        status: 'completed',
+        completedAt: new Date(),
+      },
     });
 
     log.info('Order completed and moved to history', {

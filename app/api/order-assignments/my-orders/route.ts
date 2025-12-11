@@ -28,9 +28,9 @@ export async function GET(request: NextRequest) {
     if (status) {
       where.status = status;
     } else {
-      // Default: show active assignments
+      // Default: show active assignments including shipped orders
       where.status = {
-        in: ['assigned', 'preparing'],
+        in: ['assigned', 'preparing', 'shipped'],
       };
     }
 

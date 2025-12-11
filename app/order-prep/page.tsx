@@ -36,6 +36,11 @@ export default function OrderPrepPage() {
   const [refreshingItems, setRefreshingItems] = useState(false);
   const [creatingShipment, setCreatingShipment] = useState(false);
   const [shipmentInfo, setShipmentInfo] = useState<{trackingNumber: string; courierName: string} | null>(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [debugData, setDebugData] = useState<any>(null);
 
   // Load user from session
   useEffect(() => {
@@ -69,6 +74,22 @@ export default function OrderPrepPage() {
     setShipmentInfo(null);
   }, [currentOrder?.id]);
 
+  // Auto-refresh orders every 30 seconds to check for new orders
+  useEffect(() => {
+    if (!user || !autoRefreshEnabled) return;
+
+    const intervalId = setInterval(() => {
+      // Only auto-refresh if user doesn't have active orders (to get new ones)
+      // Or if user has completed their current order
+      if (assignments.length === 0 || !currentOrder) {
+        console.log('Auto-refreshing orders...');
+        autoAssignOrders();
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(intervalId);
+  }, [user, autoRefreshEnabled, assignments.length, currentOrder]);
+
 
   const autoAssignOrders = async () => {
     if (!user) return;
@@ -92,10 +113,18 @@ export default function OrderPrepPage() {
 
       if (data.success && data.assigned > 0) {
         console.log(`${data.assigned} orders auto-assigned`);
+        setDebugInfo(`✅ تم تعيين ${data.assigned} طلب جديد`);
         loadMyOrders();
+      } else if (data.success && data.assigned === 0) {
+        setDebugInfo(`ℹ️ ${data.message || 'لا توجد طلبات جديدة'}`);
+      } else {
+        setDebugInfo(`❌ خطأ: ${data.error || 'فشل تعيين الطلبات'}`);
       }
+
+      setLastRefreshTime(new Date());
     } catch (error) {
       console.error('Auto-assign failed:', error);
+      setDebugInfo(`❌ خطأ في الاتصال: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
     }
   };
 
@@ -122,6 +151,8 @@ export default function OrderPrepPage() {
           setCurrentOrder(data.assignments[0]);
         }
       }
+
+      setLastRefreshTime(new Date());
     } catch (error) {
       console.error('Failed to load orders:', error);
     } finally {
@@ -238,6 +269,8 @@ export default function OrderPrepPage() {
           trackingNumber: data.data.trackingNumber,
           courierName: data.data.courierName,
         });
+        // Reload orders to get the updated status
+        await loadMyOrders();
         alert(`✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}`);
       } else {
         const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
@@ -248,6 +281,61 @@ export default function OrderPrepPage() {
       alert('فشل إنشاء الشحنة');
     } finally {
       setCreatingShipment(false);
+    }
+  };
+
+  const handleGoToNewOrder = async () => {
+    if (!currentOrder) return;
+
+    try {
+      // Complete current order (move to history)
+      const response = await fetch('/api/order-assignments/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentId: currentOrder.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Clear current order
+        setCurrentOrder(null);
+
+        // Auto-assign a new order if autoAssign is enabled
+        if (user?.autoAssign) {
+          await autoAssignOrders();
+        } else {
+          loadMyOrders();
+        }
+      } else {
+        const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
+        console.error('Complete order error:', data);
+        alert(errorMsg || 'فشل الانتقال للطلب التالي');
+      }
+    } catch (error) {
+      console.error('Go to new order exception:', error);
+      alert('فشل الانتقال للطلب التالي');
+    }
+  };
+
+  const loadDebugInfo = async () => {
+    if (!user) return;
+
+    try {
+      const response = await fetch(`/api/order-assignments/debug?userId=${user.id}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setDebugData(data.debug);
+        setShowDebugPanel(true);
+      } else {
+        alert(data.error || 'فشل جلب معلومات التشخيص');
+      }
+    } catch (error) {
+      console.error('Failed to load debug info:', error);
+      alert('فشل جلب معلومات التشخيص');
     }
   };
 
@@ -294,6 +382,143 @@ export default function OrderPrepPage() {
       <div className="w-full">
         {/* Content */}
         <div className="px-4 md:px-6 py-6">
+          {/* Refresh Controls */}
+          <Card className="max-w-7xl mx-auto p-4 mb-6">
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+              {/* Left: Refresh Button */}
+              <div className="flex gap-3 items-center w-full md:w-auto">
+                <Button
+                  onClick={autoAssignOrders}
+                  disabled={loadingOrders}
+                  className="flex-1 md:flex-initial bg-blue-600 hover:bg-blue-700"
+                >
+                  {loadingOrders ? 'جاري التحديث...' : '🔄 تحديث الطلبات'}
+                </Button>
+                <Button
+                  onClick={loadDebugInfo}
+                  variant="outline"
+                  className="flex-1 md:flex-initial"
+                >
+                  🔍 فحص
+                </Button>
+                {lastRefreshTime && (
+                  <span className="text-xs text-gray-500 whitespace-nowrap hidden md:inline">
+                    آخر تحديث: {lastRefreshTime.toLocaleTimeString('ar-SA')}
+                  </span>
+                )}
+              </div>
+
+              {/* Right: Auto-refresh Toggle */}
+              <div className="flex items-center gap-2 w-full md:w-auto justify-center">
+                <span className="text-sm text-gray-600">تحديث تلقائي (كل 30 ثانية):</span>
+                <button
+                  onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    autoRefreshEnabled ? 'bg-green-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      autoRefreshEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span className={`text-sm font-medium ${autoRefreshEnabled ? 'text-green-600' : 'text-gray-500'}`}>
+                  {autoRefreshEnabled ? 'مفعّل' : 'متوقف'}
+                </span>
+              </div>
+            </div>
+
+            {/* Debug Info */}
+            {debugInfo && (
+              <div className="mt-3 p-2 bg-gray-50 rounded text-sm text-gray-700 border border-gray-200">
+                {debugInfo}
+              </div>
+            )}
+          </Card>
+
+          {/* Debug Panel */}
+          {showDebugPanel && debugData && (
+            <Card className="max-w-7xl mx-auto p-6 mb-6 bg-yellow-50 border-2 border-yellow-400">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-bold text-gray-900">🔍 معلومات التشخيص</h3>
+                <button
+                  onClick={() => setShowDebugPanel(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4 text-sm">
+                {/* Status Config */}
+                <div className="bg-white p-3 rounded border border-yellow-300">
+                  <h4 className="font-bold text-gray-800 mb-2">⚙️ إعدادات الحالة</h4>
+                  <div className="space-y-1 text-gray-700">
+                    <p><strong>نوع الطلبات:</strong> {debugData.user.orderType}</p>
+                    <p><strong>الحالة المطلوبة:</strong> {debugData.statusConfig.statusName} ({debugData.statusConfig.statusSlug})</p>
+                    <p><strong>معرف الحالة:</strong> {debugData.statusConfig.statusId}</p>
+                  </div>
+                </div>
+
+                {/* Orders in Salla */}
+                <div className="bg-white p-3 rounded border border-yellow-300">
+                  <h4 className="font-bold text-gray-800 mb-2">📊 الطلبات في سلة</h4>
+                  <div className="space-y-1 text-gray-700">
+                    <p><strong>إجمالي الطلبات بهذه الحالة:</strong> {debugData.ordersInSalla.total}</p>
+                    <p><strong>بعد تصفية طريقة الدفع:</strong> {debugData.ordersInSalla.afterPaymentFilter}</p>
+                    <p><strong>المتاحة للتعيين:</strong> <span className="text-green-600 font-bold">{debugData.ordersInSalla.available}</span></p>
+                    <p><strong>معينة بالفعل:</strong> <span className="text-red-600">{debugData.ordersInSalla.alreadyAssigned}</span></p>
+                  </div>
+                </div>
+
+                {/* User Assignments */}
+                <div className="bg-white p-3 rounded border border-yellow-300">
+                  <h4 className="font-bold text-gray-800 mb-2">👤 تعييناتك</h4>
+                  <div className="space-y-1 text-gray-700">
+                    <p><strong>الطلبات النشطة لديك:</strong> {debugData.assignments.userActiveAssignments}</p>
+                    <p><strong>يمكنك استلام طلب جديد:</strong> {debugData.assignments.canAssignMore ? '✅ نعم' : '❌ لا (لديك طلب نشط)'}</p>
+                  </div>
+                </div>
+
+                {/* Sample Available Orders */}
+                {debugData.sampleOrders.length > 0 && (
+                  <div className="bg-white p-3 rounded border border-yellow-300">
+                    <h4 className="font-bold text-gray-800 mb-2">📋 أمثلة الطلبات المتاحة (أول 5)</h4>
+                    <div className="space-y-2">
+                      {debugData.sampleOrders.map((order: any, idx: number) => (
+                        <div key={idx} className="p-2 bg-gray-50 rounded text-xs">
+                          <p><strong>رقم الطلب:</strong> {order.orderNumber}</p>
+                          <p><strong>طريقة الدفع:</strong> {order.paymentMethod}</p>
+                          <p><strong>التاريخ:</strong> {new Date(order.createdAt).toLocaleString('ar-SA')}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Diagnosis */}
+                <div className="bg-blue-50 p-3 rounded border-2 border-blue-400">
+                  <h4 className="font-bold text-blue-900 mb-2">💡 التشخيص</h4>
+                  <div className="text-sm text-blue-800">
+                    {debugData.ordersInSalla.available === 0 && debugData.ordersInSalla.total === 0 && (
+                      <p>❌ لا توجد طلبات في سلة بحالة "{debugData.statusConfig.statusName}". تأكد من وجود طلبات جديدة في متجرك.</p>
+                    )}
+                    {debugData.ordersInSalla.available === 0 && debugData.ordersInSalla.total > 0 && (
+                      <p>⚠️ جميع الطلبات معينة بالفعل. انتظر طلبات جديدة أو تأكد من إكمال الطلبات الحالية.</p>
+                    )}
+                    {debugData.ordersInSalla.available > 0 && !debugData.assignments.canAssignMore && (
+                      <p>⚠️ يوجد {debugData.ordersInSalla.available} طلب متاح ولكن لديك طلب نشط. أكمل الطلب الحالي أولاً.</p>
+                    )}
+                    {debugData.ordersInSalla.available > 0 && debugData.assignments.canAssignMore && (
+                      <p>✅ يوجد {debugData.ordersInSalla.available} طلب متاح ويمكنك استلام طلب جديد. انقر على "تحديث الطلبات".</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
+
           {/* Stats */}
           {assignments.length > 0 && (
             <Card className="max-w-7xl mx-auto p-6 mb-6 text-center">
@@ -308,8 +533,25 @@ export default function OrderPrepPage() {
             </div>
           ) : !currentOrder ? (
             <Card className="max-w-7xl mx-auto p-8 md:p-12 text-center">
-              <p className="text-xl text-gray-600 mb-4">لا توجد طلبات للتحضير</p>
-              <Button onClick={autoAssignOrders}>تحديث الطلبات</Button>
+              <div className="mb-6">
+                <svg className="w-24 h-24 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-xl text-gray-600 mb-2">لا توجد طلبات للتحضير حالياً</p>
+                <p className="text-sm text-gray-500 mb-4">
+                  {autoRefreshEnabled
+                    ? 'سيتم البحث عن طلبات جديدة تلقائياً كل 30 ثانية'
+                    : 'التحديث التلقائي متوقف - انقر على زر التحديث للبحث عن طلبات جديدة'
+                  }
+                </p>
+              </div>
+              <Button
+                onClick={autoAssignOrders}
+                disabled={loadingOrders}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {loadingOrders ? 'جاري البحث...' : '🔍 البحث عن طلبات جديدة'}
+              </Button>
             </Card>
           ) : (
             <div className="max-w-7xl mx-auto">
@@ -422,15 +664,27 @@ export default function OrderPrepPage() {
               </div>
 
               {/* Shipment Info Display */}
-              {shipmentInfo && (
+              {(shipmentInfo || currentOrder.status === 'shipped') && (
                 <Card className="mt-6 p-4 bg-green-50 border-2 border-green-500">
                   <h3 className="text-lg font-bold text-green-900 mb-2">✅ تم إنشاء الشحنة</h3>
                   <div className="space-y-1">
-                    <p className="text-sm text-green-800">
-                      <strong>رقم التتبع:</strong> {shipmentInfo.trackingNumber}
-                    </p>
-                    <p className="text-sm text-green-800">
-                      <strong>شركة الشحن:</strong> {shipmentInfo.courierName}
+                    {shipmentInfo && (
+                      <>
+                        <p className="text-sm text-green-800">
+                          <strong>رقم التتبع:</strong> {shipmentInfo.trackingNumber}
+                        </p>
+                        <p className="text-sm text-green-800">
+                          <strong>شركة الشحن:</strong> {shipmentInfo.courierName}
+                        </p>
+                      </>
+                    )}
+                    {!shipmentInfo && currentOrder.status === 'shipped' && currentOrder.notes && (
+                      <p className="text-sm text-green-800">
+                        {currentOrder.notes}
+                      </p>
+                    )}
+                    <p className="text-sm text-green-700 mt-2 font-medium">
+                      انقر على "الانتقال للطلب التالي" لإكمال هذا الطلب والانتقال لطلب جديد
                     </p>
                   </div>
                 </Card>
@@ -439,19 +693,31 @@ export default function OrderPrepPage() {
               {/* Action Buttons - Fixed at bottom */}
               <div className="mt-6 sticky bottom-0 bg-white border-t border-gray-200 p-4 -mx-4 md:-mx-6 shadow-lg">
                 <div className="max-w-7xl mx-auto flex flex-col sm:flex-row gap-3">
-                  <Button
-                    onClick={handleCreateShipment}
-                    disabled={creatingShipment || !!shipmentInfo}
-                    className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
-                  </Button>
-                  <Button
-                    onClick={handleCompleteOrder}
-                    className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
-                  >
-                    إنهاء الطلب
-                  </Button>
+                  {currentOrder.status === 'shipped' ? (
+                    // Show "Go to New Order" button when shipment is created
+                    <Button
+                      onClick={handleGoToNewOrder}
+                      className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
+                    >
+                      ✅ الانتقال للطلب التالي
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        onClick={handleCreateShipment}
+                        disabled={creatingShipment || !!shipmentInfo}
+                        className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      >
+                        {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
+                      </Button>
+                      <Button
+                        onClick={handleCompleteOrder}
+                        className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
+                      >
+                        إنهاء الطلب
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

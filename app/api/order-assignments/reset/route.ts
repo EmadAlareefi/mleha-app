@@ -34,12 +34,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get all assignments for this user (not completed)
+    // Get all active assignments for this user (exclude completed/removed as they're for reporting)
     const assignments = await prisma.orderAssignment.findMany({
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing', 'prepared'],
+          in: ['assigned', 'preparing', 'prepared', 'shipped'],
         },
       },
     });
@@ -78,12 +78,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Delete all assignments for this user
+    // Delete all active assignments for this user (keep completed/removed for reporting)
     const deleteResult = await prisma.orderAssignment.deleteMany({
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing', 'prepared'],
+          in: ['assigned', 'preparing', 'prepared', 'shipped'],
         },
       },
     });

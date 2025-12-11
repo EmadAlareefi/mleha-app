@@ -41,12 +41,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user already has an active order
+    // Check if user already has an active order (including shipped orders waiting to be completed)
+    // Only count active orders: 'assigned', 'preparing', 'shipped'
+    // Exclude 'completed' and 'removed' orders (these are kept for reporting but not active)
     const currentAssignments = await prisma.orderAssignment.count({
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing'],
+          in: ['assigned', 'preparing', 'shipped'],
         },
       },
     });
@@ -161,10 +163,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get already assigned order IDs for this merchant
+    // Get already assigned order IDs for this merchant (only active assignments)
+    // Exclude completed/removed orders so they can be reassigned if needed
     const assignedOrderIds = await prisma.orderAssignment.findMany({
       where: {
         merchantId: MERCHANT_ID,
+        status: {
+          in: ['assigned', 'preparing', 'shipped'],
+        },
       },
       select: {
         orderId: true,

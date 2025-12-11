@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing'],
+          in: ['assigned', 'preparing', 'shipped'],
         },
       },
     });
@@ -70,14 +70,45 @@ export async function POST(request: NextRequest) {
     const { getSallaOrderStatuses, getStatusBySlug } = await import('@/app/lib/salla-statuses');
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
 
-    // Get valid statuses for assigned orders (under_review and in_progress)
+    // Get valid statuses for assigned orders
+    // Include all statuses that indicate the order is being processed/shipped
+    // Only remove if status changes to canceled, restored, restoring, or payment_pending
     const underReviewStatus = getStatusBySlug(statuses, 'under_review');
     const inProgressStatus = getStatusBySlug(statuses, 'in_progress');
+    const completedStatus = getStatusBySlug(statuses, 'completed');
+    const shippedStatus = getStatusBySlug(statuses, 'shipped');
+    const deliveringStatus = getStatusBySlug(statuses, 'delivering');
+    const deliveredStatus = getStatusBySlug(statuses, 'delivered');
+    const readyForPickupStatus = getStatusBySlug(statuses, 'ready_for_pickup');
 
     const validStatusIds = [
       underReviewStatus?.id.toString(),
       inProgressStatus?.id.toString(),
+      completedStatus?.id.toString(),
+      shippedStatus?.id.toString(),
+      deliveringStatus?.id.toString(),
+      deliveredStatus?.id.toString(),
+      readyForPickupStatus?.id.toString(),
     ].filter(Boolean); // Remove any undefined values
+
+    // Also include status slugs for comparison
+    const validStatusSlugs = [
+      'under_review',
+      'in_progress',
+      'completed',
+      'shipped',
+      'delivering',
+      'delivered',
+      'ready_for_pickup',
+    ];
+
+    log.info('Valid status configuration', {
+      validStatusIds,
+      validStatusSlugs,
+      inProgressStatusFound: !!inProgressStatus,
+      inProgressStatusId: inProgressStatus?.id,
+      inProgressStatusName: inProgressStatus?.name,
+    });
 
     const baseUrl = 'https://api.salla.dev/admin/v2';
     const removedOrders: string[] = [];
@@ -97,13 +128,33 @@ export async function POST(request: NextRequest) {
           const data = await response.json();
           const order = data.data;
           const currentStatusId = order.status?.id?.toString();
+          const currentStatusSlug = order.status?.slug;
 
-          // If order is no longer in valid status (under_review or in_progress), remove it and archive to history
-          if (!validStatusIds.includes(currentStatusId)) {
+          // Check if order status is valid (by ID or slug)
+          const isValidStatus = validStatusIds.includes(currentStatusId) ||
+                               validStatusSlugs.includes(currentStatusSlug);
+
+          log.info('Checking order status', {
+            orderId: assignment.orderId,
+            orderNumber: assignment.orderNumber,
+            currentStatusId,
+            currentStatusSlug,
+            currentStatusName: order.status?.name,
+            isValidStatus,
+            validStatusIds,
+            validStatusSlugs,
+          });
+
+          // If order is no longer in valid status, remove it and archive to history
+          // Valid statuses include: under_review, in_progress, completed, shipped, delivering, delivered, ready_for_pickup
+          // Orders are only removed if status changes to: canceled, restored, restoring, or payment_pending
+          if (!isValidStatus) {
             log.info('Order status changed - removing from assignment', {
               orderId: assignment.orderId,
               orderNumber: assignment.orderNumber,
               currentStatus: order.status?.name,
+              currentStatusId,
+              currentStatusSlug,
             });
 
             // Calculate duration
@@ -114,7 +165,7 @@ export async function POST(request: NextRequest) {
               durationMinutes = Math.floor(diff / 60000); // Convert to minutes
             }
 
-            // Move to history
+            // Move to history (for reporting)
             await prisma.orderHistory.create({
               data: {
                 userId: user.id,
@@ -133,9 +184,15 @@ export async function POST(request: NextRequest) {
               },
             });
 
-            // Remove from assignments
-            await prisma.orderAssignment.delete({
+            // Update assignment status to 'removed' instead of deleting (keep for reports)
+            await prisma.orderAssignment.update({
               where: { id: assignment.id },
+              data: {
+                status: 'removed',
+                removedAt: new Date(),
+                sallaStatus: order.status?.slug || currentStatusId,
+                notes: `تم إزالة الطلب - تغيرت الحالة في سلة إلى: ${order.status?.name}`,
+              },
             });
 
             removedOrders.push(assignment.orderNumber);

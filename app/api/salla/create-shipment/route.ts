@@ -221,6 +221,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Update the assignment status to 'shipped' instead of deleting it
+    // This allows the order to remain visible until user clicks "go to new order"
+    await prisma.orderAssignment.update({
+      where: { id: assignmentId },
+      data: {
+        status: 'shipped',
+        completedAt: new Date(),
+        notes: `تم إنشاء الشحنة - رقم التتبع: ${trackingNumber}`,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       message: 'تم إنشاء الشحنة بنجاح',
