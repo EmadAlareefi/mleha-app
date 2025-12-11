@@ -262,6 +262,15 @@ export default function OrderPrepPage() {
         body: JSON.stringify({ assignmentId: currentOrder.id }),
       });
 
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        alert(`خطأ في الخادم: الاستجابة ليست بصيغة JSON\n\nالحالة: ${response.status}\n\nتحقق من سجلات الخادم للمزيد من التفاصيل.`);
+        return;
+      }
+
       const data = await response.json();
 
       if (data.success) {
@@ -274,11 +283,12 @@ export default function OrderPrepPage() {
         alert(`✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}`);
       } else {
         const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
+        console.error('Shipment creation failed:', data);
         alert(errorMsg || 'فشل إنشاء الشحنة');
       }
     } catch (error) {
       console.error('Create shipment exception:', error);
-      alert('فشل إنشاء الشحنة');
+      alert(`فشل إنشاء الشحنة\n\nخطأ: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
     } finally {
       setCreatingShipment(false);
     }
@@ -416,6 +426,7 @@ export default function OrderPrepPage() {
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                     autoRefreshEnabled ? 'bg-green-600' : 'bg-gray-300'
                   }`}
+                  dir="ltr"
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -636,22 +647,29 @@ export default function OrderPrepPage() {
                     </Card>
                   ))}
 
-                    {/* Order Options (Gift wrapping, etc.) */}
-                    {currentOrder.orderData?.options && currentOrder.orderData.options.length > 0 && (
-                      <Card className="p-4 md:p-6 bg-amber-50 border-2 border-amber-300">
-                        <h3 className="text-base md:text-lg font-bold text-amber-900 mb-3">خيارات إضافية:</h3>
-                        <div className="space-y-2">
-                          {currentOrder.orderData.options.map((option: any, idx: number) => (
-                            <div key={idx} className="flex items-center gap-2">
-                              <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    {/* Gift Wrapping Alert - Only show if packaging amount > 0 */}
+                    {(() => {
+                      const packagingAmount = currentOrder.orderData?.amounts?.packaging?.amount ||
+                                             currentOrder.orderData?.packaging_amount ||
+                                             0;
+
+                      if (packagingAmount > 0) {
+                        return (
+                          <Card className="p-4 md:p-6 bg-red-50 border-2 border-red-500">
+                            <div className="flex items-center gap-3">
+                              <svg className="w-8 h-8 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                               </svg>
-                              <span className="text-sm md:text-base font-medium text-amber-900">{option.name}</span>
+                              <div className="flex-1">
+                                <h3 className="text-lg md:text-xl font-bold text-red-900">🎁 تغليف هدية</h3>
+                                <p className="text-sm text-red-700 mt-1">هذا الطلب يحتاج إلى تغليف هدية</p>
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      </Card>
-                    )}
+                          </Card>
+                        );
+                      }
+                      return null;
+                    })()}
                   </>
                 ) : (
                   <Card className="p-6 md:p-8 text-center">

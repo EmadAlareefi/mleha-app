@@ -5,39 +5,22 @@ import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
-interface ShipmentResponse {
-  status: number;
-  success: boolean;
-  data?: {
-    id: number;
-    order_id: number;
-    tracking_number: string;
-    courier_id: number;
-    courier_name: string;
-    status: string;
-    payment_method: string;
-    created_at: {
-      date: string;
-      timezone: string;
-    };
-  };
-  error?: {
-    code: string;
-    message: string;
-    fields?: Record<string, string[]>;
-  };
-}
-
 /**
  * POST /api/salla/create-shipment
- * Creates a shipment for an order via Salla API
+ * Creates a shipping policy for an order via Salla orders/actions API
+ * Documentation: https://docs.salla.dev/7549669e0
  */
 export async function POST(request: NextRequest) {
   try {
+    log.info('Create shipment request received');
+
     const body = await request.json();
-    const { assignmentId, courierId } = body;
+    const { assignmentId } = body;
+
+    log.info('Request body parsed', { assignmentId });
 
     if (!assignmentId) {
+      log.warn('Missing assignmentId in request');
       return NextResponse.json(
         { error: 'معرف الطلب مطلوب' },
         { status: 400 }
@@ -45,179 +28,132 @@ export async function POST(request: NextRequest) {
     }
 
     // Get assignment with order data
+    log.info('Fetching assignment from database', { assignmentId });
     const assignment = await prisma.orderAssignment.findUnique({
       where: { id: assignmentId },
     });
 
     if (!assignment) {
+      log.warn('Assignment not found', { assignmentId });
       return NextResponse.json(
         { error: 'الطلب غير موجود' },
         { status: 404 }
       );
     }
 
-    const orderData = assignment.orderData as any;
+    log.info('Assignment found', {
+      assignmentId,
+      orderId: assignment.orderId,
+      orderNumber: assignment.orderNumber
+    });
 
-    // Determine courier ID (from parameter, environment variable, or error)
-    const finalCourierId = courierId || process.env.SALLA_DEFAULT_COURIER_ID;
-
-    if (!finalCourierId) {
-      return NextResponse.json(
+    // Use Salla's orders/actions API to create shipping policy
+    // Based on: https://docs.salla.dev/7549669e0
+    const actionRequestData = {
+      operations: [
         {
-          error: 'لم يتم تحديد شركة الشحن',
-          details: 'يجب تحديد SALLA_DEFAULT_COURIER_ID في إعدادات البيئة أو إرسال courierId في الطلب'
+          action_name: 'create_shipping_policy',
         },
-        { status: 400 }
-      );
-    }
-
-    // Extract customer/shipping address
-    const customer = orderData.customer || {};
-    const shippingAddress = orderData.shipping_address || orderData.shipping?.address || {};
-    const billingAddress = orderData.billing_address || orderData.billing?.address || {};
-
-    // Build ship_to object (recipient)
-    const shipTo: any = {
-      name: customer.first_name && customer.last_name
-        ? `${customer.first_name} ${customer.last_name}`.trim()
-        : customer.name || 'عميل',
-      email: customer.email || '',
-      phone: customer.mobile || customer.phone || '',
+      ],
+      filters: {
+        order_ids: [parseInt(assignment.orderId)],
+      },
     };
 
-    // Add address details if available
-    if (shippingAddress.country || billingAddress.country) {
-      shipTo.country = shippingAddress.country || billingAddress.country;
-    }
-    if (shippingAddress.city || billingAddress.city) {
-      shipTo.city = shippingAddress.city || billingAddress.city;
-    }
-    if (shippingAddress.street || shippingAddress.address || billingAddress.street || billingAddress.address) {
-      shipTo.address_line = shippingAddress.street || shippingAddress.address || billingAddress.street || billingAddress.address;
-    }
-    if (shippingAddress.street_number || billingAddress.street_number) {
-      shipTo.street_number = shippingAddress.street_number || billingAddress.street_number;
-    }
-    if (shippingAddress.block || billingAddress.block) {
-      shipTo.block = shippingAddress.block || billingAddress.block;
-    }
-    if (shippingAddress.postal_code || shippingAddress.zip || billingAddress.postal_code || billingAddress.zip) {
-      shipTo.postal_code = shippingAddress.postal_code || shippingAddress.zip || billingAddress.postal_code || billingAddress.zip;
-    }
-
-    // Build packages array from order items
-    const packages = (orderData.items || []).map((item: any) => ({
-      name: item.name || 'منتج',
-      sku: item.sku || '',
-      quantity: item.quantity || 1,
-      price: {
-        amount: parseFloat(item.price?.amount || item.amounts?.price || item.unit_price || 0),
-        currency: item.price?.currency || orderData.currency || 'SAR',
-      },
-      weight: {
-        value: parseFloat(item.weight?.value || item.weight || 0.5), // Default 0.5kg if not specified
-        units: item.weight?.units || 'kg',
-      },
-    }));
-
-    // Determine payment method (cod or pre_paid)
-    const paymentMethod = orderData.payment_method === 'cod' ||
-                          orderData.payment?.method === 'cod' ||
-                          orderData.payment_status === 'cod'
-                            ? 'cod'
-                            : 'pre_paid';
-
-    // Build shipment request
-    const shipmentData: any = {
-      courier_id: parseInt(finalCourierId),
-      order_id: parseInt(assignment.orderId),
-      shipment_type: 'shipment',
-      payment_method: paymentMethod,
-      service_types: ['fulfillment', 'normal'],
-      description: `طلب #${assignment.orderNumber} - ${packages.length} منتج`,
-      ship_to: shipTo,
-      packages: packages,
-    };
-
-    // Add COD amount if applicable
-    if (paymentMethod === 'cod') {
-      const totalAmount = parseFloat(
-        orderData.amounts?.total?.amount ||
-        orderData.total_amount ||
-        orderData.total ||
-        0
-      );
-
-      shipmentData.cash_on_delivery = {
-        amount: totalAmount,
-        currency: orderData.currency || 'SAR',
-      };
-    }
-
-    log.info('Creating shipment via Salla API', {
+    log.info('Creating shipping policy via Salla orders/actions API', {
       assignmentId,
       orderId: assignment.orderId,
       orderNumber: assignment.orderNumber,
-      courierId: finalCourierId,
-      paymentMethod,
+      requestData: actionRequestData,
     });
 
-    // Call Salla API to create shipment
-    const response = await sallaMakeRequest<ShipmentResponse>(
+    // Call Salla API to create shipping policy
+    const response = await sallaMakeRequest<any>(
       assignment.merchantId,
-      '/shipments',
+      '/orders/actions',
       {
         method: 'POST',
-        body: JSON.stringify(shipmentData),
+        body: JSON.stringify(actionRequestData),
       }
     );
 
-    if (!response || !response.success) {
-      const errorMessage = response?.error?.message || 'فشل إنشاء الشحنة';
-      const errorFields = response?.error?.fields
-        ? Object.entries(response.error.fields)
-            .map(([field, errors]) => `${field}: ${errors.join(', ')}`)
-            .join('\n')
-        : '';
+    log.info('Salla API response received', {
+      orderId: assignment.orderId,
+      response: response,
+    });
 
-      log.error('Failed to create shipment', {
+    if (!response || !response.success) {
+      const errorMessage = response?.error?.message || response?.message || 'فشل إنشاء سياسة الشحن';
+
+      log.error('Failed to create shipping policy', {
         assignmentId,
         orderId: assignment.orderId,
         error: errorMessage,
-        fields: errorFields,
-        responseStatus: response?.status,
+        response: response,
       });
 
       return NextResponse.json(
         {
+          success: false,
           error: errorMessage,
-          details: errorFields || undefined,
+          details: response?.error || undefined,
         },
         { status: 400 }
       );
     }
 
-    const shipmentId = response.data?.id;
-    const trackingNumber = response.data?.tracking_number;
-    const courierName = response.data?.courier_name;
+    // Check operation results
+    const operations = response.data || [];
+    const shipmentOperation = operations.find((op: any) => op.action_name === 'create_shipping_policy');
 
-    log.info('Shipment created successfully', {
+    if (!shipmentOperation) {
+      log.error('No shipping policy operation found in response', {
+        orderId: assignment.orderId,
+        operations,
+      });
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'لم يتم العثور على عملية إنشاء الشحنة في الاستجابة',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (shipmentOperation.status !== 'success' && shipmentOperation.status !== 'in_progress') {
+      log.error('Shipping policy creation failed', {
+        orderId: assignment.orderId,
+        operation: shipmentOperation,
+      });
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: shipmentOperation.message || 'فشل إنشاء سياسة الشحن',
+        },
+        { status: 400 }
+      );
+    }
+
+    const operationId = shipmentOperation.operation_id;
+    const shipmentStatus = shipmentOperation.status;
+
+    log.info('Shipping policy created successfully', {
       assignmentId,
       orderId: assignment.orderId,
-      shipmentId,
-      trackingNumber,
-      courierName,
+      operationId,
+      shipmentStatus,
     });
 
-    // Update the SallaOrder record with tracking number
+    // Update the SallaOrder record
     await prisma.sallaOrder.updateMany({
       where: {
         merchantId: assignment.merchantId,
         orderId: assignment.orderId,
       },
       data: {
-        trackingNumber: trackingNumber || undefined,
-        fulfillmentCompany: courierName || undefined,
+        fulfillmentStatus: 'processing',
       },
     });
 
@@ -228,36 +164,45 @@ export async function POST(request: NextRequest) {
       data: {
         status: 'shipped',
         completedAt: new Date(),
-        notes: `تم إنشاء الشحنة - رقم التتبع: ${trackingNumber}`,
+        notes: `تم إنشاء سياسة الشحن - معرف العملية: ${operationId}`,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: 'تم إنشاء الشحنة بنجاح',
+      message: 'تم إنشاء سياسة الشحن بنجاح',
       data: {
-        shipmentId,
-        trackingNumber,
-        courierName,
-        status: response.data?.status,
+        operationId,
+        status: shipmentStatus,
+        trackingNumber: 'سيتم توفير رقم التتبع قريباً',
+        courierName: 'شركة الشحن المعتمدة',
       },
     });
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : '';
+    const errorName = error instanceof Error ? error.name : 'Error';
 
     log.error('Error creating shipment', {
+      name: errorName,
       error: errorMessage,
       stack: errorStack,
     });
 
+    // Always return JSON, never let it fall through to HTML error page
     return NextResponse.json(
       {
+        success: false,
         error: 'حدث خطأ أثناء إنشاء الشحنة',
-        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+        details: process.env.NODE_ENV === 'development' ? `${errorName}: ${errorMessage}` : undefined,
       },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
     );
   }
 }
