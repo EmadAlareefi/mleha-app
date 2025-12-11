@@ -18,9 +18,11 @@ type ServiceCard = {
 };
 
 export default function AdminDashboard() {
-  const { data: session } = useSession();
-  const userRole: Role = ((session?.user as any)?.role || 'admin') as Role;
-  const userRoles: Role[] = ((session?.user as any)?.roles || [userRole]) as Role[];
+  const { data: session, status } = useSession();
+
+  // Don't default to admin - wait for proper session data
+  const userRole: Role | undefined = (session?.user as any)?.role;
+  const userRoles: Role[] = (session?.user as any)?.roles || (userRole ? [userRole] : []);
 
   const services: ServiceCard[] = [
     {
@@ -137,11 +139,21 @@ export default function AdminDashboard() {
     },
   ];
 
-  const visibleServices = services.filter(
-    (service) =>
-      !service.allowedRoles ||
-      service.allowedRoles.some(role => userRoles.includes(role))
-  );
+  // Filter services based on user roles - only show services where user has at least one matching role
+  const visibleServices = services.filter((service) => {
+    // If no roles defined for service, don't show it (all services should have explicit roles)
+    if (!service.allowedRoles || service.allowedRoles.length === 0) {
+      return false;
+    }
+
+    // If user has no roles, don't show any services
+    if (!userRoles || userRoles.length === 0) {
+      return false;
+    }
+
+    // Show service if user has at least one role that matches the service's allowed roles
+    return service.allowedRoles.some(role => userRoles.includes(role));
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -159,14 +171,23 @@ export default function AdminDashboard() {
           </p>
         </div>
 
+        {/* Loading State */}
+        {status === 'loading' && (
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p className="mt-4 text-gray-600">جاري التحميل...</p>
+          </div>
+        )}
+
         {/* Services Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {visibleServices.length === 0 && (
-            <Card className="p-6 text-center text-gray-600">
-              لا توجد خدمات متاحة لهذا الحساب.
-            </Card>
-          )}
-          {visibleServices.map((service) => (
+        {status === 'authenticated' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {visibleServices.length === 0 && (
+              <Card className="p-6 text-center text-gray-600">
+                لا توجد خدمات متاحة لهذا الحساب.
+              </Card>
+            )}
+            {visibleServices.map((service) => (
             <Link key={service.href} href={service.href}>
               <Card className="p-6 hover:shadow-xl transition-all duration-200 cursor-pointer group h-full">
                 <div className="flex flex-col h-full">
@@ -214,8 +235,9 @@ export default function AdminDashboard() {
                 </div>
               </Card>
             </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </main>
 
       {/* Footer */}

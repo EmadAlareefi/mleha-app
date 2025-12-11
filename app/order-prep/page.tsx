@@ -34,6 +34,8 @@ export default function OrderPrepPage() {
   const [currentOrder, setCurrentOrder] = useState<OrderAssignment | null>(null);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [refreshingItems, setRefreshingItems] = useState(false);
+  const [creatingShipment, setCreatingShipment] = useState(false);
+  const [shipmentInfo, setShipmentInfo] = useState<{trackingNumber: string; courierName: string} | null>(null);
 
   // Load user from session
   useEffect(() => {
@@ -61,6 +63,11 @@ export default function OrderPrepPage() {
       loadMyOrders();
     }
   }, [user]);
+
+  // Reset shipment info when changing orders
+  useEffect(() => {
+    setShipmentInfo(null);
+  }, [currentOrder?.id]);
 
 
   const autoAssignOrders = async () => {
@@ -210,6 +217,37 @@ export default function OrderPrepPage() {
       alert('فشل تحديث المنتجات');
     } finally {
       setRefreshingItems(false);
+    }
+  };
+
+  const handleCreateShipment = async () => {
+    if (!currentOrder) return;
+
+    setCreatingShipment(true);
+    try {
+      const response = await fetch('/api/salla/create-shipment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId: currentOrder.id }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setShipmentInfo({
+          trackingNumber: data.data.trackingNumber,
+          courierName: data.data.courierName,
+        });
+        alert(`✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}`);
+      } else {
+        const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
+        alert(errorMsg || 'فشل إنشاء الشحنة');
+      }
+    } catch (error) {
+      console.error('Create shipment exception:', error);
+      alert('فشل إنشاء الشحنة');
+    } finally {
+      setCreatingShipment(false);
     }
   };
 
@@ -383,17 +421,30 @@ export default function OrderPrepPage() {
                 )}
               </div>
 
+              {/* Shipment Info Display */}
+              {shipmentInfo && (
+                <Card className="mt-6 p-4 bg-green-50 border-2 border-green-500">
+                  <h3 className="text-lg font-bold text-green-900 mb-2">✅ تم إنشاء الشحنة</h3>
+                  <div className="space-y-1">
+                    <p className="text-sm text-green-800">
+                      <strong>رقم التتبع:</strong> {shipmentInfo.trackingNumber}
+                    </p>
+                    <p className="text-sm text-green-800">
+                      <strong>شركة الشحن:</strong> {shipmentInfo.courierName}
+                    </p>
+                  </div>
+                </Card>
+              )}
+
               {/* Action Buttons - Fixed at bottom */}
               <div className="mt-6 sticky bottom-0 bg-white border-t border-gray-200 p-4 -mx-4 md:-mx-6 shadow-lg">
                 <div className="max-w-7xl mx-auto flex flex-col sm:flex-row gap-3">
                   <Button
-                    onClick={() => {
-                      const sallaAdminUrl = `https://s.salla.sa/orders/${currentOrder.orderId}`;
-                      window.open(sallaAdminUrl, '_blank');
-                    }}
-                    className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700"
+                    onClick={handleCreateShipment}
+                    disabled={creatingShipment || !!shipmentInfo}
+                    className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
-                    انشاء شحنة
+                    {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
                   </Button>
                   <Button
                     onClick={handleCompleteOrder}

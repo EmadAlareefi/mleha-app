@@ -24,6 +24,17 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+interface OrderShipmentInfo {
+  id: string | null;
+  company: string | null;
+  trackingNumber: string | null;
+  statusSlug: string | null;
+  statusLabel: string | null;
+  shippingType: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+}
+
 interface OrderRecord {
   id: string;
   merchantId: string;
@@ -57,6 +68,7 @@ interface OrderRecord {
   campaignSource: string | null;
   campaignMedium: string | null;
   campaignName: string | null;
+  shipments?: OrderShipmentInfo[];
 }
 
 type OrderReportRow = Record<string, string | number | null | undefined>;
@@ -267,6 +279,24 @@ export default function OrderReportsPage() {
     return translations[method.toLowerCase()] || method;
   };
 
+  const formatShipmentDetails = (shipments?: OrderShipmentInfo[]) => {
+    if (!shipments || shipments.length === 0) return '';
+    return shipments
+      .map((shipment, index) => {
+        const status = formatStatusText(shipment.statusLabel, shipment.statusSlug);
+        const parts = [
+          `${index + 1})`,
+          shipment.company || 'غير معروف',
+          shipment.trackingNumber || 'بدون تتبع',
+        ];
+        if (status && status !== 'غير معروف') {
+          parts.push(status);
+        }
+        return parts.join(' - ');
+      })
+      .join(' | ');
+  };
+
   const handleExportToExcel = async () => {
     if (isExporting) return;
     setIsExporting(true);
@@ -310,29 +340,34 @@ export default function OrderReportsPage() {
         return;
       }
 
-      const rows = allOrders.map<OrderReportRow>((order, index) => ({
-        '#': index + 1,
-        'رقم الطلب': order.orderNumber ?? order.orderId,
-        'معرف الطلب': order.orderId,
-        'تاريخ الطلب': formatDate(order.placedAt ?? order.updatedAtRemote),
-        'الحالة': formatStatusText(order.statusName, order.statusSlug),
-        'حالة الدفع': order.paymentStatus ?? '',
-        'طريقة الدفع': order.paymentMethod ? translatePaymentMethod(order.paymentMethod) : '',
-        'القيمة الإجمالية': order.totalAmount ?? '',
-        'العملة': order.currency ?? '',
-        'اسم العميل': !isAccountant ? order.customerName ?? '' : '',
-        'جوال العميل': !isAccountant ? order.customerMobile ?? '' : '',
-        'المدينة': !isAccountant ? order.customerCity ?? '' : '',
-        'مصدر الحملة': order.campaignSource ?? '',
-        'Medium الحملة': order.campaignMedium ?? '',
-        'اسم الحملة': order.campaignName ?? '',
-        'شركة الشحن': order.fulfillmentCompany ?? '',
-        'رقم التتبع': order.trackingNumber ?? '',
-        'متزامن مع ERP': order.erpSyncedAt ? 'نعم' : 'لا',
-        'تاريخ المزامنة': order.erpSyncedAt ? formatDate(order.erpSyncedAt) : '',
-        'فاتورة ERP': order.erpInvoiceId ?? '',
-        'خطأ المزامنة': order.erpSyncError ?? '',
-      }));
+      const rows = allOrders.map<OrderReportRow>((order, index) => {
+        const shipments = order.shipments ?? [];
+        return {
+          '#': index + 1,
+          'رقم الطلب': order.orderNumber ?? order.orderId,
+          'معرف الطلب': order.orderId,
+          'تاريخ الطلب': formatDate(order.placedAt ?? order.updatedAtRemote),
+          'الحالة': formatStatusText(order.statusName, order.statusSlug),
+          'حالة الدفع': order.paymentStatus ?? '',
+          'طريقة الدفع': order.paymentMethod ? translatePaymentMethod(order.paymentMethod) : '',
+          'القيمة الإجمالية': order.totalAmount ?? '',
+          'العملة': order.currency ?? '',
+          'اسم العميل': !isAccountant ? order.customerName ?? '' : '',
+          'جوال العميل': !isAccountant ? order.customerMobile ?? '' : '',
+          'المدينة': !isAccountant ? order.customerCity ?? '' : '',
+          'مصدر الحملة': order.campaignSource ?? '',
+          'Medium الحملة': order.campaignMedium ?? '',
+          'اسم الحملة': order.campaignName ?? '',
+          'شركة الشحن': order.fulfillmentCompany ?? '',
+          'رقم التتبع': order.trackingNumber ?? '',
+          'عدد الشحنات من API': shipments.length ? shipments.length : '',
+          'تفاصيل الشحنات من API': formatShipmentDetails(shipments),
+          'متزامن مع ERP': order.erpSyncedAt ? 'نعم' : 'لا',
+          'تاريخ المزامنة': order.erpSyncedAt ? formatDate(order.erpSyncedAt) : '',
+          'فاتورة ERP': order.erpInvoiceId ?? '',
+          'خطأ المزامنة': order.erpSyncError ?? '',
+        };
+      });
 
       const columnKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
       const columnsWithData = columnKeys.filter(key =>

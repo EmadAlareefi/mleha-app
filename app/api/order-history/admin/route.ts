@@ -4,6 +4,7 @@ import { log } from '@/app/lib/logger';
 import type { Prisma } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
+import { normalizers } from '@/app/lib/salla-orders';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +18,75 @@ const STATUS_CATEGORY = {
   completed: new Set(['completed', 'delivered', 'ready_for_pickup', 'ready', 'fulfilled']),
   cancelled: new Set(['cancelled', 'canceled', 'restored']),
 };
+
+interface SerializedOrderShipment {
+  id: string | null;
+  company: string | null;
+  trackingNumber: string | null;
+  statusSlug: string | null;
+  statusLabel: string | null;
+  shippingType: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+}
+
+function toIsoString(date: Date | null): string | null {
+  return date ? date.toISOString() : null;
+}
+
+function serializeOrderShipments(rawOrder: any): SerializedOrderShipment[] {
+  if (!rawOrder || typeof rawOrder !== 'object') return [];
+  const shipments = Array.isArray((rawOrder as any).shipments)
+    ? (rawOrder as any).shipments
+    : [];
+
+  return shipments.map((shipment: any) => {
+    const shippedAt = normalizers.date(
+      shipment?.shipped_at ??
+        shipment?.shippedAt ??
+        shipment?.created_at ??
+        shipment?.createdAt
+    );
+    const deliveredAt = normalizers.date(
+      shipment?.delivered_at ??
+        shipment?.deliveredAt ??
+        shipment?.delivered_date ??
+        shipment?.deliveredDate
+    );
+
+    return {
+      id: normalizers.id(shipment?.id ?? shipment?.shipment_id),
+      company: normalizers.string(
+        shipment?.company ??
+          shipment?.shipping_company ??
+          shipment?.carrier ??
+          shipment?.provider
+      ),
+      trackingNumber: normalizers.string(
+        shipment?.tracking_number ??
+          shipment?.tracking ??
+          shipment?.trackingNumber
+      ),
+      statusSlug: normalizers.status(
+        shipment?.status?.slug ??
+          shipment?.status ??
+          shipment?.status_code
+      ),
+      statusLabel: normalizers.string(
+        shipment?.status_label ??
+          shipment?.status?.name ??
+          shipment?.status_name
+      ),
+      shippingType: normalizers.string(
+        shipment?.type ??
+          shipment?.shipment_type ??
+          shipment?.delivery_type
+      ),
+      shippedAt: toIsoString(shippedAt),
+      deliveredAt: toIsoString(deliveredAt),
+    };
+  });
+}
 
 function normalizeStatusSlug(slug: string | null): string {
   if (!slug) return 'unknown';
@@ -183,6 +253,7 @@ export async function GET(request: NextRequest) {
     const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / limit);
 
     const serializedOrders = orders.map((order) => {
+      const shipments = serializeOrderShipments(order.rawOrder);
       const baseOrder = {
         id: order.id,
         merchantId: order.merchantId,
@@ -209,6 +280,7 @@ export async function GET(request: NextRequest) {
         campaignSource: order.campaignSource,
         campaignMedium: order.campaignMedium,
         campaignName: order.campaignName,
+        shipments,
       };
 
       // Hide customer information for accountants
