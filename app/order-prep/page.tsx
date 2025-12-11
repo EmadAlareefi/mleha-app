@@ -646,9 +646,7 @@ export default function OrderPrepPage() {
 
                     {/* Gift Wrapping Alert - Only show if packaging amount > 0 */}
                     {(() => {
-                      const packagingAmount = currentOrder.orderData?.amounts?.packaging?.amount ||
-                                             currentOrder.orderData?.packaging_amount ||
-                                             0;
+                      const packagingAmount = currentOrder.orderData?.amounts?.options_total?.amount || 0;
 
                       if (packagingAmount > 0) {
                         return (
