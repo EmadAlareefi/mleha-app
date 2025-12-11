@@ -57,15 +57,10 @@ export default function OrderPrepPage() {
   }, [session, isOrdersUser]);
 
   useEffect(() => {
-    if (user && user.autoAssign) {
-      // Auto-assign orders when user logs in
-      autoAssignOrders();
-    }
-  }, [user]);
-
-  useEffect(() => {
     if (user) {
-      loadMyOrders();
+      // Load orders and auto-assign if empty (regardless of autoAssign setting)
+      // This ensures every user gets the oldest unassigned order when accessing the page
+      loadMyOrders(true);
     }
   }, [user]);
 
@@ -128,12 +123,12 @@ export default function OrderPrepPage() {
     }
   };
 
-  const loadMyOrders = async () => {
+  const loadMyOrders = async (autoAssignIfEmpty = false) => {
     if (!user) return;
 
     setLoadingOrders(true);
     try {
-      // First, validate orders - remove any that are no longer in "طلب جديد" status
+      // First, validate orders - remove any that are no longer in valid status
       await fetch('/api/order-assignments/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -146,6 +141,14 @@ export default function OrderPrepPage() {
 
       if (data.success) {
         setAssignments(data.assignments);
+
+        // If user has no orders and autoAssignIfEmpty is true, auto-assign the oldest order
+        if (data.assignments.length === 0 && autoAssignIfEmpty) {
+          console.log('No orders found - auto-assigning oldest unassigned order...');
+          await autoAssignOrders();
+          return; // autoAssignOrders will call loadMyOrders again
+        }
+
         // Set first order as current if none selected
         if (!currentOrder && data.assignments.length > 0) {
           setCurrentOrder(data.assignments[0]);
@@ -202,12 +205,9 @@ export default function OrderPrepPage() {
         // Clear current order
         setCurrentOrder(null);
 
-        // Auto-assign a new order if autoAssign is enabled
-        if (user?.autoAssign) {
-          await autoAssignOrders();
-        } else {
-          loadMyOrders();
-        }
+        // Always load orders with auto-assign enabled
+        // This ensures the user gets the oldest unassigned order automatically
+        loadMyOrders(true);
       } else {
         const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
         console.error('Complete order error:', data);
@@ -313,12 +313,9 @@ export default function OrderPrepPage() {
         // Clear current order
         setCurrentOrder(null);
 
-        // Auto-assign a new order if autoAssign is enabled
-        if (user?.autoAssign) {
-          await autoAssignOrders();
-        } else {
-          loadMyOrders();
-        }
+        // Always load orders with auto-assign enabled
+        // This ensures the user gets the oldest unassigned order automatically
+        loadMyOrders(true);
       } else {
         const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
         console.error('Complete order error:', data);
