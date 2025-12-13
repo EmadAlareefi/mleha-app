@@ -647,7 +647,6 @@ export default function OrderPrepPage() {
                     {/* Gift Wrapping Alert - Only show if packaging amount > 0 */}
                     {(() => {
                       const packagingAmount = currentOrder.orderData?.amounts?.options_total?.amount || 0;
-
                       if (packagingAmount > 0) {
                         return (
                           <Card className="p-4 md:p-6 bg-red-50 border-2 border-red-500">
