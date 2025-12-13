@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
+import { sendPrintJob, generateShipmentLabel } from '@/app/lib/printnode';
 
 interface OrderUser {
   id: string;
@@ -21,6 +22,7 @@ interface OrderAssignment {
   orderData: any;
   status: string;
   assignedAt: string;
+  notes?: string;
 }
 
 export default function OrderPrepPage() {
@@ -36,6 +38,8 @@ export default function OrderPrepPage() {
   const [refreshingItems, setRefreshingItems] = useState(false);
   const [creatingShipment, setCreatingShipment] = useState(false);
   const [shipmentInfo, setShipmentInfo] = useState<{trackingNumber: string; courierName: string} | null>(null);
+  const [movingToReview, setMovingToReview] = useState(false);
+  const [movingToReservation, setMovingToReservation] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
@@ -278,9 +282,52 @@ export default function OrderPrepPage() {
           trackingNumber: data.data.trackingNumber,
           courierName: data.data.courierName,
         });
+
+        // Send print job to PrintNode
+        try {
+          const customerName = `${currentOrder.orderData?.customer?.first_name || ''} ${currentOrder.orderData?.customer?.last_name || ''}`.trim() || 'N/A';
+          const location = currentOrder.orderData?.customer?.location || '';
+          const city = currentOrder.orderData?.customer?.city || '';
+
+          const labelContent = generateShipmentLabel({
+            orderNumber: currentOrder.orderNumber,
+            customerName,
+            trackingNumber: data.data.trackingNumber,
+            courierName: data.data.courierName,
+            location,
+            city,
+          });
+
+          // Convert label to base64 for PrintNode (handling UTF-8 properly)
+          // Use TextEncoder for proper UTF-8 handling with Arabic text
+          const encoder = new TextEncoder();
+          const uint8Array = encoder.encode(labelContent);
+          const binaryString = Array.from(uint8Array, byte => String.fromCharCode(byte)).join('');
+          const base64Content = btoa(binaryString);
+
+          const printResult = await sendPrintJob({
+            title: `Order #${currentOrder.orderNumber} - Shipment Label`,
+            contentType: 'raw_base64',
+            content: base64Content,
+            copies: 1,
+          });
+
+          if (!printResult.success) {
+            console.error('Failed to send print job:', printResult.error);
+            // Don't block the shipment creation if print fails
+            alert(`⚠️ تم إنشاء الشحنة ولكن فشلت الطباعة\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nخطأ الطباعة: ${printResult.error}`);
+          } else {
+            console.log('Print job sent successfully:', printResult.jobId);
+            alert(`✅ تم إنشاء الشحنة وإرسالها للطباعة!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nرقم مهمة الطباعة: ${printResult.jobId}`);
+          }
+        } catch (printError) {
+          console.error('Print job error:', printError);
+          // Don't block the shipment creation if print fails
+          alert(`✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nملاحظة: فشلت عملية الطباعة`);
+        }
+
         // Reload orders to get the updated status
         await loadMyOrders();
-        alert(`✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}`);
       } else {
         const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
         console.error('Shipment creation failed:', data);
@@ -324,6 +371,108 @@ export default function OrderPrepPage() {
     } catch (error) {
       console.error('Go to new order exception:', error);
       alert('فشل الانتقال للطلب التالي');
+    }
+  };
+
+  const handleMoveToUnderReview = async () => {
+    if (!currentOrder) return;
+
+    setMovingToReview(true);
+    try {
+      // Update status to "تحت المراجعة" (ID: 1065456688)
+      const updateResponse = await fetch('/api/order-assignments/update-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentId: currentOrder.id,
+          status: 'under_review',
+          updateSalla: true,
+          sallaStatus: '1065456688', // تحت المراجعة status ID
+        }),
+      });
+
+      const updateData = await updateResponse.json();
+
+      if (!updateData.success) {
+        alert(updateData.error || 'فشل تحديث حالة الطلب');
+        return;
+      }
+
+      // Complete the order (move to history)
+      const completeResponse = await fetch('/api/order-assignments/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentId: currentOrder.id,
+        }),
+      });
+
+      const completeData = await completeResponse.json();
+
+      if (completeData.success) {
+        // Clear current order and load next
+        setCurrentOrder(null);
+        loadMyOrders(true);
+      } else {
+        const errorMsg = completeData.details ? `${completeData.error}\n\nتفاصيل: ${completeData.details}` : completeData.error;
+        alert(errorMsg || 'فشل الانتقال للطلب التالي');
+      }
+    } catch (error) {
+      console.error('Move to under review exception:', error);
+      alert('فشل تحديث حالة الطلب');
+    } finally {
+      setMovingToReview(false);
+    }
+  };
+
+  const handleMoveToReservation = async () => {
+    if (!currentOrder) return;
+
+    setMovingToReservation(true);
+    try {
+      // Update status to "تحت المراجعة حجز قطع" (ID: 1576217163)
+      const updateResponse = await fetch('/api/order-assignments/update-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentId: currentOrder.id,
+          status: 'under_review_reservation',
+          updateSalla: true,
+          sallaStatus: '1576217163', // تحت المراجعة حجز قطع status ID
+        }),
+      });
+
+      const updateData = await updateResponse.json();
+
+      if (!updateData.success) {
+        alert(updateData.error || 'فشل تحديث حالة الطلب');
+        return;
+      }
+
+      // Complete the order (move to history)
+      const completeResponse = await fetch('/api/order-assignments/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentId: currentOrder.id,
+        }),
+      });
+
+      const completeData = await completeResponse.json();
+
+      if (completeData.success) {
+        // Clear current order and load next
+        setCurrentOrder(null);
+        loadMyOrders(true);
+      } else {
+        const errorMsg = completeData.details ? `${completeData.error}\n\nتفاصيل: ${completeData.details}` : completeData.error;
+        alert(errorMsg || 'فشل الانتقال للطلب التالي');
+      }
+    } catch (error) {
+      console.error('Move to reservation exception:', error);
+      alert('فشل تحديث حالة الطلب');
+    } finally {
+      setMovingToReservation(false);
     }
   };
 
@@ -581,6 +730,28 @@ export default function OrderPrepPage() {
                       📝 ملاحظات: {currentOrder.orderData.notes}
                     </p>
                   )}
+
+                  {/* Order Tags - Prominent Display */}
+                  {currentOrder.orderData?.tags && currentOrder.orderData.tags.length > 0 && (
+                    <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                        </svg>
+                        <h3 className="text-sm font-bold text-blue-900">علامات الطلب (Tags)</h3>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {currentOrder.orderData.tags.map((tag: any, idx: number) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-blue-600 text-white shadow-md border-2 border-blue-700"
+                          >
+                            🏷️ {typeof tag === 'string' ? tag : tag.name || tag.value || JSON.stringify(tag)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Card>
 
@@ -704,32 +875,53 @@ export default function OrderPrepPage() {
 
               {/* Action Buttons - Fixed at bottom */}
               <div className="mt-6 sticky bottom-0 bg-white border-t border-gray-200 p-4 -mx-4 md:-mx-6 shadow-lg">
-                <div className="max-w-7xl mx-auto flex flex-col sm:flex-row gap-3">
-                  {currentOrder.status === 'shipped' ? (
-                    // Show "Go to New Order" button when shipment is created
+                <div className="max-w-7xl mx-auto space-y-3">
+                  {/* Review Status Buttons */}
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <Button
-                      onClick={handleGoToNewOrder}
-                      className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
+                      onClick={handleMoveToUnderReview}
+                      disabled={movingToReview || movingToReservation}
+                      className="w-full py-6 text-lg bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
-                      ✅ الانتقال للطلب التالي
+                      {movingToReview ? 'جاري النقل...' : '📋 تحت المراجعة'}
                     </Button>
-                  ) : (
-                    <>
+                    <Button
+                      onClick={handleMoveToReservation}
+                      disabled={movingToReview || movingToReservation}
+                      className="w-full py-6 text-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {movingToReservation ? 'جاري النقل...' : '🔖 تحت المراجعة حجز قطع'}
+                    </Button>
+                  </div>
+
+                  {/* Main Action Buttons */}
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {currentOrder.status === 'shipped' ? (
+                      // Show "Go to New Order" button when shipment is created
                       <Button
-                        onClick={handleCreateShipment}
-                        disabled={creatingShipment || !!shipmentInfo}
-                        className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                      >
-                        {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
-                      </Button>
-                      <Button
-                        onClick={handleCompleteOrder}
+                        onClick={handleGoToNewOrder}
                         className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
                       >
-                        إنهاء الطلب
+                        ✅ الانتقال للطلب التالي
                       </Button>
-                    </>
-                  )}
+                    ) : (
+                      <>
+                        <Button
+                          onClick={handleCreateShipment}
+                          disabled={creatingShipment || !!shipmentInfo}
+                          className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                          {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
+                        </Button>
+                        <Button
+                          onClick={handleCompleteOrder}
+                          className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
+                        >
+                          إنهاء الطلب
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

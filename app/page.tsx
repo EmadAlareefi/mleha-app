@@ -34,6 +34,14 @@ export default function AdminDashboard() {
       allowedRoles: ['orders'],
     },
     {
+      title: 'إدارة طلبات التحضير',
+      description: 'لوحة تحكم المسؤول لإدارة ومتابعة طلبات التحضير',
+      icon: '📊',
+      href: '/admin/order-prep',
+      color: 'from-slate-500 to-slate-600',
+      allowedRoles: ['admin'],
+    },
+    {
       title: 'المستودع',
       description: 'إدارة الشحنات الواردة والصادرة',
       icon: '📦',

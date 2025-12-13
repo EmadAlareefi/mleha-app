@@ -23,7 +23,10 @@
       "Bash(node scripts/run-check-token-status.js:*)",
       "Bash(node -e:*)",
       "Bash(node scripts/run-update-salla-token.js:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(node scripts/run-fetch-salla-statuses.js:*)",
+      "Bash(node scripts/run-check-active-orders.js:*)",
+      "WebFetch(domain:www.printnode.com)"
     ],
     "deny": [],
     "ask": []

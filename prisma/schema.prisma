@@ -88,6 +88,28 @@ model Shipment {
   @@index([warehouseId])
 }
 
+model SallaShipment {
+  id             String   @id @default(cuid())
+  merchantId     String
+  orderId        String
+  orderNumber    String
+  trackingNumber String
+  courierName    String // e.g., "SMSA Express"
+  courierCode    String // e.g., "smsa"
+  awbNumber      String? // Air Waybill Number
+  sawb           String? // SMSA AWB
+  status         String // "created", "picked_up", "in_transit", "delivered", etc.
+  shipmentData   Json? // Raw response from courier API
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([merchantId])
+  @@index([orderId])
+  @@index([trackingNumber])
+  @@index([createdAt])
+}
+
 model SallaAuth {
   id           String   @id @default(cuid())
   merchantId   String   @unique // Salla merchant ID

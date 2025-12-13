@@ -369,6 +369,142 @@ export async function cancelC2BShipment(awbNumber: string): Promise<{
   }
 }
 
+export interface SMSAB2CRequest {
+  OrderNumber: string;
+  DeclaredValue: number;
+  Parcels: number;
+  ShipDate: string;
+  ShipmentCurrency: string;
+  Weight: number;
+  WeightUnit: string;
+  ContentDescription: string;
+  ConsigneeAddress: ShipmentAddress;
+  ShipperAddress: ShipmentAddress;
+  CODAmount?: number;
+  DutyPaid?: boolean;
+  ServiceCode?: string;
+  SMSARetailID?: string;
+  VatPaid?: boolean;
+  WaybillType?: 'PDF' | 'ZPL';
+}
+
+/**
+ * Creates a B2C (business to customer) shipment via SMSA API
+ */
+export async function createSMSAB2CShipment(
+  shipmentData: SMSAB2CRequest
+): Promise<SMSAShipmentResponse> {
+  if (!SMSA_API_KEY) {
+    log.error('SMSA credentials not configured', {
+      hasKey: !!process.env.SMSA_API_KEY,
+      hasProdKey: !!process.env.SMSA_PRODUCTION_API_KEY,
+      hasTestKey: !!process.env.SMSA_TEST_API_KEY,
+      hasSandboxKey: !!process.env.SMSA_SANDBOX_API_KEY,
+      env: resolvedEnvLabel,
+    });
+    return {
+      success: false,
+      error: 'SMSA API credentials not configured. Please check your environment variables.',
+      errorCode: 'MISSING_CREDENTIALS',
+    };
+  }
+
+  try {
+    const payload: Record<string, any> = {
+      ...shipmentData,
+      WaybillType: shipmentData.WaybillType ?? SMSA_WAYBILL_TYPE,
+    };
+
+    if (!payload.ServiceCode && SMSA_SERVICE_CODE) {
+      payload.ServiceCode = SMSA_SERVICE_CODE;
+    }
+
+    if (!payload.SMSARetailID && SMSA_RETAIL_ID) {
+      payload.SMSARetailID = SMSA_RETAIL_ID;
+    }
+
+    const url = buildSmsaUrl('/b2c/new');
+
+    log.info('Creating SMSA B2C shipment', {
+      reference: shipmentData.OrderNumber,
+      env: resolvedEnvLabel,
+      baseUrl: SMSA_API_BASE_URL,
+      url,
+      hasApiKey: !!SMSA_API_KEY,
+    });
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        apikey: SMSA_API_KEY,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      log.error('SMSA B2C API request failed', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        env: resolvedEnvLabel,
+      });
+
+      let errorMessage = `SMSA API error: ${response.status}`;
+      if (response.status === 401) {
+        errorMessage = 'SMSA API authentication failed. Please verify your API key.';
+      } else if (response.status === 403) {
+        errorMessage = 'SMSA API access forbidden. Check API key permissions.';
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        errorCode: 'API_ERROR',
+        rawResponse: errorText,
+      };
+    }
+
+    const data = await response.json();
+
+    if (data.sawb) {
+      log.info('SMSA B2C shipment created successfully', {
+        sawb: data.sawb,
+        reference: shipmentData.OrderNumber,
+      });
+
+      const awb = data.waybills?.[0]?.awb;
+
+      return {
+        success: true,
+        sawb: data.sawb,
+        awbNumber: awb,
+        trackingNumber: awb,
+        rawResponse: data,
+      };
+    }
+
+    log.error('SMSA B2C shipment creation failed', { response: data });
+
+    return {
+      success: false,
+      error: data.error || data.message || 'Unknown error',
+      errorCode: data.errorCode || 'SHIPMENT_FAILED',
+      rawResponse: data,
+    };
+  } catch (error) {
+    log.error('Error creating SMSA B2C shipment', { error });
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      errorCode: 'EXCEPTION',
+    };
+  }
+}
+
 /**
  * Tracks a B2C shipment by AWB number
  */
