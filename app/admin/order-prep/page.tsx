@@ -523,6 +523,7 @@ export default function AdminOrderPrepPage() {
                       <th className="text-right p-3 font-semibold">رقم الطلب</th>
                       <th className="text-right p-3 font-semibold">المستخدم</th>
                       <th className="text-right p-3 font-semibold">الحالة</th>
+                      <th className="text-right p-3 font-semibold">النوع</th>
                       <th className="text-right p-3 font-semibold">العلامات</th>
                       <th className="text-right p-3 font-semibold">وقت التعيين</th>
                       <th className="text-right p-3 font-semibold">وقت البدء</th>
@@ -552,6 +553,24 @@ export default function AdminOrderPrepPage() {
                           >
                             {getStatusLabel(assignment.status, assignment.sallaStatus)}
                           </span>
+                        </td>
+                        <td className="p-3">
+                          {(() => {
+                            const country = assignment.orderData?.customer?.country
+                              || assignment.orderData?.shipping_address?.country
+                              || assignment.orderData?.billing_address?.country;
+
+                            if (country && country !== 'SA') {
+                              return (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
+                                  🌍 دولي
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="text-xs text-gray-400">محلي</span>
+                            );
+                          })()}
                         </td>
                         <td className="p-3">
                           {assignment.orderData?.tags && assignment.orderData.tags.length > 0 ? (

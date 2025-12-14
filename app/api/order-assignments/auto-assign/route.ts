@@ -94,20 +94,16 @@ export async function POST(request: NextRequest) {
     const { getSallaOrderStatuses, getStatusBySlug } = await import('@/app/lib/salla-statuses');
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
 
-    // Build query based on order type
-    // Default: fetch orders with status "under_review" (تحت المراجعة)
-    let statusFilter: string;
+    // ALWAYS fetch orders with status "طلب جديد" (New Order)
+    // This is the parent status with ID 449146439 and slug 'under_review'
+    // Find by name to ensure we get the correct parent status
+    const newOrderStatus = statuses.find(s =>
+      s.name === 'طلب جديد' ||
+      s.id === 449146439 ||
+      (s.slug === 'under_review' && !s.parent)
+    );
 
-    if (user.orderType === 'specific_status' && user.specificStatus) {
-      statusFilter = user.specificStatus;
-    } else {
-      // Use dynamic lookup instead of hardcoded ID
-      const underReviewStatus = getStatusBySlug(statuses, 'under_review');
-      statusFilter = underReviewStatus?.id.toString() || '566146469'; // Fallback to default ID
-    }
-
-    // Try to get status info for logging
-    const newOrderStatus = statuses.find(s => s.id.toString() === statusFilter || s.slug === statusFilter);
+    const statusFilter = newOrderStatus?.id.toString() || '449146439'; // Use ID 449146439 as fallback
 
     log.info('Fetching orders with status', {
       statusFilter,
@@ -150,6 +146,11 @@ export async function POST(request: NextRequest) {
     const data = await response.json();
     const orders = data.data || [];
 
+    log.info('Orders fetched from Salla', {
+      totalOrders: orders.length,
+      orderIds: orders.map((o: any) => o.id),
+    });
+
     // Filter orders based on payment method (COD/prepaid) if needed
     let filteredOrders = orders;
 
@@ -157,14 +158,24 @@ export async function POST(request: NextRequest) {
       filteredOrders = orders.filter((order: any) =>
         order.payment_method === 'cash_on_delivery' || order.payment_method === 'cod'
       );
+      log.info('Filtered by COD payment method', {
+        beforeFilter: orders.length,
+        afterFilter: filteredOrders.length,
+        filtered: orders.length - filteredOrders.length,
+      });
     } else if (user.orderType === 'prepaid') {
       filteredOrders = orders.filter((order: any) =>
         order.payment_method !== 'cash_on_delivery' && order.payment_method !== 'cod'
       );
+      log.info('Filtered by prepaid payment method', {
+        beforeFilter: orders.length,
+        afterFilter: filteredOrders.length,
+        filtered: orders.length - filteredOrders.length,
+      });
     }
 
     // Get already assigned order IDs for this merchant (only active assignments)
-    // Exclude completed/removed orders so they can be reassigned if needed
+    // This prevents assigning orders that are actively being worked on by other users
     const assignedOrderIds = await prisma.orderAssignment.findMany({
       where: {
         merchantId: MERCHANT_ID,
@@ -179,10 +190,41 @@ export async function POST(request: NextRequest) {
 
     const assignedOrderIdSet = new Set(assignedOrderIds.map(a => a.orderId));
 
-    // Filter out already assigned orders
+    log.info('Active assignments by others', {
+      count: assignedOrderIdSet.size,
+      orderIds: Array.from(assignedOrderIdSet),
+    });
+
+    // Also get orders already assigned to THIS user (regardless of status)
+    // This prevents unique constraint violations on (userId, orderId)
+    const userAssignedOrders = await prisma.orderAssignment.findMany({
+      where: {
+        userId: user.id,
+      },
+      select: {
+        orderId: true,
+      },
+    });
+
+    const userAssignedOrderIdSet = new Set(userAssignedOrders.map(a => a.orderId));
+
+    log.info('Orders already assigned to this user', {
+      count: userAssignedOrderIdSet.size,
+      orderIds: Array.from(userAssignedOrderIdSet),
+    });
+
+    // Filter out already assigned orders (both active assignments by others and any assignment by this user)
     const unassignedOrders = filteredOrders.filter(
-      (order: any) => !assignedOrderIdSet.has(String(order.id))
+      (order: any) => !assignedOrderIdSet.has(String(order.id)) && !userAssignedOrderIdSet.has(String(order.id))
     );
+
+    log.info('Unassigned orders after filtering', {
+      beforeFilter: filteredOrders.length,
+      afterFilter: unassignedOrders.length,
+      filteredByActiveAssignments: filteredOrders.filter((o: any) => assignedOrderIdSet.has(String(o.id))).length,
+      filteredByUserAssignments: filteredOrders.filter((o: any) => userAssignedOrderIdSet.has(String(o.id))).length,
+      availableOrderIds: unassignedOrders.map((o: any) => o.id),
+    });
 
     // Limit to available slots
     const ordersToAssign = unassignedOrders.slice(0, availableSlots);
