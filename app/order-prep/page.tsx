@@ -5,7 +5,6 @@ import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
-import { sendPrintJob, generateShipmentLabel } from '@/app/lib/printnode';
 
 interface OrderUser {
   id: string;
@@ -283,48 +282,13 @@ export default function OrderPrepPage() {
           courierName: data.data.courierName,
         });
 
-        // Send print job to PrintNode
-        try {
-          const customerName = `${currentOrder.orderData?.customer?.first_name || ''} ${currentOrder.orderData?.customer?.last_name || ''}`.trim() || 'N/A';
-          const location = currentOrder.orderData?.customer?.location || '';
-          const city = currentOrder.orderData?.customer?.city || '';
+        // Show success message
+        // Note: Label printing is handled automatically by the webhook
+        const message = data.data.labelPrinted
+          ? `✅ تم إنشاء الشحنة وطباعة البوليصة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}`
+          : `✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nملاحظة: البوليصة قيد المعالجة`;
 
-          const labelContent = generateShipmentLabel({
-            orderNumber: currentOrder.orderNumber,
-            customerName,
-            trackingNumber: data.data.trackingNumber,
-            courierName: data.data.courierName,
-            location,
-            city,
-          });
-
-          // Convert label to base64 for PrintNode (handling UTF-8 properly)
-          // Use TextEncoder for proper UTF-8 handling with Arabic text
-          const encoder = new TextEncoder();
-          const uint8Array = encoder.encode(labelContent);
-          const binaryString = Array.from(uint8Array, byte => String.fromCharCode(byte)).join('');
-          const base64Content = btoa(binaryString);
-
-          const printResult = await sendPrintJob({
-            title: `Order #${currentOrder.orderNumber} - Shipment Label`,
-            contentType: 'raw_base64',
-            content: base64Content,
-            copies: 1,
-          });
-
-          if (!printResult.success) {
-            console.error('Failed to send print job:', printResult.error);
-            // Don't block the shipment creation if print fails
-            alert(`⚠️ تم إنشاء الشحنة ولكن فشلت الطباعة\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nخطأ الطباعة: ${printResult.error}`);
-          } else {
-            console.log('Print job sent successfully:', printResult.jobId);
-            alert(`✅ تم إنشاء الشحنة وإرسالها للطباعة!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nرقم مهمة الطباعة: ${printResult.jobId}`);
-          }
-        } catch (printError) {
-          console.error('Print job error:', printError);
-          // Don't block the shipment creation if print fails
-          alert(`✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nملاحظة: فشلت عملية الطباعة`);
-        }
+        alert(message);
 
         // Reload orders to get the updated status
         await loadMyOrders();

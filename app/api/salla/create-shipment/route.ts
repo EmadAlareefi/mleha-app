@@ -168,14 +168,60 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Wait for Salla's webhook to process and store shipment info
+    // The webhook will automatically print the label via PrintNode
+    let trackingNumber = 'سيتم توفير رقم التتبع قريباً';
+    let courierName = 'شركة الشحن المعتمدة';
+    let labelPrinted = false;
+
+    try {
+      // Wait 3 seconds for Salla webhook to fire and process
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Check if shipment was created by Salla's webhook
+      const shipment = await prisma.sallaShipment.findUnique({
+        where: {
+          merchantId_orderId: {
+            merchantId: assignment.merchantId,
+            orderId: assignment.orderId,
+          },
+        },
+      });
+
+      if (shipment) {
+        log.info('Found shipment info from Salla webhook', {
+          orderId: assignment.orderId,
+          trackingNumber: shipment.trackingNumber,
+          courierName: shipment.courierName,
+        });
+
+        trackingNumber = shipment.trackingNumber;
+        courierName = shipment.courierName;
+        labelPrinted = !!(shipment.shipmentData as any)?.label_url;
+      } else {
+        log.info('No shipment info yet - Salla webhook may still be processing', {
+          orderId: assignment.orderId,
+        });
+      }
+    } catch (lookupError) {
+      log.error('Error looking up shipment tracking', {
+        orderId: assignment.orderId,
+        error: lookupError,
+      });
+      // Continue with placeholder values
+    }
+
     return NextResponse.json({
       success: true,
-      message: 'تم إنشاء سياسة الشحن بنجاح',
+      message: labelPrinted
+        ? 'تم إنشاء الشحنة بنجاح وإرسالها للطباعة'
+        : 'تم إنشاء سياسة الشحن بنجاح',
       data: {
         operationId,
         status: shipmentStatus,
-        trackingNumber: 'سيتم توفير رقم التتبع قريباً',
-        courierName: 'شركة الشحن المعتمدة',
+        trackingNumber,
+        courierName,
+        labelPrinted,
       },
     });
 
