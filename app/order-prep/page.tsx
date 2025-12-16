@@ -725,8 +725,14 @@ export default function OrderPrepPage() {
                   || currentOrder.orderData?.shipping_address?.country
                   || currentOrder.orderData?.billing_address?.country;
 
+                // List of Saudi Arabia country codes (case-insensitive)
+                const saudiCodes = ['SA', 'SAU', 'SAUDI ARABIA', 'السعودية', 'المملكة العربية السعودية'];
+                const isSaudiOrder = country && saudiCodes.some(code =>
+                  country.toString().toUpperCase() === code.toUpperCase()
+                );
+
                 // Show alert if order is international (not Saudi Arabia)
-                if (country && country !== 'SA') {
+                if (country && !isSaudiOrder) {
                   return (
                     <Card className="p-4 md:p-6 mb-4 md:mb-6 bg-red-50 border-2 border-red-500">
                       <div className="flex items-center gap-3">
@@ -735,6 +741,7 @@ export default function OrderPrepPage() {
                         </svg>
                         <div className="flex-1">
                           <h3 className="text-lg md:text-xl font-bold text-red-900">طلب دولي</h3>
+                          <p className="text-sm text-red-700 mt-1">الدولة: {country}</p>
                         </div>
                       </div>
                     </Card>
