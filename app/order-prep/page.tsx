@@ -45,6 +45,58 @@ export default function OrderPrepPage() {
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [debugData, setDebugData] = useState<any>(null);
 
+  const getStringValue = (value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+    if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      if (typeof obj.name === 'string') return obj.name;
+      if (typeof obj.label === 'string') return obj.label;
+      if (obj.value !== undefined) {
+        return getStringValue(obj.value);
+      }
+      return JSON.stringify(obj);
+    }
+    return '';
+  };
+
+  const getNumberValue = (value: unknown): number => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof value === 'object' && value !== null) {
+      const obj = value as Record<string, unknown>;
+      if (obj.value !== undefined) {
+        return getNumberValue(obj.value);
+      }
+    }
+    return 0;
+  };
+
+  const parseJsonResponse = async <T = any>(response: Response, context: string): Promise<T> => {
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const body = await response.text();
+      console.error(`[${context}] Non-JSON response`, {
+        status: response.status,
+        contentType,
+        bodyPreview: body.slice(0, 500),
+      });
+      throw new Error(`الاستجابة من ${context} ليست بصيغة JSON (الحالة ${response.status})`);
+    }
+
+    try {
+      return await response.json() as T;
+    } catch (error) {
+      console.error(`[${context}] Failed to parse JSON`, error);
+      throw error;
+    }
+  };
+
   // Load user from session
   useEffect(() => {
     if (session?.user && isOrdersUser) {
@@ -107,7 +159,7 @@ export default function OrderPrepPage() {
         body: JSON.stringify({ userId: user.id }),
       });
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/auto-assign');
 
       if (data.success && data.assigned > 0) {
         console.log(`${data.assigned} orders auto-assigned`);
@@ -140,7 +192,7 @@ export default function OrderPrepPage() {
 
       // Then load orders
       const response = await fetch(`/api/order-assignments/my-orders?userId=${user.id}`);
-      const data = await response.json();
+      const data = await parseJsonResponse(response, 'GET /api/order-assignments/my-orders');
 
       if (data.success) {
         setAssignments(data.assignments);
@@ -180,7 +232,7 @@ export default function OrderPrepPage() {
         }),
       });
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/update-status');
 
       if (data.success) {
         loadMyOrders();
@@ -202,7 +254,7 @@ export default function OrderPrepPage() {
         }),
       });
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/complete');
 
       if (data.success) {
         // Clear current order
@@ -238,7 +290,7 @@ export default function OrderPrepPage() {
         body: JSON.stringify({ assignmentId: currentOrder.id }),
       });
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/refresh-items');
 
       if (data.success) {
         // Reload orders to get the updated data
@@ -274,7 +326,7 @@ export default function OrderPrepPage() {
         return;
       }
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/complete');
 
       if (data.success) {
         setShipmentInfo({
@@ -355,7 +407,7 @@ export default function OrderPrepPage() {
         }),
       });
 
-      const updateData = await updateResponse.json();
+      const updateData = await parseJsonResponse(updateResponse, 'POST /api/order-assignments/update-status');
 
       if (!updateData.success) {
         alert(updateData.error || 'فشل تحديث حالة الطلب');
@@ -371,7 +423,7 @@ export default function OrderPrepPage() {
         }),
       });
 
-      const completeData = await completeResponse.json();
+      const completeData = await parseJsonResponse(completeResponse, 'POST /api/order-assignments/complete');
 
       if (completeData.success) {
         // Clear current order and load next
@@ -406,7 +458,7 @@ export default function OrderPrepPage() {
         }),
       });
 
-      const updateData = await updateResponse.json();
+      const updateData = await parseJsonResponse(updateResponse, 'POST /api/order-assignments/update-status');
 
       if (!updateData.success) {
         alert(updateData.error || 'فشل تحديث حالة الطلب');
@@ -422,7 +474,7 @@ export default function OrderPrepPage() {
         }),
       });
 
-      const completeData = await completeResponse.json();
+      const completeData = await parseJsonResponse(completeResponse, 'POST /api/order-assignments/complete');
 
       if (completeData.success) {
         // Clear current order and load next
@@ -445,7 +497,7 @@ export default function OrderPrepPage() {
 
     try {
       const response = await fetch(`/api/order-assignments/debug?userId=${user.id}`);
-      const data = await response.json();
+      const data = await parseJsonResponse(response, 'GET /api/order-assignments/debug');
 
       if (data.success) {
         setDebugData(data.debug);
@@ -681,19 +733,29 @@ export default function OrderPrepPage() {
                 <div>
                   <h2 className="text-2xl md:text-3xl font-bold">طلب #{currentOrder.orderNumber}</h2>
                   <p className="text-gray-600 mt-1">
-                    {currentOrder.orderData?.customer?.first_name} {currentOrder.orderData?.customer?.last_name}
+                    {getStringValue(currentOrder.orderData?.customer?.first_name)}{' '}
+                    {getStringValue(currentOrder.orderData?.customer?.last_name)}
                   </p>
-                  {currentOrder.orderData?.customer?.city && (
-                    <p className="text-sm text-gray-500 mt-1">
-                      📍 {currentOrder.orderData.customer.location && `${currentOrder.orderData.customer.location} - `}
-                      {currentOrder.orderData.customer.city}
-                    </p>
-                  )}
-                  {currentOrder.orderData?.notes && (
-                    <p className="text-sm text-orange-600 mt-2 font-medium">
-                      📝 ملاحظات: {currentOrder.orderData.notes}
-                    </p>
-                  )}
+                  {(() => {
+                    const location = getStringValue(currentOrder.orderData?.customer?.location);
+                    const city = getStringValue(currentOrder.orderData?.customer?.city);
+                    if (!location && !city) return null;
+                    return (
+                      <p className="text-sm text-gray-500 mt-1">
+                        📍 {location && `${location} - `}
+                        {city}
+                      </p>
+                    );
+                  })()}
+                  {(() => {
+                    const notesText = getStringValue(currentOrder.orderData?.notes);
+                    if (!notesText) return null;
+                    return (
+                      <p className="text-sm text-orange-600 mt-2 font-medium">
+                        📝 ملاحظات: {notesText}
+                      </p>
+                    );
+                  })()}
 
                   {/* Order Tags - Prominent Display */}
                   {currentOrder.orderData?.tags && currentOrder.orderData.tags.length > 0 && (
@@ -705,14 +767,17 @@ export default function OrderPrepPage() {
                         <h3 className="text-sm font-bold text-blue-900">علامات الطلب (Tags)</h3>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {currentOrder.orderData.tags.map((tag: any, idx: number) => (
-                          <span
-                            key={idx}
-                            className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-blue-600 text-white shadow-md border-2 border-blue-700"
-                          >
-                            🏷️ {typeof tag === 'string' ? tag : tag.name || tag.value || JSON.stringify(tag)}
-                          </span>
-                        ))}
+                        {currentOrder.orderData.tags.map((tag: any, idx: number) => {
+                          const tagLabel = typeof tag === 'string' ? tag : getStringValue(tag?.name ?? tag?.value ?? tag);
+                          return (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-blue-600 text-white shadow-md border-2 border-blue-700"
+                            >
+                              🏷️ {tagLabel}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -721,14 +786,15 @@ export default function OrderPrepPage() {
 
               {/* International Order Alert */}
               {(() => {
-                const country = currentOrder.orderData?.customer?.country
+                const countryValue = currentOrder.orderData?.customer?.country
                   || currentOrder.orderData?.shipping_address?.country
                   || currentOrder.orderData?.billing_address?.country;
+                const country = getStringValue(countryValue);
 
                 // List of Saudi Arabia country codes (case-insensitive)
                 const saudiCodes = ['SA', 'SAU', 'SAUDI ARABIA', 'السعودية', 'المملكة العربية السعودية'];
                 const isSaudiOrder = country && saudiCodes.some(code =>
-                  country.toString().toUpperCase() === code.toUpperCase()
+                  country.toUpperCase() === code.toUpperCase()
                 );
 
                 // Show alert if order is international (not Saudi Arabia)
@@ -799,8 +865,8 @@ export default function OrderPrepPage() {
                             <div className="space-y-2">
                               {item.options.map((option: any, optIdx: number) => (
                                 <div key={optIdx} className="inline-flex items-center gap-2 bg-purple-50 border border-purple-300 px-3 py-2 rounded-lg mr-2">
-                                  <span className="text-sm font-medium text-purple-700">{option.name}:</span>
-                                  <span className="text-sm font-bold text-purple-900">{option.value?.name || option.value}</span>
+                                  <span className="text-sm font-medium text-purple-700">{getStringValue(option.name)}:</span>
+                                  <span className="text-sm font-bold text-purple-900">{getStringValue(option.value)}</span>
                                 </div>
                               ))}
                             </div>
@@ -812,7 +878,7 @@ export default function OrderPrepPage() {
 
                     {/* Gift Wrapping Alert - Only show if packaging amount > 0 */}
                     {(() => {
-                      const packagingAmount = currentOrder.orderData?.amounts?.options_total?.amount || 0;
+                      const packagingAmount = getNumberValue(currentOrder.orderData?.amounts?.options_total?.amount);
                       if (packagingAmount > 0) {
                         return (
                           <Card className="p-4 md:p-6 bg-red-50 border-2 border-red-500">
