@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
+import { useReactToPrint } from 'react-to-print';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
+import { CommercialInvoice } from '@/components/CommercialInvoice';
 
 interface OrderUser {
   id: string;
@@ -44,6 +46,7 @@ export default function OrderPrepPage() {
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [debugData, setDebugData] = useState<any>(null);
+  const commercialInvoiceRef = useRef<HTMLDivElement>(null);
 
   const getStringValue = (value: unknown): string => {
     if (value === null || value === undefined) return '';
@@ -511,6 +514,24 @@ export default function OrderPrepPage() {
     }
   };
 
+  const printCommercialInvoice = useReactToPrint({
+    contentRef: commercialInvoiceRef,
+  });
+
+  const handlePrintCommercialInvoice = () => {
+    if (!commercialInvoiceRef.current) {
+      alert('خطأ: الفاتورة غير متاحة للطباعة');
+      return;
+    }
+
+    try {
+      printCommercialInvoice?.();
+    } catch (error) {
+      console.error('Print error:', error);
+      alert('حدث خطأ أثناء محاولة الطباعة، جرّب مرة أخرى.');
+    }
+  };
+
   // Show loading while checking session
   if (status === 'loading') {
     return (
@@ -801,14 +822,22 @@ export default function OrderPrepPage() {
                 if (country && !isSaudiOrder) {
                   return (
                     <Card className="p-4 md:p-6 mb-4 md:mb-6 bg-red-50 border-2 border-red-500">
-                      <div className="flex items-center gap-3">
-                        <svg className="w-8 h-8 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                        <div className="flex-1">
-                          <h3 className="text-lg md:text-xl font-bold text-red-900">طلب دولي</h3>
-                          <p className="text-sm text-red-700 mt-1">الدولة: {country}</p>
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-3">
+                          <svg className="w-8 h-8 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          <div className="flex-1">
+                            <h3 className="text-lg md:text-xl font-bold text-red-900">طلب دولي</h3>
+                            <p className="text-sm text-red-700 mt-1">الدولة: {country}</p>
+                          </div>
                         </div>
+                        <Button
+                          onClick={handlePrintCommercialInvoice}
+                          className="w-full py-4 text-base bg-blue-600 hover:bg-blue-700"
+                        >
+                          🖨️ طباعة فاتورة تجارية (Commercial Invoice)
+                        </Button>
                       </div>
                     </Card>
                   );
@@ -989,6 +1018,17 @@ export default function OrderPrepPage() {
           )}
         </div>
       </div>
+
+      {/* Hidden Commercial Invoice for Printing */}
+      {currentOrder && (
+        <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+          <CommercialInvoice
+            ref={commercialInvoiceRef}
+            orderData={currentOrder.orderData}
+            orderNumber={currentOrder.orderNumber}
+          />
+        </div>
+      )}
     </div>
   );
 }
