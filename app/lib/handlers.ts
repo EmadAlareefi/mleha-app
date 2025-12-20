@@ -101,6 +101,9 @@ function getOrderNumber(order: AnyObj): string {
   return (
     order?.order_number?.toString?.() ||
     order?.orderNumber?.toString?.() ||
+    order?.reference_id?.toString?.() ||
+    order?.referenceId?.toString?.() ||
+    order?.reference?.toString?.() ||
     order?.id?.toString?.() ||
     order?.order_id?.toString?.() ||
     ""
