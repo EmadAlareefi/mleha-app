@@ -9,7 +9,7 @@ Salla OAuth tokens expire every **14 days**. This system automatically refreshes
 Located in `app/lib/salla-oauth.ts`:
 
 - **TOKEN_REFRESH_BEFORE_EXPIRY_MS**: Refresh tokens 2 days before expiry
-- **FORCED_REFRESH_INTERVAL_MS**: Force refresh every 7 days (even if not expired)
+- **FORCED_REFRESH_INTERVAL_MS**: Force refresh every 10 days (even if not expired)
 
 This ensures tokens are refreshed well before expiration with a safety margin.
 
@@ -31,7 +31,7 @@ Configured in `vercel.json` to run daily at midnight:
 ```
 
 The cron job calls `/api/salla/refresh-tokens` which:
-1. Finds all tokens that need refreshing (expiring soon OR not refreshed in 7+ days)
+1. Finds all tokens that need refreshing (expiring soon OR not refreshed in 10+ days)
 2. Refreshes them using the Salla OAuth API
 3. Updates the database with new tokens
 

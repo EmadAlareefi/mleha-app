@@ -379,6 +379,13 @@ export default function ReturnsManagementPage() {
                           </p>
                         </div>
                       )}
+
+                      {request.adminNotes && (
+                        <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
+                          <p className="text-xs font-medium text-blue-800 mb-1">ملاحظات الإدارة:</p>
+                          <p className="text-sm text-blue-900">{request.adminNotes}</p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Actions */}
