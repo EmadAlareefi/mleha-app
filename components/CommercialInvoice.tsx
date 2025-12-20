@@ -87,11 +87,11 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
               SHIPPER / الشاحن
             </h3>
             <div className="space-y-2 text-sm">
-              <p className="font-bold">Your Company Name</p>
-              <p>Address Line 1</p>
-              <p>City, Postal Code</p>
+              <p className="font-bold">شركة مليحة للتجارة</p>
+              <p>Halab,7714 Halab, Al Baghdadiyah Al Gharbiyah</p>
+              <p>Jeddah, 22234, 4443</p>
               <p>Saudi Arabia</p>
-              <p>Tel: +966 XXX XXX XXX</p>
+              <p>Tel: +966531349631</p>
             </div>
           </div>
 
@@ -116,11 +116,13 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
           <table className="w-full border-collapse border border-black">
             <thead>
               <tr className="bg-gray-100">
-                <th className="border border-black p-2 text-left">No.</th>
-                <th className="border border-black p-2 text-left">Description / الوصف</th>
-                <th className="border border-black p-2 text-center">Qty<br/>الكمية</th>
-                <th className="border border-black p-2 text-right">Unit Price<br/>سعر الوحدة</th>
-                <th className="border border-black p-2 text-right">Total<br/>المجموع</th>
+                <th className="border border-black p-2 text-left">S. No</th>
+                <th className="border border-black p-2 text-left">Commodity Description<br/>وصف السلعة</th>
+                <th className="border border-black p-2 text-center">Quantity<br/>الكمية</th>
+                <th className="border border-black p-2 text-center">Unit of Measure<br/>وحدة القياس</th>
+                <th className="border border-black p-2 text-right">Unit Value<br/>قيمة الوحدة</th>
+                <th className="border border-black p-2 text-center">Currency<br/>العملة</th>
+                <th className="border border-black p-2 text-right">Total Value<br/>القيمة الإجمالية</th>
               </tr>
             </thead>
             <tbody>
@@ -129,6 +131,7 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
                 const quantity = getNumberValue(item.quantity);
                 const unitPrice = getNumberValue(item.amounts?.price_without_tax?.amount || item.amounts?.price?.amount);
                 const itemTotal = getNumberValue(item.amounts?.total_without_tax?.amount || item.amounts?.total?.amount);
+                const itemCurrency = getStringValue(item.amounts?.price_without_tax?.currency || item.amounts?.price?.currency) || currency;
 
                 let description = itemName;
                 if (item.sku) {
@@ -146,7 +149,9 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
                     <td className="border border-black p-2">{index + 1}</td>
                     <td className="border border-black p-2">{description}</td>
                     <td className="border border-black p-2 text-center">{quantity}</td>
+                    <td className="border border-black p-2 text-center">PCS</td>
                     <td className="border border-black p-2 text-right">{unitPrice.toFixed(2)}</td>
+                    <td className="border border-black p-2 text-center">{itemCurrency}</td>
                     <td className="border border-black p-2 text-right">{itemTotal.toFixed(2)}</td>
                   </tr>
                 );
