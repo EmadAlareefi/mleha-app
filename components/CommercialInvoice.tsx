@@ -64,17 +64,16 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
         {/* Header */}
         <div className="text-center mb-8 border-b-2 border-black pb-4">
           <h1 className="text-3xl font-bold mb-2">COMMERCIAL INVOICE</h1>
-          <p className="text-sm">فاتورة تجارية</p>
         </div>
 
         {/* Invoice Info */}
         <div className="grid grid-cols-2 gap-8 mb-6">
           <div>
-            <p className="font-bold mb-1">Invoice Number / رقم الفاتورة:</p>
+            <p className="font-bold mb-1">Invoice Number:</p>
             <p className="border-b border-gray-400 pb-1">{orderNumber}</p>
           </div>
           <div>
-            <p className="font-bold mb-1">Date / التاريخ:</p>
+            <p className="font-bold mb-1">Date:</p>
             <p className="border-b border-gray-400 pb-1">{currentDate}</p>
           </div>
         </div>
@@ -84,10 +83,10 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
           {/* Shipper (Your Company) */}
           <div className="border border-black p-4">
             <h3 className="font-bold mb-3 border-b border-gray-400 pb-1">
-              SHIPPER / الشاحن
+              SHIPPER
             </h3>
             <div className="space-y-2 text-sm">
-              <p className="font-bold">شركة مليحة للتجارة</p>
+              <p className="font-bold">Maliha Trading Company</p>
               <p>Halab,7714 Halab, Al Baghdadiyah Al Gharbiyah</p>
               <p>Jeddah, 22234, 4443</p>
               <p>Saudi Arabia</p>
@@ -98,7 +97,7 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
           {/* Consignee (Customer) */}
           <div className="border border-black p-4">
             <h3 className="font-bold mb-3 border-b border-gray-400 pb-1">
-              CONSIGNEE / المرسل إليه
+              CONSIGNEE
             </h3>
             <div className="space-y-2 text-sm">
               <p className="font-bold">{customerName}</p>
@@ -117,30 +116,47 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
             <thead>
               <tr className="bg-gray-100">
                 <th className="border border-black p-2 text-left">S. No</th>
-                <th className="border border-black p-2 text-left">Commodity Description<br/>وصف السلعة</th>
-                <th className="border border-black p-2 text-center">Quantity<br/>الكمية</th>
-                <th className="border border-black p-2 text-center">Unit of Measure<br/>وحدة القياس</th>
-                <th className="border border-black p-2 text-right">Unit Value<br/>قيمة الوحدة</th>
-                <th className="border border-black p-2 text-center">Currency<br/>العملة</th>
-                <th className="border border-black p-2 text-right">Total Value<br/>القيمة الإجمالية</th>
+                <th className="border border-black p-2 text-left">Commodity Description</th>
+                <th className="border border-black p-2 text-center">Quantity</th>
+                <th className="border border-black p-2 text-center">Unit of Measure</th>
+                <th className="border border-black p-2 text-right">Unit Value</th>
+                <th className="border border-black p-2 text-center">Currency</th>
+                <th className="border border-black p-2 text-right">Total Value</th>
               </tr>
             </thead>
             <tbody>
               {items.map((item: any, index: number) => {
                 const itemName = getStringValue(item.name);
+                const itemNameAr = getStringValue(item.name_ar || item.nameAr || item.arabic_name);
                 const quantity = getNumberValue(item.quantity);
                 const unitPrice = getNumberValue(item.amounts?.price_without_tax?.amount || item.amounts?.price?.amount);
                 const itemTotal = getNumberValue(item.amounts?.total_without_tax?.amount || item.amounts?.total?.amount);
                 const itemCurrency = getStringValue(item.amounts?.price_without_tax?.currency || item.amounts?.price?.currency) || currency;
 
+                // Translate Arabic product names to English
                 let description = itemName;
+                const combinedName = `${itemName} ${itemNameAr}`.toLowerCase();
+
+                if (combinedName.includes('فستان')) {
+                  description = 'Women Dress';
+                } else if (combinedName.includes('طقم')) {
+                  description = 'Women Set';
+                }
+
                 if (item.sku) {
                   description += ` (SKU: ${item.sku})`;
                 }
                 if (item.options && item.options.length > 0) {
-                  const opts = item.options.map((opt: any) =>
-                    `${getStringValue(opt.name)}: ${getStringValue(opt.value)}`
-                  ).join(', ');
+                  const opts = item.options.map((opt: any) => {
+                    let optName = getStringValue(opt.name);
+                    // Translate Arabic option names to English
+                    if (optName.includes('المقاسات') || optName.includes('المقاس')) {
+                      optName = 'Size';
+                    } else if (optName.includes('اللون')) {
+                      optName = 'Color';
+                    }
+                    return `${optName}: ${getStringValue(opt.value)}`;
+                  }).join(', ');
                   description += ` - ${opts}`;
                 }
 
@@ -164,13 +180,13 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
         <div className="flex justify-end mb-6">
           <div className="w-1/2">
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="text-right font-bold">Subtotal / المجموع الفرعي:</div>
+              <div className="text-right font-bold">Subtotal:</div>
               <div className="text-right border-b border-gray-400">{subtotal.toFixed(2)} {currency}</div>
 
-              <div className="text-right font-bold">Shipping / الشحن:</div>
+              <div className="text-right font-bold">Shipping:</div>
               <div className="text-right border-b border-gray-400">{shipping.toFixed(2)} {currency}</div>
 
-              <div className="text-right font-bold text-lg pt-2">TOTAL / المجموع الكلي:</div>
+              <div className="text-right font-bold text-lg pt-2">TOTAL:</div>
               <div className="text-right font-bold text-lg pt-2 border-t-2 border-black">
                 {total.toFixed(2)} {currency}
               </div>
@@ -180,26 +196,23 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
 
         {/* Declaration */}
         <div className="border border-black p-4 mb-6 text-sm">
-          <p className="font-bold mb-2">DECLARATION / إقرار:</p>
-          <p className="mb-2">
+          <p className="font-bold mb-2">DECLARATION:</p>
+          <p>
             I hereby declare that the information contained in this invoice is true and correct,
             and that the goods described are of the origin shown.
-          </p>
-          <p className="text-right" dir="rtl">
-            أقر بأن المعلومات الواردة في هذه الفاتورة صحيحة، وأن البضائع الموصوفة من المنشأ المبين.
           </p>
         </div>
 
         {/* Signature */}
         <div className="grid grid-cols-2 gap-8">
           <div>
-            <p className="font-bold mb-12">Signature / التوقيع:</p>
+            <p className="font-bold mb-12">Signature:</p>
             <div className="border-t border-black pt-2">
               <p className="text-sm">Authorized Signature</p>
             </div>
           </div>
           <div>
-            <p className="font-bold mb-12">Date / التاريخ:</p>
+            <p className="font-bold mb-12">Date:</p>
             <div className="border-t border-black pt-2">
               <p className="text-sm">{currentDate}</p>
             </div>
@@ -209,7 +222,6 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
         {/* Footer */}
         <div className="mt-8 text-center text-xs text-gray-600 border-t pt-4">
           <p>This is a computer generated invoice and does not require a physical signature</p>
-          <p dir="rtl">هذه فاتورة إلكترونية ولا تتطلب توقيعاً فعلياً</p>
         </div>
       </div>
     );
