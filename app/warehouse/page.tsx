@@ -202,6 +202,17 @@ export default function WarehousePage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  // Clear highlighted shipment after 5 seconds
+  useEffect(() => {
+    if (highlightedShipmentId) {
+      const timer = setTimeout(() => {
+        setHighlightedShipmentId(null);
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedShipmentId]);
+
   const handleDateChange = (newDate: Date) => {
     setLoading(true);
     setSelectedDate(newDate);

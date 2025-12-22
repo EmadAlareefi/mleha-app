@@ -33,9 +33,10 @@ interface Shipment {
 interface ShipmentsTableProps {
   shipments: Shipment[];
   onDelete: (id: string) => Promise<void>;
+  highlightedId?: string | null;
 }
 
-export function ShipmentsTable({ shipments, onDelete }: ShipmentsTableProps) {
+export function ShipmentsTable({ shipments, onDelete, highlightedId }: ShipmentsTableProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const showWarehouseColumn = shipments.some((shipment) => !!shipment.warehouse);
 
@@ -86,8 +87,12 @@ export function ShipmentsTable({ shipments, onDelete }: ShipmentsTableProps) {
               <TableBody>
                 {shipments.map((shipment) => {
                   const company = getCompanyInfo(shipment.company);
+                  const isHighlighted = highlightedId === shipment.id;
                   return (
-                    <TableRow key={shipment.id}>
+                    <TableRow
+                      key={shipment.id}
+                      className={isHighlighted ? 'bg-yellow-50 border-r-4 border-yellow-500' : ''}
+                    >
                       <TableCell className="font-mono font-medium">
                         {shipment.trackingNumber}
                       </TableCell>

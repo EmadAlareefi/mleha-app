@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions } from '@/app/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,6 +32,15 @@ export async function GET(request: NextRequest) {
       where: {
         orderNumber: orderNumber,
       },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+          },
+        },
+      },
       orderBy: {
         assignedAt: 'desc', // Get the most recent assignment
       },
@@ -53,11 +62,11 @@ export async function GET(request: NextRequest) {
         orderData: assignment.orderData,
         status: assignment.status,
         sallaStatus: assignment.sallaStatus,
-        assignedUserId: assignment.assignedUserId,
-        assignedUserName: assignment.assignedUserName,
-        assignedAt: assignment.assignedAt,
-        startedAt: assignment.startedAt,
-        completedAt: assignment.completedAt,
+        assignedUserId: assignment.userId,
+        assignedUserName: (assignment.user as any)?.name || 'Unknown',
+        assignedAt: assignment.assignedAt.toISOString(),
+        startedAt: assignment.startedAt?.toISOString() || null,
+        completedAt: assignment.completedAt?.toISOString() || null,
         notes: assignment.notes,
       },
     });
