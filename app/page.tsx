@@ -66,6 +66,14 @@ export default function AdminDashboard() {
       allowedRoles: ['admin', 'warehouse'],
     },
     {
+      title: 'البحث عن الطلبات',
+      description: 'البحث عن الطلبات وطباعة الفواتير التجارية',
+      icon: '🔍',
+      href: '/order-invoice-search',
+      color: 'from-violet-500 to-violet-600',
+      allowedRoles: ['admin', 'warehouse'],
+    },
+    {
       title: 'متابعة التحصيل (COD)',
       description: 'تتبع وإدارة مبالغ الدفع عند الاستلام',
       icon: '💵',

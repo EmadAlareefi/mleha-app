@@ -13,6 +13,8 @@ import { useSession } from 'next-auth/react';
 import { useWarehouseSelection, WarehouseInfo } from '@/components/warehouse/useWarehouseSelection';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Search, X } from 'lucide-react';
 
 interface Shipment {
   id: string;
@@ -52,6 +54,10 @@ export default function WarehousePage() {
   });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [highlightedShipmentId, setHighlightedShipmentId] = useState<string | null>(null);
 
   const availableWarehouses: WarehouseInfo[] =
     userRole === 'warehouse' ? sessionWarehouses : adminWarehouses;
@@ -67,6 +73,60 @@ export default function WarehousePage() {
   );
 
   const selectedWarehouseId = selectedWarehouse?.id || '';
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      setSearchError('يرجى إدخال رقم التتبع للبحث');
+      return;
+    }
+
+    if (!selectedWarehouseId) {
+      setSearchError('يرجى اختيار المستودع أولاً');
+      return;
+    }
+
+    setSearching(true);
+    setSearchError(null);
+    setHighlightedShipmentId(null);
+
+    try {
+      const params = new URLSearchParams({
+        trackingNumber: searchQuery.trim(),
+        warehouseId: selectedWarehouseId,
+      });
+
+      const response = await fetch(`/api/shipments/search?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setSearchError(data.error || 'فشل في البحث عن الشحنة');
+        return;
+      }
+
+      if (data.length === 0) {
+        setSearchError('لم يتم العثور على شحنات بهذا الرقم');
+        return;
+      }
+
+      // Get the first shipment and switch to its date
+      const foundShipment = data[0];
+      const shipmentDate = new Date(foundShipment.scannedAt);
+
+      // Set the highlighted shipment
+      setHighlightedShipmentId(foundShipment.id);
+
+      // Switch to the shipment's date
+      setSelectedDate(shipmentDate);
+
+      // Clear search query after successful search
+      setSearchQuery('');
+    } catch (error) {
+      console.error('Error searching for shipment:', error);
+      setSearchError('حدث خطأ أثناء البحث عن الشحنة');
+    } finally {
+      setSearching(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -399,11 +459,63 @@ export default function WarehousePage() {
             }
           />
 
+          {/* Search Input */}
+          <Card className="p-4">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder="ابحث عن شحنة برقم التتبع..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setSearchError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSearch();
+                      }
+                    }}
+                    className="pr-10 text-right"
+                    disabled={searching || !selectedWarehouse}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSearchError(null);
+                      }}
+                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      disabled={searching}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                <Button
+                  onClick={handleSearch}
+                  disabled={searching || !selectedWarehouse || !searchQuery.trim()}
+                  className="min-w-[100px]"
+                >
+                  {searching ? 'جاري البحث...' : 'بحث'}
+                </Button>
+              </div>
+              {searchError && (
+                <p className="text-sm text-red-600">{searchError}</p>
+              )}
+              {!selectedWarehouse && (
+                <p className="text-sm text-amber-600">يرجى اختيار مستودع للبحث</p>
+              )}
+            </div>
+          </Card>
+
           {/* Stats Cards */}
           <StatsCards stats={stats} warehouseName={selectedWarehouse?.name} />
 
           {/* Shipments Table */}
-          <ShipmentsTable shipments={shipments} onDelete={handleDelete} />
+          <ShipmentsTable shipments={shipments} onDelete={handleDelete} highlightedId={highlightedShipmentId} />
 
           {/* Daily Report */}
           <DailyReport
