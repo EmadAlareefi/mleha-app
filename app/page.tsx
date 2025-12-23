@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
 
 type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse' | 'accountant' | 'delivery_agent';
@@ -23,6 +24,7 @@ export default function AdminDashboard() {
   // Don't default to admin - wait for proper session data
   const userRole: Role | undefined = (session?.user as any)?.role;
   const userRoles: Role[] = (session?.user as any)?.roles || (userRole ? [userRole] : []);
+  const canAccessOrderInvoiceSearch = userRoles.some((role) => role === 'admin' || role === 'warehouse');
 
   const services: ServiceCard[] = [
     {
@@ -186,6 +188,23 @@ export default function AdminDashboard() {
             اختر الخدمة التي تريد الوصول إليها
           </p>
         </div>
+
+        {status === 'authenticated' && canAccessOrderInvoiceSearch && (
+          <Card className="mb-12 p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white/80 border border-violet-100">
+            <div>
+              <p className="text-sm uppercase tracking-wide text-violet-600 font-semibold">جديد</p>
+              <h3 className="text-2xl font-bold text-gray-900 mt-1">البحث عن الطلبات وطباعة فاتورة تجارية</h3>
+              <p className="text-gray-600 mt-2">
+                وصّل فرق الإدارة والمستودع بصفحة البحث الجديدة لعرض تفاصيل الطلب وطباعة الفاتورة التجارية للشحنات الدولية مباشرةً.
+              </p>
+            </div>
+            <Link href="/order-invoice-search">
+              <Button className="bg-violet-600 hover:bg-violet-700 text-white px-8 py-6 text-lg">
+                فتح صفحة البحث
+              </Button>
+            </Link>
+          </Card>
+        )}
 
         {/* Loading State */}
         {status === 'loading' && (

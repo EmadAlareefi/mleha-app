@@ -12,6 +12,8 @@ const PUBLIC_PATHS = [
   '/api/salla/sync-invoices',
   '/salla/webhook',
   '/logo.png',
+  '/cv.pdf',
+  '/trademark.pdf',
 ];
 
 const isPublicPath = (pathname: string) =>
@@ -134,7 +136,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - logo.png, cv.pdf, trademark.pdf (public branding assets)
      */
-    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png).*)',
+    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|cv.pdf|trademark.pdf).*)',
   ],
 };
