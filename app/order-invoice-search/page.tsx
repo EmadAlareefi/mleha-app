@@ -31,7 +31,7 @@ export default function OrderInvoiceSearchPage() {
   const { data: session, status } = useSession();
   const role = (session?.user as any)?.role;
   const roles = ((session?.user as any)?.roles || [role]) as string[];
-  const isAuthorized = roles.includes('admin') || roles.includes('warehouse');
+  const isAuthorized = roles.includes('admin');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -256,7 +256,10 @@ export default function OrderInvoiceSearchPage() {
   const billingPhone = billingPhoneParts.join(' ');
 
   const items = Array.isArray(order?.orderData?.items) ? order?.orderData?.items : [];
-  const totalQuantity = items.reduce((total, item) => total + getNumberValue(item?.quantity ?? (item as any)?.qty ?? 0), 0);
+  const totalQuantity = items.reduce(
+    (total: number, item: any) => total + getNumberValue(item?.quantity ?? (item as any)?.qty ?? 0),
+    0,
+  );
 
   const amounts = order?.orderData?.amounts || {};
   const subtotal = getNumberValue((amounts as any)?.sub_total?.amount);
@@ -328,9 +331,7 @@ export default function OrderInvoiceSearchPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md p-8 text-center">
           <h1 className="text-2xl font-bold mb-4">البحث عن الطلبات والفواتير</h1>
-          <p className="text-gray-600 mb-6">
-            يجب تسجيل الدخول كمسؤول أو موظف مستودع للوصول إلى هذه الصفحة
-          </p>
+          <p className="text-gray-600 mb-6">يجب تسجيل الدخول كمسؤول للوصول إلى هذه الصفحة</p>
           <Button onClick={() => window.location.href = '/login'} className="w-full">
             تسجيل الدخول
           </Button>

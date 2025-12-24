@@ -59,6 +59,7 @@ export default withAuth(
             /^\/api\/shipment-assignments(\/.*)?$/,
             /^\/api\/delivery-agents(\/.*)?$/,
             /^\/api\/cod-collections(\/.*)?$/,
+            /^\/api\/product-locations(\/.*)?$/,
           ],
         },
         accountant: {

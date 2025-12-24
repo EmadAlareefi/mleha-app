@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { Prisma } from '@prisma/client';
+import type { SallaOrder as PrismaSallaOrder } from '@prisma/client';
+import { getSallaOrder, getSallaOrderByReference } from '@/app/lib/salla-api';
+import type { SallaOrder as RemoteSallaOrder } from '@/app/lib/salla-api';
+import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
@@ -100,17 +104,28 @@ export async function GET(request: NextRequest) {
     ];
 
     const sallaFilters: Prisma.SallaOrderWhereInput[] = [];
+    const assignmentFilters: Prisma.OrderAssignmentWhereInput[] = [];
+    const historyFilters: Prisma.OrderHistoryWhereInput[] = [];
+    const addFiltersForBoth = (
+      assignmentFilter: Prisma.OrderAssignmentWhereInput,
+      historyFilter: Prisma.OrderHistoryWhereInput,
+    ) => {
+      assignmentFilters.push(assignmentFilter);
+      historyFilters.push(historyFilter);
+    };
 
-    const filters: Prisma.OrderAssignmentWhereInput[] = [
-      { orderNumber: searchQuery },
-      { orderId: searchQuery },
-    ];
+    addFiltersForBoth({ orderNumber: searchQuery }, { orderNumber: searchQuery });
+    addFiltersForBoth({ orderId: searchQuery }, { orderId: searchQuery });
 
     normalizedQueryVariants.forEach((variant) => {
-      filters.push(
-        { orderNumber: variant },
+      addFiltersForBoth({ orderNumber: variant }, { orderNumber: variant });
+      addFiltersForBoth(
         { orderNumber: { contains: variant, mode: 'insensitive' } },
-        { orderId: variant },
+        { orderNumber: { contains: variant, mode: 'insensitive' } },
+      );
+      addFiltersForBoth({ orderId: variant }, { orderId: variant });
+      addFiltersForBoth(
+        { orderId: { contains: variant, mode: 'insensitive' } },
         { orderId: { contains: variant, mode: 'insensitive' } },
       );
 
@@ -130,14 +145,21 @@ export async function GET(request: NextRequest) {
 
     referencePaths.forEach((path) => {
       normalizedQueryVariants.forEach((variant) => {
-        filters.push(
+        addFiltersForBoth(
           { orderData: { path, equals: variant } },
+          { orderData: { path, equals: variant } },
+        );
+        addFiltersForBoth(
+          { orderData: { path, string_contains: variant, mode: 'insensitive' } },
           { orderData: { path, string_contains: variant, mode: 'insensitive' } },
         );
         if (/^\d+$/.test(variant)) {
           const variantNumber = Number(variant);
           if (Number.isFinite(variantNumber)) {
-            filters.push({ orderData: { path, equals: variantNumber } });
+            addFiltersForBoth(
+              { orderData: { path, equals: variantNumber } },
+              { orderData: { path, equals: variantNumber } },
+            );
           }
         }
       });
@@ -145,14 +167,21 @@ export async function GET(request: NextRequest) {
 
     customerIdPaths.forEach((path) => {
       normalizedQueryVariants.forEach((variant) => {
-        filters.push(
+        addFiltersForBoth(
           { orderData: { path, equals: variant } },
+          { orderData: { path, equals: variant } },
+        );
+        addFiltersForBoth(
+          { orderData: { path, string_contains: variant, mode: 'insensitive' } },
           { orderData: { path, string_contains: variant, mode: 'insensitive' } },
         );
         if (/^\d+$/.test(variant)) {
           const variantNumber = Number(variant);
           if (Number.isFinite(variantNumber)) {
-            filters.push({ orderData: { path, equals: variantNumber } });
+            addFiltersForBoth(
+              { orderData: { path, equals: variantNumber } },
+              { orderData: { path, equals: variantNumber } },
+            );
           }
         }
       });
@@ -161,8 +190,12 @@ export async function GET(request: NextRequest) {
     if (digitsOnlyQuery.length >= 5) {
       phonePaths.forEach((path) => {
         phoneVariants.forEach((variant) => {
-          filters.push(
+          addFiltersForBoth(
             { orderData: { path, string_contains: variant, mode: 'insensitive' } },
+            { orderData: { path, string_contains: variant, mode: 'insensitive' } },
+          );
+          addFiltersForBoth(
+            { orderData: { path, equals: variant } },
             { orderData: { path, equals: variant } },
           );
         });
@@ -203,7 +236,7 @@ export async function GET(request: NextRequest) {
     // Search for the order assignment
     const assignment = await prisma.orderAssignment.findFirst({
       where: {
-        OR: filters,
+        OR: assignmentFilters,
       },
       include: {
         user: {
@@ -228,7 +261,7 @@ export async function GET(request: NextRequest) {
 
     const historyEntry = await prisma.orderHistory.findFirst({
       where: {
-        OR: filters,
+        OR: historyFilters,
       },
       orderBy: {
         finishedAt: 'desc',
@@ -254,43 +287,23 @@ export async function GET(request: NextRequest) {
       });
 
       if (sallaOrder) {
-        const placedAt = sallaOrder.placedAt || sallaOrder.updatedAtRemote || new Date();
-        const orderData = (sallaOrder.rawOrder as any) || {
-          id: sallaOrder.orderId,
-          reference_id: sallaOrder.referenceId,
-          customer: {
-            first_name: sallaOrder.customerName,
-            mobile: sallaOrder.customerMobile,
-            email: sallaOrder.customerEmail,
-            city: sallaOrder.customerCity,
-            country: sallaOrder.customerCountry,
-          },
-          payment_status: sallaOrder.paymentStatus,
-          payment_method: sallaOrder.paymentMethod,
-          shipping_method: sallaOrder.fulfillmentCompany,
-          delivery: {
-            courier_name: sallaOrder.fulfillmentCompany,
-            tracking_number: sallaOrder.trackingNumber,
-          },
-        };
-
         return NextResponse.json({
           success: true,
-          assignment: {
-            id: sallaOrder.id,
-            orderId: sallaOrder.orderId,
-            orderNumber: sallaOrder.orderNumber || sallaOrder.referenceId || sallaOrder.orderId,
-            orderData,
-            status: sallaOrder.statusSlug || sallaOrder.statusName || 'unknown',
-            sallaStatus: sallaOrder.statusSlug,
-            assignedUserId: 'salla-system',
-            assignedUserName: 'بيانات سلة',
-            assignedAt: placedAt.toISOString(),
-            startedAt: null,
-            completedAt: sallaOrder.updatedAtRemote ? sallaOrder.updatedAtRemote.toISOString() : null,
-            notes: undefined,
-            source: 'salla',
-          },
+          assignment: buildSallaAssignmentFromRecord(sallaOrder),
+        });
+      }
+
+      const syncedOrder = await syncOrderFromSalla(normalizedQueryVariants, digitsOnlyQuery);
+      if (syncedOrder?.persisted) {
+        return NextResponse.json({
+          success: true,
+          assignment: buildSallaAssignmentFromRecord(syncedOrder.persisted),
+        });
+      }
+      if (syncedOrder?.remote) {
+        return NextResponse.json({
+          success: true,
+          assignment: buildAssignmentFromRemoteOrder(syncedOrder.remote),
         });
       }
     }
@@ -306,4 +319,166 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+type SyncedOrderResult = {
+  persisted: PrismaSallaOrder | null;
+  remote: RemoteSallaOrder;
+};
+
+function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
+  const placedAt = record.placedAt || record.updatedAtRemote || new Date();
+  const orderData = (record.rawOrder as any) || {
+    id: record.orderId,
+    reference_id: record.referenceId,
+    customer: {
+      first_name: record.customerName,
+      mobile: record.customerMobile,
+      email: record.customerEmail,
+      city: record.customerCity,
+      country: record.customerCountry,
+    },
+    payment_status: record.paymentStatus,
+    payment_method: record.paymentMethod,
+    shipping_method: record.fulfillmentCompany,
+    delivery: {
+      courier_name: record.fulfillmentCompany,
+      tracking_number: record.trackingNumber,
+    },
+  };
+
+  return {
+    id: record.id,
+    orderId: record.orderId,
+    orderNumber: record.orderNumber || record.referenceId || record.orderId,
+    orderData,
+    status: record.statusSlug || record.statusName || 'unknown',
+    sallaStatus: record.statusSlug,
+    assignedUserId: 'salla-system',
+    assignedUserName: 'بيانات سلة',
+    assignedAt: placedAt.toISOString(),
+    startedAt: null,
+    completedAt: record.updatedAtRemote ? record.updatedAtRemote.toISOString() : null,
+    notes: undefined,
+    source: 'salla',
+  };
+}
+
+function buildAssignmentFromRemoteOrder(order: RemoteSallaOrder) {
+  const placedAt = order.date?.created ? new Date(order.date.created) : new Date();
+  const updatedAt = order.date?.updated ? new Date(order.date.updated) : null;
+
+  return {
+    id: String(order.id),
+    orderId: String(order.id),
+    orderNumber: order.reference_id || String(order.id),
+    orderData: order,
+    status: order.status?.slug || order.status?.name || 'unknown',
+    sallaStatus: order.status?.slug,
+    assignedUserId: 'salla-system',
+    assignedUserName: 'بيانات سلة',
+    assignedAt: placedAt.toISOString(),
+    startedAt: null,
+    completedAt: updatedAt ? updatedAt.toISOString() : null,
+    notes: undefined,
+    source: 'salla',
+  };
+}
+
+async function syncOrderFromSalla(
+  normalizedQueryVariants: Set<string>,
+  digitsOnlyQuery: string
+): Promise<SyncedOrderResult | null> {
+  const remoteOrder = await fetchRemoteOrderFromSalla(normalizedQueryVariants, digitsOnlyQuery);
+
+  if (!remoteOrder) {
+    return null;
+  }
+
+  const orderWithMerchant: RemoteSallaOrder & Record<string, any> = {
+    ...remoteOrder,
+    merchant_id: (remoteOrder as any).merchant_id ?? MERCHANT_ID,
+    merchantId: (remoteOrder as any).merchantId ?? MERCHANT_ID,
+    store: (remoteOrder as any).store ?? { id: MERCHANT_ID },
+    store_id: (remoteOrder as any).store_id ?? MERCHANT_ID,
+    storeId: (remoteOrder as any).storeId ?? MERCHANT_ID,
+  };
+
+  await upsertSallaOrderFromPayload({
+    merchantId: MERCHANT_ID,
+    merchant_id: MERCHANT_ID,
+    order: orderWithMerchant,
+  });
+
+  const remoteOrderId =
+    typeof orderWithMerchant.id === 'number' || typeof orderWithMerchant.id === 'string'
+      ? String(orderWithMerchant.id)
+      : null;
+
+  let persisted: PrismaSallaOrder | null = null;
+
+  if (remoteOrderId) {
+    persisted = await prisma.sallaOrder.findUnique({
+      where: {
+        merchantId_orderId: {
+          merchantId: MERCHANT_ID,
+          orderId: remoteOrderId,
+        },
+      },
+    });
+  }
+
+  if (!persisted) {
+    const referenceId =
+      (orderWithMerchant as any).referenceId ||
+      orderWithMerchant.reference_id ||
+      null;
+
+    if (referenceId) {
+      persisted = await prisma.sallaOrder.findFirst({
+        where: {
+          merchantId: MERCHANT_ID,
+          OR: [{ referenceId }, { orderNumber: referenceId }],
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+      });
+    }
+  }
+
+  return { persisted, remote: orderWithMerchant };
+}
+
+async function fetchRemoteOrderFromSalla(
+  normalizedQueryVariants: Set<string>,
+  digitsOnlyQuery: string
+): Promise<RemoteSallaOrder | null> {
+  const orderIdCandidates = new Set<string>();
+  if (digitsOnlyQuery) {
+    orderIdCandidates.add(digitsOnlyQuery);
+    const withoutLeadingZeros = digitsOnlyQuery.replace(/^0+/, '');
+    if (withoutLeadingZeros && withoutLeadingZeros !== digitsOnlyQuery) {
+      orderIdCandidates.add(withoutLeadingZeros);
+    }
+  }
+
+  for (const candidate of orderIdCandidates) {
+    if (!candidate) continue;
+    const order = await getSallaOrder(MERCHANT_ID, candidate);
+    if (order) {
+      return order;
+    }
+  }
+
+  for (const variant of normalizedQueryVariants) {
+    const trimmed = variant.trim();
+    if (!trimmed) continue;
+    const order = await getSallaOrderByReference(MERCHANT_ID, trimmed);
+    if (order) {
+      return order;
+    }
+  }
+
+  return null;
 }

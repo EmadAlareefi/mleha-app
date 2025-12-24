@@ -905,25 +905,48 @@ export default function OrderPrepPage() {
                     </Card>
                   ))}
 
-                    {/* Gift Wrapping Alert - Only show if packaging amount > 0 */}
+                    {/* Gift Wrapping Alert - Show for paid options or specific gift SKUs */}
                     {(() => {
                       const packagingAmount = getNumberValue(currentOrder.orderData?.amounts?.options_total?.amount);
-                      if (packagingAmount > 0) {
-                        return (
-                          <Card className="p-4 md:p-6 bg-red-50 border-2 border-red-500">
-                            <div className="flex items-center gap-3">
-                              <svg className="w-8 h-8 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                              </svg>
-                              <div className="flex-1">
-                                <h3 className="text-lg md:text-xl font-bold text-red-900">🎁 تغليف هدية</h3>
-                                <p className="text-sm text-red-700 mt-1">هذا الطلب يحتاج إلى تغليف هدية</p>
-                              </div>
-                            </div>
-                          </Card>
-                        );
+                      const items = Array.isArray(currentOrder.orderData?.items) ? currentOrder.orderData.items : [];
+                      const giftSkuPatterns = ['7571', '6504'];
+                      const giftSkuItems = items.filter((item: any) => {
+                        const sku = getStringValue(item?.sku).toUpperCase();
+                        return sku && giftSkuPatterns.some(pattern => sku.includes(pattern));
+                      });
+                      const shouldHighlightGiftWrap = packagingAmount > 0 || giftSkuItems.length > 0;
+
+                      if (!shouldHighlightGiftWrap) {
+                        return null;
                       }
-                      return null;
+
+                      const giftReasonMessage =
+                        packagingAmount > 0
+                          ? 'هذا الطلب يحتاج إلى تغليف هدية'
+                          : 'يحتوي الطلب على منتجات تتطلب تغليف هدية';
+
+                      return (
+                        <Card className="p-4 md:p-6 bg-red-50 border-2 border-red-500">
+                          <div className="flex items-center gap-3">
+                            <svg className="w-8 h-8 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            <div className="flex-1">
+                              <h3 className="text-lg md:text-xl font-bold text-red-900">🎁 تغليف هدية</h3>
+                              <p className="text-sm text-red-700 mt-1">{giftReasonMessage}</p>
+                              {giftSkuItems.length > 0 && (
+                                <p className="text-sm text-red-700 mt-1">
+                                  العناصر: {giftSkuItems.map((item: any) => {
+                                    const name = getStringValue(item?.name);
+                                    const sku = getStringValue(item?.sku);
+                                    return `${name}${sku ? ` (${sku})` : ''}`;
+                                  }).join('، ')}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </Card>
+                      );
                     })()}
                   </>
                 ) : (

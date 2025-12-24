@@ -24,7 +24,7 @@ export default function AdminDashboard() {
   // Don't default to admin - wait for proper session data
   const userRole: Role | undefined = (session?.user as any)?.role;
   const userRoles: Role[] = (session?.user as any)?.roles || (userRole ? [userRole] : []);
-  const canAccessOrderInvoiceSearch = userRoles.some((role) => role === 'admin' || role === 'warehouse');
+  const canAccessOrderInvoiceSearch = userRoles.some((role) => role === 'admin');
 
   const services: ServiceCard[] = [
     {
@@ -52,6 +52,14 @@ export default function AdminDashboard() {
       allowedRoles: ['admin', 'warehouse'],
     },
     {
+      title: 'مواقع المنتجات',
+      description: 'تسجيل مواقع منتجات سلة وربطها بالمستودع',
+      icon: '🗂️',
+      href: '/warehouse/locations',
+      color: 'from-fuchsia-500 to-fuchsia-600',
+      allowedRoles: ['admin', 'warehouse'],
+    },
+    {
       title: 'الشحن المحلي',
       description: 'إدارة عمليات الشحن المحلي',
       icon: '🚚',
@@ -73,7 +81,7 @@ export default function AdminDashboard() {
       icon: '🔍',
       href: '/order-invoice-search',
       color: 'from-violet-500 to-violet-600',
-      allowedRoles: ['admin', 'warehouse'],
+      allowedRoles: ['admin'],
     },
     {
       title: 'متابعة التحصيل (COD)',

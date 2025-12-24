@@ -218,6 +218,24 @@ model SallaOrder {
   @@index([merchantId, campaignName])
 }
 
+model SallaProductLocation {
+  id          String   @id @default(cuid())
+  sku         String   @unique
+  productId   String?
+  productName String?
+  merchantId  String?
+  location    String
+  notes       String?  @db.Text
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([location])
+  @@index([updatedAt])
+}
+
 model ReturnRequest {
   id            String  @id @default(cuid())
   merchantId    String // Salla merchant ID
