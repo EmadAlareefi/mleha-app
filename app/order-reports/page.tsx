@@ -129,6 +129,7 @@ export default function OrderReportsPage() {
   const [filterCampaignSource, setFilterCampaignSource] = useState('');
   const [filterCampaignName, setFilterCampaignName] = useState('');
   const [filterPaymentMethod, setFilterPaymentMethod] = useState('');
+  const [filterErpSync, setFilterErpSync] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'stats'>('stats');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -159,11 +160,12 @@ export default function OrderReportsPage() {
     if (filterCampaignSource) params.append('campaignSource', filterCampaignSource);
     if (filterCampaignName) params.append('campaignName', filterCampaignName);
     if (filterPaymentMethod) params.append('paymentMethod', filterPaymentMethod);
+    if (filterErpSync) params.append('erpSynced', filterErpSync);
     params.append('page', pageToLoad.toString());
     params.append('limit', limit.toString());
     params.append('sortDirection', sortDirection);
     return params;
-  }, [startDate, endDate, filterStatus, filterCampaignSource, filterCampaignName, filterPaymentMethod, sortDirection]);
+  }, [startDate, endDate, filterStatus, filterCampaignSource, filterCampaignName, filterPaymentMethod, filterErpSync, sortDirection]);
 
   const fetchOrders = useCallback(async (pageToLoad = 1, append = false) => {
     try {
@@ -766,6 +768,40 @@ export default function OrderReportsPage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                حالة مزامنة ERP
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={filterErpSync === '' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 min-w-[120px]"
+                  onClick={() => setFilterErpSync('')}
+                >
+                  جميع الطلبات
+                </Button>
+                <Button
+                  type="button"
+                  variant={filterErpSync === 'true' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 min-w-[120px]"
+                  onClick={() => setFilterErpSync(filterErpSync === 'true' ? '' : 'true')}
+                >
+                  المتزامنة مع ERP
+                </Button>
+                <Button
+                  type="button"
+                  variant={filterErpSync === 'false' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 min-w-[120px]"
+                  onClick={() => setFilterErpSync(filterErpSync === 'false' ? '' : 'false')}
+                >
+                  غير المتزامنة
+                </Button>
+              </div>
+            </div>
             <div className="md:col-span-2 lg:col-span-1 flex items-end">
               <Button
                 onClick={() => {
@@ -775,6 +811,7 @@ export default function OrderReportsPage() {
                   setFilterCampaignSource('');
                   setFilterCampaignName('');
                   setFilterPaymentMethod('');
+                  setFilterErpSync('');
                   setSortDirection('desc');
                 }}
                 variant="outline"

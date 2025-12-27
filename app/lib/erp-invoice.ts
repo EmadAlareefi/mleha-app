@@ -79,11 +79,28 @@ async function fetchBarcodeFromERP(itemNo: string): Promise<string> {
       throw new Error(`Failed to fetch barcode from ERP API: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    const data = await response.json();
-    const barcode = data?.barcode || data?.Barcode;
+    const responseText = await response.text();
+    let parsedData: Record<string, any> | null = null;
+
+    if (responseText.trim()) {
+      try {
+        parsedData = JSON.parse(responseText);
+      } catch (parseError) {
+        logger.warn('ERP Barcode API returned non-JSON body', {
+          itemNo,
+          responsePreview: responseText.slice(0, 200),
+          parseError: (parseError as Error).message,
+        });
+      }
+    }
+
+    const barcode =
+      parsedData?.barcode ||
+      parsedData?.Barcode ||
+      (responseText.trim() ? responseText.trim() : null);
 
     if (!barcode) {
-      throw new Error(`Barcode not found in ERP response for item ${itemNo}`);
+      throw new Error(`لم يتم العثور على الباركود في استجابة ERP للمنتج ${itemNo}`);
     }
 
     logger.info('Fetched barcode from ERP', {
@@ -631,17 +648,33 @@ export async function postInvoiceToERP(payload: ERPInvoicePayload): Promise<ERPI
       throw new Error(`ERP API returned ${response.status}: ${errorText}`);
     }
 
-    const result = await response.json();
+    const responseText = await response.text();
+    let parsedResult: Record<string, any> | null = null;
+
+    if (responseText.trim()) {
+      try {
+        parsedResult = JSON.parse(responseText);
+      } catch (parseError) {
+        logger.warn('ERP API returned non-JSON body', {
+          orderNumber: payload.remarks2,
+          responsePreview: responseText.slice(0, 200),
+          parseError: (parseError as Error).message,
+        });
+      }
+    }
 
     logger.info('Invoice posted to ERP successfully', {
       orderNumber: payload.remarks2,
-      erpResponse: result,
+      erpResponse: parsedResult ?? responseText ?? null,
     });
 
     return {
       success: true,
-      erpInvoiceId: result.id || result.invoice_id || result.invoiceId,
-      message: 'Invoice posted to ERP successfully',
+      erpInvoiceId: parsedResult?.id || parsedResult?.invoice_id || parsedResult?.invoiceId,
+      message:
+        parsedResult?.message ||
+        parsedResult?.status ||
+        (responseText.trim() || 'Invoice posted to ERP successfully'),
     };
   } catch (error: any) {
     logger.error('Failed to post invoice to ERP', {

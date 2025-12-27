@@ -136,6 +136,7 @@ export async function GET(request: NextRequest) {
     const campaignSource = searchParams.get('campaignSource');
     const campaignName = searchParams.get('campaignName');
     const paymentMethod = searchParams.get('paymentMethod');
+    const erpSyncedParam = searchParams.get('erpSynced');
     const sortDirectionParam = searchParams.get('sortDirection');
     const pageParam = searchParams.get('page');
     const limitParam = searchParams.get('limit');
@@ -181,6 +182,12 @@ export async function GET(request: NextRequest) {
 
     if (paymentMethod) {
       where.paymentMethod = paymentMethod;
+    }
+
+    if (erpSyncedParam === 'true') {
+      where.erpSyncedAt = { not: null };
+    } else if (erpSyncedParam === 'false') {
+      where.erpSyncedAt = null;
     }
 
     const [orders, totalCount, amountStats, statusBreakdown, paymentMethodBreakdown] = await Promise.all([
