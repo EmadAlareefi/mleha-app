@@ -42,7 +42,18 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
     const customer = orderData?.customer || {};
     const shippingAddress = orderData?.shipping_address || customer;
     const billingAddress = orderData?.billing_address || customer;
-    const items = orderData?.items || [];
+    const normalizeItems = (items: unknown): any[] => {
+      if (Array.isArray(items)) {
+        return items;
+      }
+      if (items && typeof items === 'object') {
+        // Some historical orders store items as an object keyed by ID
+        return Object.values(items as Record<string, any>);
+      }
+      return [];
+    };
+
+    const items = normalizeItems(orderData?.items);
     const amounts = orderData?.amounts || {};
 
     const customerName = `${getStringValue(customer.first_name)} ${getStringValue(customer.last_name)}`.trim();

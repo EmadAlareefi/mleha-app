@@ -1044,7 +1044,17 @@ export default function OrderPrepPage() {
 
       {/* Hidden Commercial Invoice for Printing */}
       {currentOrder && (
-        <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            width: 0,
+            height: 0,
+            overflow: 'hidden',
+            opacity: 0,
+            pointerEvents: 'none',
+          }}
+        >
           <CommercialInvoice
             ref={commercialInvoiceRef}
             orderData={currentOrder.orderData}

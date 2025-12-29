@@ -701,7 +701,17 @@ export default function OrderInvoiceSearchPage() {
 
       {/* Hidden Commercial Invoice for Printing */}
       {order && isCommercialInvoiceAvailable && (
-        <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            width: 0,
+            height: 0,
+            overflow: 'hidden',
+            opacity: 0,
+            pointerEvents: 'none',
+          }}
+        >
           <CommercialInvoice
             ref={commercialInvoiceRef}
             orderData={order.orderData}
