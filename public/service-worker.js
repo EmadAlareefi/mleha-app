@@ -1,5 +1,6 @@
-const CACHE_NAME = "mleha-app-cache-v1";
-const APP_SHELL = ["/", "/logo.png", "/manifest.webmanifest"];
+const CACHE_VERSION = "v2";
+const CACHE_NAME = `mleha-app-cache-${CACHE_VERSION}`;
+const APP_SHELL = ["/logo.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -36,6 +37,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Always go to the network for navigations/HTML so users get the latest UI
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        const cachedResponse = await caches.match(event.request);
+        return (
+          cachedResponse ||
+          new Response("لا يمكن تحميل الصفحة حالياً. يرجى المحاولة مرة أخرى.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          })
+        );
+      })
+    );
+    return;
+  }
+
+  // Stale-while-revalidate for same-origin assets (icons, manifest, etc.)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const networkFetch = fetch(event.request)
