@@ -202,7 +202,7 @@ export default function ReturnsPage() {
             title: 'انتهت مدة الإرجاع',
             message: returnsData.message || returnsData.error,
             description: returnsData.daysSinceUpdate
-              ? `مرت ${returnsData.daysSinceUpdate} يوم على آخر تحديث للطلب. الحد الأقصى المسموح به هو 3 أيام.`
+              ? `مرت ${returnsData.daysSinceUpdate} يوم على آخر تحديث للطلب. الحد الأقصى المسموح به هو 8 أيام.`
               : undefined,
             variant: 'error',
           });
@@ -367,7 +367,7 @@ export default function ReturnsPage() {
               <h3 className="font-semibold mb-2">شروط الإرجاع والاستبدال:</h3>
               <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
                 <li>يتم الاسترجاع والاستبدال خلال (24) ساعة فقط لفساتين السهرات من تاريخ استلام الطلبية.</li>
-                <li>يتم الاسترجاع خلال (3) أيام للفساتين غير فساتين السهرة من تاريخ استلام الطلبية.</li>
+                <li>يتم الاسترجاع خلال (8) أيام للفساتين غير فساتين السهرة من تاريخ استلام الطلبية.</li>
                 <li>يتم الاستبدال خلال (7) أيام من تاريخ استلام الطلبية.</li>
               </ul>
             </div>

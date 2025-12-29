@@ -4,6 +4,9 @@ import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
+const RETURN_PERIOD_DAYS = 8;
+const EPSILON = 0.001; // ~1.5 minutes tolerance
+
 /**
  * GET /api/returns/check
  *
@@ -25,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     log.info('Checking for existing return requests', { merchantId, orderId, orderUpdatedAt });
 
-    // Check if order last updated date exceeds 3 days
+    // Check if order last updated date exceeds allowed return window
     if (!orderUpdatedAt) {
       log.warn('No orderUpdatedAt provided for validation', { merchantId, orderId });
       return NextResponse.json({
@@ -52,10 +55,9 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const daysDifference = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24);
 
-    // Allow returns within 3 days (exceeds means > 3 days, with small epsilon for floating point)
-    const EPSILON = 0.001; // ~1.5 minutes tolerance
-    if (daysDifference > 3 + EPSILON) {
-      log.warn('Order update date exceeds 3 days', {
+    // Allow returns within configured window (exceeds means > RETURN_PERIOD_DAYS, with small epsilon for floating point)
+    if (daysDifference > RETURN_PERIOD_DAYS + EPSILON) {
+      log.warn('Order update date exceeds allowed window', {
         merchantId,
         orderId,
         orderUpdatedAt,
@@ -65,7 +67,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         error: 'انتهت مدة الإرجاع المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
-        message: 'لقد تجاوز الطلب مدة 3 أيام من آخر تحديث. لا يمكن إنشاء طلب إرجاع.',
+        message: 'لقد تجاوز الطلب مدة 8 أيام من آخر تحديث. لا يمكن إنشاء طلب إرجاع.',
         daysSinceUpdate: Math.floor(daysDifference),
         canCreateNew: false,
       }, { status: 400 });

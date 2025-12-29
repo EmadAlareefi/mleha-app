@@ -8,6 +8,9 @@ import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
+const RETURN_PERIOD_DAYS = 8;
+const EPSILON = 0.001; // ~1.5 minutes tolerance
+
 interface ReturnItemRequest {
   productId: string;
   productName: string;
@@ -195,12 +198,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if order last updated date exceeds 3 days
+    // Check if order last updated date exceeds allowed return window
     // Use updatedAt date (most recent activity), fallback to created date
     const orderDateToCheck = order.date?.updated || order.date?.created;
 
     if (!orderDateToCheck) {
-      log.error('No date found on order for 3-day validation', {
+      log.error('No date found on order for return window validation', {
         merchantId: body.merchantId,
         orderId: body.orderId,
         orderDateFields: {
@@ -236,10 +239,9 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const daysDifference = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24);
 
-    // Allow returns within 3 days (exceeds means > 3 days, with small epsilon for floating point)
-    const EPSILON = 0.001; // ~1.5 minutes tolerance
-    if (daysDifference > 3 + EPSILON) {
-      log.warn('Order update date exceeds 3 days', {
+    // Allow returns within configured window (exceeds means > RETURN_PERIOD_DAYS, with small epsilon for floating point)
+    if (daysDifference > RETURN_PERIOD_DAYS + EPSILON) {
+      log.warn('Order update date exceeds allowed window', {
         merchantId: body.merchantId,
         orderId: body.orderId,
         orderUpdatedAt: orderDateToCheck,
@@ -249,7 +251,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         error: 'انتهت مدة الإرجاع المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
-        message: 'لقد تجاوز الطلب مدة 3 أيام من آخر تحديث. لا يمكن إنشاء طلب إرجاع.',
+        message: 'لقد تجاوز الطلب مدة 8 أيام من آخر تحديث. لا يمكن إنشاء طلب إرجاع.',
         daysSinceUpdate: Math.floor(daysDifference),
       }, { status: 400 });
     }
