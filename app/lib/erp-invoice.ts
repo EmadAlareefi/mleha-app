@@ -51,6 +51,15 @@ export interface ERPInvoiceResult {
 }
 
 /**
+ * Normalize SKU before sending to ERP.
+ * Removes any X/x characters Salla uses for size markers.
+ */
+function normalizeSkuForERP(rawSku: string): string {
+  const sanitized = rawSku.replace(/x/gi, '').trim();
+  return sanitized || rawSku;
+}
+
+/**
  * Fetch barcode from ERP API for a given item number (cmbkey)
  */
 async function fetchBarcodeFromERP(itemNo: string): Promise<string> {
@@ -266,9 +275,10 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
 
   for (const item of orderItems) {
     // Extract SKU (try multiple possible field names)
-    const sku = item.sku || item.product?.sku || item.variant?.sku || '';
+    const rawSku = (item.sku || item.product?.sku || item.variant?.sku || '').toString();
+    const sku = normalizeSkuForERP(rawSku);
 
-    if (!sku) {
+    if (!rawSku) {
       logger.warn('Item missing SKU', {
         orderId: order.orderId,
         itemId: item.id,
@@ -314,6 +324,7 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
     logger.info('Extracted item for ERP', {
       orderId: order.orderId,
       sku,
+      rawSku,
       barcode,
       qty,
       price,
