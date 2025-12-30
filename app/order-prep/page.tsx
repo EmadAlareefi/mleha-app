@@ -24,6 +24,11 @@ interface OrderAssignment {
   status: string;
   assignedAt: string;
   notes?: string;
+  isHighPriority?: boolean;
+  highPriorityReason?: string | null;
+  highPriorityNotes?: string | null;
+  highPriorityMarkedAt?: string | null;
+  highPriorityMarkedBy?: string | null;
 }
 
 export default function OrderPrepPage() {
@@ -198,18 +203,26 @@ export default function OrderPrepPage() {
       const data = await parseJsonResponse(response, 'GET /api/order-assignments/my-orders');
 
       if (data.success) {
-        setAssignments(data.assignments);
+        const sortedAssignments: OrderAssignment[] = [...(data.assignments || [])].sort((a, b) => {
+          if (a.isHighPriority && !b.isHighPriority) return -1;
+          if (!a.isHighPriority && b.isHighPriority) return 1;
+          return new Date(a.assignedAt).getTime() - new Date(b.assignedAt).getTime();
+        });
 
-        // If user has no orders and autoAssignIfEmpty is true, auto-assign the oldest order
-        if (data.assignments.length === 0 && autoAssignIfEmpty) {
-          console.log('No orders found - auto-assigning oldest unassigned order...');
-          await autoAssignOrders();
-          return; // autoAssignOrders will call loadMyOrders again
-        }
+        setAssignments(sortedAssignments);
 
-        // Set first order as current if none selected
-        if (!currentOrder && data.assignments.length > 0) {
-          setCurrentOrder(data.assignments[0]);
+        if (sortedAssignments.length === 0) {
+          setCurrentOrder(null);
+          if (autoAssignIfEmpty) {
+            console.log('No orders found - auto-assigning oldest unassigned order...');
+            await autoAssignOrders();
+            return; // autoAssignOrders will call loadMyOrders again
+          }
+        } else {
+          const updatedCurrent = currentOrder
+            ? sortedAssignments.find((assignment) => assignment.id === currentOrder.id) || sortedAssignments[0]
+            : sortedAssignments[0];
+          setCurrentOrder(updatedCurrent);
         }
       }
 
@@ -752,7 +765,14 @@ export default function OrderPrepPage() {
               {/* Order Header */}
               <Card className="p-4 md:p-6 mb-4 md:mb-6">
                 <div>
-                  <h2 className="text-2xl md:text-3xl font-bold">طلب #{currentOrder.orderNumber}</h2>
+                  <h2 className="text-2xl md:text-3xl font-bold flex flex-wrap items-center gap-3">
+                    <span>طلب #{currentOrder.orderNumber}</span>
+                    {currentOrder.isHighPriority && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-800">
+                        ⚡ أولوية قصوى
+                      </span>
+                    )}
+                  </h2>
                   <p className="text-gray-600 mt-1">
                     {getStringValue(currentOrder.orderData?.customer?.first_name)}{' '}
                     {getStringValue(currentOrder.orderData?.customer?.last_name)}
@@ -777,6 +797,30 @@ export default function OrderPrepPage() {
                       </p>
                     );
                   })()}
+
+                  {currentOrder.isHighPriority && (
+                    <div className="mt-4 p-4 bg-orange-50 border-2 border-orange-400 rounded-lg">
+                      <div className="flex items-center gap-2 text-orange-800 font-bold">
+                        <span>⚡ طلب عالي الأولوية</span>
+                      </div>
+                      {currentOrder.highPriorityReason && (
+                        <p className="text-sm text-orange-700 mt-2">
+                          السبب: {currentOrder.highPriorityReason}
+                        </p>
+                      )}
+                      {currentOrder.highPriorityNotes && (
+                        <p className="text-sm text-orange-700 mt-1">
+                          ملاحظات داخلية: {currentOrder.highPriorityNotes}
+                        </p>
+                      )}
+                      {currentOrder.highPriorityMarkedBy && currentOrder.highPriorityMarkedAt && (
+                        <p className="text-xs text-orange-600 mt-2">
+                          تم التحديد بواسطة {currentOrder.highPriorityMarkedBy} في{' '}
+                          {new Date(currentOrder.highPriorityMarkedAt).toLocaleString('ar-SA')}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Order Tags - Prominent Display */}
                   {currentOrder.orderData?.tags && currentOrder.orderData.tags.length > 0 && (

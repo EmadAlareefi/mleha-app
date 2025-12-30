@@ -391,7 +391,7 @@ Set up in Vercel cron or use a service like cron-job.org to call this endpoint p
 ## Summary
 
 - **Default:** Auto-sync is **disabled** - you have full control
-- **Manual sync:** Available via UI (`/erp-settings`) or API
+- **Manual sync:** Available via UI (`/erp-settings`), CLI (`npm run sync:erp-orders`), or API
 - **Auto-sync:** Optional, configurable per order status
 - **Monitoring:** Real-time stats and error tracking
 - **Safe:** Duplicate prevention ensures no duplicate invoices

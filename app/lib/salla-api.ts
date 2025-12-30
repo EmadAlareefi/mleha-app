@@ -5,6 +5,7 @@ import { log } from './logger';
 export interface SallaOrder {
   id: number;
   reference_id: string;
+  order_number?: string | number;
   status: {
     name: string;
     slug: string;
@@ -31,6 +32,7 @@ export interface SallaOrder {
     id: number;
     first_name: string;
     last_name: string;
+    name?: string;
     mobile: string;
     email: string;
     city?: string;

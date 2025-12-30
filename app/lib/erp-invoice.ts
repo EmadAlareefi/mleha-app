@@ -422,6 +422,14 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     });
   }
 
+  if (!Number.isFinite(shippingAmount) || Number.isNaN(shippingAmount)) {
+    logger.warn('Shipping amount is not a valid number, defaulting to 0', {
+      orderId: order.orderId,
+      rawValue: order.shippingAmount,
+    });
+    shippingAmount = 0;
+  }
+
   // Add shipping as a line item if there's a shipping cost
   if (shippingAmount > 0) {
     // Shipping price should include tax (15%)
@@ -594,7 +602,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     remarks2: order.orderNumber || order.orderId,
     hrtnref: 0,
     transport_code: '',
-    transport_amt: shippingAmount,
+    transport_amt: Math.round(shippingAmount * 100) / 100,
     transport_onus: 1,
     other_amt: 0,
     other_acct: '',

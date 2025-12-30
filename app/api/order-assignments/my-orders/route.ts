@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse} from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import type { HighPriorityOrder } from '@prisma/client';
 
 export const runtime = 'nodejs';
+const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
 /**
  * GET /api/order-assignments/my-orders
@@ -41,9 +43,40 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const orderIds = assignments.map((assignment) => assignment.orderId);
+    let priorityMap = new Map<string, HighPriorityOrder>();
+
+    if (orderIds.length > 0) {
+      const priorityOrders = await prisma.highPriorityOrder.findMany({
+        where: {
+          merchantId: MERCHANT_ID,
+          orderId: { in: orderIds },
+        },
+      });
+      priorityMap = new Map(priorityOrders.map((order) => [order.orderId, order]));
+    }
+
+    const enrichedAssignments = assignments
+      .map((assignment) => {
+        const priority = priorityMap.get(assignment.orderId);
+        return {
+          ...assignment,
+          isHighPriority: Boolean(priority),
+          highPriorityReason: priority?.reason || null,
+          highPriorityNotes: priority?.notes || null,
+          highPriorityMarkedAt: priority?.createdAt || null,
+          highPriorityMarkedBy: priority?.createdByName || priority?.createdByUsername || null,
+        };
+      })
+      .sort((a, b) => {
+        if (a.isHighPriority && !b.isHighPriority) return -1;
+        if (!a.isHighPriority && b.isHighPriority) return 1;
+        return new Date(a.assignedAt).getTime() - new Date(b.assignedAt).getTime();
+      });
+
     return NextResponse.json({
       success: true,
-      assignments,
+      assignments: enrichedAssignments,
     });
 
   } catch (error) {

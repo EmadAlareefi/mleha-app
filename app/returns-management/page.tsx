@@ -215,16 +215,23 @@ export default function ReturnsManagementPage() {
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8 flex justify-between items-center">
+        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold mb-2">إدارة طلبات الإرجاع والاستبدال</h1>
             <p className="text-gray-600">
               إجمالي الطلبات: {total}
             </p>
           </div>
-          <Link href="/">
-            <Button variant="outline">← العودة للرئيسية</Button>
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Link href="/returns-priority">
+              <Button className="bg-orange-600 hover:bg-orange-700 text-white">
+                ⚡ الطلبات عالية الأولوية
+              </Button>
+            </Link>
+            <Link href="/">
+              <Button variant="outline">← العودة للرئيسية</Button>
+            </Link>
+          </div>
         </div>
 
         {/* Filters */}

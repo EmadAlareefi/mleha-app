@@ -68,6 +68,14 @@ export default function AdminDashboard() {
       allowedRoles: ['admin', 'warehouse'],
     },
     {
+      title: 'ملصقات الباركود',
+      description: 'إنشاء وطباعة ملصقات الباركود بحجم ٧×٤ سم',
+      icon: '🏷️',
+      href: '/barcode-labels',
+      color: 'from-rose-500 to-rose-600',
+      allowedRoles: ['admin', 'warehouse'],
+    },
+    {
       title: 'تعيين الشحنات',
       description: 'تعيين الشحنات المحلية للمناديب',
       icon: '📍',
@@ -113,6 +121,14 @@ export default function AdminDashboard() {
       icon: '📋',
       href: '/returns-management',
       color: 'from-red-500 to-red-600',
+      allowedRoles: ['admin', 'store_manager'],
+    },
+    {
+      title: 'الطلبات عالية الأولوية',
+      description: 'تحديد الطلبات التي يجب أن تظهر أولاً لفريق التحضير',
+      icon: '⚡',
+      href: '/returns-priority',
+      color: 'from-orange-500 to-red-500',
       allowedRoles: ['admin', 'store_manager'],
     },
     {

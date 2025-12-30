@@ -70,6 +70,9 @@ export async function POST(request: NextRequest) {
 
     // Assign only ONE order at a time to prevent overlap
     const availableSlots = 1;
+    const ORDERS_FETCH_BUFFER = 10;
+    const MAX_FETCH_LIMIT = 50;
+    const fetchLimit = Math.min(MAX_FETCH_LIMIT, Math.max(availableSlots * ORDERS_FETCH_BUFFER, 10));
 
     // Fetch new orders from Salla based on user's order type
     log.info('Fetching new orders for auto-assignment', {
@@ -113,7 +116,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch orders from Salla using status ID, sorted by oldest first
     const baseUrl = 'https://api.salla.dev/admin/v2';
-    const url = `${baseUrl}/orders?status=${statusFilter}&per_page=${availableSlots}&sort_by=created_at-asc`;
+    const url = `${baseUrl}/orders?status=${statusFilter}&per_page=${fetchLimit}&sort_by=created_at-asc`;
 
     // Use retry logic for fetching orders
     const { fetchSallaWithRetry } = await import('@/app/lib/fetch-with-retry');
@@ -150,6 +153,22 @@ export async function POST(request: NextRequest) {
       totalOrders: orders.length,
       orderIds: orders.map((o: any) => o.id),
     });
+
+    // Load high priority order IDs to prioritize in assignment
+    const highPriorityOrders = await prisma.highPriorityOrder.findMany({
+      where: { merchantId: MERCHANT_ID },
+      orderBy: { createdAt: 'asc' },
+      select: { orderId: true },
+    });
+    const priorityRank = new Map(
+      highPriorityOrders.map((priorityOrder, index) => [String(priorityOrder.orderId), index]),
+    );
+    if (highPriorityOrders.length > 0) {
+      log.info('High priority orders detected', {
+        total: highPriorityOrders.length,
+        orderIds: highPriorityOrders.map((order) => order.orderId),
+      });
+    }
 
     // Filter orders based on payment method (COD/prepaid) if needed
     let filteredOrders = orders;
@@ -218,6 +237,22 @@ export async function POST(request: NextRequest) {
       (order: any) => !assignedOrderIdSet.has(String(order.id)) && !userAssignedOrderIdSet.has(String(order.id))
     );
 
+    const originalIndex = new Map<string, number>(
+      unassignedOrders.map((order: any, index: number) => [String(order.id), index])
+    );
+    const prioritizedOrders = [...unassignedOrders].sort((a: any, b: any) => {
+      const aKey = String(a.id);
+      const bKey = String(b.id);
+      const aRank = priorityRank.has(aKey) ? priorityRank.get(aKey)! : Number.POSITIVE_INFINITY;
+      const bRank = priorityRank.has(bKey) ? priorityRank.get(bKey)! : Number.POSITIVE_INFINITY;
+
+      if (aRank !== bRank) {
+        return aRank - bRank;
+      }
+
+      return (originalIndex.get(aKey) ?? 0) - (originalIndex.get(bKey) ?? 0);
+    });
+
     log.info('Unassigned orders after filtering', {
       beforeFilter: filteredOrders.length,
       afterFilter: unassignedOrders.length,
@@ -227,7 +262,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Limit to available slots
-    const ordersToAssign = unassignedOrders.slice(0, availableSlots);
+    const ordersToAssign = prioritizedOrders.slice(0, availableSlots);
 
     // Fetch complete order details including items for each order
     const ordersWithDetails = await Promise.all(

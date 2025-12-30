@@ -45,7 +45,13 @@ export default withAuth(
         },
         store_manager: {
           home: '/returns-management',
-          allowed: [/^\/$/, /^\/returns-management(\/.*)?$/, /^\/api\/returns(\/.*)?$/],
+          allowed: [
+            /^\/$/,
+            /^\/returns-management(\/.*)?$/,
+            /^\/returns-priority(\/.*)?$/,
+            /^\/api\/returns(\/.*)?$/,
+            /^\/api\/high-priority-orders(\/.*)?$/,
+          ],
         },
         warehouse: {
           allowed: [
