@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useReactToPrint } from 'react-to-print';
 import { Card } from '@/components/ui/card';
@@ -31,6 +31,16 @@ interface OrderAssignment {
   highPriorityMarkedBy?: string | null;
 }
 
+interface ProductLocation {
+  id: string;
+  sku: string;
+  location: string;
+  productName?: string | null;
+  notes?: string | null;
+  updatedBy?: string | null;
+  updatedAt: string;
+}
+
 export default function OrderPrepPage() {
   const { data: session, status } = useSession();
   const role = (session?.user as any)?.role;
@@ -51,7 +61,23 @@ export default function OrderPrepPage() {
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [debugData, setDebugData] = useState<any>(null);
+  const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
+  const [loadingProductLocations, setLoadingProductLocations] = useState(false);
+  const [productLocationError, setProductLocationError] = useState<string | null>(null);
   const commercialInvoiceRef = useRef<HTMLDivElement>(null);
+  const currentOrderSkus = useMemo(() => {
+    if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
+      return [] as string[];
+    }
+
+    return Array.from(
+      new Set(
+        currentOrder.orderData.items
+          .map((item: any) => normalizeSku(item?.sku || item?.SKU || item?.product?.sku))
+          .filter((sku): sku is string => Boolean(sku))
+      )
+    );
+  }, [currentOrder]);
 
   const getStringValue = (value: unknown): string => {
     if (value === null || value === undefined) return '';
@@ -68,6 +94,12 @@ export default function OrderPrepPage() {
       return JSON.stringify(obj);
     }
     return '';
+  };
+
+  const normalizeSku = (value: unknown): string => {
+    const stringValue = getStringValue(value);
+    if (!stringValue) return '';
+    return stringValue.trim().toUpperCase();
   };
 
   const getNumberValue = (value: unknown): number => {
@@ -131,6 +163,66 @@ export default function OrderPrepPage() {
   useEffect(() => {
     setShipmentInfo(null);
   }, [currentOrder?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (currentOrderSkus.length === 0) {
+      setProductLocations({});
+      setProductLocationError(null);
+      setLoadingProductLocations(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const fetchLocations = async () => {
+      setProductLocations({});
+      setLoadingProductLocations(true);
+      setProductLocationError(null);
+      try {
+        const response = await fetch('/api/order-prep/product-locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skus: currentOrderSkus }),
+        });
+
+        const data = await parseJsonResponse(response, 'POST /api/order-prep/product-locations');
+
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر تحميل مواقع المنتجات');
+        }
+
+        const map: Record<string, ProductLocation> = {};
+        (Array.isArray(data.locations) ? data.locations : []).forEach((location: ProductLocation) => {
+          if (location?.sku) {
+            map[location.sku.toUpperCase()] = location;
+          }
+        });
+
+        if (!cancelled) {
+          setProductLocations(map);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر تحميل مواقع المنتجات';
+        console.error('Failed to load product locations', error);
+        if (!cancelled) {
+          setProductLocations({});
+          setProductLocationError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingProductLocations(false);
+        }
+      }
+    };
+
+    fetchLocations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentOrderSkus]);
 
   // Auto-refresh orders every 30 seconds to check for new orders
   useEffect(() => {
@@ -891,63 +983,102 @@ export default function OrderPrepPage() {
 
               {/* Products and Options */}
               <div className="space-y-3 md:space-y-4">
+                {loadingProductLocations && (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                    جاري تحميل مواقع التخزين للمنتجات...
+                  </div>
+                )}
+                {productLocationError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    ⚠️ {productLocationError}
+                  </div>
+                )}
                 {/* Regular Products */}
                 {currentOrder.orderData?.items && currentOrder.orderData.items.length > 0 ? (
                   <>
-                    {currentOrder.orderData.items.map((item: any, idx: number) => (
-                      <Card key={`item-${idx}`} className="p-4 md:p-6">
-                        <div className="flex flex-col md:flex-row gap-4 md:gap-6">
-                        {/* Product Image */}
-                        <div className="flex-shrink-0">
-                          {(item.thumbnail || item.product_thumbnail || item.product?.thumbnail) ? (
-                            <img
-                              src={item.thumbnail || item.product_thumbnail || item.product?.thumbnail}
-                              alt={item.name}
-                              className="w-full md:w-40 md:h-40 object-contain rounded-lg border-2 border-gray-200 bg-white"
-                            />
-                          ) : (
-                            <div className="w-full md:w-40 md:h-40 h-64 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center">
-                              <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
+                    {currentOrder.orderData.items.map((item: any, idx: number) => {
+                      const normalizedSku = normalizeSku(item?.sku || item?.SKU || item?.product?.sku);
+                      const locationInfo = normalizedSku ? productLocations[normalizedSku] : undefined;
+                      const skuDisplay = normalizedSku || getStringValue(item?.sku);
+                      const locationUpdatedAt = locationInfo?.updatedAt
+                        ? new Date(locationInfo.updatedAt).toLocaleString('ar-SA')
+                        : null;
+
+                      return (
+                        <Card key={`item-${idx}`} className="p-4 md:p-6">
+                          <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+                            {/* Product Image */}
+                            <div className="flex-shrink-0">
+                              {(item.thumbnail || item.product_thumbnail || item.product?.thumbnail) ? (
+                                <img
+                                  src={item.thumbnail || item.product_thumbnail || item.product?.thumbnail}
+                                  alt={item.name}
+                                  className="w-full md:w-40 md:h-40 object-contain rounded-lg border-2 border-gray-200 bg-white"
+                                />
+                              ) : (
+                                <div className="w-full md:w-40 md:h-40 h-64 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center">
+                                  <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
 
-                        {/* Product Details */}
-                        <div className="flex-1 space-y-3">
-                          <h3 className="text-2xl font-bold text-gray-900">{item.name}</h3>
+                            {/* Product Details */}
+                            <div className="flex-1 space-y-3">
+                              <h3 className="text-2xl font-bold text-gray-900">{item.name}</h3>
 
-                          {/* SKU and Quantity */}
-                          <div className="flex flex-wrap gap-2">
-                            {item.sku && (
-                              <div className="inline-flex items-center gap-2 bg-blue-50 border-2 border-blue-500 px-4 py-3 rounded-lg">
-                                <span className="text-sm font-semibold text-blue-700">SKU:</span>
-                                <span className="text-xl font-bold text-blue-900">{item.sku}</span>
+                              {/* SKU, Quantity, and Location */}
+                              <div className="flex flex-wrap gap-2">
+                                {skuDisplay && (
+                                  <div className="inline-flex items-center gap-2 bg-blue-50 border-2 border-blue-500 px-4 py-3 rounded-lg">
+                                    <span className="text-sm font-semibold text-blue-700">SKU:</span>
+                                    <span className="text-xl font-bold text-blue-900">{skuDisplay}</span>
+                                  </div>
+                                )}
+
+                                <div className="inline-flex items-center gap-2 bg-green-50 border-2 border-green-500 px-4 py-3 rounded-lg">
+                                  <span className="text-sm font-semibold text-green-700">الكمية:</span>
+                                  <span className="text-xl font-bold text-green-900">×{item.quantity}</span>
+                                </div>
+
+                                {normalizedSku && (
+                                  <div className={`flex flex-col gap-1 rounded-lg border-2 px-4 py-3 ${locationInfo ? 'bg-amber-50 border-amber-500' : 'bg-gray-100 border-dashed border-gray-400'}`}>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`text-sm font-semibold ${locationInfo ? 'text-amber-700' : 'text-gray-600'}`}>موقع التخزين:</span>
+                                      <span className={`text-lg font-bold ${locationInfo ? 'text-amber-900' : 'text-gray-600'}`}>
+                                        {locationInfo ? locationInfo.location : 'غير متوفر'}
+                                      </span>
+                                    </div>
+                                    {locationInfo?.notes && (
+                                      <p className="text-xs text-amber-700">{locationInfo.notes}</p>
+                                    )}
+                                    {locationUpdatedAt && (
+                                      <p className="text-xs text-amber-600">آخر تحديث: {locationUpdatedAt}</p>
+                                    )}
+                                    {!locationInfo && !loadingProductLocations && (
+                                      <p className="text-xs text-gray-500">سجل الموقع عبر صفحة المستودع لتسهيل تحضير الطلب.</p>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                            )}
 
-                            <div className="inline-flex items-center gap-2 bg-green-50 border-2 border-green-500 px-4 py-3 rounded-lg">
-                              <span className="text-sm font-semibold text-green-700">الكمية:</span>
-                              <span className="text-xl font-bold text-green-900">×{item.quantity}</span>
+                              {/* Product Options (Size, Color, etc.) */}
+                              {item.options && item.options.length > 0 && (
+                                <div className="space-y-2">
+                                  {item.options.map((option: any, optIdx: number) => (
+                                    <div key={optIdx} className="inline-flex items-center gap-2 bg-purple-50 border border-purple-300 px-3 py-2 rounded-lg mr-2">
+                                      <span className="text-sm font-medium text-purple-700">{getStringValue(option.name)}:</span>
+                                      <span className="text-sm font-bold text-purple-900">{getStringValue(option.value)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
-
-                          {/* Product Options (Size, Color, etc.) */}
-                          {item.options && item.options.length > 0 && (
-                            <div className="space-y-2">
-                              {item.options.map((option: any, optIdx: number) => (
-                                <div key={optIdx} className="inline-flex items-center gap-2 bg-purple-50 border border-purple-300 px-3 py-2 rounded-lg mr-2">
-                                  <span className="text-sm font-medium text-purple-700">{getStringValue(option.name)}:</span>
-                                  <span className="text-sm font-bold text-purple-900">{getStringValue(option.value)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+                        </Card>
+                      );
+                    })}
 
                     {/* Gift Wrapping Alert - Show for paid options or specific gift SKUs */}
                     {(() => {
