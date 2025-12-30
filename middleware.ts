@@ -41,7 +41,14 @@ export default withAuth(
       > = {
         orders: {
           home: '/order-prep',
-          allowed: [/^\/$/, /^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/, /^\/api\/order-assignments(\/.*)?$/],
+          allowed: [
+            /^\/$/,
+            /^\/order-prep(\/.*)?$/,
+            /^\/order-history(\/.*)?$/,
+            /^\/api\/order-assignments(\/.*)?$/,
+            /^\/api\/order-prep\/product-locations(\/.*)?$/,
+            /^\/barcode-labels(\/.*)?$/,
+          ],
         },
         store_manager: {
           home: '/returns-management',
@@ -51,6 +58,7 @@ export default withAuth(
             /^\/returns-priority(\/.*)?$/,
             /^\/api\/returns(\/.*)?$/,
             /^\/api\/high-priority-orders(\/.*)?$/,
+            /^\/barcode-labels(\/.*)?$/,
           ],
         },
         warehouse: {
@@ -66,15 +74,31 @@ export default withAuth(
             /^\/api\/delivery-agents(\/.*)?$/,
             /^\/api\/cod-collections(\/.*)?$/,
             /^\/api\/product-locations(\/.*)?$/,
+            /^\/barcode-labels(\/.*)?$/,
           ],
         },
         accountant: {
           home: '/order-reports',
-          allowed: [/^\/$/, /^\/order-reports(\/.*)?$/, /^\/api\/order-history(\/.*)?$/, /^\/expenses(\/.*)?$/, /^\/api\/expenses(\/.*)?$/, /^\/cod-tracker(\/.*)?$/, /^\/api\/cod-collections(\/.*)?$/],
+          allowed: [
+            /^\/$/,
+            /^\/order-reports(\/.*)?$/,
+            /^\/api\/order-history(\/.*)?$/,
+            /^\/expenses(\/.*)?$/,
+            /^\/api\/expenses(\/.*)?$/,
+            /^\/cod-tracker(\/.*)?$/,
+            /^\/api\/cod-collections(\/.*)?$/,
+            /^\/barcode-labels(\/.*)?$/,
+          ],
         },
         delivery_agent: {
           home: '/my-deliveries',
-          allowed: [/^\/$/, /^\/my-deliveries(\/.*)?$/, /^\/api\/shipment-assignments(\/.*)?$/, /^\/api\/cod-collections(\/.*)?$/],
+          allowed: [
+            /^\/$/,
+            /^\/my-deliveries(\/.*)?$/,
+            /^\/api\/shipment-assignments(\/.*)?$/,
+            /^\/api\/cod-collections(\/.*)?$/,
+            /^\/barcode-labels(\/.*)?$/,
+          ],
         },
       };
 
