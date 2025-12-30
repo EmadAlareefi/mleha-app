@@ -222,9 +222,6 @@ export default function BarcodeLabelsPage() {
                       <p className="text-sm text-gray-600">اللون: {label.color}</p>
                     )}
                   </div>
-                  <p className="text-sm tracking-[0.3em] text-gray-500 text-center">
-                    {label.barcode}
-                  </p>
                 </div>
               ))
             )}
