@@ -207,7 +207,7 @@ export default function BarcodeLabelsPage() {
                     height: '4cm',
                   }}
                 >
-                  <div className="text-[10px] uppercase tracking-[0.35em] text-gray-400">
+                  <div className="text-[12px] uppercase font-bold tracking-[0.35em] text-black">
                     MLEHA
                   </div>
 
