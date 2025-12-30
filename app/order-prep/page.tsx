@@ -41,6 +41,44 @@ interface ProductLocation {
   updatedAt: string;
 }
 
+const getStringValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.name === 'string') return obj.name;
+    if (typeof obj.label === 'string') return obj.label;
+    if (obj.value !== undefined) {
+      return getStringValue(obj.value);
+    }
+    return JSON.stringify(obj);
+  }
+  return '';
+};
+
+const normalizeSku = (value: unknown): string => {
+  const stringValue = getStringValue(value);
+  if (!stringValue) return '';
+  return stringValue.trim().toUpperCase();
+};
+
+const getNumberValue = (value: unknown): number => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (typeof value === 'object' && value !== null) {
+    const obj = value as Record<string, unknown>;
+    if (obj.value !== undefined) {
+      return getNumberValue(obj.value);
+    }
+  }
+  return 0;
+};
+
 export default function OrderPrepPage() {
   const { data: session, status } = useSession();
   const role = (session?.user as any)?.role;
@@ -73,49 +111,11 @@ export default function OrderPrepPage() {
     return Array.from(
       new Set(
         currentOrder.orderData.items
-          .map((item: any) => normalizeSku(item?.sku || item?.SKU || item?.product?.sku))
+          .map((item: any) => normalizeSku(item?.sku))
           .filter((sku): sku is string => Boolean(sku))
       )
     );
   }, [currentOrder]);
-
-  const getStringValue = (value: unknown): string => {
-    if (value === null || value === undefined) return '';
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      return String(value);
-    }
-    if (typeof value === 'object') {
-      const obj = value as Record<string, unknown>;
-      if (typeof obj.name === 'string') return obj.name;
-      if (typeof obj.label === 'string') return obj.label;
-      if (obj.value !== undefined) {
-        return getStringValue(obj.value);
-      }
-      return JSON.stringify(obj);
-    }
-    return '';
-  };
-
-  const normalizeSku = (value: unknown): string => {
-    const stringValue = getStringValue(value);
-    if (!stringValue) return '';
-    return stringValue.trim().toUpperCase();
-  };
-
-  const getNumberValue = (value: unknown): number => {
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      const parsed = parseFloat(value);
-      return Number.isNaN(parsed) ? 0 : parsed;
-    }
-    if (typeof value === 'object' && value !== null) {
-      const obj = value as Record<string, unknown>;
-      if (obj.value !== undefined) {
-        return getNumberValue(obj.value);
-      }
-    }
-    return 0;
-  };
 
   const parseJsonResponse = async <T = any>(response: Response, context: string): Promise<T> => {
     const contentType = response.headers.get('content-type') || '';
@@ -163,6 +163,58 @@ export default function OrderPrepPage() {
   useEffect(() => {
     setShipmentInfo(null);
   }, [currentOrder?.id]);
+
+  const locationSummary = useMemo(() => {
+    if (
+      loadingProductLocations ||
+      !currentOrder?.orderData?.items ||
+      !Array.isArray(currentOrder.orderData.items)
+    ) {
+      return [];
+    }
+
+    const summaryMap = new Map<
+      string,
+      {
+        locationLabel: string;
+        items: { sku: string; name: string; quantity: number }[];
+      }
+    >();
+
+    currentOrder.orderData.items.forEach((item: any) => {
+      const normalizedSku = normalizeSku(item?.sku);
+      if (!normalizedSku) {
+        return;
+      }
+      const locationInfo = productLocations[normalizedSku];
+      const locationKey = locationInfo?.location || 'NO_LOCATION';
+      const locationLabel = locationInfo?.location || 'غير مسجل';
+      if (!summaryMap.has(locationKey)) {
+        summaryMap.set(locationKey, { locationLabel, items: [] });
+      }
+      const entry = summaryMap.get(locationKey);
+      if (entry) {
+        entry.items.push({
+          sku: normalizedSku,
+          name: getStringValue(item?.name) || normalizedSku,
+          quantity: Number(item?.quantity) || 0,
+        });
+      }
+    });
+
+    return Array.from(summaryMap.entries())
+      .map(([key, value]) => ({
+        key,
+        locationLabel: value.locationLabel,
+        totalQuantity: value.items.reduce((sum, item) => sum + (item.quantity || 0), 0),
+        items: value.items,
+      }))
+      .sort((a, b) => {
+        if (a.key === 'NO_LOCATION') return 1;
+        if (b.key === 'NO_LOCATION') return -1;
+        return a.locationLabel.localeCompare(b.locationLabel, 'ar');
+      });
+  }, [currentOrder, productLocations, loadingProductLocations]);
 
   useEffect(() => {
     let cancelled = false;
@@ -993,11 +1045,50 @@ export default function OrderPrepPage() {
                     ⚠️ {productLocationError}
                   </div>
                 )}
+                {locationSummary.length > 0 && (
+                  <Card className="border-amber-200 bg-amber-50/70">
+                    <div className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg font-bold text-amber-900">📦 مواقع سريعة للالتقاط</span>
+                        <span className="text-xs text-amber-700">
+                          {locationSummary.reduce((sum, block) => sum + block.totalQuantity, 0)} قطعة
+                        </span>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {locationSummary.map((block) => (
+                          <div
+                            key={block.key}
+                            className={`rounded-lg border p-3 ${block.key === 'NO_LOCATION'
+                              ? 'border-gray-200 bg-white'
+                              : 'border-amber-200 bg-white/80'}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className={`text-base font-bold ${block.key === 'NO_LOCATION' ? 'text-gray-600' : 'text-amber-900'}`}>
+                                {block.key === 'NO_LOCATION' ? 'بدون موقع مسجل' : block.locationLabel}
+                              </span>
+                              <span className={`text-xs font-semibold ${block.key === 'NO_LOCATION' ? 'text-gray-500' : 'text-amber-700'}`}>
+                                ×{block.totalQuantity}
+                              </span>
+                            </div>
+                            <div className="mt-2 space-y-1">
+                              {block.items.map((item, itemIdx) => (
+                                <div key={`${block.key}-${item.sku}-${itemIdx}`} className="flex items-center justify-between text-xs font-medium text-slate-700">
+                                  <span className="font-mono text-sm text-slate-900">{item.sku}</span>
+                                  <span className="text-slate-500">×{item.quantity}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </Card>
+                )}
                 {/* Regular Products */}
                 {currentOrder.orderData?.items && currentOrder.orderData.items.length > 0 ? (
                   <>
                     {currentOrder.orderData.items.map((item: any, idx: number) => {
-                      const normalizedSku = normalizeSku(item?.sku || item?.SKU || item?.product?.sku);
+                      const normalizedSku = normalizeSku(item?.sku);
                       const locationInfo = normalizedSku ? productLocations[normalizedSku] : undefined;
                       const skuDisplay = normalizedSku || getStringValue(item?.sku);
                       const locationUpdatedAt = locationInfo?.updatedAt
