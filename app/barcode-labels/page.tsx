@@ -208,7 +208,7 @@ export default function BarcodeLabelsPage() {
                   }}
                 >
                   <div className="text-[10px] uppercase tracking-[0.35em] text-gray-400">
-                    malaiha
+                    MLEHA
                   </div>
 
                   <div className="space-y-1">
