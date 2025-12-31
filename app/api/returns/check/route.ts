@@ -6,6 +6,50 @@ export const runtime = 'nodejs';
 
 const RETURN_PERIOD_DAYS = 8;
 const EPSILON = 0.001; // ~1.5 minutes tolerance
+const NUMERIC_TIMESTAMP_REGEX = /^-?\d+(\.\d+)?$/;
+
+const normalizeTimestamp = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  const normalized = value > 1e12 ? value : value * 1000;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const parseOrderDate = (value: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (NUMERIC_TIMESTAMP_REGEX.test(trimmed)) {
+    const numeric = Number(trimmed);
+    const normalizedDate = normalizeTimestamp(numeric);
+    if (normalizedDate) {
+      return normalizedDate;
+    }
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  if (trimmed.includes(' ')) {
+    const isoCandidate = trimmed.replace(' ', 'T');
+    const fallback = new Date(isoCandidate);
+    if (!Number.isNaN(fallback.getTime())) {
+      return fallback;
+    }
+  }
+
+  return null;
+};
 
 /**
  * GET /api/returns/check
@@ -39,10 +83,10 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const updatedDate = new Date(orderUpdatedAt);
+    const updatedDate = parseOrderDate(orderUpdatedAt);
 
     // Validate that the date is valid
-    if (isNaN(updatedDate.getTime())) {
+    if (!updatedDate) {
       log.error('Invalid date format', { merchantId, orderId, orderUpdatedAt });
       return NextResponse.json({
         error: 'تاريخ الطلب غير صالح',

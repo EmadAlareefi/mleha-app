@@ -19,6 +19,71 @@ const MERCHANT_CONFIG = {
 
 type Step = 'lookup' | 'existing' | 'form' | 'success';
 
+const DATE_OBJECT_KEYS = ['date', 'datetime', 'value', 'timestamp'] as const;
+
+const isNumericLike = (value: string) => /^-?\d+(\.\d+)?$/.test(value);
+
+const timestampToIso = (timestamp: number): string | undefined => {
+  if (!Number.isFinite(timestamp)) {
+    return undefined;
+  }
+  const normalized = timestamp > 1e12 ? timestamp : timestamp * 1000;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+};
+
+const normalizeOrderDate = (value: unknown): string | undefined => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    if (isNumericLike(trimmed)) {
+      return timestampToIso(Number(trimmed));
+    }
+
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+
+    if (trimmed.includes(' ')) {
+      const isoCandidate = trimmed.replace(' ', 'T');
+      const fallback = new Date(isoCandidate);
+      if (!Number.isNaN(fallback.getTime())) {
+        return fallback.toISOString();
+      }
+    }
+
+    return undefined;
+  }
+
+  if (typeof value === 'number') {
+    return timestampToIso(value);
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  }
+
+  if (typeof value === 'object') {
+    for (const key of DATE_OBJECT_KEYS) {
+      const nestedValue = (value as Record<string, unknown>)[key];
+      const normalized = normalizeOrderDate(nestedValue);
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+
+  return undefined;
+};
+
 export default function ReturnsPage() {
   const [step, setStep] = useState<Step>('lookup');
   const [orderNumber, setOrderNumber] = useState('');
@@ -36,6 +101,21 @@ export default function ReturnsPage() {
     variant?: 'error' | 'warning' | 'info';
   } | null>(null);
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
+
+  const continueWithManualReturn = (message?: string, description?: string) => {
+    setErrorDetails({
+      title: 'تعذر التحقق من الطلب',
+      message: message || 'تعذر التحقق من صلاحية الإرجاع بشكل تلقائي.',
+      description:
+        description ||
+        'يمكنك متابعة تقديم طلب الإرجاع وسيقوم فريق الدعم بمراجعته يدويًا.',
+      variant: 'warning',
+    });
+    setErrorDialogOpen(true);
+    setExistingReturns([]);
+    setCanCreateNew(true);
+    setStep('form');
+  };
 
   const fetchItemCategories = async (returns: any[]) => {
     const categories: Record<string, string> = {};
@@ -126,21 +206,19 @@ export default function ReturnsPage() {
         orderData.order.updatedAtRemote ||    // Database field
         orderData.order.placedAt;             // Database placedAt field
 
-      // Handle case where date is an object instead of string
-      let orderUpdatedAt: string | undefined;
-      if (typeof orderUpdatedAtRaw === 'string') {
-        orderUpdatedAt = orderUpdatedAtRaw;
-      } else if (typeof orderUpdatedAtRaw === 'object' && orderUpdatedAtRaw !== null) {
-        // If it's an object, try to extract date string from common properties
-        const dateObj = orderUpdatedAtRaw as any;
-        orderUpdatedAt = dateObj.date || dateObj.datetime || dateObj.value || dateObj.timestamp;
+      const orderUpdatedAt = normalizeOrderDate(orderUpdatedAtRaw);
 
+      if (typeof orderUpdatedAtRaw === 'object' && orderUpdatedAtRaw !== null) {
         console.log('Date is an object, extracted:', {
           originalObject: orderUpdatedAtRaw,
           extractedDate: orderUpdatedAt,
         });
       } else {
-        orderUpdatedAt = undefined;
+        console.log('Date normalization result:', {
+          rawValue: orderUpdatedAtRaw,
+          rawType: typeof orderUpdatedAtRaw,
+          normalizedDate: orderUpdatedAt,
+        });
       }
 
       // Log which date field was used (helps debug date extraction issues)
@@ -191,9 +269,19 @@ export default function ReturnsPage() {
       checkUrl.searchParams.set('orderId', orderData.order.id.toString());
       checkUrl.searchParams.set('orderUpdatedAt', orderUpdatedAt);
 
-      const returnsResponse = await fetch(checkUrl.toString());
-
-      const returnsData = await returnsResponse.json();
+      let returnsResponse: Response;
+      let returnsData: any;
+      try {
+        returnsResponse = await fetch(checkUrl.toString());
+        returnsData = await returnsResponse.json();
+      } catch (returnsError) {
+        console.error('Failed to check return eligibility', returnsError);
+        continueWithManualReturn(
+          'حدث خطأ أثناء التحقق من حالة الطلب.',
+          'سنقوم بمراجعة طلب الإرجاع يدويًا بمجرد استلامه.'
+        );
+        return;
+      }
 
       // Handle return period expiration and date validation errors
       if (!returnsResponse.ok) {
@@ -209,17 +297,13 @@ export default function ReturnsPage() {
           setErrorDialogOpen(true);
           setLoading(false);
           return;
-        } else if (returnsData.errorCode === 'MISSING_ORDER_DATE' || returnsData.errorCode === 'INVALID_DATE_FORMAT') {
-          setErrorDetails({
-            title: 'خطأ في التحقق من الطلب',
-            message: returnsData.message || returnsData.error,
-            description: 'لم نتمكن من التحقق من تاريخ الطلب. يرجى الاتصال بالدعم الفني.',
-            variant: 'error',
-          });
-          setErrorDialogOpen(true);
-          setLoading(false);
-          return;
         }
+
+        continueWithManualReturn(
+          returnsData.message || returnsData.error || 'تعذر التحقق من حالة الطلب.',
+          'يمكنك متابعة تقديم الطلب وسيتم مراجعته يدويًا.'
+        );
+        return;
       }
 
       // Store whether new requests can be created
