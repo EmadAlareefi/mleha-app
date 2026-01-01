@@ -146,6 +146,12 @@ export async function POST(req: NextRequest) {
     orderId,
     status,
     isDuplicateStatus,
+    event,
+    merchantId:
+      payload?.merchant?.toString?.() ||
+      payload?.store?.id?.toString?.() ||
+      order?.store_id?.toString?.() ||
+      null,
   });
   return NextResponse.json({ ok: true, verified, ...result });
 }

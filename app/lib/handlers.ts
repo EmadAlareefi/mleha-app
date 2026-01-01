@@ -4,6 +4,8 @@ import { env } from "@/app/lib/env";
 import { log } from "@/app/lib/logger";
 import { storeSallaTokens } from "@/app/lib/salla-oauth";
 import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
+import { sendPrintJob } from "@/app/lib/printnode";
+import { prisma } from "@/lib/prisma";
 
 type AnyObj = Record<string, any>;
 
@@ -11,6 +13,8 @@ interface WebhookMeta {
   orderId?: string | null;
   status?: string | null;
   isDuplicateStatus?: boolean;
+  event?: string | null;
+  merchantId?: string | null;
 }
 
 type TemplateName = keyof typeof TPL;
@@ -140,6 +144,238 @@ function collectRecipients(to?: string | null): string[] {
   const debug = DEBUG_WHATSAPP_RECIPIENT?.replace?.(/\s/g, "");
   if (debug) recipients.add(debug);
   return Array.from(recipients);
+}
+
+async function maybePrintShipmentLabelFromStatus(
+  order: AnyObj,
+  data: AnyObj,
+  meta?: WebhookMeta
+) {
+  if (meta?.event !== "order.updated") {
+    return;
+  }
+
+  const merchantId =
+    meta?.merchantId ||
+    data?.merchant?.toString?.() ||
+    data?.store?.id?.toString?.() ||
+    order?.merchant_id?.toString?.() ||
+    null;
+
+  if (!merchantId) {
+    return;
+  }
+
+  const shipmentsArray = Array.isArray(order?.shipments)
+    ? order.shipments
+    : Array.isArray(data?.shipments)
+      ? data.shipments
+      : [];
+  const shipping = order?.shipping || data?.shipping || {};
+  const fallbackShipment =
+    shipmentsArray.find((shipment: AnyObj) => shipment?.label?.url) ||
+    shipmentsArray[0] ||
+    {};
+  const shipmentInfo = shipping?.shipment || fallbackShipment || {};
+  const receiver = shipping?.receiver || shipmentInfo.receiver || shipmentInfo.ship_to || {};
+  const shippingCompany =
+    shipping?.company ||
+    shipmentInfo.courier_name ||
+    shipmentInfo.courier ||
+    shipmentInfo.courierName ||
+    "";
+  const trackingLink =
+    shipmentInfo.tracking_link ||
+    shipmentInfo.trackingLink ||
+    shipmentInfo.tracking_url ||
+    "";
+  const shipmentReference =
+    (
+      shipping?.shipment_reference ||
+      shipmentInfo.shipment_reference ||
+      shipmentInfo.reference ||
+      shipmentInfo.reference_id ||
+      ""
+    )?.toString() || "";
+  const status =
+    shipmentInfo.status ||
+    shipping?.status ||
+    order?.status?.slug ||
+    order?.status?.name ||
+    data?.status?.slug ||
+    data?.status?.name ||
+    "created";
+
+  const shipmentUrl =
+    shipmentInfo.label?.url ||
+    shipmentInfo.label_url ||
+    shipmentInfo.labelUrl ||
+    (typeof shipmentInfo.label === "string" ? shipmentInfo.label : null);
+
+  if (!shipmentUrl) {
+    return;
+  }
+
+  const orderIdFromPayload =
+    order?.id?.toString?.() ||
+    order?.order_id?.toString?.() ||
+    data?.id?.toString?.() ||
+    data?.order_id?.toString?.() ||
+    null;
+
+  const referenceId =
+    order?.reference_id?.toString?.() ||
+    order?.referenceId?.toString?.() ||
+    order?.order_number?.toString?.() ||
+    data?.reference_id?.toString?.() ||
+    data?.referenceId?.toString?.() ||
+    orderIdFromPayload ||
+    "";
+
+  const trackingNumberValue = (
+    shipmentInfo.tracking_number ||
+    shipmentInfo.trackingNumber ||
+    shipmentInfo.shipping_number ||
+    shipmentInfo.tracking_no ||
+    shipmentInfo.id ||
+    shipmentReference ||
+    trackingLink ||
+    ""
+  ).toString();
+
+  const resolvedOrderId =
+    orderIdFromPayload ||
+    referenceId ||
+    shipmentReference ||
+    shipmentInfo.order_number?.toString?.() ||
+    shipmentInfo.order_id?.toString?.() ||
+    trackingNumberValue ||
+    shipmentInfo.id?.toString?.() ||
+    "";
+
+  if (!resolvedOrderId) {
+    log.warn("order.updated webhook missing orderId for printing", {
+      referenceId,
+      merchantId,
+    });
+    return;
+  }
+
+  let storedShipment: AnyObj | null = null;
+  let alreadyPrinted = false;
+
+  try {
+    storedShipment = await prisma.sallaShipment.upsert({
+      where: {
+        merchantId_orderId: {
+          merchantId,
+          orderId: resolvedOrderId,
+        },
+      },
+      create: {
+        merchantId,
+        orderId: resolvedOrderId,
+        orderNumber: referenceId || resolvedOrderId,
+        trackingNumber: trackingNumberValue,
+        courierName: shippingCompany || "Unknown",
+        courierCode: (shippingCompany || "").toString().toLowerCase().replace(/\s+/g, "_"),
+        status,
+        labelUrl: shipmentUrl || undefined,
+        shipmentData: {
+          shipment_id: shipmentInfo.id,
+          tracking_link: trackingLink,
+          tracking_number: trackingNumberValue,
+          label_url: shipmentUrl,
+          receiver_name: receiver?.name,
+          receiver_phone: receiver?.phone,
+          city: shipping?.address?.city || shipmentInfo.ship_to?.city || "",
+          shipment_reference: shipmentReference,
+          raw_payload: data,
+        } as any,
+      },
+      update: {
+        trackingNumber: trackingNumberValue,
+        courierName: shippingCompany || "Unknown",
+        courierCode: (shippingCompany || "").toString().toLowerCase().replace(/\s+/g, "_"),
+        status,
+        labelUrl: shipmentUrl || undefined,
+        shipmentData: {
+          shipment_id: shipmentInfo.id,
+          tracking_link: trackingLink,
+          tracking_number: trackingNumberValue,
+          label_url: shipmentUrl,
+          receiver_name: receiver?.name,
+          receiver_phone: receiver?.phone,
+          city: shipping?.address?.city || shipmentInfo.ship_to?.city || "",
+          shipment_reference: shipmentReference,
+          raw_payload: data,
+        } as any,
+      },
+    });
+
+    alreadyPrinted =
+      storedShipment.labelPrinted ||
+      (storedShipment.printCount ?? 0) > 0 ||
+      Boolean((storedShipment.shipmentData as any)?.labelPrinted);
+  } catch (error) {
+    log.error("Failed to upsert shipment from order.updated webhook", {
+      error,
+      merchantId,
+      orderId: resolvedOrderId,
+    });
+  }
+
+  if (alreadyPrinted) {
+    log.info("Shipment already printed for order.updated webhook", {
+      merchantId,
+      orderId: resolvedOrderId,
+    });
+    return;
+  }
+
+  try {
+    const printResult = await sendPrintJob({
+      title: `Shipment Label - Order ${referenceId || resolvedOrderId}`,
+      contentType: "pdf_uri",
+      content: shipmentUrl,
+      copies: 1,
+    });
+
+    if (printResult.success) {
+      if (storedShipment?.id) {
+        await prisma.sallaShipment.update({
+          where: { id: storedShipment.id },
+          data: {
+            labelPrinted: true,
+            labelPrintedAt: new Date(),
+            labelPrintedBy: "system",
+            labelPrintedByName: "Salla order.updated webhook",
+            labelUrl: shipmentUrl,
+            printJobId: printResult.jobId ? String(printResult.jobId) : storedShipment.printJobId,
+            printCount: (storedShipment.printCount ?? 0) + 1,
+          },
+        });
+      }
+
+      log.info("Label sent to PrintNode from order.updated webhook", {
+        merchantId,
+        orderId: resolvedOrderId,
+        jobId: printResult.jobId,
+      });
+    } else {
+      log.error("PrintNode error while handling order.updated webhook", {
+        merchantId,
+        orderId: resolvedOrderId,
+        error: printResult.error,
+      });
+    }
+  } catch (error) {
+    log.error("Failed to send PrintNode job from order.updated webhook", {
+      merchantId,
+      orderId: resolvedOrderId,
+      error,
+    });
+  }
 }
 
 const STATUS_TEMPLATE_MAP: Record<string, StatusTemplateConfig> = {
@@ -332,6 +568,7 @@ export async function process_salla_order_status_updated(
   const { carrier, trackingNumber, trackingLink } = getShipmentDetails(order, data);
 
   await upsertSallaOrderFromPayload(data);
+  await maybePrintShipmentLabelFromStatus(order, data, meta);
 
   if (
     meta?.isDuplicateStatus &&
