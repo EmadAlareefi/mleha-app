@@ -45,12 +45,21 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
       };
     }
 
-    const jobId = await response.json();
-    console.log('Print job created successfully:', jobId);
+    const jobResponse = await response.json();
+    const jobId =
+      typeof jobResponse === 'number'
+        ? jobResponse
+        : typeof jobResponse?.id === 'number'
+          ? jobResponse.id
+          : typeof jobResponse?.jobId === 'number'
+            ? jobResponse.jobId
+            : undefined;
+
+    console.log('Print job created successfully:', jobResponse);
 
     return {
       success: true,
-      jobId: jobId,
+      jobId,
     };
   } catch (error) {
     console.error('Failed to send print job:', error);

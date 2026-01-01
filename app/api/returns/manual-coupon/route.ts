@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 
 export const runtime = 'nodejs';
+const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
 
 /**
  * POST /api/returns/manual-coupon
@@ -41,6 +43,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const couponAmount =
+      returnRequest.totalRefundAmount !== null && returnRequest.totalRefundAmount !== undefined
+        ? Number(returnRequest.totalRefundAmount)
+        : undefined;
+
+    if (!couponAmount || !Number.isFinite(couponAmount) || couponAmount <= 0) {
+      return NextResponse.json(
+        { error: 'قيمة الاستبدال غير متاحة. يرجى مراجعة الطلب قبل إرسال الكوبون.' },
+        { status: 400 }
+      );
+    }
+
     // Update return request with manual coupon code
     const updatedRequest = await prisma.returnRequest.update({
       where: { id: returnRequestId },
@@ -56,9 +70,22 @@ export async function POST(request: NextRequest) {
       couponCode: couponCode.trim(),
     });
 
+    const assumedExpiry = new Date();
+    assumedExpiry.setDate(assumedExpiry.getDate() + DEFAULT_COUPON_EXPIRY_DAYS);
+
+    const notification = await notifyExchangeCoupon({
+      customerName: returnRequest.customerName,
+      customerPhone: returnRequest.customerPhone,
+      orderNumber: returnRequest.orderNumber,
+      couponCode: couponCode.trim(),
+      amount: Number(couponAmount.toFixed(2)),
+      expiryDate: assumedExpiry,
+    });
+
     return NextResponse.json({
       success: true,
       returnRequest: updatedRequest,
+      notification,
     });
 
   } catch (error) {

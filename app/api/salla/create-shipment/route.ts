@@ -49,14 +49,18 @@ export async function POST(request: NextRequest) {
 
     // Use Salla's orders/actions API to create shipping policy
     // Based on: https://docs.salla.dev/7549669e0
+    const parsedOrderId = parseInt(assignment.orderId, 10);
+    const normalizedOrderId = Number.isNaN(parsedOrderId) ? assignment.orderId : parsedOrderId;
+
     const actionRequestData = {
       operations: [
         {
           action_name: 'create_shipping_policy',
+          value: [normalizedOrderId],
         },
       ],
       filters: {
-        order_ids: [parseInt(assignment.orderId)],
+        order_ids: [normalizedOrderId],
       },
     };
 
@@ -173,6 +177,8 @@ export async function POST(request: NextRequest) {
     let trackingNumber = 'سيتم توفير رقم التتبع قريباً';
     let courierName = 'شركة الشحن المعتمدة';
     let labelPrinted = false;
+    let labelUrl: string | null = null;
+    let labelPrintedAt: string | null = null;
 
     try {
       // Wait 3 seconds for Salla webhook to fire and process
@@ -189,15 +195,18 @@ export async function POST(request: NextRequest) {
       });
 
       if (shipment) {
+        const rawShipmentData = shipment.shipmentData as any;
         log.info('Found shipment info from Salla webhook', {
           orderId: assignment.orderId,
           trackingNumber: shipment.trackingNumber,
           courierName: shipment.courierName,
         });
 
-        trackingNumber = shipment.trackingNumber;
-        courierName = shipment.courierName;
-        labelPrinted = !!(shipment.shipmentData as any)?.label_url;
+        trackingNumber = shipment.trackingNumber || trackingNumber;
+        courierName = shipment.courierName || courierName;
+        labelPrinted = shipment.labelPrinted || !!rawShipmentData?.label_url;
+        labelPrintedAt = shipment.labelPrintedAt ? shipment.labelPrintedAt.toISOString() : null;
+        labelUrl = shipment.labelUrl || rawShipmentData?.label_url || rawShipmentData?.label?.url || null;
       } else {
         log.info('No shipment info yet - Salla webhook may still be processing', {
           orderId: assignment.orderId,
@@ -222,6 +231,8 @@ export async function POST(request: NextRequest) {
         trackingNumber,
         courierName,
         labelPrinted,
+        labelPrintedAt,
+        labelUrl,
       },
     });
 

@@ -123,6 +123,26 @@ export default function ReturnsManagementPage() {
     }
   };
 
+  const describeNotificationResult = (notification?: { status?: string; error?: string; reason?: string }) => {
+    if (!notification || !notification.status) {
+      return '';
+    }
+
+    if (notification.status === 'sent') {
+      return '\nتم إرسال الكوبون للعميل عبر واتساب.';
+    }
+
+    if (notification.status === 'skipped') {
+      return '\nلم يتم إرسال رسالة واتساب (رقم العميل غير متوفر).';
+    }
+
+    if (notification.status === 'failed') {
+      return `\nلم يتم إرسال رسالة واتساب: ${notification.error || 'خطأ غير معروف'}.`;
+    }
+
+    return '';
+  };
+
   const updateStatus = async (requestId: string, newStatus: string) => {
     try {
       const response = await fetch('/api/returns/update', {
@@ -180,7 +200,8 @@ export default function ReturnsManagementPage() {
         throw new Error(data.error || 'فشل إنشاء الكوبون');
       }
 
-      alert(`تم إنشاء الكوبون بنجاح: ${data.coupon.code}`);
+      const notificationMessage = describeNotificationResult(data.notification);
+      alert(`تم إنشاء الكوبون بنجاح: ${data.coupon.code}${notificationMessage}`);
       loadReturnRequests();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'حدث خطأ');
@@ -204,7 +225,8 @@ export default function ReturnsManagementPage() {
         throw new Error(data.error || 'فشل تعيين الكوبون');
       }
 
-      alert(`تم تعيين الكوبون بنجاح: ${couponCode}`);
+      const notificationMessage = describeNotificationResult(data.notification);
+      alert(`تم تعيين الكوبون بنجاح: ${couponCode}${notificationMessage}`);
       loadReturnRequests();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'حدث خطأ');

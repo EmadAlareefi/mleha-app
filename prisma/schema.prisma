@@ -99,6 +99,13 @@ model SallaShipment {
   awbNumber      String? // Air Waybill Number
   sawb           String? // SMSA AWB
   status         String // "created", "picked_up", "in_transit", "delivered", etc.
+  labelUrl       String?
+  labelPrinted   Boolean  @default(false)
+  labelPrintedAt DateTime?
+  labelPrintedBy String?
+  labelPrintedByName String?
+  printJobId     String?
+  printCount     Int      @default(0)
   shipmentData   Json? // Raw response from courier API
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

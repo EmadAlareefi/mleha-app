@@ -84,6 +84,7 @@ export default function OrderPrepPage() {
   const role = (session?.user as any)?.role;
   const roles = ((session?.user as any)?.roles || [role]) as string[];
   const isOrdersUser = roles.includes('orders');
+  const isAdmin = roles.includes('admin');
   const [user, setUser] = useState<OrderUser | null>(null);
 
   const [assignments, setAssignments] = useState<OrderAssignment[]>([]);
@@ -91,7 +92,14 @@ export default function OrderPrepPage() {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [refreshingItems, setRefreshingItems] = useState(false);
   const [creatingShipment, setCreatingShipment] = useState(false);
-  const [shipmentInfo, setShipmentInfo] = useState<{trackingNumber: string; courierName: string} | null>(null);
+  const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
+  const [shipmentInfo, setShipmentInfo] = useState<{
+    trackingNumber: string;
+    courierName: string;
+    labelPrinted?: boolean;
+    labelUrl?: string | null;
+    printedAt?: string | null;
+  } | null>(null);
   const [movingToReview, setMovingToReview] = useState(false);
   const [movingToReservation, setMovingToReservation] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
@@ -486,17 +494,23 @@ export default function OrderPrepPage() {
         return;
       }
 
-      const data = await parseJsonResponse(response, 'POST /api/order-assignments/complete');
+      const data = await parseJsonResponse(response, 'POST /api/salla/create-shipment');
 
       if (data.success) {
+        const labelPrinted = Boolean(data.data.labelPrinted);
+        const labelPrintedAt = data.data.labelPrintedAt || null;
+        const labelUrl = data.data.labelUrl || null;
         setShipmentInfo({
           trackingNumber: data.data.trackingNumber,
           courierName: data.data.courierName,
+          labelPrinted,
+          printedAt: labelPrintedAt,
+          labelUrl,
         });
 
         // Show success message
         // Note: Label printing is handled automatically by the webhook
-        const message = data.data.labelPrinted
+        const message = labelPrinted
           ? `✅ تم إنشاء الشحنة وطباعة البوليصة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}`
           : `✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\nملاحظة: البوليصة قيد المعالجة`;
 
@@ -514,6 +528,43 @@ export default function OrderPrepPage() {
       alert(`فشل إنشاء الشحنة\n\nخطأ: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
     } finally {
       setCreatingShipment(false);
+    }
+  };
+
+  const handleSendShipmentToPrinter = async () => {
+    if (!currentOrder) return;
+
+    setPrintingShipmentLabel(true);
+    try {
+      const response = await fetch('/api/salla/shipments/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId: currentOrder.id }),
+      });
+
+      const data = await parseJsonResponse(response, 'POST /api/salla/shipments/print');
+
+      if (data.success) {
+        const printedAt = data.data?.labelPrintedAt || new Date().toISOString();
+
+        setShipmentInfo(prev => ({
+          trackingNumber: prev?.trackingNumber || 'سيتم توفير رقم التتبع قريباً',
+          courierName: prev?.courierName || 'شركة الشحن المعتمدة',
+          labelPrinted: true,
+          printedAt,
+          labelUrl: data.data?.labelUrl || prev?.labelUrl || null,
+        }));
+
+        alert(data.message || 'تم إرسال البوليصة للطابعة');
+      } else {
+        const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
+        alert(errorMsg || 'فشل إرسال البوليصة للطابعة');
+      }
+    } catch (error) {
+      console.error('Manual shipment print exception:', error);
+      alert('فشل إرسال البوليصة للطابعة');
+    } finally {
+      setPrintingShipmentLabel(false);
     }
   };
 
@@ -1229,7 +1280,7 @@ export default function OrderPrepPage() {
               {(shipmentInfo || currentOrder.status === 'shipped') && (
                 <Card className="mt-6 p-4 bg-green-50 border-2 border-green-500">
                   <h3 className="text-lg font-bold text-green-900 mb-2">✅ تم إنشاء الشحنة</h3>
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     {shipmentInfo && (
                       <>
                         <p className="text-sm text-green-800">
@@ -1238,6 +1289,24 @@ export default function OrderPrepPage() {
                         <p className="text-sm text-green-800">
                           <strong>شركة الشحن:</strong> {shipmentInfo.courierName}
                         </p>
+                        {shipmentInfo.labelPrinted && (
+                          <p className="text-sm text-green-800">
+                            <strong>حالة الطباعة:</strong>{' '}
+                            {shipmentInfo.printedAt
+                              ? `تمت الطباعة ${new Date(shipmentInfo.printedAt).toLocaleString('ar-SA')}`
+                              : 'تمت الطباعة'}
+                          </p>
+                        )}
+                        {shipmentInfo.labelUrl && (
+                          <a
+                            href={shipmentInfo.labelUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-800 underline font-medium"
+                          >
+                            عرض رابط البوليصة
+                          </a>
+                        )}
                       </>
                     )}
                     {!shipmentInfo && currentOrder.status === 'shipped' && currentOrder.notes && (
@@ -1248,6 +1317,22 @@ export default function OrderPrepPage() {
                     <p className="text-sm text-green-700 mt-2 font-medium">
                       انقر على "الانتقال للطلب التالي" لإكمال هذا الطلب والانتقال لطلب جديد
                     </p>
+                    {isAdmin && currentOrder.status === 'shipped' && (
+                      <div className="mt-3 flex flex-col sm:flex-row gap-3">
+                        <Button
+                          variant="outline"
+                          onClick={handleSendShipmentToPrinter}
+                          disabled={printingShipmentLabel}
+                          className="w-full sm:w-auto"
+                        >
+                          {printingShipmentLabel
+                            ? 'جاري إرسال البوليصة...'
+                            : shipmentInfo?.labelPrinted
+                              ? 'إعادة طباعة البوليصة'
+                              : 'طباعة البوليصة'}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </Card>
               )}
