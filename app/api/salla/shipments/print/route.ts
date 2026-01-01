@@ -57,12 +57,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const shipment = await prisma.sallaShipment.findUnique({
+    const shipment = await prisma.sallaShipment.findFirst({
       where: {
-        merchantId_orderId: {
-          merchantId: assignment.merchantId,
-          orderId: assignment.orderId,
-        },
+        merchantId: assignment.merchantId,
+        OR: [
+          { orderId: assignment.orderId },
+          { orderNumber: assignment.orderNumber },
+          { orderNumber: assignment.orderId },
+        ],
       },
     });
 

@@ -49,8 +49,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract shipment information
-    const referenceIdValue = data.reference_id ?? data.referenceId ?? data.id;
-    const referenceId = referenceIdValue ? referenceIdValue.toString() : '';
+    const orderIdFromPayload = data.id ? data.id.toString() : null;
+    const referenceIdValue = data.reference_id ?? data.referenceId ?? data.reference ?? null;
+    const referenceId = referenceIdValue ? referenceIdValue.toString() : orderIdFromPayload ?? '';
     const shipmentsArray = Array.isArray(data.shipments) ? data.shipments : [];
     const fallbackShipment = shipmentsArray.find((shipment: any) => shipment?.label?.url) || shipmentsArray[0] || {};
     const shipmentInfo = data.shipping?.shipment || fallbackShipment || {};
@@ -88,10 +89,15 @@ export async function POST(request: NextRequest) {
     // Find the order in our database
     let orderId: string | null = null;
     try {
+      const lookupConditions: Record<string, string>[] = [];
+      if (orderIdFromPayload) lookupConditions.push({ orderId: orderIdFromPayload });
+      if (referenceId) lookupConditions.push({ referenceId });
+      if (referenceId) lookupConditions.push({ orderNumber: referenceId });
+
       const sallaOrder = await prisma.sallaOrder.findFirst({
         where: {
           merchantId,
-          orderNumber: referenceId,
+          ...(lookupConditions.length ? { OR: lookupConditions } : {}),
         },
       });
 
@@ -106,6 +112,7 @@ export async function POST(request: NextRequest) {
 
     const resolvedOrderId =
       orderId ||
+      orderIdFromPayload ||
       referenceId ||
       shipmentReference ||
       shipmentInfo.order_number?.toString() ||
@@ -126,6 +133,7 @@ export async function POST(request: NextRequest) {
     }
 
     let storedShipment: any = null;
+    let alreadyPrinted = false;
 
     // Store shipment info in database
     try {
@@ -177,6 +185,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      alreadyPrinted =
+        storedShipment.labelPrinted ||
+        (storedShipment.printCount ?? 0) > 0 ||
+        Boolean((storedShipment.shipmentData as any)?.labelPrinted);
+
       log.info('Shipment stored in database', {
         referenceId,
         orderId: resolvedOrderId,
@@ -188,39 +201,42 @@ export async function POST(request: NextRequest) {
         referenceId,
         error: dbError,
       });
+      alreadyPrinted = false;
     }
 
     // Send label to PrintNode if URL is available
-    if (!storedShipment) {
-      log.warn('Skipping label print because shipment record was not stored', {
+    if (!shipmentUrl) {
+      log.warn('No label URL available for printing', { referenceId, orderId: resolvedOrderId });
+    } else if (alreadyPrinted) {
+      log.info('Label already printed - skipping PrintNode request', {
         referenceId,
         orderId: resolvedOrderId,
+        printCount: storedShipment?.printCount,
       });
-    } else if (shipmentUrl) {
-      const alreadyPrinted = storedShipment.labelPrinted || (storedShipment.printCount ?? 0) > 0;
-
-      if (alreadyPrinted) {
-        log.info('Label already printed - skipping PrintNode request', {
+    } else {
+      if (!storedShipment) {
+        log.warn('Proceeding with label print even though shipment was not stored', {
           referenceId,
           orderId: resolvedOrderId,
-          printCount: storedShipment.printCount,
         });
-      } else {
-        try {
-          log.info('Sending label to PrintNode', {
-            referenceId,
-            orderId: resolvedOrderId,
-            labelUrl: shipmentUrl,
-          });
+      }
 
-          const printResult = await sendPrintJob({
-            title: `Shipment Label - Order ${referenceId || resolvedOrderId}`,
-            contentType: 'pdf_uri',
-            content: shipmentUrl,
-            copies: 1,
-          });
+      try {
+        log.info('Sending label to PrintNode', {
+          referenceId,
+          orderId: resolvedOrderId,
+          labelUrl: shipmentUrl,
+        });
 
-          if (printResult.success) {
+        const printResult = await sendPrintJob({
+          title: `Shipment Label - Order ${referenceId || resolvedOrderId}`,
+          contentType: 'pdf_uri',
+          content: shipmentUrl,
+          copies: 1,
+        });
+
+        if (printResult.success) {
+          if (storedShipment?.id) {
             await prisma.sallaShipment.update({
               where: { id: storedShipment.id },
               data: {
@@ -233,29 +249,27 @@ export async function POST(request: NextRequest) {
                 printCount: (storedShipment.printCount ?? 0) + 1,
               },
             });
-
-            log.info('Label sent to PrintNode successfully', {
-              referenceId,
-              orderId: resolvedOrderId,
-              jobId: printResult.jobId,
-            });
-          } else {
-            log.error('Failed to send label to PrintNode', {
-              referenceId,
-              orderId: resolvedOrderId,
-              error: printResult.error,
-            });
           }
-        } catch (printError) {
-          log.error('Error sending label to PrintNode', {
+
+          log.info('Label sent to PrintNode successfully', {
             referenceId,
             orderId: resolvedOrderId,
-            error: printError,
+            jobId: printResult.jobId,
+          });
+        } else {
+          log.error('Failed to send label to PrintNode', {
+            referenceId,
+            orderId: resolvedOrderId,
+            error: printResult.error,
           });
         }
+      } catch (printError) {
+        log.error('Error sending label to PrintNode', {
+          referenceId,
+          orderId: resolvedOrderId,
+          error: printError,
+        });
       }
-    } else {
-      log.warn('No label URL available for printing', { referenceId, orderId: resolvedOrderId });
     }
 
     // Return success response to Salla
