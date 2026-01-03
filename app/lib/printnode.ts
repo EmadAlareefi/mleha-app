@@ -4,7 +4,7 @@
  */
 
 const PRINTNODE_API_KEY = 'qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU';
-const PRINTNODE_DEVICE_ID = 75006700;
+const PRINTNODE_DEVICE_ID = 75006703;
 const PRINTNODE_API_URL = 'https://api.printnode.com/printjobs';
 
 export interface PrintJobOptions {

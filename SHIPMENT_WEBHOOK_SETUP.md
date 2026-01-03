@@ -13,7 +13,7 @@ When you click "انشاء شحنة" (Create Shipment):
 5. ✅ **Your webhook** receives shipment data including label URL
 6. ✅ **Your webhook** stores tracking info in database
 7. ✅ **Your webhook** sends label PDF URL to PrintNode
-8. ✅ **PrintNode** prints the label on device 75006700
+8. ✅ **PrintNode** prints the label on device 75006703
 9. ✅ **Your app** fetches tracking number from database and displays it
 
 ## Key Point
@@ -95,7 +95,7 @@ Your `SallaShipment` model stores:
 ## PrintNode Configuration
 
 Already configured in `app/lib/printnode.ts`:
-- **Device ID:** 75006700
+- **Device ID:** 75006703
 - **API Key:** qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU
 - **Content Type:** `pdf_uri` (prints PDF from URL)
 
@@ -149,7 +149,7 @@ ngrok http 3000
    ✅ Sending label to PrintNode
    ✅ Label sent to PrintNode successfully
    ```
-4. Verify label prints on device 75006700
+4. Verify label prints on device 75006703
 5. Check tracking number appears in UI
 
 ### 3. Manual Webhook Test
@@ -207,7 +207,7 @@ curl -X POST http://localhost:3000/api/webhooks/salla/shipment-created \
      -u qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU: \
      -H "Content-Type: application/json" \
      -d '{
-       "printerId": 75006700,
+       "printerId": 75006703,
        "title": "Test Label",
        "contentType": "pdf_uri",
        "content": "https://example.com/label.pdf"
@@ -216,7 +216,7 @@ curl -X POST http://localhost:3000/api/webhooks/salla/shipment-created \
 
 3. **Verify device online:**
    ```bash
-   curl https://api.printnode.com/computers/75006700 \
+   curl https://api.printnode.com/computers/75006703 \
      -u qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU:
    ```
 
@@ -329,7 +329,7 @@ prisma/
 ┌─────────────────────────────┐
 │  PrintNode                  │
 │  - Receives PDF URL         │
-│  - Prints to device 75006700│
+│  - Prints to device 75006703│
 └────────┬────────────────────┘
          │
          ▼
