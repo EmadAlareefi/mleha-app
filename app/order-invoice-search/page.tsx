@@ -11,6 +11,18 @@ import AppNavbar from '@/components/AppNavbar';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
 import { Search, Printer, AlertCircle } from 'lucide-react';
 
+interface ShipmentInfo {
+  id?: string;
+  trackingNumber?: string;
+  courierName?: string;
+  status?: string;
+  labelUrl?: string | null;
+  labelPrinted?: boolean;
+  labelPrintedAt?: string | null;
+  printCount?: number | null;
+  updatedAt?: string | null;
+}
+
 interface OrderAssignment {
   id: string;
   orderId: string;
@@ -25,6 +37,8 @@ interface OrderAssignment {
   completedAt: string | null;
   notes?: string;
   source?: 'assignment' | 'history' | 'salla';
+  merchantId?: string;
+  shipment?: ShipmentInfo | null;
 }
 
 export default function OrderInvoiceSearchPage() {
@@ -37,6 +51,7 @@ export default function OrderInvoiceSearchPage() {
   const [searching, setSearching] = useState(false);
   const [order, setOrder] = useState<OrderAssignment | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
   const commercialInvoiceRef = useRef<HTMLDivElement>(null);
 
   const getStringValue = (value: unknown): string => {
@@ -139,6 +154,61 @@ export default function OrderInvoiceSearchPage() {
     } catch (error) {
       console.error('Print error:', error);
       alert('حدث خطأ أثناء محاولة الطباعة، جرّب مرة أخرى.');
+    }
+  };
+
+  const handleReprintShipmentLabel = async () => {
+    if (!order) {
+      return;
+    }
+
+    setPrintingShipmentLabel(true);
+    try {
+      const payload: Record<string, string> = {
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+      };
+
+      if (order.source === 'assignment') {
+        payload.assignmentId = order.id;
+      }
+
+      const response = await fetch('/api/salla/shipments/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setOrder((prev) => {
+          if (!prev) return prev;
+
+          const labelPrintedAt = data.data?.labelPrintedAt || new Date().toISOString();
+          const updatedShipment: ShipmentInfo = {
+            ...(prev.shipment || {}),
+            labelUrl: data.data?.labelUrl || prev.shipment?.labelUrl || null,
+            labelPrinted: true,
+            labelPrintedAt,
+            printCount: data.data?.printCount ?? ((prev.shipment?.printCount ?? 0) + 1),
+          };
+
+          return {
+            ...prev,
+            shipment: updatedShipment,
+          };
+        });
+
+        alert(data.message || 'تم إرسال البوليصة للطابعة');
+      } else {
+        alert(data.error || 'فشل إرسال البوليصة للطابعة');
+      }
+    } catch (err) {
+      console.error('Manual shipment print error:', err);
+      alert('فشل إرسال البوليصة للطابعة');
+    } finally {
+      setPrintingShipmentLabel(false);
     }
   };
 
@@ -279,6 +349,34 @@ export default function OrderInvoiceSearchPage() {
   const courierName = getStringValue(order?.orderData?.delivery?.carrier_name || order?.orderData?.delivery?.courier_name);
   const shippingMethodLabel = [shippingMethodName, deliveryName, courierName].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index).join(' • ');
   const shippingNotes = getStringValue(order?.orderData?.delivery?.notes || order?.orderData?.delivery?.instructions || order?.orderData?.notes);
+  const shipmentInfo = order?.shipment || null;
+  const fallbackTrackingNumber = getStringValue(
+    order?.orderData?.delivery?.tracking_number ||
+    order?.orderData?.delivery?.tracking ||
+    order?.orderData?.delivery?.trackingNumber ||
+    order?.orderData?.delivery?.tracking_no ||
+    order?.orderData?.delivery?.awb_number ||
+    order?.orderData?.delivery?.awbNumber
+  );
+  const fallbackLabelUrl = getStringValue(
+    order?.orderData?.delivery?.label_url ||
+    order?.orderData?.delivery?.labelUrl ||
+    order?.orderData?.delivery?.label?.url ||
+    order?.orderData?.delivery?.label
+  );
+  const fallbackShipmentStatus = getStringValue(
+    order?.orderData?.delivery?.status ||
+    order?.orderData?.delivery?.status_label ||
+    order?.orderData?.delivery?.statusText
+  );
+  const resolvedTrackingNumber = shipmentInfo?.trackingNumber || fallbackTrackingNumber;
+  const resolvedCourierName = shipmentInfo?.courierName || courierName;
+  const resolvedShipmentStatus = shipmentInfo?.status || fallbackShipmentStatus;
+  const shipmentLabelUrl = shipmentInfo?.labelUrl || fallbackLabelUrl;
+  const shipmentPrintedAt = shipmentInfo?.labelPrintedAt ? formatDate(shipmentInfo.labelPrintedAt) : null;
+  const shipmentPrintCount = shipmentInfo?.printCount ?? null;
+  const canShowShipmentDetails = Boolean(resolvedTrackingNumber || shipmentLabelUrl || resolvedShipmentStatus);
+  const canPrintShipmentLabel = Boolean(isAuthorized && shipmentInfo && shipmentLabelUrl);
 
   const isInternationalOrder = Boolean(order && shippingCountry && !isSaudiCountry(shippingCountry));
   const isCommercialInvoiceAvailable = Boolean(order && isInternationalOrder);
@@ -470,6 +568,70 @@ export default function OrderInvoiceSearchPage() {
                   </div>
                 )}
               </Card>
+
+              {canShowShipmentDetails && (
+                <Card className="p-6 space-y-5">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold">تفاصيل الشحنة</h3>
+                      <p className="text-sm text-gray-600">مراجعة حالة الشحنة ورابط البوليصة</p>
+                    </div>
+                    {canPrintShipmentLabel && (
+                      <Button
+                        onClick={handleReprintShipmentLabel}
+                        disabled={printingShipmentLabel}
+                        className="bg-emerald-600 hover:bg-emerald-700 w-full md:w-auto"
+                      >
+                        {printingShipmentLabel
+                          ? 'جاري إرسال البوليصة...'
+                          : shipmentInfo?.labelPrinted
+                            ? 'إعادة طباعة البوليصة'
+                            : 'طباعة البوليصة'}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-500">رقم التتبع</p>
+                      <p className="font-medium text-gray-900">{resolvedTrackingNumber || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">شركة الشحن</p>
+                      <p className="font-medium text-gray-900">{resolvedCourierName || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">حالة الشحنة</p>
+                      <p className="font-medium text-gray-900">{resolvedShipmentStatus || '—'}</p>
+                    </div>
+                  </div>
+                  {(shipmentPrintedAt || shipmentPrintCount !== null) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {shipmentPrintedAt && (
+                        <div>
+                          <p className="text-sm text-gray-500">آخر طباعة</p>
+                          <p className="font-medium text-gray-900">{shipmentPrintedAt}</p>
+                        </div>
+                      )}
+                      {shipmentPrintCount !== null && (
+                        <div>
+                          <p className="text-sm text-gray-500">عدد مرات الطباعة</p>
+                          <p className="font-medium text-gray-900">{shipmentPrintCount}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {shipmentLabelUrl && (
+                    <a
+                      href={shipmentLabelUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center text-blue-700 font-semibold underline underline-offset-2"
+                    >
+                      عرض رابط البوليصة
+                    </a>
+                  )}
+                </Card>
+              )}
 
               {/* Order Financial Summary */}
               <Card className="p-6 space-y-5">

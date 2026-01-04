@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useReactToPrint } from 'react-to-print';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import AppNavbar from '@/components/AppNavbar';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
 
@@ -39,6 +40,14 @@ interface ProductLocation {
   notes?: string | null;
   updatedBy?: string | null;
   updatedAt: string;
+}
+
+interface ConfirmationState {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  confirmVariant?: 'primary' | 'danger';
+  onConfirm: () => void;
 }
 
 const getStringValue = (value: unknown): string => {
@@ -110,7 +119,18 @@ export default function OrderPrepPage() {
   const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
+  const [confirmationDialog, setConfirmationDialog] = useState<ConfirmationState | null>(null);
   const commercialInvoiceRef = useRef<HTMLDivElement>(null);
+  const openConfirmationDialog = (config: ConfirmationState) => {
+    setConfirmationDialog(config);
+  };
+  const handleConfirmDialog = () => {
+    if (!confirmationDialog) return;
+    const actionToRun = confirmationDialog.onConfirm;
+    setConfirmationDialog(null);
+    actionToRun();
+  };
+  const handleCancelDialog = () => setConfirmationDialog(null);
   const currentOrderSkus = useMemo(() => {
     if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
       return [] as string[];
@@ -1343,14 +1363,30 @@ export default function OrderPrepPage() {
                   {/* Review Status Buttons */}
                   <div className="flex flex-col sm:flex-row gap-3">
                     <Button
-                      onClick={handleMoveToUnderReview}
+                      onClick={() =>
+                        openConfirmationDialog({
+                          title: 'تأكيد النقل تحت المراجعة',
+                          message: 'سيتم نقل الطلب الحالي إلى حالة "تحت المراجعة" وإزالته من قائمتك. هل ترغب بالمتابعة؟',
+                          confirmLabel: 'نعم، نقل الطلب',
+                          confirmVariant: 'danger',
+                          onConfirm: handleMoveToUnderReview,
+                        })
+                      }
                       disabled={movingToReview || movingToReservation}
                       className="w-full py-6 text-lg bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
                       {movingToReview ? 'جاري النقل...' : '📋 تحت المراجعة'}
                     </Button>
                     <Button
-                      onClick={handleMoveToReservation}
+                      onClick={() =>
+                        openConfirmationDialog({
+                          title: 'تأكيد النقل لحجز القطع',
+                          message: 'سيتم نقل الطلب الحالي إلى حالة "تحت المراجعة حجز قطع" وإزالته من قائمتك. هل أنت متأكد؟',
+                          confirmLabel: 'نعم، نقل الطلب',
+                          confirmVariant: 'danger',
+                          onConfirm: handleMoveToReservation,
+                        })
+                      }
                       disabled={movingToReview || movingToReservation}
                       className="w-full py-6 text-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
@@ -1363,7 +1399,14 @@ export default function OrderPrepPage() {
                     {currentOrder.status === 'shipped' ? (
                       // Show "Go to New Order" button when shipment is created
                       <Button
-                        onClick={handleGoToNewOrder}
+                        onClick={() =>
+                          openConfirmationDialog({
+                            title: 'تأكيد الانتقال للطلب التالي',
+                            message: 'سيتم إنهاء معالجة هذا الطلب والانتقال مباشرةً للطلب التالي المتاح. تأكد من اكتمال جميع الخطوات قبل المتابعة.',
+                            confirmLabel: 'نعم، انتقل للطلب التالي',
+                            onConfirm: handleGoToNewOrder,
+                          })
+                        }
                         className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
                       >
                         ✅ الانتقال للطلب التالي
@@ -1371,14 +1414,29 @@ export default function OrderPrepPage() {
                     ) : (
                       <>
                         <Button
-                          onClick={handleCreateShipment}
+                          onClick={() =>
+                            openConfirmationDialog({
+                              title: 'تأكيد إنشاء الشحنة',
+                              message: 'سيتم إنشاء شحنة جديدة للطلب الحالي. تأكد من صحة المنتجات والوزن قبل المتابعة.',
+                              confirmLabel: 'نعم، أنشئ الشحنة',
+                              onConfirm: handleCreateShipment,
+                            })
+                          }
                           disabled={creatingShipment || !!shipmentInfo}
                           className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                         >
                           {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
                         </Button>
                         <Button
-                          onClick={handleCompleteOrder}
+                          onClick={() =>
+                            openConfirmationDialog({
+                              title: 'تأكيد إنهاء الطلب',
+                              message: 'سيتم إنهاء الطلب الحالي وإزالته من قائمتك. تأكد من مراجعة الطلب بالكامل قبل الإنهاء.',
+                              confirmLabel: 'نعم، إنهاء الطلب',
+                              confirmVariant: 'danger',
+                              onConfirm: handleCompleteOrder,
+                            })
+                          }
                           className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
                         >
                           إنهاء الطلب
@@ -1392,6 +1450,16 @@ export default function OrderPrepPage() {
           )}
         </div>
       </div>
+
+      <ConfirmationDialog
+        open={Boolean(confirmationDialog)}
+        title={confirmationDialog?.title || ''}
+        message={confirmationDialog?.message || ''}
+        confirmLabel={confirmationDialog?.confirmLabel}
+        confirmVariant={confirmationDialog?.confirmVariant}
+        onConfirm={handleConfirmDialog}
+        onCancel={handleCancelDialog}
+      />
 
       {/* Hidden Commercial Invoice for Printing */}
       {currentOrder && (

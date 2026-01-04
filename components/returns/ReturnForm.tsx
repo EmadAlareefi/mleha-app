@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { getEffectiveReturnFee } from '@/lib/returns/fees';
+import { getShippingTotal } from '@/lib/returns/shipping';
 
 interface OrderItem {
   id: number;
@@ -55,9 +57,12 @@ interface Order {
     };
     shipping_cost?: {
       amount: number;
+      taxable?: boolean;
+      currency?: string;
     };
     shipping_tax?: {
-      amount: number;
+      amount?: number;
+      currency?: string;
     };
   };
   customer: {
@@ -99,6 +104,8 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [error, setError] = useState('');
   const [returnFee, setReturnFee] = useState(0);
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
+  const shippingTotal = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
+  const appliedReturnFee = getEffectiveReturnFee(returnFee, shippingTotal);
 
   // Load return fee setting on mount
   useEffect(() => {
@@ -429,12 +436,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                 return sum + (itemPrice * quantity);
               }, 0);
 
-              const shippingCostWithoutTax = order.amounts?.shipping_cost?.amount ?? 0;
-              const shippingTax = order.amounts?.shipping_tax?.amount ?? 0;
-              const shippingCost = shippingCostWithoutTax + shippingTax;
-
-              // Apply return fee only for returns, not exchanges
-              const applicableFee = type === 'return' ? returnFee : 0;
+              const applicableFee = appliedReturnFee;
               const finalRefund = Math.max(0, itemsTotal - applicableFee);
 
               return (
@@ -444,10 +446,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     <span className="font-medium">{itemsTotal.toFixed(2)} ر.س</span>
                   </div>
 
-                  {shippingCost > 0 && (
+                  {shippingTotal > 0 && (
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>تكلفة الشحن الأصلية (غير قابلة للاسترداد):</span>
-                      <span>-{shippingCost.toFixed(2)} ر.س</span>
+                      <span>-{shippingTotal.toFixed(2)} ر.س</span>
                     </div>
                   )}
 

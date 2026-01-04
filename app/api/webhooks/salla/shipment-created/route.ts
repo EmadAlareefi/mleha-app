@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { sendPrintJob } from '@/app/lib/printnode';
+import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
@@ -233,6 +233,10 @@ export async function POST(request: NextRequest) {
           contentType: 'pdf_uri',
           content: shipmentUrl,
           copies: 1,
+          paperName: PRINTNODE_LABEL_PAPER_NAME,
+          fitToPage: false,
+          dpi: PRINTNODE_DEFAULT_DPI,
+          rotate: 0,
         });
 
         if (printResult.success) {

@@ -18,10 +18,11 @@ export interface SallaOrder {
     shipping_cost?: {
       amount: number;
       currency: string;
+      taxable?: boolean;
     };
     shipping_tax?: {
-      amount: number;
-      currency: string;
+      amount?: number;
+      currency?: string;
     };
   };
   date: {

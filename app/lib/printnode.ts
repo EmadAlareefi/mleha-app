@@ -6,12 +6,22 @@
 const PRINTNODE_API_KEY = 'qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU';
 const PRINTNODE_DEVICE_ID = 75006700;
 const PRINTNODE_API_URL = 'https://api.printnode.com/printjobs';
+export const PRINTNODE_LABEL_PAPER_NAME = 'LABEL(100mm x 150mm)';
+export const PRINTNODE_DEFAULT_DPI = '203x203';
+const DEFAULT_LABEL_PAPER_MM = { width: 100, height: 150 } as const;
 
 export interface PrintJobOptions {
   title?: string;
   contentType: 'pdf_uri' | 'pdf_base64' | 'raw_uri' | 'raw_base64';
   content: string;
   copies?: number;
+  paperSizeMm?: { width: number; height: number };
+  paperName?: string;
+  dpi?: number | string;
+  fitToPage?: boolean;
+  pagesPerSheet?: number;
+  rotate?: 0 | 90 | 180 | 270;
+  printOptions?: Record<string, unknown>;
 }
 
 /**
@@ -19,12 +29,15 @@ export interface PrintJobOptions {
  */
 export async function sendPrintJob(options: PrintJobOptions): Promise<{ success: boolean; jobId?: number; error?: string }> {
   try {
+    const printOptions = buildPrintOptions(options);
+
     const printJobData = {
       printerId: PRINTNODE_DEVICE_ID,
       title: options.title || 'Print Job',
       contentType: options.contentType,
       content: options.content,
       qty: options.copies || 1,
+      ...(Object.keys(printOptions).length > 0 ? { options: printOptions } : {}),
     };
 
     const response = await fetch(PRINTNODE_API_URL, {
@@ -68,6 +81,51 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
+}
+
+function buildPrintOptions(options: PrintJobOptions): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {};
+
+  if (options.paperName) {
+    normalized.paper = options.paperName;
+  } else if (options.paperSizeMm) {
+    normalized.paper = formatPaperOption(options.paperSizeMm);
+  }
+
+  if (typeof options.fitToPage === 'boolean') {
+    normalized.fit_to_page = options.fitToPage;
+  }
+
+  if (typeof options.pagesPerSheet === 'number') {
+    normalized.pages_per_sheet = options.pagesPerSheet;
+  }
+
+  if (typeof options.dpi === 'number' || typeof options.dpi === 'string') {
+    normalized.dpi = String(options.dpi);
+  }
+
+  if (typeof options.rotate === 'number') {
+    normalized.rotate = options.rotate;
+  }
+
+  if (!options.printOptions) {
+    return normalized;
+  }
+
+  const { paper, ...rest } = options.printOptions;
+  return {
+    ...normalized,
+    ...rest,
+    ...(paper
+      ? { paper: typeof paper === 'string' ? paper : formatPaperOption(paper as { width?: number; height?: number }) }
+      : {}),
+  };
+}
+
+function formatPaperOption(paper: { width?: number; height?: number }): string {
+  const width = paper?.width ?? DEFAULT_LABEL_PAPER_MM.width;
+  const height = paper?.height ?? DEFAULT_LABEL_PAPER_MM.height;
+  return `${width}mm x ${height}mm`;
 }
 
 /**

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { sendPrintJob } from '@/app/lib/printnode';
+import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
@@ -36,35 +36,77 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { assignmentId } = body;
+    const {
+      assignmentId,
+      orderId: providedOrderId,
+      orderNumber: providedOrderNumber,
+    } = body;
 
-    if (!assignmentId) {
-      return NextResponse.json({ success: false, error: 'معرف الطلب مطلوب' }, { status: 400 });
+    if (!assignmentId && !providedOrderId && !providedOrderNumber) {
+      return NextResponse.json({ success: false, error: 'معرف الطلب أو رقم الطلب مطلوب' }, { status: 400 });
     }
 
-    const assignment = await prisma.orderAssignment.findUnique({
-      where: { id: assignmentId },
-    });
+    let assignment: {
+      id: string;
+      userId: string;
+      merchantId: string;
+      orderId: string;
+      orderNumber: string;
+    } | null = null;
+    let merchantIdForShipment: string | null = null;
+    let resolvedOrderId: string | null = providedOrderId || null;
+    let resolvedOrderNumber: string | null = providedOrderNumber || null;
 
-    if (!assignment) {
-      return NextResponse.json({ success: false, error: 'الطلب غير موجود' }, { status: 404 });
-    }
+    if (assignmentId) {
+      assignment = await prisma.orderAssignment.findUnique({
+        where: { id: assignmentId },
+      });
 
-    if (!isAdmin && assignment.userId !== user.id) {
+      if (!assignment) {
+        return NextResponse.json({ success: false, error: 'الطلب غير موجود' }, { status: 404 });
+      }
+
+      if (!isAdmin && assignment.userId !== user.id) {
+        return NextResponse.json(
+          { success: false, error: 'لا يمكنك طباعة بوليصة لطلب غير مكلف به' },
+          { status: 403 }
+        );
+      }
+
+      merchantIdForShipment = assignment.merchantId;
+      resolvedOrderId = assignment.orderId;
+      resolvedOrderNumber = assignment.orderNumber;
+    } else if (!isAdmin) {
       return NextResponse.json(
         { success: false, error: 'لا يمكنك طباعة بوليصة لطلب غير مكلف به' },
         { status: 403 }
       );
     }
 
+    if (!resolvedOrderId && !resolvedOrderNumber) {
+      return NextResponse.json(
+        { success: false, error: 'بيانات الطلب غير مكتملة للطباعة' },
+        { status: 400 }
+      );
+    }
+
+    const shipmentFilters: any[] = [];
+
+    if (resolvedOrderId) {
+      shipmentFilters.push({ orderId: resolvedOrderId }, { orderNumber: resolvedOrderId });
+    }
+
+    if (resolvedOrderNumber) {
+      shipmentFilters.push({ orderNumber: resolvedOrderNumber }, { orderId: resolvedOrderNumber });
+    }
+
     const shipment = await prisma.sallaShipment.findFirst({
       where: {
-        merchantId: assignment.merchantId,
-        OR: [
-          { orderId: assignment.orderId },
-          { orderNumber: assignment.orderNumber },
-          { orderNumber: assignment.orderId },
-        ],
+        ...(merchantIdForShipment ? { merchantId: merchantIdForShipment } : {}),
+        OR: shipmentFilters,
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
 
@@ -98,25 +140,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const targetOrderNumber =
+      assignment?.orderNumber || shipment.orderNumber || resolvedOrderNumber || resolvedOrderId || 'غير معروف';
+    const targetOrderId = assignment?.orderId || shipment.orderId || resolvedOrderId || 'غير معروف';
+
     log.info('Sending manual print job for shipment', {
-      assignmentId,
-      orderId: assignment.orderId,
-      merchantId: assignment.merchantId,
+      assignmentId: assignment?.id || assignmentId || null,
+      orderId: targetOrderId,
+      merchantId: merchantIdForShipment || shipment.merchantId,
       requestedBy: user.username || user.id,
       forceReprint: alreadyPrinted && isAdmin,
+      trigger: assignment ? 'assignment' : 'admin-search',
     });
 
     const printResult = await sendPrintJob({
-      title: `Manual Shipment Label - Order ${assignment.orderNumber || assignment.orderId}`,
+      title: `Manual Shipment Label - Order ${targetOrderNumber}`,
       contentType: 'pdf_uri',
       content: labelUrl,
       copies: 1,
+      paperName: PRINTNODE_LABEL_PAPER_NAME,
+      fitToPage: false,
+      dpi: PRINTNODE_DEFAULT_DPI,
+      rotate: 0,
     });
 
     if (!printResult.success) {
       log.error('PrintNode API error while sending manual print job', {
-        assignmentId,
-        orderId: assignment.orderId,
+        assignmentId: assignment?.id || assignmentId || null,
+        orderId: targetOrderId,
         error: printResult.error,
       });
 
@@ -140,8 +191,8 @@ export async function POST(request: NextRequest) {
     });
 
     log.info('Manual print job sent successfully', {
-      assignmentId,
-      orderId: assignment.orderId,
+      assignmentId: assignment?.id || assignmentId || null,
+      orderId: targetOrderId,
       jobId: printResult.jobId,
       printCount: updatedShipment.printCount,
     });

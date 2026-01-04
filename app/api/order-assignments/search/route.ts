@@ -219,6 +219,7 @@ export async function GET(request: NextRequest) {
         orderId: record.orderId,
         orderNumber: record.orderNumber,
         orderData: record.orderData,
+        merchantId: record.merchantId,
         status: record.status,
         sallaStatus: type === 'assignment' ? record.sallaStatus : record.finalSallaStatus,
         assignedUserId: record.userId,
@@ -253,9 +254,19 @@ export async function GET(request: NextRequest) {
     });
 
     if (assignment) {
+      const payload = buildResponsePayload(assignment, 'assignment');
+      const shipment = await getShipmentInfoForOrder({
+        merchantId: payload.merchantId,
+        orderId: payload.orderId,
+        orderNumber: payload.orderNumber,
+      });
+
       return NextResponse.json({
         success: true,
-        assignment: buildResponsePayload(assignment, 'assignment'),
+        assignment: {
+          ...payload,
+          shipment,
+        },
       });
     }
 
@@ -269,9 +280,19 @@ export async function GET(request: NextRequest) {
     });
 
     if (historyEntry) {
+      const payload = buildResponsePayload(historyEntry, 'history');
+      const shipment = await getShipmentInfoForOrder({
+        merchantId: payload.merchantId,
+        orderId: payload.orderId,
+        orderNumber: payload.orderNumber,
+      });
+
       return NextResponse.json({
         success: true,
-        assignment: buildResponsePayload(historyEntry, 'history'),
+        assignment: {
+          ...payload,
+          shipment,
+        },
       });
     }
 
@@ -287,23 +308,53 @@ export async function GET(request: NextRequest) {
       });
 
       if (sallaOrder) {
+        const payload = buildSallaAssignmentFromRecord(sallaOrder);
+        const shipment = await getShipmentInfoForOrder({
+          merchantId: payload.merchantId,
+          orderId: payload.orderId,
+          orderNumber: payload.orderNumber,
+        });
+
         return NextResponse.json({
           success: true,
-          assignment: buildSallaAssignmentFromRecord(sallaOrder),
+          assignment: {
+            ...payload,
+            shipment,
+          },
         });
       }
 
       const syncedOrder = await syncOrderFromSalla(normalizedQueryVariants, digitsOnlyQuery);
       if (syncedOrder?.persisted) {
+        const payload = buildSallaAssignmentFromRecord(syncedOrder.persisted);
+        const shipment = await getShipmentInfoForOrder({
+          merchantId: payload.merchantId,
+          orderId: payload.orderId,
+          orderNumber: payload.orderNumber,
+        });
+
         return NextResponse.json({
           success: true,
-          assignment: buildSallaAssignmentFromRecord(syncedOrder.persisted),
+          assignment: {
+            ...payload,
+            shipment,
+          },
         });
       }
       if (syncedOrder?.remote) {
+        const payload = buildAssignmentFromRemoteOrder(syncedOrder.remote);
+        const shipment = await getShipmentInfoForOrder({
+          merchantId: payload.merchantId,
+          orderId: payload.orderId,
+          orderNumber: payload.orderNumber,
+        });
+
         return NextResponse.json({
           success: true,
-          assignment: buildAssignmentFromRemoteOrder(syncedOrder.remote),
+          assignment: {
+            ...payload,
+            shipment,
+          },
         });
       }
     }
@@ -361,6 +412,7 @@ function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
     completedAt: record.updatedAtRemote ? record.updatedAtRemote.toISOString() : null,
     notes: undefined,
     source: 'salla',
+    merchantId: record.merchantId,
   };
 }
 
@@ -382,6 +434,7 @@ function buildAssignmentFromRemoteOrder(order: RemoteSallaOrder) {
     completedAt: updatedAt ? updatedAt.toISOString() : null,
     notes: undefined,
     source: 'salla',
+    merchantId: (order as any)?.merchant_id || MERCHANT_ID,
   };
 }
 
@@ -481,4 +534,58 @@ async function fetchRemoteOrderFromSalla(
   }
 
   return null;
+}
+
+async function getShipmentInfoForOrder(params: {
+  merchantId?: string | null;
+  orderId?: string | null;
+  orderNumber?: string | null;
+}) {
+  const { merchantId, orderId, orderNumber } = params;
+  const orConditions: Prisma.SallaShipmentWhereInput[] = [];
+
+  if (orderId) {
+    orConditions.push({ orderId }, { orderNumber: orderId });
+  }
+
+  if (orderNumber) {
+    orConditions.push({ orderNumber }, { orderId: orderNumber });
+  }
+
+  if (orConditions.length === 0) {
+    return null;
+  }
+
+  const shipment = await prisma.sallaShipment.findFirst({
+    where: {
+      ...(merchantId ? { merchantId } : {}),
+      OR: orConditions,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  if (!shipment) {
+    return null;
+  }
+
+  const shipmentData = shipment.shipmentData as any;
+  const labelUrl =
+    shipment.labelUrl ||
+    shipmentData?.label_url ||
+    shipmentData?.label?.url ||
+    (typeof shipmentData?.label === 'string' ? shipmentData.label : null);
+
+  return {
+    id: shipment.id,
+    trackingNumber: shipment.trackingNumber,
+    courierName: shipment.courierName,
+    status: shipment.status,
+    labelUrl,
+    labelPrinted: shipment.labelPrinted,
+    labelPrintedAt: shipment.labelPrintedAt ? shipment.labelPrintedAt.toISOString() : null,
+    printCount: shipment.printCount,
+    updatedAt: shipment.updatedAt.toISOString(),
+  };
 }

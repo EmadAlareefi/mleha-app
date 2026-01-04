@@ -152,8 +152,16 @@ export async function deleteSallaCoupon(
 /**
  * Generate a unique coupon code
  */
+const COUPON_MAX_LENGTH = 20;
+
 export function generateCouponCode(prefix: string = 'EXCHANGE'): string {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${timestamp}-${random}`;
+  const uniquePart = Date.now().toString(36).slice(-5).toUpperCase();
+  const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const separatorSpace = 1; // dash between prefix and unique part
+  const availablePrefixLength = Math.max(
+    1,
+    COUPON_MAX_LENGTH - (separatorSpace + uniquePart.length + randomPart.length)
+  );
+  const safePrefix = prefix.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, availablePrefixLength);
+  return `${safePrefix}-${uniquePart}${randomPart}`;
 }

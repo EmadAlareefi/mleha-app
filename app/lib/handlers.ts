@@ -4,7 +4,7 @@ import { env } from "@/app/lib/env";
 import { log } from "@/app/lib/logger";
 import { storeSallaTokens } from "@/app/lib/salla-oauth";
 import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
-import { sendPrintJob } from "@/app/lib/printnode";
+import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from "@/app/lib/printnode";
 import { prisma } from "@/lib/prisma";
 import { linkExchangeOrderFromWebhook } from "@/app/lib/returns/exchange-order";
 
@@ -340,6 +340,10 @@ async function maybePrintShipmentLabelFromStatus(
       contentType: "pdf_uri",
       content: shipmentUrl,
       copies: 1,
+      paperName: PRINTNODE_LABEL_PAPER_NAME,
+      fitToPage: false,
+      dpi: PRINTNODE_DEFAULT_DPI,
+      rotate: 0,
     });
 
     if (printResult.success) {

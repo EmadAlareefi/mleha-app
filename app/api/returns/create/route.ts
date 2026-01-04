@@ -5,6 +5,9 @@ import type { SallaOrder } from '@/app/lib/salla-api';
 import { createSMSAReturnShipment } from '@/app/lib/smsa-api';
 import type { ShipmentAddress } from '@/app/lib/smsa-api';
 import { log } from '@/app/lib/logger';
+import { getEffectiveReturnFee } from '@/lib/returns/fees';
+import { getShippingTotal } from '@/lib/returns/shipping';
+import { extractOrderDate } from '@/lib/returns/order-date';
 
 export const runtime = 'nodejs';
 
@@ -199,17 +202,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if order last updated date exceeds allowed return window
-    // Use updatedAt date (most recent activity), fallback to created date
-    const orderDateToCheck = order.date?.updated || order.date?.created;
+    const orderDateResult = extractOrderDate(order);
+    const updatedDate = orderDateResult.date;
 
-    if (!orderDateToCheck) {
+    if (!updatedDate) {
       log.error('No date found on order for return window validation', {
         merchantId: body.merchantId,
         orderId: body.orderId,
-        orderDateFields: {
-          dateUpdated: order.date?.updated,
-          dateCreated: order.date?.created,
-        },
+        orderDateCandidates: orderDateResult.candidates,
       });
 
       return NextResponse.json({
@@ -219,22 +219,12 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const updatedDate = new Date(orderDateToCheck);
-
-    // Validate date format
-    if (isNaN(updatedDate.getTime())) {
-      log.error('Invalid date format on order', {
-        merchantId: body.merchantId,
-        orderId: body.orderId,
-        orderDateToCheck,
-      });
-
-      return NextResponse.json({
-        error: 'تاريخ الطلب غير صالح',
-        errorCode: 'INVALID_DATE_FORMAT',
-        message: 'تاريخ الطلب غير صالح.',
-      }, { status: 400 });
-    }
+    log.info('Using order date for validation', {
+      merchantId: body.merchantId,
+      orderId: body.orderId,
+      dateSource: orderDateResult.source,
+      normalizedDate: updatedDate.toISOString(),
+    });
 
     const now = new Date();
     const daysDifference = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24);
@@ -279,27 +269,28 @@ export async function POST(request: NextRequest) {
       0
     );
 
-    // Get return fee from settings - only apply for returns, not exchanges
-    let returnFee = 0;
-    if (body.type === 'return') {
-      try {
-        const feeSetting = await prisma.settings.findUnique({
-          where: { key: 'return_fee' },
-        });
-        if (feeSetting && feeSetting.value) {
-          returnFee = parseFloat(feeSetting.value) || 0;
-        }
-      } catch (err) {
-        log.warn('Failed to fetch return fee setting', { error: err });
+    // Get shipping amount from order (non-refundable) - include tax when available
+    const shippingAmount = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
+
+    // Get return fee from settings and apply tax/adjustments
+    let configuredReturnFee = 0;
+    try {
+      const feeSetting = await prisma.settings.findUnique({
+        where: { key: 'return_fee' },
+      });
+      if (feeSetting && feeSetting.value) {
+        configuredReturnFee = parseFloat(feeSetting.value) || 0;
       }
+    } catch (err) {
+      log.warn('Failed to fetch return fee setting', { error: err });
     }
 
-    // Get shipping amount from order (non-refundable) - include tax
-    const shippingCostWithoutTax = order.amounts?.shipping_cost?.amount ?? 0;
-    const shippingTax = order.amounts?.shipping_tax?.amount ?? 0;
-    const shippingAmount = shippingCostWithoutTax + shippingTax;
+    const returnFee =
+      configuredReturnFee > 0
+        ? getEffectiveReturnFee(configuredReturnFee, shippingAmount)
+        : 0;
 
-    // Calculate total refund: items total - return fee (fee only applies to returns)
+    // Calculate total refund: items total - return fee
     const totalRefundAmount = Math.max(0, totalItemsAmount - returnFee);
     const declaredValue = Math.max(0.1, Number(totalRefundAmount.toFixed(2)));
 
