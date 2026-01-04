@@ -29,6 +29,9 @@ export type SettlementParseOptions = {
   statementDate?: Date;
 };
 
+const isNonNull = <T>(value: T): value is NonNullable<T> =>
+  value !== null && value !== undefined;
+
 export function parseSettlementFile(
   provider: SettlementProvider,
   buffer: Buffer,
@@ -89,7 +92,7 @@ function parseSallaSettlement(buffer: Buffer, options?: SettlementParseOptions):
         raw: row,
       };
     })
-    .filter((row): row is ParsedSettlementRecord => !!row);
+    .filter(isNonNull);
 }
 
 function parseSmsaSettlement(
@@ -174,7 +177,7 @@ function parseTabbySettlement(
     raw: true,
   });
 
-  const records: ParsedSettlementRecord[] = data
+  const records = data
     .map((row, index) => {
       const orderNumber = normalizeString(row['Order Number']);
       if (!orderNumber) return null;
@@ -200,7 +203,7 @@ function parseTabbySettlement(
         raw: row,
       };
     })
-    .filter((row): row is ParsedSettlementRecord => !!row);
+    .filter(isNonNull);
 
   return { records, warnings: [] };
 }
@@ -232,7 +235,7 @@ function parseTamaraSettlement(
     raw: true,
   });
 
-  const records: ParsedSettlementRecord[] = data
+  const records = data
     .map((row, index) => {
       const merchantOrder = normalizeString(row['Merchant Order ID']);
       if (!merchantOrder) return null;
@@ -258,7 +261,7 @@ function parseTamaraSettlement(
         raw: row,
       };
     })
-    .filter((row): row is ParsedSettlementRecord => !!row);
+    .filter(isNonNull);
 
   return { records, warnings: [] };
 }

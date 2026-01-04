@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
       log.warn('Order update date exceeds allowed window', {
         merchantId: body.merchantId,
         orderId: body.orderId,
-        orderUpdatedAt: orderDateToCheck,
+        orderUpdatedAt: updatedDate.toISOString(),
         daysDifference: daysDifference.toFixed(2),
       });
 

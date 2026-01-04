@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
+import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 
 export const runtime = 'nodejs';
 
@@ -259,6 +260,13 @@ export async function POST(request: NextRequest) {
             referenceId,
             orderId: resolvedOrderId,
             jobId: printResult.jobId,
+          });
+
+          await printCommercialInvoiceIfInternational({
+            orderId: resolvedOrderId,
+            orderNumber: referenceId || resolvedOrderId,
+            merchantId,
+            source: 'shipment-webhook',
           });
         } else {
           log.error('Failed to send label to PrintNode', {

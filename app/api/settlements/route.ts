@@ -395,9 +395,11 @@ async function persistSettlementRecords(
   for (const [index, record] of records.entries()) {
     const mappedOrderId = record.awbNumber ? shipmentOrderMap.get(record.awbNumber) : undefined;
     const matchedOrder =
-      (record.orderId && ordersById.get(record.orderId)) ||
-      (record.orderNumber && (ordersByNumber.get(record.orderNumber) || ordersByReferenceId.get(record.orderNumber))) ||
-      (mappedOrderId && ordersById.get(mappedOrderId));
+      (record.orderId ? ordersById.get(record.orderId) : undefined) ??
+      (record.orderNumber
+        ? ordersByNumber.get(record.orderNumber) || ordersByReferenceId.get(record.orderNumber)
+        : undefined) ??
+      (mappedOrderId ? ordersById.get(mappedOrderId) : undefined);
 
     if (matchedOrder) {
       matchedCount += 1;

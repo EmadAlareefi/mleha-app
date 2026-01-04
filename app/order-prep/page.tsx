@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useReactToPrint } from 'react-to-print';
 import { Card } from '@/components/ui/card';
@@ -73,6 +73,31 @@ const normalizeSku = (value: unknown): string => {
   return stringValue.trim().toUpperCase();
 };
 
+const generateSkuVariants = (value: unknown): string[] => {
+  const normalized = normalizeSku(value);
+  if (!normalized) {
+    return [];
+  }
+
+  const variants = new Set<string>();
+  variants.add(normalized);
+
+  const segments = normalized.split(/[^A-Z0-9]+/).filter(Boolean);
+  segments.forEach((segment) => variants.add(segment));
+
+  const withoutTrailingLetters = normalized.replace(/[A-Z]+$/g, '');
+  if (withoutTrailingLetters && withoutTrailingLetters !== normalized) {
+    variants.add(withoutTrailingLetters);
+  }
+
+  const withoutTrailingDigits = normalized.replace(/\d+$/g, '');
+  if (withoutTrailingDigits && withoutTrailingDigits !== normalized) {
+    variants.add(withoutTrailingDigits);
+  }
+
+  return Array.from(variants).filter((sku) => sku.length >= 3);
+};
+
 const getNumberValue = (value: unknown): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -136,14 +161,48 @@ export default function OrderPrepPage() {
       return [] as string[];
     }
 
-    return Array.from(
-      new Set(
-        currentOrder.orderData.items
-          .map((item: any) => normalizeSku(item?.sku))
-          .filter((sku: string): sku is string => Boolean(sku))
-      )
-    );
+    const variants = new Set<string>();
+
+    currentOrder.orderData.items.forEach((item: any) => {
+      generateSkuVariants(item?.sku).forEach((variant) => variants.add(variant));
+    });
+
+    return Array.from(variants);
   }, [currentOrder]);
+
+  const getLocationForSku = useCallback(
+    (sku: unknown): ProductLocation | undefined => {
+      const normalizedSku = normalizeSku(sku);
+      if (!normalizedSku) {
+        return undefined;
+      }
+
+      const directMatch = productLocations[normalizedSku];
+      if (directMatch) {
+        return directMatch;
+      }
+
+      let bestMatch: ProductLocation | undefined;
+      let bestMatchLength = 0;
+
+      for (const location of Object.values(productLocations)) {
+        const locationSku = normalizeSku(location?.sku);
+        if (!locationSku) {
+          continue;
+        }
+
+        if (normalizedSku.includes(locationSku) || locationSku.includes(normalizedSku)) {
+          if (!bestMatch || locationSku.length > bestMatchLength) {
+            bestMatch = location;
+            bestMatchLength = locationSku.length;
+          }
+        }
+      }
+
+      return bestMatch;
+    },
+    [productLocations]
+  );
 
   const parseJsonResponse = async <T = any>(response: Response, context: string): Promise<T> => {
     const contentType = response.headers.get('content-type') || '';
@@ -214,7 +273,7 @@ export default function OrderPrepPage() {
       if (!normalizedSku) {
         return;
       }
-      const locationInfo = productLocations[normalizedSku];
+      const locationInfo = getLocationForSku(normalizedSku);
       const locationKey = locationInfo?.location || 'NO_LOCATION';
       const locationLabel = locationInfo?.location || 'غير مسجل';
       if (!summaryMap.has(locationKey)) {
@@ -242,7 +301,7 @@ export default function OrderPrepPage() {
         if (b.key === 'NO_LOCATION') return -1;
         return a.locationLabel.localeCompare(b.locationLabel, 'ar');
       });
-  }, [currentOrder, productLocations, loadingProductLocations]);
+  }, [currentOrder, getLocationForSku, loadingProductLocations]);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,8 +334,9 @@ export default function OrderPrepPage() {
 
         const map: Record<string, ProductLocation> = {};
         (Array.isArray(data.locations) ? data.locations : []).forEach((location: ProductLocation) => {
-          if (location?.sku) {
-            map[location.sku.toUpperCase()] = location;
+          const normalizedSku = normalizeSku(location?.sku);
+          if (normalizedSku) {
+            map[normalizedSku] = location;
           }
         });
 
@@ -1160,7 +1220,7 @@ export default function OrderPrepPage() {
                   <>
                     {currentOrder.orderData.items.map((item: any, idx: number) => {
                       const normalizedSku = normalizeSku(item?.sku);
-                      const locationInfo = normalizedSku ? productLocations[normalizedSku] : undefined;
+                      const locationInfo = normalizedSku ? getLocationForSku(normalizedSku) : undefined;
                       const skuDisplay = normalizedSku || getStringValue(item?.sku);
                       const locationUpdatedAt = locationInfo?.updatedAt
                         ? new Date(locationInfo.updatedAt).toLocaleString('ar-SA')

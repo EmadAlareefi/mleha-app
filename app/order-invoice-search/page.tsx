@@ -52,6 +52,7 @@ export default function OrderInvoiceSearchPage() {
   const [order, setOrder] = useState<OrderAssignment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
+  const [printingInvoiceViaPrintNode, setPrintingInvoiceViaPrintNode] = useState(false);
   const commercialInvoiceRef = useRef<HTMLDivElement>(null);
 
   const getStringValue = (value: unknown): string => {
@@ -209,6 +210,45 @@ export default function OrderInvoiceSearchPage() {
       alert('فشل إرسال البوليصة للطابعة');
     } finally {
       setPrintingShipmentLabel(false);
+    }
+  };
+
+  const handlePrintInvoiceViaPrintNode = async () => {
+    if (!order) {
+      return;
+    }
+
+    if (!isCommercialInvoiceAvailable) {
+      alert('الفاتورة التجارية متاحة فقط للطلبات الدولية.');
+      return;
+    }
+
+    setPrintingInvoiceViaPrintNode(true);
+    try {
+      const response = await fetch('/api/invoices/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.orderId,
+          orderNumber: order.orderNumber,
+          merchantId: order.merchantId,
+          forceInternational: isCommercialInvoiceAvailable,
+          shippingCountry,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert(data.message || 'تم إرسال الفاتورة للطابعة');
+      } else {
+        alert(data.error || 'فشل إرسال الفاتورة للطابعة');
+      }
+    } catch (error) {
+      console.error('PrintNode invoice error:', error);
+      alert('حدث خطأ أثناء إرسال الفاتورة للطابعة');
+    } finally {
+      setPrintingInvoiceViaPrintNode(false);
     }
   };
 
@@ -846,14 +886,25 @@ export default function OrderInvoiceSearchPage() {
                         : 'الفاتورة التجارية متاحة فقط للطلبات الدولية ولا يمكن طباعتها لهذا الطلب'}
                     </p>
                   </div>
-                  <Button
-                    onClick={handlePrintCommercialInvoice}
-                    disabled={!isCommercialInvoiceAvailable}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200 px-8 py-6 text-lg"
-                  >
-                    <Printer className="h-5 w-5 ml-2" />
-                    طباعة الفاتورة
-                  </Button>
+                  <div className="flex flex-col gap-3 w-full md:w-auto">
+                    <Button
+                      onClick={handlePrintCommercialInvoice}
+                      disabled={!isCommercialInvoiceAvailable}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200 px-8 py-6 text-lg"
+                    >
+                      <Printer className="h-5 w-5 ml-2" />
+                      طباعة الفاتورة
+                    </Button>
+                    <Button
+                      onClick={handlePrintInvoiceViaPrintNode}
+                      disabled={!isCommercialInvoiceAvailable || printingInvoiceViaPrintNode}
+                      variant="outline"
+                      className="px-8 py-6 text-lg disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200"
+                    >
+                      <Printer className="h-5 w-5 ml-2" />
+                      {printingInvoiceViaPrintNode ? 'جاري الإرسال للطابعة...' : 'إرسال الفاتورة إلى PrintNode'}
+                    </Button>
+                  </div>
                 </div>
               </Card>
             </>

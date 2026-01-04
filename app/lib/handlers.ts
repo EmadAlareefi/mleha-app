@@ -5,6 +5,7 @@ import { log } from "@/app/lib/logger";
 import { storeSallaTokens } from "@/app/lib/salla-oauth";
 import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
 import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from "@/app/lib/printnode";
+import { printCommercialInvoiceIfInternational } from "@/app/lib/international-printing";
 import { prisma } from "@/lib/prisma";
 import { linkExchangeOrderFromWebhook } from "@/app/lib/returns/exchange-order";
 
@@ -366,6 +367,13 @@ async function maybePrintShipmentLabelFromStatus(
         merchantId,
         orderId: resolvedOrderId,
         jobId: printResult.jobId,
+      });
+
+      await printCommercialInvoiceIfInternational({
+        orderId: resolvedOrderId,
+        orderNumber: referenceId || resolvedOrderId,
+        merchantId,
+        source: "order.updated-webhook",
       });
     } else {
       log.error("PrintNode error while handling order.updated webhook", {

@@ -4,6 +4,7 @@ import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
+import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 
 export const runtime = 'nodejs';
 
@@ -195,6 +196,15 @@ export async function POST(request: NextRequest) {
       orderId: targetOrderId,
       jobId: printResult.jobId,
       printCount: updatedShipment.printCount,
+    });
+
+    await printCommercialInvoiceIfInternational({
+      orderId: targetOrderId,
+      orderNumber: targetOrderNumber,
+      merchantId: merchantIdForShipment || shipment.merchantId,
+      assignmentId: assignment?.id || assignmentId || null,
+      triggeredBy: user.username || user.id,
+      source: 'manual-print',
     });
 
     return NextResponse.json({

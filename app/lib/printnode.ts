@@ -4,9 +4,11 @@
  */
 
 const PRINTNODE_API_KEY = 'qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU';
-const PRINTNODE_DEVICE_ID = 75006700;
 const PRINTNODE_API_URL = 'https://api.printnode.com/printjobs';
+export const PRINTNODE_LABEL_PRINTER_ID = 75006700;
+export const PRINTNODE_INVOICE_PRINTER_ID = 75006701;
 export const PRINTNODE_LABEL_PAPER_NAME = 'LABEL(100mm x 150mm)';
+export const PRINTNODE_INVOICE_PAPER_NAME = 'A4‏ 210‏ ×‏ 297‏ ملم';
 export const PRINTNODE_DEFAULT_DPI = '203x203';
 const DEFAULT_LABEL_PAPER_MM = { width: 100, height: 150 } as const;
 
@@ -15,6 +17,7 @@ export interface PrintJobOptions {
   contentType: 'pdf_uri' | 'pdf_base64' | 'raw_uri' | 'raw_base64';
   content: string;
   copies?: number;
+  printerId?: number;
   paperSizeMm?: { width: number; height: number };
   paperName?: string;
   dpi?: number | string;
@@ -30,9 +33,10 @@ export interface PrintJobOptions {
 export async function sendPrintJob(options: PrintJobOptions): Promise<{ success: boolean; jobId?: number; error?: string }> {
   try {
     const printOptions = buildPrintOptions(options);
+    const targetPrinter = options.printerId ?? PRINTNODE_LABEL_PRINTER_ID;
 
     const printJobData = {
-      printerId: PRINTNODE_DEVICE_ID,
+      printerId: targetPrinter,
       title: options.title || 'Print Job',
       contentType: options.contentType,
       content: options.content,
