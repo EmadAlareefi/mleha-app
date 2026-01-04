@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
 
 export const runtime = 'nodejs';
 
@@ -65,6 +66,10 @@ export async function POST(request: NextRequest) {
         items: true,
       },
     });
+
+    if (returnRequest.type === 'exchange') {
+      await maybeReleaseExchangeOrderHold(returnRequest.id);
+    }
 
     log.info('Return request updated successfully', { id, status });
 

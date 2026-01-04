@@ -214,6 +214,8 @@ model SallaOrder {
   erpSyncError    String?   @db.Text
   erpSyncAttempts Int       @default(0)
 
+  settlements OrderSettlement[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -223,6 +225,64 @@ model SallaOrder {
   @@index([merchantId, erpSyncedAt])
   @@index([merchantId, campaignSource])
   @@index([merchantId, campaignName])
+}
+
+model SettlementUpload {
+  id               String   @id @default(cuid())
+  provider         String
+  statementDate    DateTime?
+  originalFileName String
+  fileSize         Int?
+  contentType      String?
+  uploadedById     String?
+  uploadedByName   String?
+  status           String   @default("completed")
+  recordCount      Int      @default(0)
+  matchedCount     Int      @default(0)
+  unmatchedCount   Int      @default(0)
+  errorMessage     String?  @db.Text
+  notes            String?  @db.Text
+  fileData         Bytes?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  settlements OrderSettlement[]
+
+  @@index([provider])
+  @@index([createdAt])
+}
+
+model OrderSettlement {
+  id             String    @id @default(cuid())
+  uploadId       String?
+  provider       String
+  merchantId     String?
+  orderId        String?
+  orderNumber    String?
+  awbNumber      String?
+  paymentMethod  String?
+  eventType      String?
+  settlementDate DateTime?
+  grossAmount    Decimal?  @db.Decimal(14, 2)
+  feeAmount      Decimal?  @db.Decimal(14, 2)
+  taxAmount      Decimal?  @db.Decimal(14, 2)
+  netAmount      Decimal?  @db.Decimal(14, 2)
+  currency       String?   @default("SAR")
+  sourceReference String?
+  sourceHash     String    @unique
+  rawData        Json?
+  linkedOrderId  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  upload     SettlementUpload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  sallaOrder SallaOrder?       @relation(fields: [linkedOrderId], references: [id], onDelete: SetNull)
+
+  @@index([provider])
+  @@index([orderId])
+  @@index([orderNumber])
+  @@index([awbNumber])
+  @@index([settlementDate])
 }
 
 model SallaProductLocation {
@@ -273,6 +333,14 @@ model ReturnRequest {
   couponId        String? // Salla coupon ID
   couponCreatedAt DateTime? // When coupon was created
 
+  // Exchange order tracking
+  exchangeOrderId         String?
+  exchangeOrderNumber     String?
+  exchangeOrderLinkedAt   DateTime?
+  exchangeOrderHoldActive Boolean   @default(false)
+  exchangeOrderHeldAt     DateTime?
+  exchangeOrderReleasedAt DateTime?
+
   // Admin notes
   adminNotes String?   @db.Text
   reviewedBy String? // Admin who reviewed
@@ -289,6 +357,7 @@ model ReturnRequest {
   @@index([type])
   @@index([createdAt])
   @@index([smsaTrackingNumber])
+  @@index([exchangeOrderId])
 }
 
 model ReturnItem {
@@ -303,6 +372,10 @@ model ReturnItem {
   variantName String?
   quantity    Int
   price       Decimal @db.Decimal(10, 2)
+  conditionStatus String?   // good, worn, missing_parts, damaged
+  conditionNotes  String?   @db.Text
+  inspectedBy     String?
+  inspectedAt     DateTime?
 
   createdAt DateTime @default(now())
 

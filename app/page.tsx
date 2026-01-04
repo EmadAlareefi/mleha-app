@@ -124,6 +124,14 @@ export default function AdminDashboard() {
       allowedRoles: ['admin', 'store_manager'],
     },
     {
+      title: 'فحص المرتجعات',
+      description: 'قراءة شحنات الإرجاع وتحديد حالة المنتجات',
+      icon: '🔎',
+      href: '/returns-inspection',
+      color: 'from-red-600 to-rose-500',
+      allowedRoles: ['admin', 'warehouse'],
+    },
+    {
       title: 'الطلبات عالية الأولوية',
       description: 'تحديد الطلبات التي يجب أن تظهر أولاً لفريق التحضير',
       icon: '⚡',
@@ -161,6 +169,14 @@ export default function AdminDashboard() {
       icon: '📊',
       href: '/order-reports',
       color: 'from-teal-500 to-teal-600',
+      allowedRoles: ['admin', 'accountant'],
+    },
+    {
+      title: 'تسويات المدفوعات',
+      description: 'رفع وربط ملفات التسويات مع طلبات سلة',
+      icon: '🧮',
+      href: '/settlements',
+      color: 'from-indigo-500 to-indigo-600',
       allowedRoles: ['admin', 'accountant'],
     },
     {

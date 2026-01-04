@@ -2,7 +2,7 @@
 
 ## What Was Implemented
 
-Automatic printing of shipping labels to PrintNode device **75006703** when shipments are created in Salla.
+Automatic printing of shipping labels to PrintNode device **75006700** when shipments are created in Salla.
 
 ## How It Works
 
@@ -42,7 +42,7 @@ Register at: https://s.salla.sa/partners → Your App → Webhooks
 ### 2. Configuration
 
 PrintNode is already configured:
-- **Device ID:** 75006703
+- **Device ID:** 75006700
 - **API Key:** qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU
 
 No additional environment variables needed!
@@ -82,7 +82,7 @@ ngrok http 3000
 3. **Webhook fires** to `/api/webhooks/salla/shipment-created`
 4. **Webhook stores** tracking info in database
 5. **Webhook sends** label PDF to PrintNode
-6. **PrintNode prints** label on device 75006703
+6. **PrintNode prints** label on device 75006700
 7. **UI shows** tracking number
 
 ## Monitoring
@@ -132,7 +132,7 @@ ORDER BY "createdAt" DESC;
      -u qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU: \
      -H "Content-Type: application/json" \
      -d '{
-       "printerId": 75006703,
+       "printerId": 75006700,
        "title": "Test",
        "contentType": "pdf_uri",
        "content": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"

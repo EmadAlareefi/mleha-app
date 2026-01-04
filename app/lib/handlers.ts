@@ -6,6 +6,7 @@ import { storeSallaTokens } from "@/app/lib/salla-oauth";
 import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
 import { sendPrintJob } from "@/app/lib/printnode";
 import { prisma } from "@/lib/prisma";
+import { linkExchangeOrderFromWebhook } from "@/app/lib/returns/exchange-order";
 
 type AnyObj = Record<string, any>;
 
@@ -482,7 +483,7 @@ export async function processSallaWebhook(payload: AnyObj, meta?: WebhookMeta) {
     case "app.store.authorize":
       return process_app_store_authorize(payload);
     case "order.created":
-      return process_salla_order_created(data);
+      return process_salla_order_created(data, meta);
     case "order.updated":
       return process_salla_order_updated(data, meta);
     case "order.status.updated":
@@ -569,6 +570,10 @@ export async function process_salla_order_status_updated(
 
   await upsertSallaOrderFromPayload(data);
   await maybePrintShipmentLabelFromStatus(order, data, meta);
+  await linkExchangeOrderFromWebhook(order, {
+    merchantId: meta?.merchantId,
+    orderId,
+  });
 
   if (
     meta?.isDuplicateStatus &&
@@ -599,13 +604,20 @@ export async function process_salla_order_status_updated(
   return { success: true, message: "sent", zoko: resp };
 }
 
-export async function process_salla_order_created(data: AnyObj) {
+export async function process_salla_order_created(
+  data: AnyObj,
+  meta?: WebhookMeta
+) {
   const order: AnyObj = data?.order ?? data ?? {};
   const customer = order?.customer ?? order?.customer_info ?? {};
   const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
   const customerName = getCustomerName(customer);
   const orderNumber =
     getOrderNumber(order) || String(order?.id ?? order?.order_id ?? "");
+  await linkExchangeOrderFromWebhook(order, {
+    merchantId: meta?.merchantId,
+    orderId: meta?.orderId ?? order?.id?.toString?.() ?? null,
+  });
 
   const resp = await sendTpl(phone, TPL.ORDER_CONFIRMATION, [
     customerName,

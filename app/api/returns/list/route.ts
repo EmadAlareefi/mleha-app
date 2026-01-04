@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type'); // 'return' | 'exchange' | null (all)
     const status = searchParams.get('status'); // status filter
     const search = searchParams.get('search'); // search by order number, customer name, tracking number
+    const excludeStatusParams = searchParams.getAll('excludeStatus'); // statuses to exclude
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const skip = (page - 1) * limit;
@@ -29,6 +30,12 @@ export async function GET(request: NextRequest) {
 
     if (status) {
       where.status = status;
+    }
+    if (excludeStatusParams.length > 0) {
+      where.status = {
+        ...(typeof where.status === 'string' ? { in: [where.status] } : where.status),
+        notIn: excludeStatusParams,
+      };
     }
 
     if (search && search.trim()) {
@@ -57,9 +64,57 @@ export async function GET(request: NextRequest) {
       take: limit,
     });
 
+    // Fetch corresponding Salla order statuses
+    const uniqueOrders = Array.from(
+      new Map(
+        returnRequests
+          .filter(req => req.merchantId && req.orderId)
+          .map(req => [
+            `${req.merchantId}:${req.orderId}`,
+            { merchantId: req.merchantId, orderId: req.orderId },
+          ])
+      ).values()
+    );
+
+    let sallaStatuses: Record<string, { name?: string; slug?: string }> = {};
+
+    if (uniqueOrders.length > 0) {
+      const sallaOrders = await prisma.sallaOrder.findMany({
+        where: {
+          OR: uniqueOrders.map(order => ({
+            merchantId: order.merchantId,
+            orderId: order.orderId,
+          })),
+        },
+        select: {
+          merchantId: true,
+          orderId: true,
+          statusName: true,
+          statusSlug: true,
+        },
+      });
+
+      sallaStatuses = sallaOrders.reduce((acc, order) => {
+        const key = `${order.merchantId}:${order.orderId}`;
+        acc[key] = {
+          name: order.statusName || undefined,
+          slug: order.statusSlug || undefined,
+        };
+        return acc;
+      }, {} as Record<string, { name?: string; slug?: string }>);
+    }
+
+    const enrichedRequests = returnRequests.map(request => {
+      const statusKey = `${request.merchantId}:${request.orderId}`;
+      return {
+        ...request,
+        sallaStatus: sallaStatuses[statusKey] || null,
+      };
+    });
+
     return NextResponse.json({
       success: true,
-      data: returnRequests,
+      data: enrichedRequests,
       pagination: {
         total,
         page,

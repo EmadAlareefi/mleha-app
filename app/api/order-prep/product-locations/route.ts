@@ -41,11 +41,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const skuInputs = Array.isArray(body?.skus) ? body.skus : [];
+    const skuInputs: unknown[] = Array.isArray(body?.skus) ? body.skus : [];
     const normalizedSkus = Array.from(
       new Set(
         skuInputs
-          .map((sku) => normalizeSku(sku))
+          .map((sku: unknown) => normalizeSku(sku))
           .filter((sku): sku is string => Boolean(sku))
       )
     );

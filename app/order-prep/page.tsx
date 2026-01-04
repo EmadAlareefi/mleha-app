@@ -120,7 +120,7 @@ export default function OrderPrepPage() {
       new Set(
         currentOrder.orderData.items
           .map((item: any) => normalizeSku(item?.sku))
-          .filter((sku): sku is string => Boolean(sku))
+          .filter((sku: string): sku is string => Boolean(sku))
       )
     );
   }, [currentOrder]);
