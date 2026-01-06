@@ -337,11 +337,11 @@ export async function getSallaProduct(
     );
 
     if (!response || !response.success) {
-      log.error('Failed to fetch Salla product', { merchantId, productId, response });
-      return null;
-    }
+    log.error('Failed to fetch Salla product', { merchantId, productId, response });
+    return null;
+  }
 
-    const product = response.data;
+  const product = response.data;
     const category = product.categories && product.categories.length > 0
       ? product.categories[0].name
       : undefined;
@@ -357,4 +357,197 @@ export async function getSallaProduct(
     log.error('Error fetching Salla product', { merchantId, productId, error });
     return null;
   }
+}
+
+export interface SallaProductSummary {
+  id: number;
+  name: string;
+  sku?: string;
+  priceAmount?: number | null;
+  currency?: string;
+  availableQuantity?: number | null;
+  status?: string;
+  imageUrl?: string | null;
+  lastUpdatedAt?: string | null;
+}
+
+interface SallaProductsApiResponse {
+  status: number;
+  success: boolean;
+  data: Array<Record<string, any>>;
+  pagination?: {
+    count?: number;
+    total?: number;
+    per_page?: number;
+    current_page?: number;
+    total_pages?: number;
+  };
+}
+
+export interface SallaProductsQueryOptions {
+  page?: number;
+  perPage?: number;
+  sku?: string;
+}
+
+export interface SallaPaginationMeta {
+  count: number;
+  total: number;
+  perPage: number;
+  currentPage: number;
+  totalPages: number;
+}
+
+function safeNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function normalizeProduct(product: Record<string, any>): SallaProductSummary {
+  const rawId = typeof product?.id === 'number'
+    ? product.id
+    : safeNumber(product?.id);
+
+  const mainImage = typeof product?.image === 'string'
+    ? product.image
+    : typeof product?.thumbnail === 'string'
+      ? product.thumbnail
+      : typeof product?.main_image?.url === 'string'
+        ? product.main_image.url
+        : typeof product?.main_image?.original_url === 'string'
+          ? product.main_image.original_url
+          : Array.isArray(product?.images) && product.images.length > 0 && typeof product.images[0] === 'string'
+            ? product.images[0]
+            : undefined;
+
+  const priceAmount = safeNumber(
+    product?.price?.amount ??
+    product?.price?.value ??
+    product?.price ??
+    product?.prices?.price ??
+    product?.prices?.base
+  );
+
+  const availableQuantity = safeNumber(
+    product?.quantity ??
+    product?.stock_quantity ??
+    product?.inventory?.available ??
+    product?.inventory_quantity ??
+    product?.quantities?.available
+  );
+
+  const status = typeof product?.status === 'string'
+    ? product.status
+    : typeof product?.status?.name === 'string'
+      ? product.status.name
+      : typeof product?.status?.slug === 'string'
+        ? product.status.slug
+        : undefined;
+
+  const sku = typeof product?.sku === 'string'
+    ? product.sku
+    : typeof product?.sku_code === 'string'
+      ? product.sku_code
+      : undefined;
+
+  const currency = typeof product?.price?.currency === 'string'
+    ? product.price.currency
+    : typeof product?.currency === 'string'
+      ? product.currency
+      : typeof product?.prices?.currency === 'string'
+        ? product.prices.currency
+        : 'SAR';
+
+  const name = typeof product?.name === 'string' && product.name.trim().length > 0
+    ? product.name
+    : `منتج رقم ${rawId ?? '-'}`;
+
+  const lastUpdatedAt = typeof product?.updated_at === 'string'
+    ? product.updated_at
+    : typeof product?.updatedAt === 'string'
+      ? product.updatedAt
+      : undefined;
+
+  return {
+    id: rawId ?? Date.now(),
+    name,
+    sku,
+    priceAmount,
+    currency,
+    availableQuantity,
+    status,
+    imageUrl: mainImage || null,
+    lastUpdatedAt,
+  };
+}
+
+export async function listSallaProducts(
+  merchantId: string,
+  options?: SallaProductsQueryOptions
+): Promise<{ products: SallaProductSummary[]; pagination: SallaPaginationMeta }> {
+  const perPage = Math.min(Math.max(options?.perPage ?? 100, 1), 100);
+  const page = Math.max(options?.page ?? 1, 1);
+  const query = new URLSearchParams({
+    per_page: perPage.toString(),
+    page: page.toString(),
+    sort_by: 'updated',
+    sort: 'desc',
+  });
+
+  const trimmedSku = options?.sku?.trim();
+  if (trimmedSku) {
+    query.set('sku', trimmedSku);
+  }
+
+  const endpoint = `/products?${query.toString()}`;
+  const response = await sallaMakeRequest<SallaProductsApiResponse>(merchantId, endpoint);
+
+  if (!response) {
+    log.error('Failed to reach Salla products endpoint', { merchantId, endpoint });
+    throw new Error('تعذر الوصول إلى واجهة سلة، تأكد من حفظ رموز الدخول الخاصة بالمتجر.');
+  }
+
+  if (!response.success) {
+    const errorMessage =
+      typeof (response as any)?.message === 'string'
+        ? (response as any).message
+        : typeof (response as any)?.error?.message === 'string'
+          ? (response as any).error.message
+          : 'فشل تحميل منتجات سلة، يرجى المحاولة لاحقاً.';
+
+    log.error('Salla API responded with failure for products listing', {
+      merchantId,
+      endpoint,
+      response,
+    });
+
+    throw new Error(errorMessage);
+  }
+
+  const normalizedProducts = Array.isArray(response.data)
+    ? response.data.map((product) => normalizeProduct(product))
+    : [];
+
+  const pagination = response.pagination;
+  const total = pagination?.total ?? normalizedProducts.length;
+  const totalPages = pagination?.total_pages ?? Math.max(1, Math.ceil(total / perPage));
+
+  return {
+    products: normalizedProducts,
+    pagination: {
+      count: pagination?.count ?? normalizedProducts.length,
+      total,
+      perPage: pagination?.per_page ?? perPage,
+      currentPage: pagination?.current_page ?? page,
+      totalPages,
+    },
+  };
 }

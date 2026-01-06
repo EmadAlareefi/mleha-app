@@ -47,6 +47,8 @@ export default withAuth(
             /^\/order-history(\/.*)?$/,
             /^\/api\/order-assignments(\/.*)?$/,
             /^\/api\/order-prep\/product-locations(\/.*)?$/,
+            /^\/api\/salla\/create-shipment(\/.*)?$/,
+            /^\/api\/salla\/shipments(\/.*)?$/,
             /^\/barcode-labels(\/.*)?$/,
           ],
         },

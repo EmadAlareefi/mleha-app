@@ -222,11 +222,6 @@ export default function OrderInvoiceSearchPage() {
   };
 
   const handlePrintInvoiceViaPrintNode = async () => {
-    if (!isAdmin) {
-      alert('هذا الإجراء متاح للمسؤولين فقط.');
-      return;
-    }
-
     if (!order) {
       return;
     }
@@ -930,17 +925,15 @@ export default function OrderInvoiceSearchPage() {
                       <Printer className="h-5 w-5 ml-2" />
                       طباعة الفاتورة
                     </Button>
-                    {isAdmin && (
-                      <Button
-                        onClick={handlePrintInvoiceViaPrintNode}
-                        disabled={!isCommercialInvoiceAvailable || printingInvoiceViaPrintNode}
-                        variant="outline"
-                        className="px-8 py-6 text-lg disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200"
-                      >
-                        <Printer className="h-5 w-5 ml-2" />
-                        {printingInvoiceViaPrintNode ? 'جاري الإرسال للطابعة...' : 'إرسال الفاتورة إلى PrintNode'}
-                      </Button>
-                    )}
+                    <Button
+                      onClick={handlePrintInvoiceViaPrintNode}
+                      disabled={!isCommercialInvoiceAvailable || printingInvoiceViaPrintNode}
+                      variant="outline"
+                      className="px-8 py-6 text-lg disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200"
+                    >
+                      <Printer className="h-5 w-5 ml-2" />
+                      {printingInvoiceViaPrintNode ? 'جاري الإرسال للطابعة...' : 'إرسال الفاتورة إلى PrintNode'}
+                    </Button>
                   </div>
                 </div>
               </Card>
