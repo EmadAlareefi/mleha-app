@@ -45,7 +45,10 @@ export default function OrderInvoiceSearchPage() {
   const { data: session, status } = useSession();
   const role = (session?.user as any)?.role;
   const roles = ((session?.user as any)?.roles || [role]) as string[];
-  const isAuthorized = roles.includes('admin');
+  const isAdmin = roles.includes('admin');
+  const allowedRolesForSearch = ['admin', 'warehouse', 'store_manager', 'orders'];
+  const isAuthorized = roles.some((userRole) => allowedRolesForSearch.includes(userRole));
+  const hasLimitedAccess = isAuthorized && !isAdmin;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -159,6 +162,11 @@ export default function OrderInvoiceSearchPage() {
   };
 
   const handleReprintShipmentLabel = async () => {
+    if (!isAdmin) {
+      alert('هذا الإجراء متاح للمسؤولين فقط.');
+      return;
+    }
+
     if (!order) {
       return;
     }
@@ -214,6 +222,11 @@ export default function OrderInvoiceSearchPage() {
   };
 
   const handlePrintInvoiceViaPrintNode = async () => {
+    if (!isAdmin) {
+      alert('هذا الإجراء متاح للمسؤولين فقط.');
+      return;
+    }
+
     if (!order) {
       return;
     }
@@ -350,6 +363,7 @@ export default function OrderInvoiceSearchPage() {
     getStringValue(order?.orderData?.customer?.mobile || order?.orderData?.customer?.phone || (shippingAddress as any)?.phone),
   ].filter(Boolean);
   const shippingPhone = shippingPhoneParts.join(' ');
+  const shippingLocationLabel = [shippingCity, shippingCountry].filter(Boolean).join('، ');
   const customerEmail = getStringValue(order?.orderData?.customer?.email);
 
   const billingStreet = [
@@ -416,7 +430,7 @@ export default function OrderInvoiceSearchPage() {
   const shipmentPrintedAt = shipmentInfo?.labelPrintedAt ? formatDate(shipmentInfo.labelPrintedAt) : null;
   const shipmentPrintCount = shipmentInfo?.printCount ?? null;
   const canShowShipmentDetails = Boolean(resolvedTrackingNumber || shipmentLabelUrl || resolvedShipmentStatus);
-  const canPrintShipmentLabel = Boolean(isAuthorized && shipmentInfo && shipmentLabelUrl);
+  const canPrintShipmentLabel = Boolean(isAdmin && shipmentInfo && shipmentLabelUrl);
 
   const isInternationalOrder = Boolean(order && shippingCountry && !isSaudiCountry(shippingCountry));
   const isCommercialInvoiceAvailable = Boolean(order && isInternationalOrder);
@@ -469,7 +483,7 @@ export default function OrderInvoiceSearchPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md p-8 text-center">
           <h1 className="text-2xl font-bold mb-4">البحث عن الطلبات والفواتير</h1>
-          <p className="text-gray-600 mb-6">يجب تسجيل الدخول كمسؤول للوصول إلى هذه الصفحة</p>
+          <p className="text-gray-600 mb-6">يجب تسجيل الدخول بحساب مسؤول أو مستخدم مخوّل للوصول إلى هذه الصفحة</p>
           <Button onClick={() => window.location.href = '/login'} className="w-full">
             تسجيل الدخول
           </Button>
@@ -525,92 +539,111 @@ export default function OrderInvoiceSearchPage() {
           {order && (
             <>
               {/* Order Header */}
-              <Card className="p-6 space-y-6">
-                {order.source === 'history' && (
-                  <div className="p-4 border border-amber-200 bg-amber-50 rounded-lg text-sm text-amber-800 flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5" />
-                    تم العثور على هذا الطلب في السجلات المكتملة (أرشيف). لا يمكن تعديله ولكن يمكن مراجعة تفاصيله وطباعتها.
-                  </div>
-                )}
-                {order.source === 'salla' && (
-                  <div className="p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800 flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5" />
-                    تم جلب هذا الطلب مباشرةً من بيانات سلة. قد لا يكون لديه تعيين داخلي بعد، لكن يمكنك عرض تفاصيله وطباعته.
-                  </div>
-                )}
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              {hasLimitedAccess ? (
+                <Card className="p-6 space-y-4">
                   <div>
                     <h2 className="text-2xl font-bold">طلب #{order.orderNumber}</h2>
                     {customerName && (
                       <p className="text-gray-600 mt-1">{customerName}</p>
                     )}
-                    {(shippingCity || shippingCountry) && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        {[shippingCity, shippingCountry].filter(Boolean).join('، ')}
-                      </p>
-                    )}
                   </div>
-                  <div className="flex flex-col items-start gap-2 md:items-end">
-                    <span
-                      className={`inline-block px-4 py-2 rounded-full text-sm font-medium border ${getStatusColor(
-                        order.status,
-                        order.sallaStatus
-                      )}`}
-                    >
-                      {getStatusLabel(order.status, order.sallaStatus)}
-                    </span>
-                    <span className={`inline-block px-4 py-2 rounded-full text-xs font-medium border ${shippingTypeColor}`}>
-                      {shippingTypeLabel}
-                    </span>
-                    {shippingCountry && (
-                      <p className="text-xs text-gray-500">الدولة: {shippingCountry}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-500">العنوان التفصيلي</p>
-                    <p className="font-medium text-gray-900">
-                      {shippingStreet || '—'}
+                  <div className="rounded-lg border p-4 bg-gray-50">
+                    <p className="text-sm text-gray-500 mb-1">موقع الشحن</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {shippingLocationLabel || 'غير متوفر'}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">رقم الجوال</p>
-                    <p className="font-medium text-gray-900">{shippingPhone || '—'}</p>
+                </Card>
+              ) : (
+                <Card className="p-6 space-y-6">
+                  {order.source === 'history' && (
+                    <div className="p-4 border border-amber-200 bg-amber-50 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5" />
+                      تم العثور على هذا الطلب في السجلات المكتملة (أرشيف). لا يمكن تعديله ولكن يمكن مراجعة تفاصيله وطباعتها.
+                    </div>
+                  )}
+                  {order.source === 'salla' && (
+                    <div className="p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800 flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5" />
+                      تم جلب هذا الطلب مباشرةً من بيانات سلة. قد لا يكون لديه تعيين داخلي بعد، لكن يمكنك عرض تفاصيله وطباعته.
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold">طلب #{order.orderNumber}</h2>
+                      {customerName && (
+                        <p className="text-gray-600 mt-1">{customerName}</p>
+                      )}
+                      {shippingLocationLabel && (
+                        <p className="text-sm text-gray-500 mt-1">
+                          {shippingLocationLabel}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-start gap-2 md:items-end">
+                      <span
+                        className={`inline-block px-4 py-2 rounded-full text-sm font-medium border ${getStatusColor(
+                          order.status,
+                          order.sallaStatus
+                        )}`}
+                      >
+                        {getStatusLabel(order.status, order.sallaStatus)}
+                      </span>
+                      <span className={`inline-block px-4 py-2 rounded-full text-xs font-medium border ${shippingTypeColor}`}>
+                        {shippingTypeLabel}
+                      </span>
+                      {shippingCountry && (
+                        <p className="text-xs text-gray-500">الدولة: {shippingCountry}</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">البريد الإلكتروني</p>
-                    <p className="font-medium text-gray-900">{customerEmail || '—'}</p>
-                  </div>
-                </div>
 
-                {/* Assignment Info */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
-                  <div>
-                    <p className="text-sm text-gray-500">تم التعيين لـ</p>
-                    <p className="font-medium">{order.assignedUserName}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-500">العنوان التفصيلي</p>
+                      <p className="font-medium text-gray-900">
+                        {shippingStreet || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">رقم الجوال</p>
+                      <p className="font-medium text-gray-900">{shippingPhone || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">البريد الإلكتروني</p>
+                      <p className="font-medium text-gray-900">{customerEmail || '—'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">تاريخ التعيين</p>
-                    <p className="font-medium">{formatDate(order.assignedAt)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">تاريخ الإنهاء</p>
-                    <p className="font-medium">{order.completedAt ? formatDate(order.completedAt) : 'لم يُستكمل بعد'}</p>
-                  </div>
-                </div>
 
-                {order.notes && (
-                  <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                    <p className="text-sm font-medium text-orange-800">ملاحظات داخلية</p>
-                    <p className="text-orange-700 mt-1">{order.notes}</p>
+                  {/* Assignment Info */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
+                    <div>
+                      <p className="text-sm text-gray-500">تم التعيين لـ</p>
+                      <p className="font-medium">{order.assignedUserName}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">تاريخ التعيين</p>
+                      <p className="font-medium">{formatDate(order.assignedAt)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">تاريخ الإنهاء</p>
+                      <p className="font-medium">{order.completedAt ? formatDate(order.completedAt) : 'لم يُستكمل بعد'}</p>
+                    </div>
                   </div>
-                )}
-              </Card>
 
-              {canShowShipmentDetails && (
-                <Card className="p-6 space-y-5">
+                  {order.notes && (
+                    <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                      <p className="text-sm font-medium text-orange-800">ملاحظات داخلية</p>
+                      <p className="text-orange-700 mt-1">{order.notes}</p>
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {!hasLimitedAccess && (
+                <>
+                  {canShowShipmentDetails && (
+                    <Card className="p-6 space-y-5">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h3 className="text-lg font-bold">تفاصيل الشحنة</h3>
@@ -670,10 +703,10 @@ export default function OrderInvoiceSearchPage() {
                       عرض رابط البوليصة
                     </a>
                   )}
-                </Card>
-              )}
+                    </Card>
+                  )}
 
-              {/* Order Financial Summary */}
+                  {/* Order Financial Summary */}
               <Card className="p-6 space-y-5">
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div>
@@ -725,8 +758,8 @@ export default function OrderInvoiceSearchPage() {
                     <div className="rounded-lg border p-4 bg-gray-50 space-y-1">
                       <p className="font-semibold">{shippingName || '—'}</p>
                       {shippingStreet && <p className="text-gray-700">{shippingStreet}</p>}
-                      {[shippingCity, shippingCountry].filter(Boolean).length > 0 && (
-                        <p className="text-gray-700">{[shippingCity, shippingCountry].filter(Boolean).join('، ')}</p>
+                      {shippingLocationLabel && (
+                        <p className="text-gray-700">{shippingLocationLabel}</p>
                       )}
                       {shippingPostalCode && <p className="text-gray-700">الرمز البريدي: {shippingPostalCode}</p>}
                       {shippingPhone && <p className="text-gray-700">هاتف: {shippingPhone}</p>}
@@ -870,7 +903,9 @@ export default function OrderInvoiceSearchPage() {
                     );
                   })}
                 </div>
-              </Card>
+                  </Card>
+                </>
+              )}
 
               {/* Print Invoice Button */}
               <Card className="p-6">
@@ -895,15 +930,17 @@ export default function OrderInvoiceSearchPage() {
                       <Printer className="h-5 w-5 ml-2" />
                       طباعة الفاتورة
                     </Button>
-                    <Button
-                      onClick={handlePrintInvoiceViaPrintNode}
-                      disabled={!isCommercialInvoiceAvailable || printingInvoiceViaPrintNode}
-                      variant="outline"
-                      className="px-8 py-6 text-lg disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200"
-                    >
-                      <Printer className="h-5 w-5 ml-2" />
-                      {printingInvoiceViaPrintNode ? 'جاري الإرسال للطابعة...' : 'إرسال الفاتورة إلى PrintNode'}
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        onClick={handlePrintInvoiceViaPrintNode}
+                        disabled={!isCommercialInvoiceAvailable || printingInvoiceViaPrintNode}
+                        variant="outline"
+                        className="px-8 py-6 text-lg disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200"
+                      >
+                        <Printer className="h-5 w-5 ml-2" />
+                        {printingInvoiceViaPrintNode ? 'جاري الإرسال للطابعة...' : 'إرسال الفاتورة إلى PrintNode'}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </Card>

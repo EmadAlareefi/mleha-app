@@ -24,7 +24,9 @@ export default function AdminDashboard() {
   // Don't default to admin - wait for proper session data
   const userRole: Role | undefined = (session?.user as any)?.role;
   const userRoles: Role[] = (session?.user as any)?.roles || (userRole ? [userRole] : []);
-  const canAccessOrderInvoiceSearch = userRoles.some((role) => role === 'admin');
+  const canAccessOrderInvoiceSearch = userRoles.some((role) =>
+    role === 'admin' || role === 'orders'
+  );
 
   const services: ServiceCard[] = [
     {
@@ -89,7 +91,7 @@ export default function AdminDashboard() {
       icon: '🔍',
       href: '/order-invoice-search',
       color: 'from-violet-500 to-violet-600',
-      allowedRoles: ['admin'],
+      allowedRoles: ['admin', 'orders'],
     },
     {
       title: 'متابعة التحصيل (COD)',
@@ -97,7 +99,7 @@ export default function AdminDashboard() {
       icon: '💵',
       href: '/cod-tracker',
       color: 'from-amber-500 to-amber-600',
-      allowedRoles: ['admin', 'warehouse', 'accountant'],
+      allowedRoles: ['admin', 'accountant'],
     },
     {
       title: 'شحناتي',

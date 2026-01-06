@@ -72,11 +72,12 @@ export async function GET(request: NextRequest) {
     const user = session.user as any;
     const roles = user.roles || [user.role];
 
-    // Check if user is admin, warehouse, or returns (store manager)
+    // Check if user is admin, warehouse, returns (store manager), or orders
     const isAuthorized =
       roles.includes('admin') ||
       roles.includes('warehouse') ||
-      roles.includes('store_manager');
+      roles.includes('store_manager') ||
+      roles.includes('orders');
     if (!isAuthorized) {
       return NextResponse.json({ error: 'غير مصرح للوصول' }, { status: 403 });
     }

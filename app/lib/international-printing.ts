@@ -64,28 +64,64 @@ export async function printCommercialInvoiceIfInternational(params: PrintInvoice
   }
 
   try {
-    const where: Record<string, unknown> = {
-      ...(merchantId ? { merchantId } : {}),
+    const findOrderByCompositeKey = async () => {
+      if (!merchantId || !orderId) return null;
+      try {
+        return await prisma.sallaOrder.findUnique({
+          where: {
+            merchantId_orderId: {
+              merchantId,
+              orderId,
+            },
+          },
+        });
+      } catch {
+        return null;
+      }
     };
 
-    const orConditions: Record<string, string>[] = [];
-    if (orderId) {
-      orConditions.push({ orderId });
-    }
-    if (orderNumber) {
-      orConditions.push({ orderNumber });
-      orConditions.push({ referenceId: orderNumber });
-    }
-    if (orConditions.length) {
-      (where as any).OR = orConditions;
-    }
+    const findOrderByNumber = async () => {
+      if (!orderNumber) return null;
+      return prisma.sallaOrder.findFirst({
+        where: {
+          ...(merchantId ? { merchantId } : {}),
+          OR: [{ orderNumber }, { referenceId: orderNumber }],
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+    };
 
-    const orderRecord = await prisma.sallaOrder.findFirst({
-      where,
-      orderBy: {
-        updatedAt: 'desc',
-      },
-    });
+    const findOrderFallback = async () => {
+      const where: Record<string, unknown> = {
+        ...(merchantId ? { merchantId } : {}),
+      };
+
+      const orConditions: Record<string, string>[] = [];
+      if (orderId) {
+        orConditions.push({ orderId });
+      }
+      if (orderNumber) {
+        orConditions.push({ orderNumber });
+        orConditions.push({ referenceId: orderNumber });
+      }
+      if (!orConditions.length) {
+        return null;
+      }
+
+      (where as any).OR = orConditions;
+
+      return prisma.sallaOrder.findFirst({
+        where,
+        orderBy: {
+          updatedAt: 'desc',
+        },
+      });
+    };
+
+    const orderRecord =
+      (await findOrderByCompositeKey()) ||
+      (await findOrderByNumber()) ||
+      (await findOrderFallback());
 
     if (!orderRecord?.rawOrder) {
       const errorMessage = 'لم يتم العثور على بيانات الطلب لطباعة الفاتورة';

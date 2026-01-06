@@ -53,6 +53,10 @@ export default function ShipmentAssignmentsPage() {
   const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [assignmentNotes, setAssignmentNotes] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const primaryRole = (session?.user as any)?.role as string | undefined;
+  const userRoles: string[] = (session?.user as any)?.roles || (primaryRole ? [primaryRole] : []);
+  const isAdmin = primaryRole === 'admin';
+  const canAccessCodTracker = isAdmin || userRoles.includes('accountant');
 
   useEffect(() => {
     fetchData();
@@ -212,12 +216,14 @@ export default function ShipmentAssignmentsPage() {
           >
             تعيين الشحنات
           </Link>
-          <Link
-            href="/cod-tracker"
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            تتبع التحصيل
-          </Link>
+          {canAccessCodTracker && (
+            <Link
+              href="/cod-tracker"
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+            >
+              تتبع التحصيل
+            </Link>
+          )}
         </nav>
 
         {/* Header */}
