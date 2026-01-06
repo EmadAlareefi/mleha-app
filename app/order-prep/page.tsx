@@ -134,6 +134,7 @@ export default function OrderPrepPage() {
     labelUrl?: string | null;
     printedAt?: string | null;
   } | null>(null);
+  const [shipmentError, setShipmentError] = useState<string | null>(null);
   const [movingToReview, setMovingToReview] = useState(false);
   const [movingToReservation, setMovingToReservation] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
@@ -558,6 +559,7 @@ export default function OrderPrepPage() {
     if (!currentOrder) return;
 
     setCreatingShipment(true);
+    setShipmentError(null);
     try {
       const response = await fetch('/api/salla/create-shipment', {
         method: 'POST',
@@ -587,6 +589,7 @@ export default function OrderPrepPage() {
           printedAt: labelPrintedAt,
           labelUrl,
         });
+        setShipmentError(null);
 
         // Show success message
         // Note: Label printing is handled automatically by the webhook
@@ -601,11 +604,14 @@ export default function OrderPrepPage() {
       } else {
         const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
         console.error('Shipment creation failed:', data);
+        setShipmentError(errorMsg || 'فشل إنشاء الشحنة، حاول مرة أخرى.');
         alert(errorMsg || 'فشل إنشاء الشحنة');
       }
     } catch (error) {
       console.error('Create shipment exception:', error);
-      alert(`فشل إنشاء الشحنة\n\nخطأ: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
+      const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
+      setShipmentError(`خطأ في الاتصال: ${errorMessage}`);
+      alert(`فشل إنشاء الشحنة\n\nخطأ: ${errorMessage}`);
     } finally {
       setCreatingShipment(false);
     }
@@ -862,7 +868,7 @@ export default function OrderPrepPage() {
 
       <div className="w-full">
         {/* Content */}
-        <div className="px-4 md:px-6 py-6">
+        <div className="px-4 md:px-6 pt-6 pb-32 md:pb-40">
           {/* Refresh Controls */}
           <Card className="max-w-7xl mx-auto p-4 mb-6">
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
@@ -984,7 +990,7 @@ export default function OrderPrepPage() {
                   <h4 className="font-bold text-blue-900 mb-2">💡 التشخيص</h4>
                   <div className="text-sm text-blue-800">
                     {debugData.ordersInSalla.available === 0 && debugData.ordersInSalla.total === 0 && (
-                      <p>❌ لا توجد طلبات في سلة بحالة "{debugData.statusConfig.statusName}". تأكد من وجود طلبات جديدة في متجرك.</p>
+                      <p>❌ لا توجد طلبات في سلة بحالة &quot;{debugData.statusConfig.statusName}&quot;. تأكد من وجود طلبات جديدة في متجرك.</p>
                     )}
                     {debugData.ordersInSalla.available === 0 && debugData.ordersInSalla.total > 0 && (
                       <p>⚠️ جميع الطلبات معينة بالفعل. انتظر طلبات جديدة أو تأكد من إكمال الطلبات الحالية.</p>
@@ -993,7 +999,7 @@ export default function OrderPrepPage() {
                       <p>⚠️ يوجد {debugData.ordersInSalla.available} طلب متاح ولكن لديك طلب نشط. أكمل الطلب الحالي أولاً.</p>
                     )}
                     {debugData.ordersInSalla.available > 0 && debugData.assignments.canAssignMore && (
-                      <p>✅ يوجد {debugData.ordersInSalla.available} طلب متاح ويمكنك استلام طلب جديد. انقر على "تحديث الطلبات".</p>
+                      <p>✅ يوجد {debugData.ordersInSalla.available} طلب متاح ويمكنك استلام طلب جديد. انقر على &quot;تحديث الطلبات&quot;.</p>
                     )}
                   </div>
                 </div>
@@ -1395,7 +1401,7 @@ export default function OrderPrepPage() {
                       </p>
                     )}
                     <p className="text-sm text-green-700 mt-2 font-medium">
-                      انقر على "الانتقال للطلب التالي" لإكمال هذا الطلب والانتقال لطلب جديد
+                      انقر على &quot;الانتقال للطلب التالي&quot; لإكمال هذا الطلب والانتقال لطلب جديد
                     </p>
                     {isAdmin && currentOrder.status === 'shipped' && (
                       <div className="mt-3 flex flex-col sm:flex-row gap-3">
@@ -1416,13 +1422,27 @@ export default function OrderPrepPage() {
                   </div>
                 </Card>
               )}
+              {shipmentError && (
+                <Card className="mt-4 p-4 bg-red-50 border-2 border-red-500">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-6 h-6 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    <div>
+                      <h4 className="text-base font-bold text-red-900">فشل إنشاء الشحنة</h4>
+                      <p className="text-sm text-red-700 whitespace-pre-line leading-relaxed">{shipmentError}</p>
+                    </div>
+                  </div>
+                </Card>
+              )}
 
               {/* Action Buttons - Fixed at bottom */}
-              <div className="mt-6 sticky bottom-0 bg-white border-t border-gray-200 p-4 -mx-4 md:-mx-6 shadow-lg">
-                <div className="max-w-7xl mx-auto space-y-3">
+              <div className="mt-8 md:mt-10 md:sticky md:bottom-0 md:z-40 md:-mx-6 md:px-6">
+                <div className="rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-white/80 md:rounded-none md:border-x-0 md:border-b-0 md:border-t md:shadow-[0_-12px_30px_rgba(15,23,42,0.12)] md:bg-white/95 md:p-5">
                   {/* Review Status Buttons */}
                   <div className="flex flex-col sm:flex-row gap-3">
                     <Button
+                      type="button"
                       onClick={() =>
                         openConfirmationDialog({
                           title: 'تأكيد النقل تحت المراجعة',
@@ -1433,11 +1453,12 @@ export default function OrderPrepPage() {
                         })
                       }
                       disabled={movingToReview || movingToReservation}
-                      className="w-full py-6 text-lg bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      className="w-full py-4 text-base sm:py-5 sm:text-lg bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
                       {movingToReview ? 'جاري النقل...' : '📋 تحت المراجعة'}
                     </Button>
                     <Button
+                      type="button"
                       onClick={() =>
                         openConfirmationDialog({
                           title: 'تأكيد النقل لحجز القطع',
@@ -1448,17 +1469,18 @@ export default function OrderPrepPage() {
                         })
                       }
                       disabled={movingToReview || movingToReservation}
-                      className="w-full py-6 text-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      className="w-full py-4 text-base sm:py-5 sm:text-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
                       {movingToReservation ? 'جاري النقل...' : '🔖 تحت المراجعة حجز قطع'}
                     </Button>
                   </div>
 
                   {/* Main Action Buttons */}
-                  <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="mt-4 flex flex-col sm:flex-row gap-3">
                     {currentOrder.status === 'shipped' ? (
                       // Show "Go to New Order" button when shipment is created
                       <Button
+                        type="button"
                         onClick={() =>
                           openConfirmationDialog({
                             title: 'تأكيد الانتقال للطلب التالي',
@@ -1467,13 +1489,14 @@ export default function OrderPrepPage() {
                             onConfirm: handleGoToNewOrder,
                           })
                         }
-                        className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
+                        className="w-full py-4 text-base sm:py-5 sm:text-lg bg-green-600 hover:bg-green-700"
                       >
                         ✅ الانتقال للطلب التالي
                       </Button>
                     ) : (
                       <>
                         <Button
+                          type="button"
                           onClick={() =>
                             openConfirmationDialog({
                               title: 'تأكيد إنشاء الشحنة',
@@ -1483,11 +1506,12 @@ export default function OrderPrepPage() {
                             })
                           }
                           disabled={creatingShipment || !!shipmentInfo}
-                          className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                          className="w-full py-4 text-base sm:py-5 sm:text-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                         >
                           {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
                         </Button>
                         <Button
+                          type="button"
                           onClick={() =>
                             openConfirmationDialog({
                               title: 'تأكيد إنهاء الطلب',
@@ -1497,7 +1521,7 @@ export default function OrderPrepPage() {
                               onConfirm: handleCompleteOrder,
                             })
                           }
-                          className="w-full py-6 text-lg bg-green-600 hover:bg-green-700"
+                          className="w-full py-4 text-base sm:py-5 sm:text-lg bg-green-600 hover:bg-green-700"
                         >
                           إنهاء الطلب
                         </Button>
