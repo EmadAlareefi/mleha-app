@@ -4,8 +4,6 @@ import { env } from "@/app/lib/env";
 import { log } from "@/app/lib/logger";
 import { storeSallaTokens } from "@/app/lib/salla-oauth";
 import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
-import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from "@/app/lib/printnode";
-import { printCommercialInvoiceIfInternational } from "@/app/lib/international-printing";
 import { prisma } from "@/lib/prisma";
 import { linkExchangeOrderFromWebhook } from "@/app/lib/returns/exchange-order";
 
@@ -335,60 +333,13 @@ async function maybePrintShipmentLabelFromStatus(
     return;
   }
 
-  try {
-    const printResult = await sendPrintJob({
-      title: `Shipment Label - Order ${referenceId || resolvedOrderId}`,
-      contentType: "pdf_uri",
-      content: shipmentUrl,
-      copies: 1,
-      paperName: PRINTNODE_LABEL_PAPER_NAME,
-      fitToPage: false,
-      dpi: PRINTNODE_DEFAULT_DPI,
-      rotate: 0,
-    });
+  log.info("Skipping automatic PrintNode request for order.updated webhook", {
+    merchantId,
+    orderId: resolvedOrderId,
+  });
+  return;
 
-    if (printResult.success) {
-      if (storedShipment?.id) {
-        await prisma.sallaShipment.update({
-          where: { id: storedShipment.id },
-          data: {
-            labelPrinted: true,
-            labelPrintedAt: new Date(),
-            labelPrintedBy: "system",
-            labelPrintedByName: "Salla order.updated webhook",
-            labelUrl: shipmentUrl,
-            printJobId: printResult.jobId ? String(printResult.jobId) : storedShipment.printJobId,
-            printCount: (storedShipment.printCount ?? 0) + 1,
-          },
-        });
-      }
-
-      log.info("Label sent to PrintNode from order.updated webhook", {
-        merchantId,
-        orderId: resolvedOrderId,
-        jobId: printResult.jobId,
-      });
-
-      await printCommercialInvoiceIfInternational({
-        orderId: resolvedOrderId,
-        orderNumber: referenceId || resolvedOrderId,
-        merchantId,
-        source: "order.updated-webhook",
-      });
-    } else {
-      log.error("PrintNode error while handling order.updated webhook", {
-        merchantId,
-        orderId: resolvedOrderId,
-        error: printResult.error,
-      });
-    }
-  } catch (error) {
-    log.error("Failed to send PrintNode job from order.updated webhook", {
-      merchantId,
-      orderId: resolvedOrderId,
-      error,
-    });
-  }
+  // Intentionally skip automatic printing here.
 }
 
 const STATUS_TEMPLATE_MAP: Record<string, StatusTemplateConfig> = {

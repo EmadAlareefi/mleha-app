@@ -527,6 +527,7 @@ model OrderAssignment {
   notes String? @db.Text
 
   @@unique([userId, orderId])
+  @@unique([merchantId, orderId])
   @@index([userId])
   @@index([status])
   @@index([merchantId, orderId])
@@ -540,6 +541,24 @@ model HighPriorityOrder {
   orderNumber       String?
   customerName      String?
   reason            String?
+  notes             String?  @db.Text
+  createdById       String?
+  createdByName     String?
+  createdByUsername String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([merchantId])
+  @@index([orderId])
+}
+
+model OrderGiftFlag {
+  id                String   @id @default(cuid())
+  merchantId        String
+  orderId           String
+  orderNumber       String?
+  reason            String?  @db.Text
   notes             String?  @db.Text
   createdById       String?
   createdByName     String?

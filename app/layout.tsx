@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Tajawal } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
@@ -16,11 +16,14 @@ export const metadata: Metadata = {
   description: "نظام إدارة طلبات متجر مليحة",
   applicationName: "متجر مليحة للفساتين",
   manifest: "/manifest.webmanifest",
-  themeColor: "#11101a",
   icons: {
     icon: "/logo.png",
     apple: "/logo.png",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#11101a",
 };
 
 export default function RootLayout({

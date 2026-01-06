@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 
@@ -261,71 +262,100 @@ export async function POST(request: NextRequest) {
       availableOrderIds: unassignedOrders.map((o: any) => o.id),
     });
 
-    // Limit to available slots
-    const ordersToAssign = prioritizedOrders.slice(0, availableSlots);
+    const fetchOrderDetailsWithItems = async (order: any) => {
+      try {
+        const detailUrl = `${baseUrl}/orders/${order.id}`;
+        const detailResponse = await fetchSallaWithRetry(detailUrl, accessToken);
 
-    // Fetch complete order details including items for each order
-    const ordersWithDetails = await Promise.all(
-      ordersToAssign.map(async (order: any) => {
-        try {
-          // Fetch order details with retry logic
-          const detailUrl = `${baseUrl}/orders/${order.id}`;
-          const detailResponse = await fetchSallaWithRetry(detailUrl, accessToken);
+        if (detailResponse.ok) {
+          const detailData = await detailResponse.json();
+          const orderDetail = detailData.data || order;
 
-          if (detailResponse.ok) {
-            const detailData = await detailResponse.json();
-            const orderDetail = detailData.data || order;
+          try {
+            const itemsUrl = `${baseUrl}/orders/items?order_id=${order.id}`;
+            const itemsResponse = await fetchSallaWithRetry(itemsUrl, accessToken);
 
-            // Fetch order items separately using query parameter with retry logic
-            try {
-              const itemsUrl = `${baseUrl}/orders/items?order_id=${order.id}`;
-              const itemsResponse = await fetchSallaWithRetry(itemsUrl, accessToken);
-
-              if (itemsResponse.ok) {
-                const itemsData = await itemsResponse.json();
-                orderDetail.items = itemsData.data || [];
-                log.info('Fetched order items', {
-                  orderId: order.id,
-                  itemsCount: orderDetail.items.length,
-                });
-              } else {
-                const errorText = await itemsResponse.text();
-                log.error('Failed to fetch order items', {
-                  orderId: order.id,
-                  status: itemsResponse.status,
-                  error: errorText,
-                });
-                orderDetail.items = [];
-              }
-            } catch (itemsError) {
-              log.warn('Failed to fetch order items', { orderId: order.id, error: itemsError });
+            if (itemsResponse.ok) {
+              const itemsData = await itemsResponse.json();
+              orderDetail.items = itemsData.data || [];
+              log.info('Fetched order items', {
+                orderId: order.id,
+                itemsCount: orderDetail.items.length,
+              });
+            } else {
+              const errorText = await itemsResponse.text();
+              log.error('Failed to fetch order items', {
+                orderId: order.id,
+                status: itemsResponse.status,
+                error: errorText,
+              });
               orderDetail.items = [];
             }
-
-            return orderDetail;
+          } catch (itemsError) {
+            log.warn('Failed to fetch order items', { orderId: order.id, error: itemsError });
+            orderDetail.items = [];
           }
-        } catch (error) {
-          log.warn('Failed to fetch order details', { orderId: order.id, error });
-        }
-        return { ...order, items: [] }; // Fallback to basic order data with empty items
-      })
-    );
 
-    // Create assignments with complete order data
-    const assignments = await Promise.all(
-      ordersWithDetails.map((order: any) =>
-        prisma.orderAssignment.create({
+          return orderDetail;
+        }
+      } catch (error) {
+        log.warn('Failed to fetch order details', { orderId: order.id, error });
+      }
+      return { ...order, items: [] };
+    };
+
+    const assignments: Awaited<ReturnType<typeof prisma.orderAssignment.create>>[] = [];
+    let skippedDueToDuplicate = 0;
+
+    for (const order of prioritizedOrders) {
+      if (assignments.length >= availableSlots) {
+        break;
+      }
+
+      const orderWithDetails = await fetchOrderDetailsWithItems(order);
+
+      try {
+        const assignment = await prisma.orderAssignment.create({
           data: {
             userId: user.id,
             merchantId: MERCHANT_ID,
-            orderId: String(order.id),
-            orderNumber: String(order.reference_id || order.id),
-            orderData: order as any, // Now includes full product details with SKU
-            sallaStatus: order.status?.slug || order.status?.id?.toString() || statusFilter,
+            orderId: String(orderWithDetails.id ?? order.id),
+            orderNumber: String(
+              orderWithDetails.reference_id ||
+              orderWithDetails.id ||
+              order.reference_id ||
+              order.id
+            ),
+            orderData: orderWithDetails as any,
+            sallaStatus:
+              orderWithDetails.status?.slug ||
+              orderWithDetails.status?.id?.toString() ||
+              order.status?.slug ||
+              order.status?.id?.toString() ||
+              statusFilter,
           },
-        })
-      )
-    );
+        });
+        assignments.push(assignment);
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          skippedDueToDuplicate += 1;
+          log.warn('Order already assigned to another user during auto-assignment', {
+            orderId: order.id,
+            userId: user.id,
+            target: error.meta?.target,
+          });
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (skippedDueToDuplicate > 0) {
+      log.info('Some orders were skipped because they were already assigned', {
+        userId: user.id,
+        skippedDueToDuplicate,
+      });
+    }
 
     // Update Salla status to "جاري التجهيز" (processing/preparing) for newly assigned orders
     // This prevents overlap between users as the order is immediately marked as being processed

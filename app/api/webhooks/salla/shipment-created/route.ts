@@ -22,8 +22,10 @@ export async function POST(request: NextRequest) {
     const payload = await request.json();
 
     const supportedEvents = ['order.shipment.created', 'order.updated'];
+    const eventType = payload.event;
+    const isOrderUpdatedEvent = eventType === 'order.updated';
     log.info('Webhook payload received', {
-      event: payload.event,
+      event: eventType,
       merchant: payload.merchant,
       orderId: payload.data?.reference_id,
     });
@@ -79,8 +81,9 @@ export async function POST(request: NextRequest) {
       ''
     ).toString();
 
-    log.info('Processing shipment.created', {
+    log.info('Processing shipment webhook payload', {
       referenceId,
+      eventType,
       shipmentId: shipmentInfo.id,
       shippingCompany,
       trackingLink,
@@ -213,6 +216,11 @@ export async function POST(request: NextRequest) {
         referenceId,
         orderId: resolvedOrderId,
         printCount: storedShipment?.printCount,
+      });
+    } else if (isOrderUpdatedEvent) {
+      log.info('Skipping PrintNode request for order.updated webhook payload', {
+        referenceId,
+        orderId: resolvedOrderId,
       });
     } else {
       if (!storedShipment) {

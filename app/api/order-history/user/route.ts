@@ -15,6 +15,15 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const status = searchParams.get('status');
+    const limitParam = searchParams.get('limit');
+    let limit: number | undefined;
+
+    if (limitParam) {
+      const parsedLimit = parseInt(limitParam, 10);
+      if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
+        limit = Math.min(parsedLimit, 50);
+      }
+    }
 
     if (!userId) {
       return NextResponse.json(
@@ -44,6 +53,7 @@ export async function GET(request: NextRequest) {
       orderBy: {
         finishedAt: 'desc',
       },
+      take: limit,
     });
 
     // Calculate statistics

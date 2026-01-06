@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse} from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
-import type { HighPriorityOrder } from '@prisma/client';
+import type { HighPriorityOrder, OrderGiftFlag } from '@prisma/client';
 
 export const runtime = 'nodejs';
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
 
     const orderIds = assignments.map((assignment) => assignment.orderId);
     let priorityMap = new Map<string, HighPriorityOrder>();
+    let giftFlagMap = new Map<string, OrderGiftFlag>();
 
     if (orderIds.length > 0) {
       const priorityOrders = await prisma.highPriorityOrder.findMany({
@@ -56,9 +57,20 @@ export async function GET(request: NextRequest) {
       priorityMap = new Map(priorityOrders.map((order) => [order.orderId, order]));
     }
 
+    if (orderIds.length > 0) {
+      const giftFlags = await prisma.orderGiftFlag.findMany({
+        where: {
+          merchantId: MERCHANT_ID,
+          orderId: { in: orderIds },
+        },
+      });
+      giftFlagMap = new Map(giftFlags.map((flag) => [flag.orderId, flag]));
+    }
+
     const enrichedAssignments = assignments
       .map((assignment) => {
         const priority = priorityMap.get(assignment.orderId);
+        const giftFlag = giftFlagMap.get(assignment.orderId);
         return {
           ...assignment,
           isHighPriority: Boolean(priority),
@@ -66,6 +78,11 @@ export async function GET(request: NextRequest) {
           highPriorityNotes: priority?.notes || null,
           highPriorityMarkedAt: priority?.createdAt || null,
           highPriorityMarkedBy: priority?.createdByName || priority?.createdByUsername || null,
+          hasGiftFlag: Boolean(giftFlag),
+          giftFlagReason: giftFlag?.reason || null,
+          giftFlagNotes: giftFlag?.notes || null,
+          giftFlagMarkedAt: giftFlag?.createdAt || null,
+          giftFlagMarkedBy: giftFlag?.createdByName || giftFlag?.createdByUsername || null,
         };
       })
       .sort((a, b) => {

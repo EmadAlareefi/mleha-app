@@ -3,12 +3,63 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { Prisma } from '@prisma/client';
-import type { SallaOrder as PrismaSallaOrder } from '@prisma/client';
+import type { OrderGiftFlag, SallaOrder as PrismaSallaOrder } from '@prisma/client';
 import { getSallaOrder, getSallaOrderByReference } from '@/app/lib/salla-api';
 import type { SallaOrder as RemoteSallaOrder } from '@/app/lib/salla-api';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
+
+const respondWithAssignment = async (payload: any, shipment: any) => {
+  const giftFlag = await getGiftFlagForOrder(payload.merchantId, payload.orderId);
+  return NextResponse.json({
+    success: true,
+    assignment: {
+      ...payload,
+      shipment,
+      giftFlag: serializeGiftFlag(giftFlag),
+    },
+  });
+};
+
+const getGiftFlagForOrder = async (
+  merchantId: string | null | undefined,
+  orderId?: string | null,
+): Promise<OrderGiftFlag | null> => {
+  if (!orderId) {
+    return null;
+  }
+
+  const resolvedMerchantId = merchantId && merchantId.trim().length > 0
+    ? merchantId
+    : MERCHANT_ID;
+
+  return prisma.orderGiftFlag.findUnique({
+    where: {
+      merchantId_orderId: {
+        merchantId: resolvedMerchantId,
+        orderId,
+      },
+    },
+  });
+};
+
+const serializeGiftFlag = (flag: OrderGiftFlag | null) => {
+  if (!flag) {
+    return null;
+  }
+
+  return {
+    id: flag.id,
+    reason: flag.reason || null,
+    notes: flag.notes || null,
+    createdAt: flag.createdAt.toISOString(),
+    updatedAt: flag.updatedAt.toISOString(),
+    createdById: flag.createdById || null,
+    createdByName: flag.createdByName || null,
+    createdByUsername: flag.createdByUsername || null,
+  };
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,8 +72,11 @@ export async function GET(request: NextRequest) {
     const user = session.user as any;
     const roles = user.roles || [user.role];
 
-    // Check if user is admin or warehouse
-    const isAuthorized = roles.includes('admin') || roles.includes('warehouse');
+    // Check if user is admin, warehouse, or returns (store manager)
+    const isAuthorized =
+      roles.includes('admin') ||
+      roles.includes('warehouse') ||
+      roles.includes('store_manager');
     if (!isAuthorized) {
       return NextResponse.json({ error: 'غير مصرح للوصول' }, { status: 403 });
     }
@@ -261,13 +315,7 @@ export async function GET(request: NextRequest) {
         orderNumber: payload.orderNumber,
       });
 
-      return NextResponse.json({
-        success: true,
-        assignment: {
-          ...payload,
-          shipment,
-        },
-      });
+      return respondWithAssignment(payload, shipment);
     }
 
     const historyEntry = await prisma.orderHistory.findFirst({
@@ -287,13 +335,7 @@ export async function GET(request: NextRequest) {
         orderNumber: payload.orderNumber,
       });
 
-      return NextResponse.json({
-        success: true,
-        assignment: {
-          ...payload,
-          shipment,
-        },
-      });
+      return respondWithAssignment(payload, shipment);
     }
 
     if (sallaFilters.length > 0) {
@@ -315,13 +357,7 @@ export async function GET(request: NextRequest) {
           orderNumber: payload.orderNumber,
         });
 
-        return NextResponse.json({
-          success: true,
-          assignment: {
-            ...payload,
-            shipment,
-          },
-        });
+        return respondWithAssignment(payload, shipment);
       }
 
       const syncedOrder = await syncOrderFromSalla(normalizedQueryVariants, digitsOnlyQuery);
@@ -333,13 +369,7 @@ export async function GET(request: NextRequest) {
           orderNumber: payload.orderNumber,
         });
 
-        return NextResponse.json({
-          success: true,
-          assignment: {
-            ...payload,
-            shipment,
-          },
-        });
+        return respondWithAssignment(payload, shipment);
       }
       if (syncedOrder?.remote) {
         const payload = buildAssignmentFromRemoteOrder(syncedOrder.remote);
@@ -349,13 +379,7 @@ export async function GET(request: NextRequest) {
           orderNumber: payload.orderNumber,
         });
 
-        return NextResponse.json({
-          success: true,
-          assignment: {
-            ...payload,
-            shipment,
-          },
-        });
+        return respondWithAssignment(payload, shipment);
       }
     }
 

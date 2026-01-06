@@ -140,6 +140,14 @@ export default function AdminDashboard() {
       allowedRoles: ['admin', 'store_manager'],
     },
     {
+      title: 'علامة تغليف الهدايا',
+      description: 'تحديد الطلبات التي تحتاج تنبيه تغليف هدية',
+      icon: '🎁',
+      href: '/returns-gifts',
+      color: 'from-rose-500 to-pink-500',
+      allowedRoles: ['admin', 'store_manager'],
+    },
+    {
       title: 'الإعدادات',
       description: 'إدارة إعدادات النظام والرسوم',
       icon: '⚙️',
