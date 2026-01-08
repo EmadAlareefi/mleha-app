@@ -7,6 +7,7 @@ const PRINTNODE_API_KEY = 'qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU';
 const PRINTNODE_API_URL = 'https://api.printnode.com/printjobs';
 export const PRINTNODE_LABEL_PRINTER_ID = 75006700;
 export const PRINTNODE_INVOICE_PRINTER_ID = 75006701;
+export const PRINTNODE_ORDER_NUMBER_PRINTER_ID = 75062492;
 export const PRINTNODE_LABEL_PAPER_NAME = 'LABEL(100mm x 150mm)';
 export const PRINTNODE_INVOICE_PAPER_NAME = 'A4‏ 210‏ ×‏ 297‏ ملم';
 export const PRINTNODE_DEFAULT_DPI = '203x203';

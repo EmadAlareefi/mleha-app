@@ -13,7 +13,8 @@
     "sync:salla-orders": "node scripts/run-sync-salla-orders.js",
     "sync:erp-orders": "node scripts/run-sync-unsynced-erp-orders.js",
     "refresh:salla-tokens": "node scripts/run-refresh-tokens.js",
-    "check:salla-tokens": "node scripts/run-check-token-status.js"
+    "check:salla-tokens": "node scripts/run-check-token-status.js",
+    "db:migrate:supabase": "bash scripts/migrate-neon-to-supabase.sh"
   },
   "dependencies": {
     "@prisma/client": "^6.16.1",

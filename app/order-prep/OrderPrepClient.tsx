@@ -354,6 +354,7 @@ export default function OrderPrepPage() {
   const [refreshingItems, setRefreshingItems] = useState(false);
   const [creatingShipment, setCreatingShipment] = useState(false);
   const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
+  const [printingOrderNumber, setPrintingOrderNumber] = useState(false);
   const [shipmentInfo, setShipmentInfo] = useState<{
     trackingNumber: string;
     courierName: string;
@@ -952,6 +953,37 @@ useEffect(() => {
       alert('فشل إرسال البوليصة للطابعة');
     } finally {
       setPrintingShipmentLabel(false);
+    }
+  };
+
+  const handlePrintOrderNumber = async () => {
+    if (!currentOrder) return;
+
+    setPrintingOrderNumber(true);
+    try {
+      const response = await fetch('/api/order-prep/print-order-number', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber: currentOrder.orderNumber,
+          orderId: currentOrder.orderId,
+        }),
+      });
+
+      const data = await parseJsonResponse(response, 'POST /api/order-prep/print-order-number');
+
+      if (!response.ok || !data.success) {
+        const errorMsg = data.error || 'فشل إرسال رقم الطلب للطابعة';
+        alert(errorMsg);
+        return;
+      }
+
+      alert(data.message || 'تم إرسال رقم الطلب للطابعة');
+    } catch (error) {
+      console.error('Order number print exception:', error);
+      alert('فشل إرسال رقم الطلب للطابعة');
+    } finally {
+      setPrintingOrderNumber(false);
     }
   };
 
@@ -1924,6 +1956,21 @@ useEffect(() => {
                             {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
                           </Button>
                         )}
+                        <Button
+                          type="button"
+                          onClick={() =>
+                            openConfirmationDialog({
+                              title: 'تأكيد طباعة رقم الطلب',
+                              message: 'سيتم إرسال رقم الطلب الحالي مباشرةً إلى PrintNode للطباعة على الطابعة المخصصة.',
+                              confirmLabel: 'نعم، اطبع الرقم',
+                              onConfirm: handlePrintOrderNumber,
+                            })
+                          }
+                          disabled={printingOrderNumber}
+                          className={`${ACTION_BUTTON_BASE} bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                        >
+                          {printingOrderNumber ? 'جاري إرسال الرقم...' : 'طباعة رقم الطلب'}
+                        </Button>
                         <Button
                           type="button"
                           onClick={() =>
