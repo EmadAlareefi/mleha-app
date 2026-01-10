@@ -41,18 +41,19 @@ export default withAuth(
       > = {
         orders: {
           home: '/order-prep',
-          allowed: [
-            /^\/$/,
-            /^\/order-prep(\/.*)?$/,
-            /^\/order-shipping(\/.*)?$/,
-            /^\/order-history(\/.*)?$/,
-            /^\/api\/order-assignments(\/.*)?$/,
-            /^\/api\/order-prep\/product-locations(\/.*)?$/,
-            /^\/api\/salla\/create-shipment(\/.*)?$/,
-            /^\/api\/salla\/shipments(\/.*)?$/,
-            /^\/barcode-labels(\/.*)?$/,
-          ],
-        },
+        allowed: [
+          /^\/$/,
+          /^\/order-prep(\/.*)?$/,
+          /^\/order-shipping(\/.*)?$/,
+          /^\/order-history(\/.*)?$/,
+          /^\/api\/order-assignments(\/.*)?$/,
+          /^\/api\/order-prep\/product-locations(\/.*)?$/,
+          /^\/api\/order-prep\/print-order-number(\/.*)?$/,
+          /^\/api\/salla\/create-shipment(\/.*)?$/,
+          /^\/api\/salla\/shipments(\/.*)?$/,
+          /^\/barcode-labels(\/.*)?$/,
+        ],
+      },
         store_manager: {
           home: '/returns-management',
           allowed: [
