@@ -44,6 +44,7 @@ export default withAuth(
           allowed: [
             /^\/$/,
             /^\/order-prep(\/.*)?$/,
+            /^\/order-shipping(\/.*)?$/,
             /^\/order-history(\/.*)?$/,
             /^\/api\/order-assignments(\/.*)?$/,
             /^\/api\/order-prep\/product-locations(\/.*)?$/,
