@@ -48,14 +48,21 @@ export async function POST(request: NextRequest) {
     } | null = null;
 
     if (user?.id) {
-      printerLink = await prisma.orderUserPrinterLink.findUnique({
-        where: { userId: user.id },
-        select: {
-          printerId: true,
-          printerName: true,
-          paperName: true,
-        },
-      });
+      try {
+        printerLink = await prisma.orderUserPrinterLink.findUnique({
+          where: { userId: user.id },
+          select: {
+            printerId: true,
+            printerName: true,
+            paperName: true,
+          },
+        });
+      } catch (dbError) {
+        log.warn('Unable to load printer link for user, falling back to overrides', {
+          userId: user.id,
+          error: dbError instanceof Error ? dbError.message : dbError,
+        });
+      }
     }
 
     const body = await request.json();
