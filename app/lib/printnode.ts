@@ -4,7 +4,8 @@
  */
 
 const PRINTNODE_API_KEY = 'qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU';
-const PRINTNODE_API_URL = 'https://api.printnode.com/printjobs';
+const PRINTNODE_BASE_URL = 'https://api.printnode.com';
+const PRINTNODE_PRINTJOBS_URL = `${PRINTNODE_BASE_URL}/printjobs`;
 export const PRINTNODE_LABEL_PRINTER_ID = 75006700;
 export const PRINTNODE_INVOICE_PRINTER_ID = 75006701;
 export const PRINTNODE_ORDER_NUMBER_PRINTER_ID = 75062492;
@@ -28,6 +29,30 @@ export interface PrintJobOptions {
   printOptions?: Record<string, unknown>;
 }
 
+export interface PrintNodeComputer {
+  id: number;
+  name?: string;
+  hostname?: string;
+  state?: string;
+  version?: string;
+  description?: string;
+}
+
+export interface PrintNodePrinter {
+  id: number;
+  name: string;
+  description?: string;
+  state?: string;
+  capabilities?: Record<string, unknown>;
+  default?: {
+    paper: string;
+    copies: number;
+    collate: string;
+    paperName?: string;
+  };
+  computer?: PrintNodeComputer;
+}
+
 /**
  * Send a print job to PrintNode
  */
@@ -45,7 +70,7 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
       ...(Object.keys(printOptions).length > 0 ? { options: printOptions } : {}),
     };
 
-    const response = await fetch(PRINTNODE_API_URL, {
+    const response = await fetch(PRINTNODE_PRINTJOBS_URL, {
       method: 'POST',
       headers: {
         'Authorization': 'Basic ' + btoa(`${PRINTNODE_API_KEY}:`),
@@ -85,6 +110,54 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     };
+  }
+}
+
+/**
+ * Fetch printers (devices) from PrintNode
+ */
+export async function fetchPrintNodePrinters(): Promise<PrintNodePrinter[]> {
+  try {
+    const response = await fetch(`${PRINTNODE_BASE_URL}/printers`, {
+      headers: {
+        'Authorization': 'Basic ' + btoa(`${PRINTNODE_API_KEY}:`),
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('PrintNode printers API error:', errorText);
+      throw new Error(`PrintNode API error: ${response.status} - ${errorText}`);
+    }
+
+    const printers = await response.json();
+    if (!Array.isArray(printers)) {
+      return [];
+    }
+
+    return printers.map((printer: any) => ({
+      id: printer.id,
+      name: printer.name,
+      description: printer.description,
+      state: printer.state,
+      computer: printer.computer
+        ? {
+            id: printer.computer.id,
+            name: printer.computer.name,
+            hostname: printer.computer.hostname,
+            state: printer.computer.state,
+            version: printer.computer.version,
+            description: printer.computer.description,
+          }
+        : undefined,
+      capabilities: printer.capabilities,
+      default: printer.default,
+    })) as PrintNodePrinter[];
+  } catch (error) {
+    console.error('Failed to fetch PrintNode printers:', error);
+    throw error;
   }
 }
 

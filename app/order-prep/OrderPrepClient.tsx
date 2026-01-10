@@ -352,8 +352,6 @@ export default function OrderPrepPage() {
   const [currentOrder, setCurrentOrder] = useState<OrderAssignment | null>(null);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [refreshingItems, setRefreshingItems] = useState(false);
-  const [creatingShipment, setCreatingShipment] = useState(false);
-  const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
   const [printingOrderNumber, setPrintingOrderNumber] = useState(false);
   const [shipmentInfo, setShipmentInfo] = useState<{
     trackingNumber: string;
@@ -512,25 +510,6 @@ export default function OrderPrepPage() {
         return a.locationLabel.localeCompare(b.locationLabel, 'ar');
       });
   }, [currentOrder, getLocationForSku, loadingProductLocations]);
-
-const existingShipmentLabelUrl = useMemo(() => {
-  if (!currentOrder) return null;
-  const labelFromOrderData = getLabelUrlFromOrderData(currentOrder.orderData);
-  if (labelFromOrderData) {
-    return labelFromOrderData;
-  }
-  const labelFromNotes = extractHttpUrl(currentOrder.notes) || findUrlInsideText(currentOrder.notes);
-  if (labelFromNotes) {
-    return labelFromNotes;
-  }
-  return null;
-}, [currentOrder]);
-
-  const shouldShowManualPrintButton =
-    Boolean(existingShipmentLabelUrl) && !shipmentInfo && currentOrder?.status !== 'shipped';
-
-const canPrintShipmentLabel =
-  Boolean(currentOrder && (currentOrder.status === 'shipped' || shipmentInfo));
 
 useEffect(() => {
     let cancelled = false;
@@ -855,104 +834,6 @@ useEffect(() => {
     } catch (error) {
       console.error('Failed to reopen history order:', error);
       alert('فشل إعادة فتح الطلب. حاول مرة أخرى.');
-    }
-  };
-
-  const handleCreateShipment = async () => {
-    if (!currentOrder) return;
-
-    setCreatingShipment(true);
-    setShipmentError(null);
-    try {
-      const response = await fetch('/api/salla/create-shipment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId: currentOrder.id }),
-      });
-
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('Non-JSON response:', text);
-        alert(`خطأ في الخادم: الاستجابة ليست بصيغة JSON\n\nالحالة: ${response.status}\n\nتحقق من سجلات الخادم للمزيد من التفاصيل.`);
-        return;
-      }
-
-      const data = await parseJsonResponse(response, 'POST /api/salla/create-shipment');
-
-      if (data.success) {
-        const labelPrinted = Boolean(data.data.labelPrinted);
-        const labelPrintedAt = data.data.labelPrintedAt || null;
-        const labelUrl = data.data.labelUrl || null;
-        setShipmentInfo({
-          trackingNumber: data.data.trackingNumber,
-          courierName: data.data.courierName,
-          labelPrinted,
-          printedAt: labelPrintedAt,
-          labelUrl,
-        });
-        setShipmentError(null);
-
-        // Show success message
-        const message = labelPrinted
-          ? `✅ تم إنشاء الشحنة وطباعة البوليصة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}`
-          : `✅ تم إنشاء الشحنة بنجاح!\n\nرقم التتبع: ${data.data.trackingNumber}\nشركة الشحن: ${data.data.courierName}\n\n💡 اضغط زر "طباعة البوليصة" أدناه لإرسالها للطابعة الآن.`;
-
-        alert(message);
-
-        // Reload orders to get the updated status
-        await loadMyOrders();
-      } else {
-        const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
-        console.error('Shipment creation failed:', data);
-        setShipmentError(errorMsg || 'فشل إنشاء الشحنة، حاول مرة أخرى.');
-        alert(errorMsg || 'فشل إنشاء الشحنة');
-      }
-    } catch (error) {
-      console.error('Create shipment exception:', error);
-      const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
-      setShipmentError(`خطأ في الاتصال: ${errorMessage}`);
-      alert(`فشل إنشاء الشحنة\n\nخطأ: ${errorMessage}`);
-    } finally {
-      setCreatingShipment(false);
-    }
-  };
-
-  const handleSendShipmentToPrinter = async () => {
-    if (!currentOrder) return;
-
-    setPrintingShipmentLabel(true);
-    try {
-      const response = await fetch('/api/salla/shipments/print', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId: currentOrder.id }),
-      });
-
-      const data = await parseJsonResponse(response, 'POST /api/salla/shipments/print');
-
-      if (data.success) {
-        const printedAt = data.data?.labelPrintedAt || new Date().toISOString();
-
-        setShipmentInfo(prev => ({
-          trackingNumber: prev?.trackingNumber || 'سيتم توفير رقم التتبع قريباً',
-          courierName: prev?.courierName || 'شركة الشحن المعتمدة',
-          labelPrinted: true,
-          printedAt,
-          labelUrl: data.data?.labelUrl || prev?.labelUrl || null,
-        }));
-
-        alert(data.message || 'تم إرسال البوليصة للطابعة');
-      } else {
-        const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
-        alert(errorMsg || 'فشل إرسال البوليصة للطابعة');
-      }
-    } catch (error) {
-      console.error('Manual shipment print exception:', error);
-      alert('فشل إرسال البوليصة للطابعة');
-    } finally {
-      setPrintingShipmentLabel(false);
     }
   };
 
@@ -1819,22 +1700,6 @@ useEffect(() => {
                     <p className="text-sm text-green-700 mt-2 font-medium">
                       بعد التأكد من الطباعة يمكنك استخدام زر &quot;الانتقال للطلب التالي&quot; لإكمال الطلب الحالي.
                     </p>
-                    {canPrintShipmentLabel && (
-                      <div className="mt-3 flex flex-col sm:flex-row gap-3">
-                        <Button
-                          variant="outline"
-                          onClick={handleSendShipmentToPrinter}
-                          disabled={printingShipmentLabel}
-                          className="w-full sm:w-auto"
-                        >
-                          {printingShipmentLabel
-                            ? 'جاري إرسال البوليصة...'
-                            : shipmentInfo?.labelPrinted
-                              ? 'إعادة طباعة البوليصة'
-                              : 'طباعة البوليصة'}
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 </Card>
               )}
@@ -1911,51 +1776,6 @@ useEffect(() => {
                       </Button>
                     ) : (
                       <>
-                        {shouldShowManualPrintButton ? (
-                          <div className="w-full">
-                            <Button
-                              type="button"
-                              onClick={() =>
-                                openConfirmationDialog({
-                                  title: 'تأكيد طباعة البوليصة',
-                                  message: 'تم العثور على بوليصة محفوظة لهذا الطلب وسيتم إرسالها يدوياً إلى PrintNode للطباعة.',
-                                  confirmLabel: 'نعم، اطبع البوليصة',
-                                  onConfirm: handleSendShipmentToPrinter,
-                                })
-                              }
-                              disabled={printingShipmentLabel}
-                              className={`${ACTION_BUTTON_BASE} bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
-                            >
-                              {printingShipmentLabel ? 'جاري إرسال البوليصة...' : 'طباعة البوليصة المخزنة'}
-                            </Button>
-                            {existingShipmentLabelUrl && (
-                              <a
-                                href={existingShipmentLabelUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2 block text-sm text-blue-700 underline text-center"
-                              >
-                                عرض رابط البوليصة المخزنة
-                              </a>
-                            )}
-                          </div>
-                        ) : (
-                          <Button
-                            type="button"
-                            onClick={() =>
-                              openConfirmationDialog({
-                                title: 'تأكيد إنشاء الشحنة',
-                                message: 'سيتم إنشاء شحنة جديدة للطلب الحالي. تأكد من صحة المنتجات والوزن قبل المتابعة.',
-                                confirmLabel: 'نعم، أنشئ الشحنة',
-                                onConfirm: handleCreateShipment,
-                              })
-                            }
-                            disabled={creatingShipment || !!shipmentInfo}
-                            className={`${ACTION_BUTTON_BASE} bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
-                          >
-                            {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
-                          </Button>
-                        )}
                         <Button
                           type="button"
                           onClick={() =>

@@ -479,9 +479,24 @@ model OrderUser {
   warehouseAssignments WarehouseAssignment[]
   roleAssignments      UserRoleAssignment[]
   deliveryAssignments  ShipmentAssignment[]  @relation("DeliveryAssignments")
+  printerLink          OrderUserPrinterLink?
 
   @@index([username])
   @@index([isActive])
+}
+
+model OrderUserPrinterLink {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  printerId     Int
+  printerName   String?
+  computerId    Int?
+  computerName  String?
+  paperName     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // New table for multiple role support

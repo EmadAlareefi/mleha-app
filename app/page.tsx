@@ -38,6 +38,14 @@ export default function AdminDashboard() {
       allowedRoles: ['orders'],
     },
     {
+      title: 'شحن الطلبات',
+      description: 'البحث عن الطلبات وإنشاء الشحنات وطباعة البوالص',
+      icon: '🚚',
+      href: '/order-shipping',
+      color: 'from-emerald-500 to-emerald-600',
+      allowedRoles: ['orders'],
+    },
+    {
       title: 'إدارة طلبات التحضير',
       description: 'لوحة تحكم المسؤول لإدارة ومتابعة طلبات التحضير',
       icon: '📊',
