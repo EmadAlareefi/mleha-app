@@ -8,6 +8,11 @@ import { printCommercialInvoiceIfInternational } from '@/app/lib/international-p
 
 export const runtime = 'nodejs';
 
+const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
+  '1': 75006700,
+  '15': 75062490,
+};
+
 const getUserRoles = (sessionUser: any): string[] => {
   if (!sessionUser) return [];
   if (Array.isArray(sessionUser.roles)) {
@@ -34,6 +39,23 @@ export async function POST(request: NextRequest) {
 
     if (!isAdmin && !isOrdersUser) {
       return NextResponse.json({ success: false, error: 'لا تملك صلاحية طباعة الشحنات' }, { status: 403 });
+    }
+
+    let printerLink: {
+      printerId: number;
+      printerName: string | null;
+      paperName: string | null;
+    } | null = null;
+
+    if (user?.id) {
+      printerLink = await prisma.orderUserPrinterLink.findUnique({
+        where: { userId: user.id },
+        select: {
+          printerId: true,
+          printerName: true,
+          paperName: true,
+        },
+      });
     }
 
     const body = await request.json();
@@ -144,6 +166,10 @@ export async function POST(request: NextRequest) {
     const targetOrderNumber =
       assignment?.orderNumber || shipment.orderNumber || resolvedOrderNumber || resolvedOrderId || 'غير معروف';
     const targetOrderId = assignment?.orderId || shipment.orderId || resolvedOrderId || 'غير معروف';
+    const fallbackPrinterId =
+      typeof user.username === 'string' ? SHIPPING_PRINTER_OVERRIDES[user.username] : undefined;
+    const targetPrinterId = printerLink?.printerId ?? fallbackPrinterId;
+    const printerPaperName = printerLink?.paperName || PRINTNODE_LABEL_PAPER_NAME;
 
     log.info('Sending manual print job for shipment', {
       assignmentId: assignment?.id || assignmentId || null,
@@ -152,6 +178,8 @@ export async function POST(request: NextRequest) {
       requestedBy: user.username || user.id,
       forceReprint: alreadyPrinted && isAdmin,
       trigger: assignment ? 'assignment' : 'admin-search',
+      printerId: targetPrinterId ?? 'default',
+      printerSelection: printerLink?.printerId ? 'user-link' : fallbackPrinterId ? 'username-override' : 'default',
     });
 
     const printResult = await sendPrintJob({
@@ -159,7 +187,8 @@ export async function POST(request: NextRequest) {
       contentType: 'pdf_uri',
       content: labelUrl,
       copies: 1,
-      paperName: PRINTNODE_LABEL_PAPER_NAME,
+      paperName: printerPaperName,
+      printerId: targetPrinterId,
       fitToPage: false,
       dpi: PRINTNODE_DEFAULT_DPI,
       rotate: 0,
