@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from '@/app/lib/printnode';
+import {
+  sendPrintJob,
+  PRINTNODE_LABEL_PAPER_NAME,
+  PRINTNODE_DEFAULT_DPI,
+  PRINTNODE_LABEL_PRINTER_ID,
+  getLabelPrinterSizing,
+} from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 
@@ -237,13 +243,22 @@ export async function POST(request: NextRequest) {
           labelUrl: shipmentUrl,
         });
 
+        const labelPrinterId = PRINTNODE_LABEL_PRINTER_ID;
+        const labelPrinterSizing = getLabelPrinterSizing(labelPrinterId);
+        const labelPaperName = labelPrinterSizing.paperSizeMm
+          ? undefined
+          : labelPrinterSizing.paperName ?? PRINTNODE_LABEL_PAPER_NAME;
+
         const printResult = await sendPrintJob({
           title: `Shipment Label - Order ${referenceId || resolvedOrderId}`,
           contentType: 'pdf_uri',
           content: shipmentUrl,
           copies: 1,
-          paperName: PRINTNODE_LABEL_PAPER_NAME,
-          fitToPage: false,
+          ...(labelPaperName ? { paperName: labelPaperName } : {}),
+          ...(labelPrinterSizing.paperSizeMm ? { paperSizeMm: labelPrinterSizing.paperSizeMm } : {}),
+          ...(labelPrinterSizing.printOptions ? { printOptions: labelPrinterSizing.printOptions } : {}),
+          printerId: labelPrinterId,
+          fitToPage: labelPrinterSizing.fitToPage ?? false,
           dpi: PRINTNODE_DEFAULT_DPI,
           rotate: 0,
         });

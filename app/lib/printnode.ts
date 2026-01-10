@@ -13,6 +13,32 @@ export const PRINTNODE_LABEL_PAPER_NAME = 'LABEL(100mm x 150mm)';
 export const PRINTNODE_INVOICE_PAPER_NAME = 'A4‏ 210‏ ×‏ 297‏ ملم';
 export const PRINTNODE_DEFAULT_DPI = '203x203';
 const DEFAULT_LABEL_PAPER_MM = { width: 100, height: 150 } as const;
+const LABEL_PRINTER_SIZE_OVERRIDES: Record<number, LabelPrinterSizing> = {
+  [PRINTNODE_LABEL_PRINTER_ID]: {
+    fitToPage: true,
+  },
+  75062490: {
+    fitToPage: true,
+    paperSizeMm: { width: 94, height: 142 },
+    printOptions: {
+      nudge_y: 2500,
+    },
+  },
+};
+
+export interface LabelPrinterSizing {
+  fitToPage?: boolean;
+  paperSizeMm?: { width: number; height: number };
+  paperName?: string;
+  printOptions?: Record<string, unknown>;
+}
+
+export const getLabelPrinterSizing = (printerId?: number): LabelPrinterSizing => {
+  if (typeof printerId !== 'number') {
+    return {};
+  }
+  return LABEL_PRINTER_SIZE_OVERRIDES[printerId] ?? {};
+};
 
 export interface PrintJobOptions {
   title?: string;

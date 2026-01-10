@@ -11,6 +11,11 @@ import AppNavbar from '@/components/AppNavbar';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
 import { Search, Printer, AlertCircle } from 'lucide-react';
 
+const LABEL_PRINTER_OPTIONS = [
+  { id: 75006700, label: 'الطابعة الرئيسية (75006700)' },
+  { id: 75062490, label: 'الطابعة الاحتياطية (75062490)' },
+] as const;
+
 interface ShipmentInfo {
   id?: string;
   trackingNumber?: string;
@@ -54,7 +59,7 @@ export default function OrderInvoiceSearchPage() {
   const [searching, setSearching] = useState(false);
   const [order, setOrder] = useState<OrderAssignment | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
+  const [printingShipmentPrinter, setPrintingShipmentPrinter] = useState<number | null>(null);
   const [printingInvoiceViaPrintNode, setPrintingInvoiceViaPrintNode] = useState(false);
   const commercialInvoiceRef = useRef<HTMLDivElement>(null);
 
@@ -161,7 +166,7 @@ export default function OrderInvoiceSearchPage() {
     }
   };
 
-  const handleReprintShipmentLabel = async () => {
+  const handleReprintShipmentLabel = async (printerId?: number) => {
     if (!isAdmin) {
       alert('هذا الإجراء متاح للمسؤولين فقط.');
       return;
@@ -171,7 +176,7 @@ export default function OrderInvoiceSearchPage() {
       return;
     }
 
-    setPrintingShipmentLabel(true);
+    setPrintingShipmentPrinter(printerId ?? -1);
     try {
       const payload: Record<string, string> = {
         orderId: order.orderId,
@@ -185,7 +190,10 @@ export default function OrderInvoiceSearchPage() {
       const response = await fetch('/api/salla/shipments/print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          ...(typeof printerId === 'number' ? { printerId } : {}),
+        }),
       });
 
       const data = await response.json();
@@ -217,7 +225,7 @@ export default function OrderInvoiceSearchPage() {
       console.error('Manual shipment print error:', err);
       alert('فشل إرسال البوليصة للطابعة');
     } finally {
-      setPrintingShipmentLabel(false);
+      setPrintingShipmentPrinter(null);
     }
   };
 
@@ -426,6 +434,7 @@ export default function OrderInvoiceSearchPage() {
   const shipmentPrintCount = shipmentInfo?.printCount ?? null;
   const canShowShipmentDetails = Boolean(resolvedTrackingNumber || shipmentLabelUrl || resolvedShipmentStatus);
   const canPrintShipmentLabel = Boolean(isAdmin && shipmentInfo && shipmentLabelUrl);
+  const isPrintingShipmentLabel = printingShipmentPrinter !== null;
 
   const isInternationalOrder = Boolean(order && shippingCountry && !isSaudiCountry(shippingCountry));
   const isCommercialInvoiceAvailable = Boolean(order && isInternationalOrder);
@@ -645,17 +654,30 @@ export default function OrderInvoiceSearchPage() {
                       <p className="text-sm text-gray-600">مراجعة حالة الشحنة ورابط البوليصة</p>
                     </div>
                     {canPrintShipmentLabel && (
-                      <Button
-                        onClick={handleReprintShipmentLabel}
-                        disabled={printingShipmentLabel}
-                        className="bg-emerald-600 hover:bg-emerald-700 w-full md:w-auto"
-                      >
-                        {printingShipmentLabel
-                          ? 'جاري إرسال البوليصة...'
-                          : shipmentInfo?.labelPrinted
-                            ? 'إعادة طباعة البوليصة'
-                            : 'طباعة البوليصة'}
-                      </Button>
+                      <div className="flex flex-col gap-2 w-full md:w-auto">
+                        {LABEL_PRINTER_OPTIONS.map((printerOption, index) => {
+                          const isActivePrinter = printingShipmentPrinter === printerOption.id;
+                          const emphasisClasses =
+                            index === 0
+                              ? 'bg-emerald-600 hover:bg-emerald-700'
+                              : 'bg-blue-600 hover:bg-blue-700';
+
+                          return (
+                            <Button
+                              key={printerOption.id}
+                              onClick={() => handleReprintShipmentLabel(printerOption.id)}
+                              disabled={isPrintingShipmentLabel}
+                              className={`w-full md:w-auto ${emphasisClasses}`}
+                            >
+                              {isActivePrinter
+                                ? 'جاري إرسال البوليصة...'
+                                : shipmentInfo?.labelPrinted
+                                  ? `إعادة طباعة البوليصة - ${printerOption.label}`
+                                  : `طباعة البوليصة - ${printerOption.label}`}
+                            </Button>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

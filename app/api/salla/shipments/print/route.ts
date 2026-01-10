@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { sendPrintJob, PRINTNODE_LABEL_PAPER_NAME, PRINTNODE_DEFAULT_DPI } from '@/app/lib/printnode';
+import {
+  sendPrintJob,
+  PRINTNODE_LABEL_PAPER_NAME,
+  PRINTNODE_DEFAULT_DPI,
+  PRINTNODE_LABEL_PRINTER_ID,
+  getLabelPrinterSizing,
+} from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 
@@ -11,6 +17,19 @@ export const runtime = 'nodejs';
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
   '1': 75006700,
   '15': 75062490,
+};
+
+const parsePrinterId = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
 };
 
 const getUserRoles = (sessionUser: any): string[] => {
@@ -70,7 +89,9 @@ export async function POST(request: NextRequest) {
       assignmentId,
       orderId: providedOrderId,
       orderNumber: providedOrderNumber,
+      printerId: requestedPrinterIdInput,
     } = body;
+    const requestedPrinterId = parsePrinterId(requestedPrinterIdInput);
 
     if (!assignmentId && !providedOrderId && !providedOrderNumber) {
       return NextResponse.json({ success: false, error: 'معرف الطلب أو رقم الطلب مطلوب' }, { status: 400 });
@@ -176,7 +197,21 @@ export async function POST(request: NextRequest) {
     const fallbackPrinterId =
       typeof user.username === 'string' ? SHIPPING_PRINTER_OVERRIDES[user.username] : undefined;
     const targetPrinterId = printerLink?.printerId ?? fallbackPrinterId;
-    const printerPaperName = printerLink?.paperName || PRINTNODE_LABEL_PAPER_NAME;
+    const preferredPrinterId = isAdmin ? requestedPrinterId : undefined;
+    const resolvedPrinterId = preferredPrinterId ?? targetPrinterId ?? PRINTNODE_LABEL_PRINTER_ID;
+    const fallbackPaperName = printerLink?.paperName || PRINTNODE_LABEL_PAPER_NAME;
+    const printerSizing = getLabelPrinterSizing(resolvedPrinterId);
+    const resolvedPaperName = printerSizing.paperSizeMm
+      ? undefined
+      : printerSizing.paperName || fallbackPaperName;
+    const fitToPage = printerSizing.fitToPage ?? false;
+    const printerSelection = preferredPrinterId
+      ? 'request-override'
+      : printerLink?.printerId
+        ? 'user-link'
+        : fallbackPrinterId
+          ? 'username-override'
+          : 'default';
 
     log.info('Sending manual print job for shipment', {
       assignmentId: assignment?.id || assignmentId || null,
@@ -185,8 +220,8 @@ export async function POST(request: NextRequest) {
       requestedBy: user.username || user.id,
       forceReprint: alreadyPrinted && isAdmin,
       trigger: assignment ? 'assignment' : 'admin-search',
-      printerId: targetPrinterId ?? 'default',
-      printerSelection: printerLink?.printerId ? 'user-link' : fallbackPrinterId ? 'username-override' : 'default',
+      printerId: resolvedPrinterId,
+      printerSelection,
     });
 
     const printResult = await sendPrintJob({
@@ -194,9 +229,11 @@ export async function POST(request: NextRequest) {
       contentType: 'pdf_uri',
       content: labelUrl,
       copies: 1,
-      paperName: printerPaperName,
-      printerId: targetPrinterId,
-      fitToPage: false,
+      ...(resolvedPaperName ? { paperName: resolvedPaperName } : {}),
+      ...(printerSizing.paperSizeMm ? { paperSizeMm: printerSizing.paperSizeMm } : {}),
+      ...(printerSizing.printOptions ? { printOptions: printerSizing.printOptions } : {}),
+      printerId: resolvedPrinterId,
+      fitToPage,
       dpi: PRINTNODE_DEFAULT_DPI,
       rotate: 0,
     });
