@@ -848,6 +848,7 @@ useEffect(() => {
         body: JSON.stringify({
           orderNumber: currentOrder.orderNumber,
           orderId: currentOrder.orderId,
+          printDate: new Date().toLocaleDateString('en-GB'),
         }),
       });
 
@@ -858,8 +859,7 @@ useEffect(() => {
         alert(errorMsg);
         return;
       }
-
-      alert(data.message || 'تم إرسال رقم الطلب للطابعة');
+      setDebugInfo(data.message || 'تم إرسال رقم الطلب للطابعة');
     } catch (error) {
       console.error('Order number print exception:', error);
       alert('فشل إرسال رقم الطلب للطابعة');
