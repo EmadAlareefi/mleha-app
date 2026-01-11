@@ -117,21 +117,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'الطلب غير موجود' }, { status: 404 });
       }
 
-      if (!isAdmin && assignment.userId !== user.id) {
-        return NextResponse.json(
-          { success: false, error: 'لا يمكنك طباعة بوليصة لطلب غير مكلف به' },
-          { status: 403 }
-        );
-      }
-
       merchantIdForShipment = assignment.merchantId;
       resolvedOrderId = assignment.orderId;
       resolvedOrderNumber = assignment.orderNumber;
-    } else if (!isAdmin) {
-      return NextResponse.json(
-        { success: false, error: 'لا يمكنك طباعة بوليصة لطلب غير مكلف به' },
-        { status: 403 }
-      );
     }
 
     if (!resolvedOrderId && !resolvedOrderNumber) {

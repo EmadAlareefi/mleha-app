@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getSallaAccessToken } from '@/app/lib/salla-oauth';
 import { getSallaOrderStatuses, getStatusBySlug } from '@/app/lib/salla-statuses';
 import { log } from '@/app/lib/logger';
+import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
 
 export const runtime = 'nodejs';
 
@@ -100,7 +101,7 @@ export async function GET(request: NextRequest) {
       where: {
         merchantId: MERCHANT_ID,
         status: {
-          in: ['assigned', 'preparing', 'shipped'],
+          in: ACTIVE_ASSIGNMENT_STATUSES,
         },
       },
       select: {
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing', 'shipped'],
+          in: ACTIVE_ASSIGNMENT_STATUSES,
         },
       },
     });

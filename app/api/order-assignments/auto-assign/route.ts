@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
 
 export const runtime = 'nodejs';
 
@@ -42,14 +43,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user already has an active order (including shipped orders waiting to be completed)
-    // Only count active orders: 'assigned', 'preparing', 'shipped'
+    // Check if user already has an active order (including shipped or review orders waiting to be completed)
+    // Only count active orders defined in ACTIVE_ASSIGNMENT_STATUSES
     // Exclude 'completed' and 'removed' orders (these are kept for reporting but not active)
     const currentAssignments = await prisma.orderAssignment.count({
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing', 'shipped'],
+          in: ACTIVE_ASSIGNMENT_STATUSES,
         },
       },
     });
@@ -200,7 +201,7 @@ export async function POST(request: NextRequest) {
       where: {
         merchantId: MERCHANT_ID,
         status: {
-          in: ['assigned', 'preparing', 'shipped'],
+          in: ACTIVE_ASSIGNMENT_STATUSES,
         },
       },
       select: {

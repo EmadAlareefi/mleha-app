@@ -2,6 +2,7 @@ import { NextRequest, NextResponse} from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import type { HighPriorityOrder, OrderGiftFlag } from '@prisma/client';
+import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
 
 export const runtime = 'nodejs';
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     } else {
       // Default: show active assignments including shipped orders
       where.status = {
-        in: ['assigned', 'preparing', 'shipped'],
+        in: ACTIVE_ASSIGNMENT_STATUSES,
       };
     }
 

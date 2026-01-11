@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing', 'prepared', 'shipped'],
+          in: ACTIVE_ASSIGNMENT_STATUSES,
         },
       },
     });
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
       where: {
         userId: user.id,
         status: {
-          in: ['assigned', 'preparing', 'prepared', 'shipped'],
+          in: ACTIVE_ASSIGNMENT_STATUSES,
         },
       },
     });

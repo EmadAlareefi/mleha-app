@@ -4,9 +4,9 @@ import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
+import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
-const ACTIVE_ASSIGNMENT_STATUSES = ['assigned', 'preparing', 'shipped'];
 
 const hasPriorityAccess = (sessionUser: any): boolean => {
   if (!sessionUser) return false;
