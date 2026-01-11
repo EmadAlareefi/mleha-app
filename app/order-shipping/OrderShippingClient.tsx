@@ -1011,21 +1011,26 @@ export default function OrderShippingPage() {
                     })}
 
                     {(() => {
-                      const giftSkuItems = (currentOrder.orderData?.items || []).filter((item: any) => {
-                        const tags = Array.isArray(item?.tags) ? item.tags : [];
-                        return tags.some((tag: any) => {
-                          const tagValue = typeof tag === 'string' ? tag : getStringValue(tag);
-                          return tagValue.toLowerCase().includes('gift');
-                        });
+                      const packagingAmount = getNumberValue(currentOrder.orderData?.amounts?.options_total?.amount);
+                      const items = Array.isArray(currentOrder.orderData?.items) ? currentOrder.orderData.items : [];
+                      const giftSkuPatterns = ['7571', '6504'];
+                      const giftSkuItems = items.filter((item: any) => {
+                        const sku = getStringValue(item?.sku).toUpperCase();
+                        return sku && giftSkuPatterns.some((pattern) => sku.includes(pattern));
                       });
-                      const hasManualGiftFlag = Boolean(currentOrder.hasGiftFlag || currentOrder.giftFlagReason);
-                      if (!hasManualGiftFlag && giftSkuItems.length === 0) {
+                      const hasManualGiftFlag = Boolean(currentOrder?.hasGiftFlag);
+                      const shouldHighlightGiftWrap = packagingAmount > 0 || giftSkuItems.length > 0 || hasManualGiftFlag;
+
+                      if (!shouldHighlightGiftWrap) {
                         return null;
                       }
 
-                      const giftReasonMessage = hasManualGiftFlag
-                        ? currentOrder.giftFlagReason || 'تم تعليم الطلب كتغليف هدية بواسطة فريق المرتجعات'
-                        : 'يحتوي الطلب على منتجات تتطلب تغليف هدية';
+                      const giftReasonMessage =
+                        hasManualGiftFlag
+                          ? currentOrder?.giftFlagReason || 'تم وضع علامة بأن هذا الطلب يحتاج تغليف هدية.'
+                          : packagingAmount > 0
+                            ? 'هذا الطلب يحتاج إلى تغليف هدية'
+                            : 'يحتوي الطلب على منتجات تتطلب تغليف هدية';
 
                       return (
                         <Card className="p-4 md:p-6 bg-red-50 border-2 border-red-500">
