@@ -13,6 +13,10 @@ export const ACTIVE_ASSIGNMENT_STATUSES = [
 
 export type ActiveAssignmentStatus = (typeof ACTIVE_ASSIGNMENT_STATUSES)[number];
 
+export const ACTIVE_ASSIGNMENT_STATUS_VALUES: ActiveAssignmentStatus[] = [
+  ...ACTIVE_ASSIGNMENT_STATUSES,
+];
+
 export const isActiveAssignmentStatus = (
   status?: string | null,
 ): status is ActiveAssignmentStatus =>

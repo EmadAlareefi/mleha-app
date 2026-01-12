@@ -5,18 +5,11 @@ import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
+import { serviceDefinitions } from '@/app/lib/service-definitions';
+import type { ServiceKey } from '@/app/lib/service-definitions';
+import { ArrowUpRight } from 'lucide-react';
 
 type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse' | 'accountant' | 'delivery_agent';
-
-type ServiceCard = {
-  title: string;
-  description: string;
-  icon: string;
-  href: string;
-  color: string;
-  badge?: string;
-  allowedRoles?: Role[];
-};
 
 export default function AdminDashboard() {
   const { data: session, status } = useSession();
@@ -24,212 +17,68 @@ export default function AdminDashboard() {
   // Don't default to admin - wait for proper session data
   const userRole: Role | undefined = (session?.user as any)?.role;
   const userRoles: Role[] = (session?.user as any)?.roles || (userRole ? [userRole] : []);
-  const canAccessOrderInvoiceSearch = userRoles.some((role) =>
-    role === 'admin' || role === 'orders'
-  );
+  const serviceKeys: ServiceKey[] = ((session?.user as any)?.serviceKeys || []) as ServiceKey[];
+  const isAdmin = userRole === 'admin';
 
-  const services: ServiceCard[] = [
+  const services = serviceDefinitions;
+
+  const visibleServices = services.filter((service) => {
+    if (service.hideFromDashboard) {
+      return false;
+    }
+    if (isAdmin) {
+      return true;
+    }
+    return serviceKeys.includes(service.key);
+  });
+
+  const defaultDashboardServices = services.filter((service) => !service.hideFromDashboard);
+  const heroPrimaryService = visibleServices[0] || defaultDashboardServices[0];
+  const heroCtaHref = heroPrimaryService?.href || '/';
+  const heroCtaLabel = heroPrimaryService
+    ? `الانتقال إلى ${heroPrimaryService.title}`
+    : 'استعراض الخدمات';
+  const secondaryCtaHref = '/order-history';
+  const secondaryCtaLabel = 'سجل الطلبات';
+
+  const roleLabelMap: Record<Role, string> = {
+    admin: 'مسؤول النظام',
+    orders: 'فريق الطلبات',
+    store_manager: 'مدير المتجر',
+    warehouse: 'فريق المستودع',
+    accountant: 'المحاسبة',
+    delivery_agent: 'مندوب التوصيل',
+  };
+
+  const primaryRoleKey: Role | undefined = userRole || userRoles[0];
+  const primaryRoleLabel = primaryRoleKey ? roleLabelMap[primaryRoleKey] : 'مستخدم النظام';
+
+  const localizedTime = new Intl.DateTimeFormat('ar-SA', {
+    hour: 'numeric',
+    minute: 'numeric',
+  }).format(new Date());
+
+  const quickStats = [
     {
-      title: 'تحضير الطلبات',
-      description: 'تحضير وإدارة الطلبات المعينة',
-      icon: '📝',
-      href: '/order-prep',
-      color: 'from-amber-500 to-amber-600',
-      allowedRoles: ['orders'],
+      label: 'الخدمات المتاحة',
+      value: `${(status === 'authenticated' ? visibleServices.length : defaultDashboardServices.length) || 0} خدمة`,
     },
     {
-      title: 'شحن الطلبات',
-      description: 'البحث عن الطلبات وإنشاء الشحنات وطباعة البوالص',
-      icon: '🚚',
-      href: '/order-shipping',
-      color: 'from-emerald-500 to-emerald-600',
-      allowedRoles: ['orders'],
+      label: 'وضع الجلسة',
+      value: status === 'authenticated' ? 'نشطة الآن' : 'بانتظار الدخول',
     },
     {
-      title: 'إدارة طلبات التحضير',
-      description: 'لوحة تحكم المسؤول لإدارة ومتابعة طلبات التحضير',
-      icon: '📊',
-      href: '/admin/order-prep',
-      color: 'from-slate-500 to-slate-600',
-      allowedRoles: ['admin'],
+      label: 'دورك',
+      value: primaryRoleLabel,
     },
     {
-      title: 'المستودع',
-      description: 'إدارة الشحنات الواردة والصادرة',
-      icon: '📦',
-      href: '/warehouse',
-      color: 'from-blue-500 to-blue-600',
-      allowedRoles: ['admin', 'warehouse'],
-    },
-    {
-      title: 'مواقع المنتجات',
-      description: 'تسجيل مواقع منتجات سلة وربطها بالمستودع',
-      icon: '🗂️',
-      href: '/warehouse/locations',
-      color: 'from-fuchsia-500 to-fuchsia-600',
-      allowedRoles: ['admin', 'warehouse'],
-    },
-    {
-      title: 'الشحن المحلي',
-      description: 'إدارة عمليات الشحن المحلي',
-      icon: '🚚',
-      href: '/local-shipping',
-      color: 'from-green-500 to-green-600',
-      allowedRoles: ['admin', 'warehouse'],
-    },
-    {
-      title: 'ملصقات الباركود',
-      description: 'إنشاء وطباعة ملصقات الباركود بحجم ٧×٤ سم',
-      icon: '🏷️',
-      href: '/barcode-labels',
-      color: 'from-rose-500 to-rose-600',
-      allowedRoles: ['admin', 'warehouse'],
-    },
-    {
-      title: 'تعيين الشحنات',
-      description: 'تعيين الشحنات المحلية للمناديب',
-      icon: '📍',
-      href: '/shipment-assignments',
-      color: 'from-cyan-500 to-cyan-600',
-      allowedRoles: ['admin', 'warehouse'],
-    },
-    {
-      title: 'البحث عن الطلبات',
-      description: 'البحث عن الطلبات وطباعة الفواتير التجارية',
-      icon: '🔍',
-      href: '/order-invoice-search',
-      color: 'from-violet-500 to-violet-600',
-      allowedRoles: ['admin', 'orders'],
-    },
-    {
-      title: 'متابعة التحصيل (COD)',
-      description: 'تتبع وإدارة مبالغ الدفع عند الاستلام',
-      icon: '💵',
-      href: '/cod-tracker',
-      color: 'from-amber-500 to-amber-600',
-      allowedRoles: ['admin', 'accountant'],
-    },
-    {
-      title: 'شحناتي',
-      description: 'عرض وإدارة الشحنات المُعيّنة لي',
-      icon: '🚛',
-      href: '/my-deliveries',
-      color: 'from-lime-500 to-lime-600',
-      allowedRoles: ['delivery_agent'],
-    },
-    // {
-    //   title: 'الإرجاع والاستبدال',
-    //   description: 'إدارة طلبات الإرجاع والاستبدال',
-    //   icon: '🔄',
-    //   href: '/returns',
-    //   color: 'from-orange-500 to-orange-600',
-    //   badge: 'عام',
-    // },
-    {
-      title: 'إدارة طلبات الإرجاع',
-      description: 'متابعة ومراجعة طلبات الإرجاع والاستبدال',
-      icon: '📋',
-      href: '/returns-management',
-      color: 'from-red-500 to-red-600',
-      allowedRoles: ['admin', 'store_manager'],
-    },
-    {
-      title: 'فحص المرتجعات',
-      description: 'قراءة شحنات الإرجاع وتحديد حالة المنتجات',
-      icon: '🔎',
-      href: '/returns-inspection',
-      color: 'from-red-600 to-rose-500',
-      allowedRoles: ['admin', 'warehouse'],
-    },
-    {
-      title: 'الطلبات عالية الأولوية',
-      description: 'تحديد الطلبات التي يجب أن تظهر أولاً لفريق التحضير',
-      icon: '⚡',
-      href: '/returns-priority',
-      color: 'from-orange-500 to-red-500',
-      allowedRoles: ['admin', 'store_manager'],
-    },
-    {
-      title: 'علامة تغليف الهدايا',
-      description: 'تحديد الطلبات التي تحتاج تنبيه تغليف هدية',
-      icon: '🎁',
-      href: '/returns-gifts',
-      color: 'from-rose-500 to-pink-500',
-      allowedRoles: ['admin', 'store_manager'],
-    },
-    {
-      title: 'الإعدادات',
-      description: 'إدارة إعدادات النظام والرسوم',
-      icon: '⚙️',
-      href: '/settings',
-      color: 'from-purple-500 to-purple-600',
-      allowedRoles: ['admin'],
-    },
-    {
-      title: 'إدارة مستخدمي الطلبات',
-      description: 'إنشاء وتعيين مستخدمين لتحضير الطلبات',
-      icon: '👥',
-      href: '/order-users-management',
-      color: 'from-indigo-500 to-indigo-600',
-      allowedRoles: ['admin'],
-    },
-    {
-      title: 'إدارة المستودعات',
-      description: 'إضافة المستودعات وتحديث بياناتها',
-      icon: '🏗️',
-      href: '/warehouse-management',
-      color: 'from-sky-500 to-sky-600',
-      allowedRoles: ['admin'],
-    },
-    {
-      title: 'تقارير الطلبات',
-      description: 'عرض تقارير الطلبات المكتملة وإحصائيات المستخدمين',
-      icon: '📊',
-      href: '/order-reports',
-      color: 'from-teal-500 to-teal-600',
-      allowedRoles: ['admin', 'accountant'],
-    },
-    {
-      title: 'تسويات المدفوعات',
-      description: 'رفع وربط ملفات التسويات مع طلبات سلة',
-      icon: '🧮',
-      href: '/settlements',
-      color: 'from-indigo-500 to-indigo-600',
-      allowedRoles: ['admin', 'accountant'],
-    },
-    {
-      title: 'الفواتير',
-      description: 'عرض ومزامنة فواتير سلة مع نظام ERP',
-      icon: '🧾',
-      href: '/invoices',
-      color: 'from-pink-500 to-pink-600',
-      allowedRoles: ['admin', 'store_manager'],
-    },
-    {
-      title: 'إدارة المصروفات',
-      description: 'تتبع وإدارة جميع مصروفات المتجر',
-      icon: '💰',
-      href: '/expenses',
-      color: 'from-emerald-500 to-emerald-600',
-      allowedRoles: ['admin', 'accountant'],
+      label: 'آخر تحديث',
+      value: localizedTime,
     },
   ];
 
-  // Filter services based on user roles - only show services where user has at least one matching role
-  const visibleServices = services.filter((service) => {
-    // If no roles defined for service, don't show it (all services should have explicit roles)
-    if (!service.allowedRoles || service.allowedRoles.length === 0) {
-      return false;
-    }
-
-    // If user has no roles, don't show any services
-    if (!userRoles || userRoles.length === 0) {
-      return false;
-    }
-
-    // Show service if user has at least one role that matches the service's allowed roles
-    return service.allowedRoles.some(role => userRoles.includes(role));
-  });
+  const showSecondaryPanel = status !== 'authenticated';
+  const showIntroSection = isAdmin || showSecondaryPanel;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -237,31 +86,73 @@ export default function AdminDashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
-        {/* Welcome Message */}
-        <div className="mb-12">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            مرحباً بك في نظام الإدارة
-          </h2>
-          <p className="text-lg text-gray-600">
-            اختر الخدمة التي تريد الوصول إليها
-          </p>
-        </div>
-
-        {status === 'authenticated' && canAccessOrderInvoiceSearch && (
-          <Card className="mb-12 p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white/80 border border-violet-100">
-            <div>
-              <p className="text-sm uppercase tracking-wide text-violet-600 font-semibold">جديد</p>
-              <h3 className="text-2xl font-bold text-gray-900 mt-1">البحث عن الطلبات وطباعة فاتورة تجارية</h3>
-              <p className="text-gray-600 mt-2">
-                وصّل فرق الإدارة والمستودع بصفحة البحث الجديدة لعرض تفاصيل الطلب وطباعة الفاتورة التجارية للشحنات الدولية مباشرةً.
-              </p>
+        {showIntroSection && (
+          <section
+          className={`mb-12 grid gap-6 ${
+            isAdmin && showSecondaryPanel ? 'lg:grid-cols-[minmax(0,2fr),minmax(0,1fr)]' : ''
+          }`}
+        >
+          {isAdmin && (
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-900 to-indigo-700 p-8 text-white shadow-2xl">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.2),transparent_55%)]" />
+              <div className="absolute -left-10 top-10 h-32 w-32 rounded-full bg-white/10 blur-3xl" />
+              <div className="relative z-10 space-y-6">
+                <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.4em] text-white/70">
+                  <span className="rounded-full bg-white/10 px-3 py-1">تجربة حديثة</span>
+                  {primaryRoleLabel && (
+                    <span className="rounded-full bg-white/10 px-3 py-1">{primaryRoleLabel}</span>
+                  )}
+                </div>
+                <div>
+                  <h2 className="text-3xl font-bold leading-snug text-white md:text-4xl">
+                    أنجز كل عملياتك من لوحة تحكم حديثة
+                  </h2>
+                  <p className="mt-3 text-lg text-white/80">
+                    حرّك فرق التحضير، الشحن، والمستودع من مكان واحد مع نظرة فورية على حالة الحساب
+                    وروابط مباشرة لكل خدمة.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Link href={heroCtaHref}>
+                    <Button className="rounded-2xl bg-white px-6 py-5 text-slate-900 shadow-lg shadow-slate-900/20 hover:bg-white/90">
+                      {heroCtaLabel}
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                  <Link href={secondaryCtaHref}>
+                    <Button
+                      variant="ghost"
+                      className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-white hover:bg-white/20"
+                    >
+                      {secondaryCtaLabel}
+                    </Button>
+                  </Link>
+                </div>
+                <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {quickStats.map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="rounded-2xl bg-white/10 px-4 py-3 text-white backdrop-blur"
+                    >
+                      <dt className="text-xs uppercase tracking-wide text-white/70">{stat.label}</dt>
+                      <dd className="text-xl font-semibold">{stat.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
             </div>
-            <Link href="/order-invoice-search">
-              <Button className="bg-violet-600 hover:bg-violet-700 text-white px-8 py-6 text-lg">
-                فتح صفحة البحث
-              </Button>
-            </Link>
-          </Card>
+          )}
+          {showSecondaryPanel && (
+            <Card className="rounded-3xl border border-amber-100 bg-white/95 p-6 shadow-lg shadow-amber-100/60">
+              <p className="text-sm font-semibold uppercase tracking-wide text-amber-600">تنبيه</p>
+              <h3 className="mt-2 text-2xl font-bold text-slate-900">سجّل الدخول للوصول السريع</h3>
+              <p className="mt-3 text-sm text-slate-600">
+                عند تسجيل الدخول ستظهر لك روابط مباشرة لكل خدمة مخوّل بها حسابك بالإضافة إلى
+                أهم التنبيهات اليومية.
+              </p>
+            </Card>
+          )}
+          </section>
         )}
 
         {/* Loading State */}
@@ -274,60 +165,37 @@ export default function AdminDashboard() {
 
         {/* Services Grid */}
         {status === 'authenticated' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {visibleServices.length === 0 && (
-              <Card className="p-6 text-center text-gray-600">
+              <Card className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-center text-gray-600 shadow">
                 لا توجد خدمات متاحة لهذا الحساب.
               </Card>
             )}
             {visibleServices.map((service) => (
-            <Link key={service.href} href={service.href}>
-              <Card className="p-6 hover:shadow-xl transition-all duration-200 cursor-pointer group h-full">
-                <div className="flex flex-col h-full">
-                  {/* Icon */}
-                  <div
-                    className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${service.color} flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform`}
-                  >
-                    {service.icon}
-                  </div>
-
-                  {/* Title */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <h3 className="text-xl font-bold text-gray-900">
-                      {service.title}
-                    </h3>
-                    {service.badge && (
-                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">
-                        {service.badge}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Description */}
-                  <p className="text-gray-600 mb-4 flex-grow">
-                    {service.description}
-                  </p>
-
-                  {/* Arrow */}
-                  <div className="flex items-center text-blue-600 font-medium group-hover:translate-x-1 transition-transform">
-                    <span>الدخول</span>
-                    <svg
-                      className="w-5 h-5 mr-2"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+              <Link key={service.href} href={service.href} className="h-full">
+                <Card className="group relative flex h-full flex-col justify-between rounded-3xl border border-slate-100/70 bg-white/95 p-6 shadow-[0_20px_40px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-[0_30px_60px_rgba(79,70,229,0.25)]">
+                  <div>
+                    <div
+                      className={`mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${service.color} text-3xl text-white shadow-lg shadow-black/10 transition-transform duration-300 group-hover:scale-110`}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 19l-7-7 7-7"
-                      />
-                    </svg>
+                      {service.icon}
+                    </div>
+                    <div className="mb-3 flex items-center gap-2">
+                      <h3 className="text-xl font-semibold text-slate-900">{service.title}</h3>
+                      {service.badge && (
+                        <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                          {service.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-600">{service.description}</p>
                   </div>
-                </div>
-              </Card>
-            </Link>
+                  <div className="mt-6 flex items-center text-indigo-600 transition-transform duration-300 group-hover:translate-x-1">
+                    <span className="font-medium">الدخول</span>
+                    <ArrowUpRight className="mr-2 h-4 w-4" />
+                  </div>
+                </Card>
+              </Link>
             ))}
           </div>
         )}

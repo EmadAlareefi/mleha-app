@@ -1,18 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { Prisma } from '@prisma/client';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
-import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
+import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
 const hasPriorityAccess = (sessionUser: any): boolean => {
   if (!sessionUser) return false;
-  const roles: string[] = sessionUser.roles || (sessionUser.role ? [sessionUser.role] : []);
-  return roles.includes('admin') || roles.includes('store_manager');
+  return hasServiceAccess({ user: sessionUser }, 'returns-priority');
 };
+
+const assignmentSelect = Prisma.validator<Prisma.OrderAssignmentSelect>()({
+  orderId: true,
+  status: true,
+  assignedAt: true,
+  user: {
+    select: {
+      id: true,
+      name: true,
+      username: true,
+    },
+  },
+});
+
+type AssignmentWithUser = Prisma.OrderAssignmentGetPayload<{
+  select: typeof assignmentSelect;
+}>;
 
 export async function GET(request: NextRequest) {
   try {
@@ -47,23 +65,12 @@ export async function GET(request: NextRequest) {
     }
 
     const orderIds = highPriorityOrders.map((order) => order.orderId);
-    const activeAssignments = await prisma.orderAssignment.findMany({
+    const activeAssignments: AssignmentWithUser[] = await prisma.orderAssignment.findMany({
       where: {
         orderId: { in: orderIds },
-        status: { in: ACTIVE_ASSIGNMENT_STATUSES },
+        status: { in: ACTIVE_ASSIGNMENT_STATUS_VALUES },
       },
-      select: {
-        orderId: true,
-        status: true,
-        assignedAt: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-          },
-        },
-      },
+      select: assignmentSelect,
     });
 
     const assignmentMap = new Map(

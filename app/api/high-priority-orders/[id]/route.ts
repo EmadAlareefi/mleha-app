@@ -3,11 +3,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 const hasPriorityAccess = (sessionUser: any): boolean => {
   if (!sessionUser) return false;
-  const roles: string[] = sessionUser.roles || (sessionUser.role ? [sessionUser.role] : []);
-  return roles.includes('admin') || roles.includes('store_manager');
+  return hasServiceAccess({ user: sessionUser }, 'returns-priority');
 };
 
 export async function DELETE(

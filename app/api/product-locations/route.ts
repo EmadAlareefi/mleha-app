@@ -4,18 +4,12 @@ import { Prisma } from '@prisma/client';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 export const runtime = 'nodejs';
 
-const WAREHOUSE_ALLOWED_ROLES = new Set(['admin', 'warehouse']);
-
 function hasWarehouseLocationAccess(session: any | null) {
-  if (!session?.user) {
-    return false;
-  }
-  const primaryRole = (session.user as any)?.role as string | undefined;
-  const roles = ((session.user as any)?.roles as string[]) || (primaryRole ? [primaryRole] : []);
-  return roles.some((role) => WAREHOUSE_ALLOWED_ROLES.has(role));
+  return hasServiceAccess(session, ['warehouse', 'warehouse-locations']);
 }
 
 function productLocationTableMissing(error: unknown) {

@@ -8,10 +8,10 @@ import {
 } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 export const runtime = 'nodejs';
 
-const ORDER_NUMBER_PRINT_ROLES = new Set(['admin', 'orders', 'warehouse']);
 const MM_TO_POINTS = 72 / 25.4;
 const ORDER_TICKET_MM = { width: 40, height: 22 } as const;
 const ORDER_TICKET_PAPER_NAME = 'Small labels';
@@ -48,19 +48,6 @@ const sanitizePrintableText = (input: string) => {
 };
 
 const mmToPoints = (valueMm: number) => valueMm * MM_TO_POINTS;
-
-const getUserRoles = (sessionUser: any): string[] => {
-  if (!sessionUser) {
-    return [];
-  }
-  if (Array.isArray(sessionUser.roles)) {
-    return sessionUser.roles.filter(Boolean);
-  }
-  if (sessionUser.role) {
-    return [sessionUser.role];
-  }
-  return [];
-};
 
 const DEFAULT_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -140,10 +127,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'غير مصرح لك' }, { status: 401 });
   }
 
-  const roles = getUserRoles(session.user as any);
-  const hasAccess = roles.some((role) => ORDER_NUMBER_PRINT_ROLES.has(role));
-
-  if (!hasAccess) {
+  if (!hasServiceAccess(session, ['order-prep', 'order-shipping', 'warehouse'])) {
     return NextResponse.json(
       { success: false, error: 'لا تملك صلاحية طباعة أرقام الطلبات' },
       { status: 403 }

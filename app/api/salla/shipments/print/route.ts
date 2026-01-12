@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 export const runtime = 'nodejs';
 
@@ -32,17 +33,6 @@ const parsePrinterId = (value: unknown): number | undefined => {
   return undefined;
 };
 
-const getUserRoles = (sessionUser: any): string[] => {
-  if (!sessionUser) return [];
-  if (Array.isArray(sessionUser.roles)) {
-    return sessionUser.roles.filter(Boolean);
-  }
-  if (sessionUser.role) {
-    return [sessionUser.role];
-  }
-  return [];
-};
-
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -52,11 +42,9 @@ export async function POST(request: NextRequest) {
     }
 
     const user = session.user as any;
-    const roles = getUserRoles(user);
-    const isAdmin = roles.includes('admin');
-    const isOrdersUser = roles.includes('orders');
+    const isAdmin = user.role === 'admin';
 
-    if (!isAdmin && !isOrdersUser) {
+    if (!isAdmin && !hasServiceAccess(session, ['order-prep', 'order-shipping'])) {
       return NextResponse.json({ success: false, error: 'لا تملك صلاحية طباعة الشحنات' }, { status: 403 });
     }
 

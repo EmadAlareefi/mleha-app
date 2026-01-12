@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { log } from '@/app/lib/logger';
 import { Prisma } from '@prisma/client';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 export const runtime = 'nodejs';
 
@@ -16,9 +17,8 @@ export async function POST(request: NextRequest) {
     }
 
     const user = session.user as any;
-    const roles: string[] = user.roles || [user.role];
 
-    if (!roles.includes('orders')) {
+    if (!hasServiceAccess(session, ['order-prep', 'order-shipping'])) {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
     }
 

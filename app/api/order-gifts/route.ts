@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import type { OrderGiftFlag } from '@prisma/client';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
@@ -20,11 +21,7 @@ const ensureGiftPermission = async (): Promise<GiftAuthResult> => {
     };
   }
 
-  const sessionUser = session.user as any;
-  const roles = sessionUser.roles || [sessionUser.role];
-  const hasPermission = roles.includes('admin') || roles.includes('store_manager');
-
-  if (!hasPermission) {
+  if (!hasServiceAccess(session, 'returns-gifts')) {
     return {
       authorized: false,
       response: NextResponse.json({ error: 'غير مصرح للوصول' }, { status: 403 }),
@@ -33,7 +30,7 @@ const ensureGiftPermission = async (): Promise<GiftAuthResult> => {
 
   return {
     authorized: true,
-    user: sessionUser,
+    user: session.user as any,
   };
 };
 

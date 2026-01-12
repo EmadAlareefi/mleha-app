@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
-import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
+import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses';
 
 export const runtime = 'nodejs';
 
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       where: {
         userId: user.id,
         status: {
-          in: ACTIVE_ASSIGNMENT_STATUSES,
+          in: ACTIVE_ASSIGNMENT_STATUS_VALUES,
         },
       },
     });
@@ -79,7 +79,6 @@ export async function POST(request: NextRequest) {
     // Fetch new orders from Salla based on user's order type
     log.info('Fetching new orders for auto-assignment', {
       userId: user.id,
-      orderType: user.orderType,
       availableSlots,
     });
 
@@ -172,28 +171,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Filter orders based on payment method (COD/prepaid) if needed
-    let filteredOrders = orders;
-
-    if (user.orderType === 'cod') {
-      filteredOrders = orders.filter((order: any) =>
-        order.payment_method === 'cash_on_delivery' || order.payment_method === 'cod'
-      );
-      log.info('Filtered by COD payment method', {
-        beforeFilter: orders.length,
-        afterFilter: filteredOrders.length,
-        filtered: orders.length - filteredOrders.length,
-      });
-    } else if (user.orderType === 'prepaid') {
-      filteredOrders = orders.filter((order: any) =>
-        order.payment_method !== 'cash_on_delivery' && order.payment_method !== 'cod'
-      );
-      log.info('Filtered by prepaid payment method', {
-        beforeFilter: orders.length,
-        afterFilter: filteredOrders.length,
-        filtered: orders.length - filteredOrders.length,
-      });
-    }
+    const filteredOrders = orders;
 
     // Get already assigned order IDs for this merchant (only active assignments)
     // This prevents assigning orders that are actively being worked on by other users
@@ -201,7 +179,7 @@ export async function POST(request: NextRequest) {
       where: {
         merchantId: MERCHANT_ID,
         status: {
-          in: ACTIVE_ASSIGNMENT_STATUSES,
+          in: ACTIVE_ASSIGNMENT_STATUS_VALUES,
         },
       },
       select: {
@@ -408,7 +386,6 @@ export async function POST(request: NextRequest) {
       success: true,
       assigned: assignments.length,
       totalAssignments: currentAssignments + assignments.length,
-      batchSize: user.maxOrders,
       assignments: assignments.map(a => ({
         id: a.id,
         orderId: a.orderId,

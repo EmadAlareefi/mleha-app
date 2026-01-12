@@ -1,11 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
-
-type UserRole = 'orders' | 'store_manager' | 'warehouse' | 'accountant' | 'delivery_agent';
+import {
+  getAssignableServices,
+  getRolesFromServiceKeys,
+  serviceDefinitions,
+} from '@/app/lib/service-definitions';
+import type { ServiceKey } from '@/app/lib/service-definitions';
+import {
+  AlertTriangle,
+  PackageCheck,
+  RefreshCcw,
+  ShieldCheck,
+  UserPlus,
+  Users as UsersIcon,
+  Warehouse as WarehouseIcon,
+} from 'lucide-react';
 
 interface WarehouseOption {
   id: string;
@@ -18,15 +31,11 @@ interface OrderUser {
   id: string;
   username: string;
   name: string;
-  role: UserRole; // Legacy single role (primary role)
-  roles?: UserRole[]; // New: array of all roles
+  serviceKeys: ServiceKey[];
   email?: string;
   phone?: string;
-  orderType: string;
-  specificStatus?: string;
   isActive: boolean;
   autoAssign: boolean;
-  maxOrders: number;
   createdAt: string;
   _count: {
     assignments: number;
@@ -34,28 +43,10 @@ interface OrderUser {
   warehouses?: WarehouseOption[];
 }
 
-const ORDER_TYPE_LABELS: Record<string, string> = {
-  all: 'جميع الطلبات',
-  cod: 'الدفع عند الاستلام فقط',
-  prepaid: 'المدفوعة مسبقاً فقط',
-  specific_status: 'حالة محددة',
-};
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  orders: 'مستخدم الطلبات',
-  store_manager: 'مدير المتجر (الإرجاع)',
-  warehouse: 'موظف المستودع',
-  accountant: 'محاسب',
-  delivery_agent: 'مندوب توصيل',
-};
-
-const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
-  orders: 'الوصول إلى لوحة تحضير الطلبات فقط',
-  store_manager: 'الوصول إلى صفحات الإرجاع/إدارة الطلبات المرتجعة',
-  warehouse: 'الوصول إلى المستودع والشحن المحلي',
-  accountant: 'الوصول إلى تقارير الطلبات بدون معلومات العملاء',
-  delivery_agent: 'الوصول إلى الشحنات المعينة وتحديث حالة التوصيل',
-};
+const ASSIGNABLE_SERVICES = getAssignableServices();
+const SERVICE_MAP = new Map(serviceDefinitions.map((service) => [service.key, service]));
+const inputClasses =
+  'w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 transition focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
 
 export default function OrderUsersManagementPage() {
   const [users, setUsers] = useState<OrderUser[]>([]);
@@ -74,14 +65,10 @@ export default function OrderUsersManagementPage() {
     name: '',
     email: '',
     phone: '',
-    role: 'orders' as UserRole, // Legacy field (for backward compatibility)
-    roles: ['orders'] as UserRole[], // New: array of selected roles
-    orderType: 'all',
-    specificStatus: '',
     isActive: true,
     autoAssign: true,
-    maxOrders: 50,
     warehouseIds: [] as string[],
+    serviceKeys: ['order-prep'] as ServiceKey[],
   });
 
   useEffect(() => {
@@ -150,39 +137,42 @@ export default function OrderUsersManagementPage() {
     }
   };
 
-  const toggleRole = (role: UserRole) => {
-    const currentRoles = formData.roles;
-    const hasRole = currentRoles.includes(role);
+  const selectedServiceRoles = useMemo(
+    () => getRolesFromServiceKeys(formData.serviceKeys),
+    [formData.serviceKeys]
+  );
+  const hasOrdersAccess = selectedServiceRoles.includes('orders');
+  const hasWarehouseAccess = selectedServiceRoles.includes('warehouse');
 
-    if (hasRole) {
-      // Remove role (but keep at least one role)
-      if (currentRoles.length > 1) {
-        setFormData({
-          ...formData,
-          roles: currentRoles.filter(r => r !== role),
-          role: currentRoles.filter(r => r !== role)[0], // Update primary role
-        });
-      } else {
-        alert('يجب أن يكون للمستخدم دور واحد على الأقل');
+  const toggleService = (serviceKey: ServiceKey) => {
+    setFormData((prev) => {
+      const exists = prev.serviceKeys.includes(serviceKey);
+      if (exists) {
+        if (prev.serviceKeys.length === 1) {
+          alert('يجب اختيار رابط واحد على الأقل');
+          return prev;
+        }
+        return {
+          ...prev,
+          serviceKeys: prev.serviceKeys.filter((key) => key !== serviceKey),
+        };
       }
-    } else {
-      // Add role
-      setFormData({
-        ...formData,
-        roles: [...currentRoles, role],
-      });
-    }
+      return {
+        ...prev,
+        serviceKeys: [...prev.serviceKeys, serviceKey],
+      };
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (formData.roles.length === 0) {
-      alert('يجب اختيار دور واحد على الأقل');
+    if (formData.serviceKeys.length === 0) {
+      alert('يجب اختيار رابط واحد على الأقل');
       return;
     }
 
-    if (formData.roles.includes('warehouse') && formData.warehouseIds.length === 0) {
+    if (hasWarehouseAccess && formData.warehouseIds.length === 0) {
       alert('يرجى اختيار مستودع واحد على الأقل لمستخدم المستودع');
       return;
     }
@@ -194,17 +184,16 @@ export default function OrderUsersManagementPage() {
 
       const method = editingUser ? 'PUT' : 'POST';
 
-      const hasOrdersRole = formData.roles.includes('orders');
-      const hasWarehouseRole = formData.roles.includes('warehouse');
-
       const payload = {
-        ...formData,
-        role: formData.roles[0], // Primary role (first selected)
-        orderType: hasOrdersRole ? formData.orderType : 'all',
-        specificStatus: hasOrdersRole ? formData.specificStatus : '',
-        autoAssign: hasOrdersRole ? formData.autoAssign : false,
-        maxOrders: hasOrdersRole ? formData.maxOrders : 50,
-        warehouseIds: hasWarehouseRole ? formData.warehouseIds : [],
+        username: formData.username,
+        password: formData.password,
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        isActive: formData.isActive,
+        serviceKeys: formData.serviceKeys,
+        autoAssign: hasOrdersAccess ? formData.autoAssign : false,
+        warehouseIds: hasWarehouseAccess ? formData.warehouseIds : [],
       };
 
       const response = await fetch(url, {
@@ -249,14 +238,12 @@ export default function OrderUsersManagementPage() {
       name: user.name,
       email: user.email || '',
       phone: user.phone || '',
-      role: user.role,
-      roles: user.roles || [user.role], // Use roles array if available, fallback to single role
-      orderType: user.orderType,
-      specificStatus: user.specificStatus || '',
       isActive: user.isActive,
       autoAssign: user.autoAssign,
-      maxOrders: user.maxOrders,
       warehouseIds: user.warehouses?.map((w) => w.id) || [],
+      serviceKeys: (user.serviceKeys && user.serviceKeys.length > 0
+        ? (user.serviceKeys as ServiceKey[])
+        : (['order-prep'] as ServiceKey[])),
     });
     if (user.warehouses?.length) {
       setWarehouseOptions((prev) => {
@@ -322,419 +309,532 @@ export default function OrderUsersManagementPage() {
       name: '',
       email: '',
       phone: '',
-      role: 'orders',
-      roles: ['orders'], // Reset to single role
-      orderType: 'all',
-      specificStatus: '',
       isActive: true,
       autoAssign: true,
-      maxOrders: 50,
       warehouseIds: [],
+      serviceKeys: ['order-prep'],
     });
   };
 
+  const overviewStats = useMemo(() => {
+    const total = users.length;
+    const active = users.filter((user) => user.isActive).length;
+    const autoAssignEnabled = users.filter((user) => user.autoAssign).length;
+    const uniqueWarehouses = new Set(
+      users.flatMap((user) => (user.warehouses || []).map((warehouse) => warehouse.id))
+    ).size;
+
+    return [
+      {
+        label: 'إجمالي المستخدمين',
+        value: total,
+        hint: 'حساب مُدار',
+        icon: UsersIcon,
+      },
+      {
+        label: 'المستخدمون النشطون',
+        value: active,
+        hint: active === total ? 'الجميع متاح' : `${active} من ${total}`,
+        icon: ShieldCheck,
+      },
+      {
+        label: 'التعيين التلقائي',
+        value: autoAssignEnabled,
+        hint: autoAssignEnabled > 0 ? 'يستلمون الطلبات فوراً' : 'معطّل الآن',
+        icon: PackageCheck,
+      },
+      {
+        label: 'المستودعات المرتبطة',
+        value: uniqueWarehouses,
+        hint: 'موزعة على الشبكة',
+        icon: WarehouseIcon,
+      },
+    ];
+  }, [users]);
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 pb-16">
       <AppNavbar title="إدارة مستخدمي الطلبات" subtitle="إنشاء وإدارة حسابات الموظفين" />
 
-      <div className="max-w-7xl mx-auto py-8 px-4">
-        {/* Header */}
-        <div className="mb-8 flex justify-end items-center">
-          <Button
-            onClick={() => {
-              setEditingUser(null);
-              resetForm();
-              setShowForm(true);
-            }}
-            disabled={showForm || accessDenied}
-          >
-            + إضافة مستخدم
-          </Button>
-        </div>
-
-        {/* Form */}
-        {showForm && !accessDenied && (
-          <Card className="p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">
-              {editingUser ? 'تعديل مستخدم' : 'إضافة مستخدم جديد'}
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    اسم المستخدم *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                    required
-                  />
-                  {editingUser && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      يمكنك تغيير اسم المستخدم إذا لزم الأمر
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    كلمة المرور {!editingUser && '*'}
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                    required={!editingUser}
-                    placeholder={editingUser ? 'اتركها فارغة لعدم التغيير' : ''}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">الاسم *</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">البريد الإلكتروني</label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">رقم الهاتف</label>
-                  <input
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">أدوار المستخدم * (يمكن اختيار أكثر من دور)</label>
-                  <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
-                    {(Object.keys(ROLE_LABELS) as UserRole[]).map((roleKey) => (
-                      <label key={roleKey} className="flex items-start gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.roles.includes(roleKey)}
-                          onChange={() => toggleRole(roleKey)}
-                          className="w-5 h-5 mt-0.5"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{ROLE_LABELS[roleKey]}</div>
-                          <div className="text-xs text-gray-500 mt-0.5">{ROLE_DESCRIPTIONS[roleKey]}</div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  {formData.roles.length > 1 && (
-                    <p className="text-xs text-blue-600 font-medium mt-2">
-                      ✓ مستخدم متعدد الأدوار: {formData.roles.map(r => ROLE_LABELS[r]).join(' + ')}
-                    </p>
-                  )}
-                </div>
-
-                {formData.roles.includes('orders') && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-2">نوع الطلبات *</label>
-                      <select
-                        value={formData.orderType}
-                        onChange={(e) => setFormData({ ...formData, orderType: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg"
-                        required={formData.roles.includes('orders')}
-                      >
-                        <option value="all">جميع الطلبات</option>
-                        <option value="cod">الدفع عند الاستلام فقط</option>
-                        <option value="prepaid">المدفوعة مسبقاً فقط</option>
-                        <option value="specific_status">حالة محددة</option>
-                      </select>
-                    </div>
-
-                    {formData.orderType === 'specific_status' && (
-                      <div>
-                        <label className="block text-sm font-medium mb-2">الحالة المحددة</label>
-                        <input
-                          type="text"
-                          value={formData.specificStatus}
-                          onChange={(e) => setFormData({ ...formData, specificStatus: e.target.value })}
-                          className="w-full px-4 py-2 border rounded-lg"
-                          placeholder="مثال: pending, processing"
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="block text-sm font-medium mb-2">عدد الطلبات لكل دفعة</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={formData.maxOrders}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            maxOrders: Math.max(1, Number(e.target.value) || 1),
-                          })
-                        }
-                        className="w-full px-4 py-2 border rounded-lg"
-                        required={formData.roles.includes('orders')}
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        عدد الطلبات التي يتم تعيينها في كل مرة (لا يوجد حد أقصى إجمالي)
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                {formData.roles.includes('warehouse') && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium mb-2">
-                      ربط المستودعات *
-                    </label>
-                    {warehousesLoading ? (
-                      <p className="text-sm text-gray-500">جاري تحميل المستودعات...</p>
-                    ) : warehousesError ? (
-                      <div className="space-y-3">
-                        <p className="text-sm text-red-600">{warehousesError}</p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={loadWarehouses}
-                        >
-                          إعادة المحاولة
-                        </Button>
-                      </div>
-                    ) : warehouseOptions.length === 0 ? (
-                      <p className="text-sm text-gray-500">
-                        لا يوجد مستودعات نشطة. يرجى إنشاء مستودعات من صفحة المستودع أولاً.
-                      </p>
-                    ) : (
-                      <div className="space-y-2 max-h-60 overflow-y-auto border rounded-lg p-3 bg-gray-50">
-                        {warehouseOptions.map((warehouse) => {
-                          const isSelected = formData.warehouseIds.includes(warehouse.id);
-                          return (
-                            <label
-                              key={warehouse.id}
-                              className="flex items-center gap-3 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleWarehouseSelection(warehouse.id)}
-                                className="w-4 h-4"
-                              />
-                              <div>
-                                <p className="font-medium">{warehouse.name}</p>
-                                {(warehouse.code || warehouse.location) && (
-                                  <p className="text-xs text-gray-500">
-                                    {warehouse.code && `رمز: ${warehouse.code}`}
-                                    {warehouse.code && warehouse.location ? ' • ' : ''}
-                                    {warehouse.location}
-                                  </p>
-                                )}
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                    <p className="text-xs text-gray-500 mt-2">
-                      يمكن ربط مستخدم المستودع بأكثر من مستودع واحد.
-                    </p>
-                  </div>
-                )}
+      <div className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 text-slate-900">
+        <section className="mb-10 grid gap-6 lg:grid-cols-[minmax(0,1.9fr),minmax(0,1.1fr)]">
+          <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-900 via-indigo-700 to-slate-900 p-8 text-white shadow-2xl shadow-indigo-900/40">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#ffffff22,transparent_60%)]" />
+            <div className="relative z-10 space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-white/80">
+                <span>مركز التحكم</span>
               </div>
-
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.isActive}
-                    onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                    className="w-4 h-4"
-                  />
-                  <span>نشط</span>
-                </label>
-
-                {formData.roles.includes('orders') && (
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.autoAssign}
-                      onChange={(e) => setFormData({ ...formData, autoAssign: e.target.checked })}
-                      className="w-4 h-4"
-                    />
-                    <span>التعيين التلقائي</span>
-                  </label>
-                )}
+              <div>
+                <h2 className="text-3xl font-semibold leading-snug text-white md:text-4xl">
+                  تحكم كامل بصلاحيات التحضير والمستودع
+                </h2>
+                <p className="mt-3 text-base text-white/80">
+                  راقب حالة الحسابات، امنح الروابط المناسبة، وتابع ارتباط المستودعات قبل أن تبدأ فرقك
+                  يومها.
+                </p>
               </div>
-
-              <div className="flex gap-3">
-                <Button type="submit">
-                  {editingUser ? 'تحديث' : 'إضافة'}
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={() => {
+                    if (showForm) {
+                      setShowForm(false);
+                      setEditingUser(null);
+                      resetForm();
+                      return;
+                    }
+                    setEditingUser(null);
+                    resetForm();
+                    setShowForm(true);
+                  }}
+                  disabled={accessDenied}
+                  className="rounded-2xl bg-white/95 px-6 py-5 text-base font-semibold text-slate-900 shadow-lg shadow-slate-900/20 hover:bg-white"
+                >
+                  {showForm ? 'إغلاق نموذج الإدارة' : '+ إضافة مستخدم جديد'}
                 </Button>
                 <Button
                   type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowForm(false);
-                    setEditingUser(null);
-                    resetForm();
-                  }}
+                  variant="ghost"
+                  onClick={loadUsers}
+                  className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-base text-white hover:bg-white/20"
                 >
-                  إلغاء
+                  <RefreshCcw className="h-4 w-4" />
+                  <span>تحديث القائمة</span>
                 </Button>
               </div>
-            </form>
-          </Card>
-        )}
-
-        {/* Users List */}
-        {accessDenied ? (
-          <Card className="p-10 text-center border-red-200 bg-red-50 text-red-800">
-            <p className="font-semibold mb-2">لا تملك صلاحية الوصول لهذه الصفحة</p>
-            <p className="text-sm">فقط حساب المسؤول يمكنه إدارة المستخدمين.</p>
-          </Card>
-        ) : loading ? (
-          <div className="text-center py-12">
-            <p>جاري التحميل...</p>
+              <p className="text-sm text-white/70">
+                نصيحة: حدّث الصلاحيات بعد فتح مستودع جديد أو تغيير مهام فريق التحضير.
+              </p>
+            </div>
           </div>
-        ) : users.length === 0 ? (
-          <Card className="p-12 text-center">
-            <p className="text-gray-500">لا يوجد مستخدمون</p>
+          <div className="rounded-3xl border border-white/30 bg-white/90 p-6 shadow-xl shadow-indigo-900/10">
+            <div className="grid grid-cols-2 gap-4">
+              {overviewStats.map((stat) => {
+                const Icon = stat.icon;
+                return (
+                  <div
+                    key={stat.label}
+                    className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/80 p-4 text-slate-600"
+                  >
+                    <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      <span>{stat.label}</span>
+                      <Icon className="h-4 w-4 text-indigo-500" />
+                    </div>
+                    <div className="text-2xl font-bold text-slate-900">{stat.value}</div>
+                    <p className="text-xs text-slate-500">{stat.hint}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {accessDenied ? (
+          <Card className="rounded-3xl border border-rose-200/70 bg-rose-50/80 p-10 text-center text-rose-700 shadow-lg">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <p className="text-xl font-semibold">لا تملك صلاحية الوصول لهذه الصفحة</p>
+            <p className="mt-2 text-sm text-rose-600/80">فقط حساب المسؤول يمكنه إدارة المستخدمين.</p>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {users.map((user) => (
-              <Card key={user.id} className="p-6">
-                <div className="flex items-start justify-between mb-4">
+          <>
+            {showForm && (
+              <Card className="mb-10 rounded-3xl border border-white/40 bg-white/95 p-8 shadow-2xl shadow-slate-900/20">
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-lg font-bold">{user.name}</h3>
-                    <p className="text-sm text-gray-600">@{user.username}</p>
+                    <p className="text-xs uppercase tracking-[0.4em] text-slate-400">
+                      {editingUser ? 'تحديث مستخدم' : 'إنشاء مستخدم'}
+                    </p>
+                    <h3 className="mt-1 text-2xl font-semibold text-slate-900">
+                      {editingUser ? `تعديل ${editingUser.name}` : 'إضافة حساب جديد لفريق التحضير'}
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      اربط الروابط المناسبة واختر المستودعات للوصول الكامل.
+                    </p>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <div className="flex flex-wrap gap-1 justify-end">
-                      {(user.roles || [user.role]).map((role) => (
-                        <span key={role} className="px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
-                          {ROLE_LABELS[role]}
-                        </span>
-                      ))}
-                    </div>
-                    <span
-                      className={`px-3 py-1 rounded-full text-sm ${
-                        user.isActive
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {user.isActive ? 'نشط' : 'غير نشط'}
-                    </span>
-                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowForm(false);
+                      setEditingUser(null);
+                      resetForm();
+                    }}
+                    className="rounded-2xl border border-slate-200 px-4 py-2 text-slate-600 hover:text-slate-900"
+                  >
+                    إغلاق
+                  </Button>
                 </div>
-
-                <div className="space-y-2 text-sm mb-4">
-                  {user.role === 'orders' ? (
-                    <>
-                      <div>
-                        <strong>نوع الطلبات:</strong> {ORDER_TYPE_LABELS[user.orderType]}
-                      </div>
-                      {user.specificStatus && (
-                        <div>
-                          <strong>الحالة:</strong> {user.specificStatus}
-                        </div>
+                <form onSubmit={handleSubmit} className="space-y-8">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">
+                        اسم المستخدم *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.username}
+                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                        className={inputClasses}
+                        required
+                      />
+                      {editingUser && (
+                        <p className="text-xs text-slate-500">يمكنك تعديل اسم المستخدم إذا لزم الأمر.</p>
                       )}
-                      <div>
-                        <strong>الطلبات النشطة:</strong> {user._count.assignments}
-                      </div>
-                      <div>
-                        <strong>حجم الدفعة:</strong> {user.maxOrders} طلب
-                      </div>
-                      <div>
-                        <strong>التعيين التلقائي:</strong> {user.autoAssign ? 'مفعّل' : 'معطّل'}
-                      </div>
-                    </>
-                  ) : user.role === 'warehouse' ? (
-                    <div className="space-y-2 text-gray-600">
-                      <div>{ROLE_DESCRIPTIONS[user.role]}</div>
-                      {user.warehouses && user.warehouses.length > 0 ? (
-                        <div>
-                          <strong>المستودعات المرتبطة:</strong>
-                          <ul className="list-disc pr-5 mt-1 text-gray-700 text-xs space-y-1">
-                            {user.warehouses.map((warehouse) => (
-                              <li key={warehouse.id}>
-                                {warehouse.name}
-                                {warehouse.code ? ` (${warehouse.code})` : ''}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">
+                        كلمة المرور {!editingUser && '*'}
+                      </label>
+                      <input
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className={inputClasses}
+                        required={!editingUser}
+                        placeholder={editingUser ? 'اتركها فارغة لعدم التغيير' : ''}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">الاسم *</label>
+                      <input
+                        type="text"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        className={inputClasses}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">البريد الإلكتروني</label>
+                      <input
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className={inputClasses}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">رقم الهاتف</label>
+                      <input
+                        type="tel"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        className={inputClasses}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-3 block text-sm font-semibold text-slate-700">
+                      الروابط المسموح بها في الصفحة الرئيسية *
+                    </label>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      {ASSIGNABLE_SERVICES.map((service) => {
+                        const selected = formData.serviceKeys.includes(service.key);
+                        return (
+                          <label
+                            key={service.key}
+                            className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                              selected
+                                ? 'border-indigo-400 bg-indigo-50/60 shadow-sm'
+                                : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleService(service.key)}
+                              className="mt-1 h-5 w-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div>
+                              <div className="font-semibold text-slate-900">{service.title}</div>
+                              <div className="text-xs text-slate-500">{service.description}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-indigo-700">
+                      {formData.serviceKeys.length > 0 ? (
+                        formData.serviceKeys.map((key) => (
+                          <span
+                            key={key}
+                            className="rounded-full bg-indigo-50 px-3 py-1 font-semibold text-indigo-700"
+                          >
+                            {SERVICE_MAP.get(key)?.title || key}
+                          </span>
+                        ))
                       ) : (
-                        <p className="text-xs text-red-600">لم يتم ربط أي مستودع بهذا المستخدم</p>
+                        <span>لم يتم اختيار روابط بعد.</span>
                       )}
                     </div>
-                  ) : user.role === 'accountant' ? (
-                    <div className="space-y-2 text-gray-600">
-                      <div>{ROLE_DESCRIPTIONS[user.role]}</div>
-                      <div className="text-xs bg-blue-50 border border-blue-200 rounded p-2 mt-2">
-                        <strong className="text-blue-900">الصلاحيات:</strong>
-                        <ul className="list-disc pr-5 mt-1 text-blue-800 space-y-1">
-                          <li>عرض تقارير الطلبات والإحصائيات</li>
-                          <li>لا يمكن رؤية بيانات العملاء</li>
-                          <li>عرض المبالغ المالية وحالات الطلبات</li>
-                        </ul>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-gray-600">
-                      {ROLE_DESCRIPTIONS[user.role]}
+                  </div>
+
+                  {hasOrdersAccess && (
+                    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-5 text-sm text-indigo-900">
+                      <p className="font-semibold">إعدادات تحضير الطلبات</p>
+                      <p className="mt-1">
+                        يتم تعيين طلب واحد نشط في كل مرة ليتم العمل عليه. فعّل التعيين التلقائي لضمان
+                        جاهزية الطلب فور دخول المستخدم لصفحة التحضير.
+                      </p>
                     </div>
                   )}
-                </div>
 
-                <div className="flex flex-col gap-2">
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => handleEdit(user)}
-                      className="flex-1"
-                    >
-                      تعديل
+                  {hasWarehouseAccess && (
+                    <div className="space-y-3">
+                      <label className="text-sm font-semibold text-slate-700">ربط المستودعات *</label>
+                      {warehousesLoading ? (
+                        <p className="text-sm text-slate-500">جاري تحميل المستودعات...</p>
+                      ) : warehousesError ? (
+                        <div className="space-y-3">
+                          <p className="text-sm text-rose-600">{warehousesError}</p>
+                          <Button type="button" variant="outline" onClick={loadWarehouses}>
+                            إعادة المحاولة
+                          </Button>
+                        </div>
+                      ) : warehouseOptions.length === 0 ? (
+                        <p className="text-sm text-slate-500">
+                          لا يوجد مستودعات نشطة. يرجى إنشاء مستودعات من صفحة المستودع أولاً.
+                        </p>
+                      ) : (
+                        <div className="max-h-60 space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          {warehouseOptions.map((warehouse) => {
+                            const isSelected = formData.warehouseIds.includes(warehouse.id);
+                            return (
+                              <label
+                                key={warehouse.id}
+                                className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2 ${
+                                  isSelected
+                                    ? 'border-emerald-200 bg-white'
+                                    : 'border-transparent hover:border-slate-200'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleWarehouseSelection(warehouse.id)}
+                                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <div>
+                                  <p className="font-semibold text-slate-900">{warehouse.name}</p>
+                                  {(warehouse.code || warehouse.location) && (
+                                    <p className="text-xs text-slate-500">
+                                      {warehouse.code && `رمز: ${warehouse.code}`}
+                                      {warehouse.code && warehouse.location ? ' • ' : ''}
+                                      {warehouse.location}
+                                    </p>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <p className="text-xs text-slate-500">
+                        يمكن ربط مستخدم المستودع بأكثر من مستودع واحد.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={formData.isActive}
+                        onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>نشط</span>
+                    </label>
+                    {hasOrdersAccess && (
+                      <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={formData.autoAssign}
+                          onChange={(e) => setFormData({ ...formData, autoAssign: e.target.checked })}
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>التعيين التلقائي</span>
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <Button type="submit" className="rounded-2xl px-6 py-5 text-base">
+                      {editingUser ? 'تحديث المستخدم' : 'إضافة المستخدم'}
                     </Button>
                     <Button
+                      type="button"
                       variant="outline"
-                      onClick={() => handleDelete(user.id)}
-                      className="text-red-600 border-red-300 hover:bg-red-50"
+                      onClick={() => {
+                        setShowForm(false);
+                        setEditingUser(null);
+                        resetForm();
+                      }}
+                      className="rounded-2xl border-slate-300 px-6 py-5 text-base text-slate-700 hover:text-slate-900"
                     >
-                      حذف
+                      إلغاء
                     </Button>
                   </div>
-                  {user.role === 'orders' && user._count.assignments > 0 && (
-                    <Button
-                      variant="outline"
-                      onClick={() => handleResetOrders(user.id, user.name)}
-                      className="w-full text-orange-600 border-orange-300 hover:bg-orange-50"
-                    >
-                      إعادة تعيين الطلبات ({user._count.assignments})
-                    </Button>
-                  )}
-                </div>
+                </form>
               </Card>
-            ))}
-          </div>
+            )}
+
+            {loading ? (
+              <Card className="flex flex-col items-center justify-center rounded-3xl border border-white/30 bg-white/90 py-16 text-slate-500 shadow-lg">
+                <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-500" />
+                <p>جاري تحميل المستخدمين...</p>
+              </Card>
+            ) : users.length === 0 ? (
+              <Card className="rounded-3xl border border-dashed border-slate-200 bg-white/90 p-12 text-center shadow">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                  <UserPlus className="h-6 w-6" />
+                </div>
+                <p className="text-lg font-semibold text-slate-900">لا يوجد مستخدمون بعد</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  ابدأ بإنشاء أول مستخدم لتحضير الطلبات أو لإدارة المستودع.
+                </p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {users.map((user) => {
+                  const serviceKeysForUser = (user.serviceKeys || []) as ServiceKey[];
+                  const derivedRoles = getRolesFromServiceKeys(serviceKeysForUser);
+                  const hasOrdersRole = derivedRoles.includes('orders');
+                  const hasWarehouseRole = derivedRoles.includes('warehouse');
+                  const hasAccountantRole = derivedRoles.includes('accountant');
+                  const serviceBadges =
+                    serviceKeysForUser.length > 0 ? serviceKeysForUser : [];
+                  return (
+                    <Card
+                      key={user.id}
+                      className="flex h-full flex-col rounded-3xl border border-white/40 bg-white/95 p-6 shadow-lg shadow-slate-900/10 transition hover:-translate-y-1 hover:shadow-2xl"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                            @{user.username}
+                          </p>
+                          <h3 className="mt-1 text-xl font-semibold text-slate-900">{user.name}</h3>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {user.email || 'لا يوجد بريد'} • {user.phone || 'لا يوجد هاتف'}
+                          </div>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                            user.isActive
+                              ? 'bg-emerald-50 text-emerald-600'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {user.isActive ? 'نشط' : 'غير نشط'}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {serviceBadges.length > 0 ? (
+                          serviceBadges.map((key) => (
+                            <span
+                              key={key}
+                              className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700"
+                            >
+                              {SERVICE_MAP.get(key)?.title || key}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500">
+                            لا توجد روابط محددة
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-5 space-y-3 text-sm text-slate-600">
+                        {hasOrdersRole && (
+                          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+                            <p className="font-semibold text-indigo-900">وصول تحضير الطلبات</p>
+                            <p className="mt-1 text-xs text-indigo-700">
+                              الطلبات النشطة: {user._count.assignments}
+                            </p>
+                            <p className="text-xs text-indigo-700">
+                              التعيين التلقائي: {user.autoAssign ? 'مفعّل' : 'معطّل'}
+                            </p>
+                          </div>
+                        )}
+
+                        {hasWarehouseRole && (
+                          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                            <p className="font-semibold text-emerald-900">وصول المستودعات</p>
+                            {user.warehouses && user.warehouses.length > 0 ? (
+                              <ul className="mt-2 space-y-1 text-xs text-emerald-700">
+                                {user.warehouses.map((warehouse) => (
+                                  <li key={warehouse.id}>
+                                    {warehouse.name}
+                                    {warehouse.code ? ` (${warehouse.code})` : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-2 text-xs text-rose-600">
+                                لم يتم ربط أي مستودع بهذا المستخدم
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {hasAccountantRole && (
+                          <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+                            <p className="font-semibold text-amber-900">
+                              صلاحية التقارير والمصروفات
+                            </p>
+                            <p className="mt-1 text-xs text-amber-700">
+                              يمكنه عرض تقارير الطلبات ومراقبة المصروفات.
+                            </p>
+                          </div>
+                        )}
+
+                        {!hasOrdersRole && !hasWarehouseRole && !hasAccountantRole && (
+                          <p className="text-xs text-slate-500">
+                            {serviceBadges.length > 0
+                              ? 'يرتبط بالروابط الموضحة أعلاه.'
+                              : 'لا توجد روابط مرتبطة بهذا المستخدم بعد.'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mt-6 flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => handleEdit(user)}
+                            className="flex-1 rounded-2xl border-slate-200 text-slate-700 hover:text-slate-900"
+                          >
+                            تعديل
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleDelete(user.id)}
+                            className="rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50"
+                          >
+                            حذف
+                          </Button>
+                        </div>
+                        {hasOrdersRole && user._count.assignments > 0 && (
+                          <Button
+                            variant="outline"
+                            onClick={() => handleResetOrders(user.id, user.name)}
+                            className="rounded-2xl border-amber-200 text-amber-700 hover:bg-amber-50"
+                          >
+                            إعادة تعيين الطلبات ({user._count.assignments})
+                          </Button>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

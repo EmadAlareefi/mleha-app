@@ -7,6 +7,8 @@ import type { OrderGiftFlag, SallaOrder as PrismaSallaOrder } from '@prisma/clie
 import { getSallaOrder, getSallaOrderByReference } from '@/app/lib/salla-api';
 import type { SallaOrder as RemoteSallaOrder } from '@/app/lib/salla-api';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
+import { hasServiceAccess } from '@/app/lib/service-access';
+import type { ServiceKey } from '@/app/lib/service-definitions';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
@@ -70,15 +72,20 @@ export async function GET(request: NextRequest) {
     }
 
     const user = session.user as any;
-    const roles = user.roles || [user.role];
+    const allowedServices: ServiceKey[] = [
+      'order-prep',
+      'order-shipping',
+      'order-invoice-search',
+      'warehouse',
+      'local-shipping',
+      'shipment-assignments',
+      'returns-management',
+      'returns-inspection',
+      'returns-priority',
+      'returns-gifts',
+    ];
 
-    // Check if user is admin, warehouse, returns (store manager), or orders
-    const isAuthorized =
-      roles.includes('admin') ||
-      roles.includes('warehouse') ||
-      roles.includes('store_manager') ||
-      roles.includes('orders');
-    if (!isAuthorized) {
+    if (!hasServiceAccess(session, allowedServices)) {
       return NextResponse.json({ error: 'غير مصرح للوصول' }, { status: 403 });
     }
 

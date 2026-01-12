@@ -480,6 +480,7 @@ model OrderUser {
   roleAssignments      UserRoleAssignment[]
   deliveryAssignments  ShipmentAssignment[]  @relation("DeliveryAssignments")
   printerLink          OrderUserPrinterLink?
+  servicePermissions   UserServicePermission[]
 
   @@index([username])
   @@index([isActive])
@@ -513,6 +514,18 @@ model UserRoleAssignment {
   @@unique([userId, role])
   @@index([userId])
   @@index([role])
+}
+
+model UserServicePermission {
+  id         String   @id @default(cuid())
+  userId     String
+  serviceKey String
+  createdAt  DateTime @default(now())
+
+  user OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, serviceKey])
+  @@index([serviceKey])
 }
 
 model OrderAssignment {

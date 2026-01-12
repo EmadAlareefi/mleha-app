@@ -5,6 +5,7 @@ import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 
 function LoginForm() {
   const router = useRouter();
@@ -63,93 +64,83 @@ function LoginForm() {
     }
   };
 
+  const inputClasses =
+    'w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 transition focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
-      <div className="max-w-md w-full">
-        {/* Logo/Brand */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">نظام الإدارة</h1>
-          <p className="text-gray-600">تسجيل الدخول للوصول إلى لوحة التحكم</p>
-        </div>
-
-        {/* Login Card */}
-        <Card className="p-8 shadow-xl">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Username */}
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium mb-2">
-                اسم المستخدم
-              </label>
-              <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="أدخل اسم المستخدم"
-                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-                disabled={loading}
-                autoFocus
-              />
-            </div>
-
-            {/* Password */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium mb-2">
-                كلمة المرور
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="أدخل كلمة المرور"
-                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-                disabled={loading}
-              />
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full py-6 text-lg"
-            >
-              {loading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
-            </Button>
-          </form>
-
-          {/* Info */}
-          <div className="mt-6 pt-6 border-t">
-            <div className="text-center text-sm text-gray-600">
-              <p>صفحة الإرجاع والاستبدال متاحة للعملاء بدون تسجيل دخول</p>
-              <a href="/returns" className="text-blue-600 hover:underline mt-2 inline-block">
-                الانتقال إلى صفحة الإرجاع ←
-              </a>
-            </div>
+    <div className="relative flex min-h-screen items-center justify-center bg-slate-950 px-4 py-10 text-slate-900">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.25),_transparent_55%)]" />
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950 opacity-90" />
+      <Card className="relative z-10 w-full max-w-md rounded-3xl border border-white/10 bg-white/95 p-8 shadow-2xl shadow-slate-900/30">
+        <div className="mb-6 text-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.4em] text-slate-500">
+            <Sparkles className="h-4 w-4 text-amber-400" />
+            <span>نظام الإدارة</span>
           </div>
-        </Card>
-
-        {/* Footer */}
-        <div className="mt-8 text-center text-sm text-gray-600">
-          <p>للحصول على بيانات الدخول، يرجى التواصل مع مسؤول النظام</p>
+          <h2 className="mt-4 text-2xl font-semibold text-slate-900">تسجيل الدخول</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            أدخل بيانات الحساب للوصول إلى صلاحياتك المعتمدة.
+          </p>
         </div>
-      </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label htmlFor="username" className="text-sm font-semibold text-slate-600">
+              اسم المستخدم
+            </label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="أدخل اسم المستخدم"
+              className={inputClasses}
+              required
+              disabled={loading}
+              autoFocus
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="text-sm font-semibold text-slate-600">
+              كلمة المرور
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="أدخل كلمة المرور"
+              className={inputClasses}
+              required
+              disabled={loading}
+            />
+          </div>
+          {error && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+              {error}
+            </div>
+          )}
+          <Button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 to-blue-500 py-5 text-lg text-white shadow-lg shadow-indigo-500/30 hover:from-indigo-600 hover:to-blue-600"
+          >
+            {loading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
+          </Button>
+        </form>
+      </Card>
     </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">جاري التحميل...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+          جاري التحميل...
+        </div>
+      }
+    >
       <LoginForm />
     </Suspense>
   );

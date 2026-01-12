@@ -5,6 +5,15 @@ import bcrypt from 'bcryptjs';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { OrderUserRole, Prisma } from '@prisma/client';
+import {
+  sanitizeServiceKeys,
+  getRolesFromServiceKeys,
+  ServiceKey,
+} from '@/app/lib/service-definitions';
+import {
+  setUserServiceKeys,
+  mapPrismaRolesToServiceKeys,
+} from '@/app/lib/user-services';
 
 export const runtime = 'nodejs';
 
@@ -108,21 +117,79 @@ export async function PUT(
       name,
       email,
       phone,
-      orderType,
-      specificStatus,
       isActive,
       autoAssign,
-      maxOrders,
       password,
       role: roleInput,
-      roles: rolesInput, // New: array of roles
+      roles: rolesInput,
       warehouseIds = [],
+      serviceKeys: serviceKeysInput,
     } = body;
 
-    let prismaRole: OrderUserRole | undefined;
-    if (roleInput) {
+    const userRecord = await prisma.orderUser.findUnique({
+      where: { id },
+      select: {
+        username: true,
+        role: true,
+        roleAssignments: {
+          select: { role: true },
+        },
+      },
+    });
+
+    if (!userRecord) {
+      return NextResponse.json(
+        { error: 'المستخدم غير موجود' },
+        { status: 404 }
+      );
+    }
+
+    // Check if username is being changed and validate uniqueness
+    if (username && username !== userRecord.username) {
+      const existingUser = await prisma.orderUser.findUnique({
+        where: { username },
+      });
+
+      if (existingUser) {
+        return NextResponse.json(
+          { error: 'اسم المستخدم موجود بالفعل. الرجاء اختيار اسم مستخدم آخر.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    const currentServicePermissions = await prisma.userServicePermission.findMany({
+      where: { userId: id },
+      select: { serviceKey: true },
+    });
+
+    const rawServiceKeys = Array.isArray(serviceKeysInput) ? serviceKeysInput : undefined;
+    let serviceKeys = sanitizeServiceKeys(rawServiceKeys);
+    const hasExplicitServiceKeys = rawServiceKeys !== undefined;
+
+    if (!hasExplicitServiceKeys) {
+      serviceKeys = currentServicePermissions.map((permission) => permission.serviceKey as ServiceKey);
+    }
+
+    if (serviceKeys.length === 0 && rolesInput && Array.isArray(rolesInput) && rolesInput.length > 0) {
+      const legacyRoles: OrderUserRole[] = [];
+      for (const legacyRole of rolesInput) {
+        try {
+          legacyRoles.push(normalizeRole(legacyRole));
+        } catch (roleError) {
+          return NextResponse.json(
+            { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
+            { status: 400 }
+          );
+        }
+      }
+      serviceKeys = mapPrismaRolesToServiceKeys(legacyRoles);
+    }
+
+    if (serviceKeys.length === 0 && roleInput) {
       try {
-        prismaRole = normalizeRole(roleInput);
+        const normalizedRole = normalizeRole(roleInput);
+        serviceKeys = mapPrismaRolesToServiceKeys([normalizedRole]);
       } catch (roleError) {
         return NextResponse.json(
           { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
@@ -131,63 +198,40 @@ export async function PUT(
       }
     }
 
-    const effectiveRole = prismaRole ?? undefined;
-
-    // Check if username is being changed and validate uniqueness
-    if (username) {
-      const currentUser = await prisma.orderUser.findUnique({
-        where: { id },
-        select: { username: true },
-      });
-
-      if (currentUser && username !== currentUser.username) {
-        // Username is being changed, check if new username is already taken
-        const existingUser = await prisma.orderUser.findUnique({
-          where: { username },
-        });
-
-        if (existingUser) {
-          return NextResponse.json(
-            { error: 'اسم المستخدم موجود بالفعل. الرجاء اختيار اسم مستخدم آخر.' },
-            { status: 400 }
-          );
-        }
-      }
+    if (serviceKeys.length === 0) {
+      const fallbackRoles = userRecord.roleAssignments && userRecord.roleAssignments.length > 0
+        ? userRecord.roleAssignments.map((assignment) => assignment.role)
+        : [userRecord.role];
+      serviceKeys = mapPrismaRolesToServiceKeys(fallbackRoles);
     }
+
+    if (serviceKeys.length === 0) {
+      return NextResponse.json(
+        { error: 'يجب اختيار رابط واحد على الأقل للمستخدم' },
+        { status: 400 }
+      );
+    }
+
+    const serviceRoles = getRolesFromServiceKeys(serviceKeys);
+    const hasOrdersRole = serviceRoles.includes('orders');
+    const hasWarehouseRole = serviceRoles.includes('warehouse');
+
+    const shouldAutoAssign = hasOrdersRole ? Boolean(autoAssign) : false;
 
     const updateData: any = {
       name,
       email,
       phone,
       isActive,
+      orderType: 'all',
+      specificStatus: null,
+      autoAssign: shouldAutoAssign,
+      maxOrders: 0,
     };
 
     // Add username to update data if provided
     if (username) {
       updateData.username = username;
-    }
-
-    const finalRole = effectiveRole || undefined;
-    if (finalRole) {
-      updateData.role = finalRole;
-    }
-
-    const roleToUse = finalRole || (await prisma.orderUser.findUnique({
-      where: { id },
-      select: { role: true },
-    }))?.role || OrderUserRole.ORDERS;
-
-    if (roleToUse === OrderUserRole.ORDERS) {
-      updateData.orderType = orderType;
-      updateData.specificStatus =
-        orderType === 'specific_status' ? specificStatus : null;
-      updateData.autoAssign = autoAssign;
-      updateData.maxOrders = maxOrders;
-    } else {
-      updateData.orderType = 'all';
-      updateData.specificStatus = null;
-      updateData.autoAssign = false;
-      updateData.maxOrders = 0;
     }
 
     // Only update password if provided
@@ -196,7 +240,7 @@ export async function PUT(
     }
 
     const warehousesAvailable = await isWarehouseSchemaReady();
-    if (roleToUse === OrderUserRole.WAREHOUSE && !warehousesAvailable) {
+    if (hasWarehouseRole && !warehousesAvailable) {
       return NextResponse.json(
         {
           error:
@@ -222,22 +266,13 @@ export async function PUT(
 
     const user = await prisma.orderUser.update(updateArgs);
 
-    // Handle multi-role assignments
-    if (rolesInput && Array.isArray(rolesInput) && rolesInput.length > 0) {
-      const rolesToAssign = rolesInput.map((r: string) => normalizeRole(r));
-      const { setUserRoles } = await import('@/app/lib/user-roles');
-      await setUserRoles(user.id, rolesToAssign, (session.user as any)?.username || 'admin');
-    }
+    await setUserServiceKeys(user.id, serviceKeys, (session.user as any)?.username || 'admin');
 
     let warehouses = warehousesAvailable && (user as any).warehouseAssignments
       ? serializeWarehouses((user as any).warehouseAssignments)
       : [];
 
     // Check if user has warehouse role from roles array
-    const hasWarehouseRole = rolesInput && Array.isArray(rolesInput)
-      ? rolesInput.some((r: string) => normalizeRole(r) === OrderUserRole.WAREHOUSE)
-      : roleToUse === OrderUserRole.WAREHOUSE;
-
     if (hasWarehouseRole) {
       const ids = Array.isArray(warehouseIds) ? warehouseIds : [];
       if (ids.length === 0) {
@@ -272,11 +307,9 @@ export async function PUT(
         email: user.email,
         phone: user.phone,
         role: user.role.toLowerCase(),
-        orderType: user.orderType,
-        specificStatus: user.specificStatus,
         isActive: user.isActive,
         autoAssign: user.autoAssign,
-        maxOrders: user.maxOrders,
+        serviceKeys,
         warehouses,
       },
     });

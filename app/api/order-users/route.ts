@@ -5,6 +5,16 @@ import bcrypt from 'bcryptjs';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { OrderUserRole, Prisma } from '@prisma/client';
+import {
+  sanitizeServiceKeys,
+  getRolesFromServiceKeys,
+  ServiceKey,
+} from '@/app/lib/service-definitions';
+import {
+  setUserServiceKeys,
+  mapPrismaRolesToServiceKeys,
+  mapServiceKeysToPrismaRoles,
+} from '@/app/lib/user-services';
 
 export const runtime = 'nodejs';
 
@@ -126,6 +136,11 @@ export async function GET() {
           id: true,
         },
       },
+      servicePermissions: {
+        select: {
+          serviceKey: true,
+        },
+      },
     };
 
     if (warehousesAvailable) {
@@ -147,17 +162,35 @@ export async function GET() {
       success: true,
       warehousesSupported: warehousesAvailable,
       users: users.map((user: any) => {
-        const { warehouseAssignments, assignments, role, roleAssignments, ...rest } = user;
+        const {
+          warehouseAssignments,
+          assignments,
+          role,
+          roleAssignments,
+          servicePermissions,
+          ...rest
+        } = user;
 
         // Get roles array from roleAssignments, fallback to single role
         const rolesArray = roleAssignments && roleAssignments.length > 0
           ? roleAssignments.map((ra: any) => ra.role.toLowerCase())
           : [(role || OrderUserRole.ORDERS).toLowerCase()];
 
+        const prismaRoles = roleAssignments && roleAssignments.length > 0
+          ? roleAssignments.map((ra: any) => ra.role)
+          : [role || OrderUserRole.ORDERS];
+
+        const persistedServiceKeys = (servicePermissions || [])
+          .map((permission: any) => permission.serviceKey as ServiceKey);
+        const resolvedServiceKeys = persistedServiceKeys.length > 0
+          ? persistedServiceKeys
+          : mapPrismaRolesToServiceKeys(prismaRoles);
+
         return {
           ...rest,
           role: (role || OrderUserRole.ORDERS).toLowerCase(), // Primary role for backward compatibility
           roles: rolesArray, // Array of all roles
+          serviceKeys: resolvedServiceKeys,
           _count: {
             assignments: assignments.length,
           },
@@ -197,19 +230,17 @@ export async function POST(request: NextRequest) {
       name,
       email,
       phone,
-      orderType,
-      specificStatus,
       autoAssign,
-      maxOrders,
       role: roleInput,
-      roles: rolesInput, // New: array of roles
+      roles: rolesInput,
       warehouseIds = [],
+      serviceKeys: serviceKeysInput,
     } = body;
 
     // Validation
-    if (!username || !password || !name || !orderType) {
+    if (!username || !password || !name) {
       return NextResponse.json(
-        { error: 'اسم المستخدم، كلمة المرور، الاسم، ونوع الطلب مطلوبة' },
+        { error: 'اسم المستخدم، كلمة المرور، والاسم مطلوبة' },
         { status: 400 }
       );
     }
@@ -226,20 +257,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let prismaRole: OrderUserRole;
-    try {
-      prismaRole = normalizeRole(roleInput);
-    } catch (roleError) {
+    let serviceKeys = sanitizeServiceKeys(serviceKeysInput);
+
+    if (serviceKeys.length === 0 && rolesInput && Array.isArray(rolesInput) && rolesInput.length > 0) {
+      const legacyRoles: OrderUserRole[] = [];
+      for (const legacyRole of rolesInput) {
+        try {
+          legacyRoles.push(normalizeRole(legacyRole));
+        } catch (roleError) {
+          return NextResponse.json(
+            { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
+            { status: 400 }
+          );
+        }
+      }
+      serviceKeys = mapPrismaRolesToServiceKeys(legacyRoles);
+    }
+
+    if (serviceKeys.length === 0 && roleInput) {
+      try {
+        const normalizedRole = normalizeRole(roleInput);
+        serviceKeys = mapPrismaRolesToServiceKeys([normalizedRole]);
+      } catch (roleError) {
+        return NextResponse.json(
+          { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (serviceKeys.length === 0) {
       return NextResponse.json(
-        { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
+        { error: 'يجب اختيار رابط واحد على الأقل للمستخدم' },
         { status: 400 }
       );
     }
 
+    const serviceRoles = getRolesFromServiceKeys(serviceKeys);
+    const hasOrdersRole = serviceRoles.includes('orders');
+    const hasWarehouseRole = serviceRoles.includes('warehouse');
+    const primaryRole = mapServiceKeysToPrismaRoles(serviceKeys)[0] ?? OrderUserRole.ORDERS;
+    const shouldAutoAssign = hasOrdersRole ? Boolean(autoAssign) : false;
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    if (prismaRole === OrderUserRole.WAREHOUSE) {
+    if (hasWarehouseRole) {
       const schemaReady = await isWarehouseSchemaReady();
       if (!schemaReady) {
         return NextResponse.json(
@@ -268,25 +331,15 @@ export async function POST(request: NextRequest) {
         name,
         email,
         phone,
-        role: prismaRole,
-        orderType: prismaRole === OrderUserRole.ORDERS ? orderType : 'all',
-        specificStatus:
-          prismaRole === OrderUserRole.ORDERS && orderType === 'specific_status'
-            ? specificStatus
-            : null,
-        autoAssign: prismaRole === OrderUserRole.ORDERS ? autoAssign !== false : false,
-        maxOrders: prismaRole === OrderUserRole.ORDERS ? maxOrders || 50 : 50,
+        role: primaryRole,
+        orderType: 'all',
+        specificStatus: null,
+        autoAssign: shouldAutoAssign,
+        maxOrders: 0,
       },
     });
 
-    // Handle multi-role assignments
-    const rolesToAssign = rolesInput && Array.isArray(rolesInput) && rolesInput.length > 0
-      ? rolesInput.map((r: string) => normalizeRole(r))
-      : [prismaRole];
-
-    // Create role assignments
-    const { setUserRoles } = await import('@/app/lib/user-roles');
-    await setUserRoles(user.id, rolesToAssign, username);
+    await setUserServiceKeys(user.id, serviceKeys, username);
 
     let assignedWarehouses: Array<{
       id: string;
@@ -296,7 +349,7 @@ export async function POST(request: NextRequest) {
     }> = [];
 
     // Handle warehouse assignments if user has warehouse role
-    if (rolesToAssign.includes(OrderUserRole.WAREHOUSE)) {
+    if (hasWarehouseRole) {
       const warehouseIdArray = Array.isArray(warehouseIds) ? warehouseIds : [];
       await syncWarehouseAssignments(user.id, warehouseIdArray);
       assignedWarehouses = await prisma.warehouse.findMany({
@@ -310,7 +363,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    log.info('Order user created', { userId: user.id, username, roles: rolesToAssign });
+    log.info('Order user created', { userId: user.id, username, serviceKeys });
 
     return NextResponse.json({
       success: true,
@@ -321,11 +374,9 @@ export async function POST(request: NextRequest) {
         email: user.email,
         phone: user.phone,
         role: user.role.toLowerCase(),
-        orderType: user.orderType,
-        specificStatus: user.specificStatus,
         isActive: user.isActive,
         autoAssign: user.autoAssign,
-        maxOrders: user.maxOrders,
+        serviceKeys,
         warehouses: assignedWarehouses,
       },
     });

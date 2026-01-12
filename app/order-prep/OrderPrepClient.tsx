@@ -9,13 +9,28 @@ import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import AppNavbar from '@/components/AppNavbar';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
+import {
+  Activity,
+  ArrowRight,
+  BadgeInfo,
+  ClipboardList,
+  Download,
+  History,
+  Loader2,
+  MapPin,
+  PackageCheck,
+  Printer,
+  RefreshCcw,
+  Search,
+  Shield,
+  TriangleAlert,
+} from 'lucide-react';
 
 interface OrderUser {
   id: string;
   username: string;
   name: string;
   autoAssign: boolean;
-  maxOrders: number;
 }
 
 interface OrderAssignment {
@@ -60,6 +75,7 @@ interface LoadMyOrdersOptions {
   silent?: boolean;
   showDebugMessage?: boolean;
   preferredOrderNumber?: string | null;
+  autoCompleteRetryCount?: number;
 }
 
 interface OrderHistoryEntry {
@@ -70,6 +86,8 @@ interface OrderHistoryEntry {
   status: string;
   finishedAt: string | null;
 }
+
+const MAX_AUTO_COMPLETE_REFRESHES = 3;
 
 const getCustomerIdentifiersFromOrderData = (orderData: any): { number: string; name: string } => {
   if (!orderData) {
@@ -337,7 +355,7 @@ const getLabelUrlFromOrderData = (orderData: any): string | null => {
   return null;
 };
 
-const ACTION_BUTTON_BASE = 'w-full py-3 text-sm sm:py-4 sm:text-base';
+const ACTION_BUTTON_BASE = 'w-full py-3 text-sm sm:py-4 sm:text-base rounded-2xl';
 
 export default function OrderPrepPage() {
   const { data: session, status } = useSession();
@@ -444,7 +462,6 @@ export default function OrderPrepPage() {
         username: sessionUser.username,
         name: sessionUser.name,
         autoAssign: sessionUser.orderUserData?.autoAssign || false,
-        maxOrders: sessionUser.orderUserData?.maxOrders || 50,
       });
     }
   }, [session, isOrdersUser]);
@@ -534,14 +551,44 @@ useEffect(() => {
           body: JSON.stringify({ skus: currentOrderSkus }),
         });
 
-        const data = await parseJsonResponse(response, 'POST /api/order-prep/product-locations');
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          if (!cancelled) {
+            setProductLocationError('تعذر قراءة بيانات مواقع المنتجات، حاول لاحقاً');
+          }
+          return;
+        }
+
+        const data = await parseJsonResponse(response, 'POST /api/order-prep/product-locations').catch(
+          (error) => {
+            console.warn('Failed to parse product locations response', error);
+            if (!cancelled) {
+              setProductLocationError('تعذر قراءة بيانات مواقع المنتجات، حاول لاحقاً');
+            }
+            return null;
+          }
+        );
+
+        if (!data) {
+          return;
+        }
 
         if (!response.ok || !data.success) {
-          throw new Error(data?.error || 'تعذر تحميل مواقع المنتجات');
+          if (!cancelled) {
+            setProductLocationError(data?.error || 'تعذر تحميل مواقع المنتجات');
+          }
+          return;
+        }
+
+        if (!data.locations || !Array.isArray(data.locations)) {
+          if (!cancelled) {
+            setProductLocationError('الاستجابة لا تحتوي على بيانات مواقع صالحة');
+          }
+          return;
         }
 
         const map: Record<string, ProductLocation> = {};
-        (Array.isArray(data.locations) ? data.locations : []).forEach((location: ProductLocation) => {
+        data.locations.forEach((location: ProductLocation) => {
           const normalizedSku = normalizeSku(location?.sku);
           if (normalizedSku) {
             map[normalizedSku] = location;
@@ -605,6 +652,7 @@ useEffect(() => {
         silent = false,
         showDebugMessage = false,
         preferredOrderNumber = requestedOrderNumber,
+        autoCompleteRetryCount = 0,
       } = options;
 
       if (!silent) {
@@ -624,7 +672,12 @@ useEffect(() => {
         if (!data.success) {
           throw new Error(data.error || 'فشل تحميل الطلبات');
         }
-        return sortAssignments(Array.isArray(data.assignments) ? data.assignments : []);
+        return {
+          assignments: sortAssignments(Array.isArray(data.assignments) ? data.assignments : []),
+          autoCompletedAssignments: Array.isArray(data.autoCompletedAssignments)
+            ? data.autoCompletedAssignments
+            : [],
+        };
       };
 
       try {
@@ -635,7 +688,9 @@ useEffect(() => {
           cache: 'no-store',
         });
 
-        let assignmentsSnapshot = await fetchAssignmentsSnapshot();
+        let assignmentsSnapshotResult = await fetchAssignmentsSnapshot();
+        let assignmentsSnapshot = assignmentsSnapshotResult.assignments;
+        let autoCompletedAssignments = assignmentsSnapshotResult.autoCompletedAssignments;
 
         if (assignmentsSnapshot.length === 0 && autoAssignIfEmpty) {
           const autoAssignResponse = await fetch('/api/order-assignments/auto-assign', {
@@ -651,7 +706,9 @@ useEffect(() => {
               if (showDebugMessage) {
                 setDebugInfo(`✅ تم تعيين ${autoAssignData.assigned} طلب جديد`);
               }
-              assignmentsSnapshot = await fetchAssignmentsSnapshot();
+              assignmentsSnapshotResult = await fetchAssignmentsSnapshot();
+              assignmentsSnapshot = assignmentsSnapshotResult.assignments;
+              autoCompletedAssignments = assignmentsSnapshotResult.autoCompletedAssignments;
             } else if (showDebugMessage) {
               setDebugInfo(`ℹ️ ${autoAssignData.message || 'لا توجد طلبات جديدة'}`);
             }
@@ -664,6 +721,27 @@ useEffect(() => {
               ? '✅ تم تحديث الطلب الحالي'
               : 'ℹ️ لا توجد طلبات للتحضير'
           );
+        }
+
+        const completedDueToLabels =
+          Array.isArray(autoCompletedAssignments) && autoCompletedAssignments.length > 0;
+        const shouldForceAutoAssign =
+          completedDueToLabels &&
+          assignmentsSnapshot.length === 0 &&
+          !autoAssignIfEmpty &&
+          autoCompleteRetryCount < MAX_AUTO_COMPLETE_REFRESHES;
+
+        if (shouldForceAutoAssign) {
+          if (showDebugMessage) {
+            setDebugInfo('♻️ تم تحديث الطلبات بسبب شحنات مكتملة في سلة');
+          }
+          await loadMyOrders(true, {
+            ...options,
+            silent: false,
+            showDebugMessage: true,
+            autoCompleteRetryCount: autoCompleteRetryCount + 1,
+          });
+          return;
         }
 
         setAssignments(assignmentsSnapshot);
@@ -1051,21 +1129,27 @@ useEffect(() => {
 
   // Show loading while checking session
   if (status === 'loading') {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-lg">جاري التحميل...</p>
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900">
+      <div className="rounded-3xl border border-white/10 bg-white/90 px-8 py-6 text-center shadow-2xl shadow-slate-900/40">
+        <Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-indigo-600" />
+        <p className="text-lg font-semibold text-slate-900">جاري تحميل حساب التحضير...</p>
       </div>
-    );
+    </div>
+  );
   }
 
   // If not authenticated or not an order user, show message
   if (!session || !user) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md p-8 text-center">
-          <h1 className="text-2xl font-bold mb-4">تحضير الطلبات</h1>
-          <p className="text-gray-600 mb-6">يجب تسجيل الدخول كمستخدم طلبات للوصول إلى هذه الصفحة</p>
-          <Button onClick={() => window.location.href = '/login'} className="w-full">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4">
+        <Card className="w-full max-w-md rounded-3xl border border-white/10 bg-white/95 p-10 text-center shadow-2xl shadow-slate-900/40">
+          <Shield className="mx-auto mb-4 h-10 w-10 text-indigo-600" />
+          <h1 className="text-2xl font-semibold text-slate-900">تحضير الطلبات</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            يجب تسجيل الدخول كمستخدم طلبات للوصول إلى هذه الصفحة.
+          </p>
+          <Button onClick={() => (window.location.href = '/login')} className="mt-6 w-full rounded-2xl">
             تسجيل الدخول
           </Button>
         </Card>
@@ -1075,9 +1159,10 @@ useEffect(() => {
 
   if (!isOrdersUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 text-center">
-        <Card className="p-8 max-w-md">
-          <p className="text-lg font-semibold text-gray-700">
+      <div className="flex min-h-screen.items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 text-center">
+        <Card className="max-w-md rounded-3xl border border-white/10 bg-white/95 p-10 shadow-2xl shadow-slate-900/40">
+          <TriangleAlert className="mx-auto mb-4 h-10 w-10 text-amber-500" />
+          <p className="text-lg font-semibold text-slate-900">
             ليس لديك صلاحية للوصول إلى لوحة تحضير الطلبات.
           </p>
         </Card>
@@ -1086,55 +1171,86 @@ useEffect(() => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 overflow-x-hidden">
-      <AppNavbar title="تحضير الطلبات" subtitle={`مرحباً، ${user.name}`} />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      <AppNavbar title="لوحة تحضير الطلبات" subtitle={`مرحباً، ${user.name}`} />
 
       <div className="w-full">
-        {/* Content */}
-        <div className="w-full max-w-7xl mx-auto px-4 md:px-6 pt-6 pb-32 md:pb-40">
-          {/* Refresh Controls */}
-          <Card className="w-full p-4 mb-6">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              {/* Manual refresh only */}
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch w-full md:w-auto">
-                <Button
-                  onClick={() => autoAssignOrders({ showDebugMessage: true })}
-                  disabled={loadingOrders}
-                  className="w-full sm:flex-1 md:flex-initial bg-blue-600 hover:bg-blue-700"
-                >
-                  {loadingOrders ? 'جاري التحديث...' : '🔄 تحديث الطلبات'}
-                </Button>
-                <Button
-                  onClick={() => setShowHistoryPanel((prev) => !prev)}
-                  variant="outline"
-                  className="w-full sm:flex-1 md:flex-initial"
-                >
-                  {showHistoryPanel ? 'إخفاء الطلبات السابقة' : 'عرض الطلبات السابقة'}
-                </Button>
-                {lastRefreshTime && (
-                  <span className="text-xs text-gray-500 whitespace-nowrap sm:self-center">
-                    آخر تحديث: {lastRefreshTime.toLocaleTimeString('ar-SA')}
-                  </span>
-                )}
+        <div className="w-full max-w-7xl mx-auto px-4 md:px-6 pt-8 pb-32 md:pb-40">
+          <div className="mb-8 grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
+            <Card className="relative overflow-hidden rounded-3xl border border-white/60 bg-white/90 p-8 shadow-xl shadow-indigo-100/60">
+              <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-slate-50" />
+              <div className="relative z-10 flex flex-wrap items-center justify-between gap-6">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.4em] text-slate-400">حالتك الآن</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-slate-900">طلبك الحالي</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {currentOrder ? `#${currentOrder.orderNumber || 'غير معروف'}` : 'لا يوجد طلب محدد حالياً'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    onClick={() => autoAssignOrders({ showDebugMessage: true })}
+                    disabled={loadingOrders}
+                    className="rounded-2xl bg-indigo-600 px-6 py-5 text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-700"
+                  >
+                    <RefreshCcw className="h-4 w-4" />
+                    {loadingOrders ? 'جاري التحديث...' : 'تحديث الطلبات'}
+                  </Button>
+                  <Button
+                    onClick={() => setShowHistoryPanel((prev) => !prev)}
+                    variant="outline"
+                    className="rounded-2xl border-slate-200 px-6 py-5 text-slate-600 hover:text-slate-900"
+                  >
+                    {showHistoryPanel ? 'إخفاء الطلبات السابقة' : 'عرض الطلبات السابقة'}
+                  </Button>
+                </div>
               </div>
-            </div>
+              {lastRefreshTime && (
+                <p className="relative z-10 mt-4 text-xs text-slate-500">
+                  آخر تحديث: {lastRefreshTime.toLocaleTimeString('ar-SA')}
+                </p>
+              )}
+              {debugInfo && (
+                <div className="relative z-10 mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                  {debugInfo}
+                </div>
+              )}
+            </Card>
 
-            {/* Debug Info */}
-            {debugInfo && (
-              <div className="mt-3 p-2 bg-gray-50 rounded text-sm text-gray-700 border border-gray-200">
-                {debugInfo}
+            <Card className="rounded-3xl border border-white/60 bg-white/90 p-8 shadow-xl shadow-indigo-100/60">
+              <div className="flex items-center gap-3 text-slate-600">
+                <ClipboardList className="h-5 w-5 text-indigo-500" />
+                <div>
+                  <p className="text-xs uppercase tracking-[0.4em] text-slate-400">سجلات الطلبات</p>
+                  <p className="text-lg font-semibold text-slate-900">{assignments.length} طلب نشط</p>
+                </div>
               </div>
-            )}
-          </Card>
+              <p className="mt-4 text-sm text-slate-500">
+                اجمع الطلبات حسب الأولوية ثم اعتمد على ملخص الأماكن لمعرفة مواقع المنتجات المسجلة.
+              </p>
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">الطلبات</p>
+                  <p className="text-2xl font-bold text-slate-900">{assignments.length}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">التاريخ</p>
+                  <p className="text-2xl font-bold text-slate-900">{recentHistory.length}</p>
+                </div>
+              </div>
+            </Card>
+          </div>
 
           {/* Debug Panel */}
           {showDebugPanel && debugData && (
-            <Card className="w-full p-6 mb-6 bg-yellow-50 border-2 border-yellow-400">
+            <Card className="w-full rounded-3xl border border-amber-200 bg-amber-50/60 p-6 mb-6 shadow">
               <div className="flex justify-between items-start mb-4">
-                <h3 className="text-lg font-bold text-gray-900">🔍 معلومات التشخيص</h3>
+                <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2">
+                  <BadgeInfo className="h-5 w-5" /> معلومات التشخيص
+                </h3>
                 <button
                   onClick={() => setShowDebugPanel(false)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-amber-500 hover:text-amber-700"
                 >
                   ✕
                 </button>
@@ -1142,39 +1258,46 @@ useEffect(() => {
 
               <div className="space-y-4 text-sm">
                 {/* Status Config */}
-                <div className="bg-white p-3 rounded border border-yellow-300">
-                  <h4 className="font-bold text-gray-800 mb-2">⚙️ إعدادات الحالة</h4>
+                <div className="bg-white p-3 rounded-2xl border border-yellow-300">
+                  <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-yellow-500" /> إعدادات الحالة
+                  </h4>
                   <div className="space-y-1 text-gray-700">
-                    <p><strong>نوع الطلبات:</strong> {debugData.user.orderType}</p>
                     <p><strong>الحالة المطلوبة:</strong> {debugData.statusConfig.statusName} ({debugData.statusConfig.statusSlug})</p>
                     <p><strong>معرف الحالة:</strong> {debugData.statusConfig.statusId}</p>
                   </div>
                 </div>
 
                 {/* Orders in Salla */}
-                <div className="bg-white p-3 rounded border border-yellow-300">
-                  <h4 className="font-bold text-gray-800 mb-2">📊 الطلبات في سلة</h4>
+                <div className="bg-white p-3 rounded-2xl border border-yellow-300">
+                  <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                    <Search className="h-4 w-4 text-yellow-500" /> الطلبات في سلة
+                  </h4>
                   <div className="space-y-1 text-gray-700">
                     <p><strong>إجمالي الطلبات بهذه الحالة:</strong> {debugData.ordersInSalla.total}</p>
-                    <p><strong>بعد تصفية طريقة الدفع:</strong> {debugData.ordersInSalla.afterPaymentFilter}</p>
                     <p><strong>المتاحة للتعيين:</strong> <span className="text-green-600 font-bold">{debugData.ordersInSalla.available}</span></p>
                     <p><strong>معينة بالفعل:</strong> <span className="text-red-600">{debugData.ordersInSalla.alreadyAssigned}</span></p>
                   </div>
                 </div>
 
                 {/* User Assignments */}
-                <div className="bg-white p-3 rounded border border-yellow-300">
-                  <h4 className="font-bold text-gray-800 mb-2">👤 تعييناتك</h4>
+                <div className="bg-white p-3 rounded-2xl border border-yellow-300">
+                  <h4 className="font-bold text-gray-800 mb-2 flex.items-center gap-2">
+                    <PackageCheck className="h-4 w-4 text-yellow-500" /> تعييناتك
+                  </h4>
                   <div className="space-y-1 text-gray-700">
                     <p><strong>الطلبات النشطة لديك:</strong> {debugData.assignments.userActiveAssignments}</p>
                     <p><strong>يمكنك استلام طلب جديد:</strong> {debugData.assignments.canAssignMore ? '✅ نعم' : '❌ لا (لديك طلب نشط)'}</p>
+                    <p><strong>التعيين التلقائي:</strong> {debugData.user.autoAssign ? 'مفعل' : 'معطل'}</p>
                   </div>
                 </div>
 
                 {/* Sample Available Orders */}
                 {debugData.sampleOrders.length > 0 && (
-                  <div className="bg-white p-3 rounded border border-yellow-300">
-                    <h4 className="font-bold text-gray-800 mb-2">📋 أمثلة الطلبات المتاحة (أول 5)</h4>
+                  <div className="bg-white p-3 rounded-2xl border border-yellow-300">
+                    <h4 className="flex items-center gap-2 font-bold text-gray-800 mb-2">
+                      <History className="h-4 w-4 text-yellow-500" /> أمثلة الطلبات المتاحة (أول 5)
+                    </h4>
                     <div className="space-y-2">
                       {debugData.sampleOrders.map((order: any, idx: number) => (
                         <div key={idx} className="p-2 bg-gray-50 rounded text-xs">
@@ -1210,7 +1333,7 @@ useEffect(() => {
           )}
 
           {showHistoryPanel && (
-            <Card className="w-full mb-6 p-4 md:p-6 bg-white border border-gray-200">
+            <Card className="w-full mb-6 rounded-3xl border border-white/60 bg-white p-6 shadow">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">آخر 10 طلبات قمت بتحضيرها</h3>
@@ -1290,22 +1413,21 @@ useEffect(() => {
 
           {/* Stats */}
           {assignments.length > 0 && (
-            <Card className="w-full p-6 mb-6 text-center">
-              <p className="text-gray-600 mb-2">الطلبات النشطة</p>
-              <p className="text-4xl font-bold text-blue-600">{assignments.length}</p>
+            <Card className="w-full rounded-3xl border border-white/60 bg-white/95 p-6 mb-6 text-center shadow">
+              <p className="text-sm text-slate-500">الطلبات النشطة</p>
+              <p className="text-4xl font-bold text-indigo-600">{assignments.length}</p>
             </Card>
           )}
 
           {loadingOrders ? (
-            <div className="w-full text-center py-12">
+            <div className="w-full text-center py-12 text-slate-600">
+              <Loader2 className="mx-auto h-10 w-10 animate-spin text-indigo-500 mb-4" />
               <p>جاري تحميل الطلبات...</p>
             </div>
           ) : !currentOrder ? (
-            <Card className="w-full p-8 md:p-12 text-center">
+            <Card className="w-full rounded-3xl border border-dashed border-slate-200 bg-white/95 p-8 md:p-12 text-center shadow">
               <div className="mb-6">
-                <svg className="w-24 h-24 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+                <Search className="mx-auto mb-4 h-16 w-16 text-slate-300" />
                 <p className="text-xl text-gray-600 mb-2">لا توجد طلبات للتحضير حالياً</p>
                 <p className="text-sm text-gray-500 mb-4">
                   انقر على زر &quot;تحديث الطلبات&quot; أعلاه للبحث عن طلبات جديدة متى ما احتجت ذلك.
@@ -1314,15 +1436,15 @@ useEffect(() => {
               <Button
                 onClick={() => autoAssignOrders({ showDebugMessage: true })}
                 disabled={loadingOrders}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="rounded-2xl bg-indigo-600 px-6 py-5 text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-700"
               >
-                {loadingOrders ? 'جاري البحث...' : '🔍 البحث عن طلبات جديدة'}
+                {loadingOrders ? 'جاري البحث...' : 'البحث عن طلبات جديدة'}
               </Button>
             </Card>
           ) : (
             <div className="w-full">
               {/* Order Header */}
-              <Card className="p-4 md:p-6 mb-4 md:mb-6">
+              <Card className="mb-6 rounded-3xl border border-white/60 bg-white/95 p-6 shadow">
                 <div>
                   <h2 className="text-2xl md:text-3xl font-bold flex flex-wrap items-center gap-3">
                     <span>طلب #{currentOrder.orderNumber}</span>
@@ -1341,9 +1463,12 @@ useEffect(() => {
                     const city = getStringValue(currentOrder.orderData?.customer?.city);
                     if (!location && !city) return null;
                     return (
-                      <p className="text-sm text-gray-500 mt-1">
-                        📍 {location && `${location} - `}
-                        {city}
+                      <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                        <MapPin className="h-4 w-4 text-indigo-500" />
+                        <span>
+                          {location && `${location} - `}
+                          {city}
+                        </span>
                       </p>
                     );
                   })()}
@@ -1351,14 +1476,15 @@ useEffect(() => {
                     const notesText = getStringValue(currentOrder.orderData?.notes);
                     if (!notesText) return null;
                     return (
-                      <p className="text-sm text-orange-600 mt-2 font-medium">
-                        📝 ملاحظات: {notesText}
+                      <p className="mt-2 flex items-center gap-2 text-sm font-medium text-amber-600">
+                        <BadgeInfo className="h-4 w-4" />
+                        <span>ملاحظات: {notesText}</span>
                       </p>
                     );
                   })()}
 
                   {currentOrder.isHighPriority && (
-                    <div className="mt-4 p-4 bg-orange-50 border-2 border-orange-400 rounded-lg">
+                    <div className="mt-4 rounded-3xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 p-4 shadow-inner">
                       <div className="flex items-center gap-2 text-orange-800 font-bold">
                         <span>⚡ طلب عالي الأولوية</span>
                       </div>
@@ -1734,9 +1860,10 @@ useEffect(() => {
                         })
                       }
                       disabled={movingToReview || movingToReservation}
-                      className={`${ACTION_BUTTON_BASE} bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                      className={`${ACTION_BUTTON_BASE} flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-orange-200 disabled:opacity-70`}
                     >
-                      {movingToReview ? 'جاري النقل...' : '📋 تحت المراجعة'}
+                      <ClipboardList className="h-4 w-4" />
+                      {movingToReview ? 'جاري النقل...' : 'تحت المراجعة'}
                     </Button>
                     <Button
                       type="button"
@@ -1750,9 +1877,10 @@ useEffect(() => {
                         })
                       }
                       disabled={movingToReview || movingToReservation}
-                      className={`${ACTION_BUTTON_BASE} bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                      className={`${ACTION_BUTTON_BASE} flex items-center justify-center gap-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg shadow-indigo-200 disabled:opacity-70`}
                     >
-                      {movingToReservation ? 'جاري النقل...' : '🔖 تحت المراجعة حجز قطع'}
+                      <PackageCheck className="h-4 w-4" />
+                      {movingToReservation ? 'جاري النقل...' : 'تحت المراجعة حجز قطع'}
                     </Button>
                   </div>
 
@@ -1770,9 +1898,10 @@ useEffect(() => {
                             onConfirm: handleGoToNewOrder,
                           })
                         }
-                        className={`${ACTION_BUTTON_BASE} bg-green-600 hover:bg-green-700`}
+                        className={`${ACTION_BUTTON_BASE} flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-200`}
                       >
-                        ✅ الانتقال للطلب التالي
+                        <ArrowRight className="h-4 w-4" />
+                        الانتقال للطلب التالي
                       </Button>
                     ) : (
                       <>
@@ -1787,8 +1916,9 @@ useEffect(() => {
                             })
                           }
                           disabled={printingOrderNumber}
-                          className={`${ACTION_BUTTON_BASE} bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                          className={`${ACTION_BUTTON_BASE} flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-lg shadow-indigo-200 disabled:opacity-70`}
                         >
+                          <Printer className="h-4 w-4" />
                           {printingOrderNumber ? 'جاري إرسال الرقم...' : 'طباعة رقم الطلب'}
                         </Button>
                         <Button
@@ -1802,8 +1932,9 @@ useEffect(() => {
                               onConfirm: handleCompleteOrder,
                             })
                           }
-                          className={`${ACTION_BUTTON_BASE} bg-green-600 hover:bg-green-700`}
+                          className={`${ACTION_BUTTON_BASE} flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-200`}
                         >
+                          <Shield className="h-4 w-4" />
                           إنهاء الطلب
                         </Button>
                       </>

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getSallaAccessToken } from '@/app/lib/salla-oauth';
 import { getSallaOrderStatuses, getStatusBySlug } from '@/app/lib/salla-statuses';
 import { log } from '@/app/lib/logger';
-import { ACTIVE_ASSIGNMENT_STATUSES } from '@/lib/order-assignment-statuses';
+import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses';
 
 export const runtime = 'nodejs';
 
@@ -49,18 +49,10 @@ export async function GET(request: NextRequest) {
     // Fetch order statuses
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
 
-    // Determine which status to look for
-    let statusFilter: string;
-    let statusInfo: any;
-
-    if (user.orderType === 'specific_status' && user.specificStatus) {
-      statusFilter = user.specificStatus;
-      statusInfo = statuses.find(s => s.id.toString() === statusFilter);
-    } else {
-      const underReviewStatus = getStatusBySlug(statuses, 'under_review');
-      statusFilter = underReviewStatus?.id.toString() || '566146469';
-      statusInfo = underReviewStatus;
-    }
+    // Determine which status to look for (always use "under_review")
+    const underReviewStatus = getStatusBySlug(statuses, 'under_review');
+    const statusFilter = underReviewStatus?.id.toString() || '566146469';
+    const statusInfo = underReviewStatus;
 
     // Fetch orders from Salla with this status
     const baseUrl = 'https://api.salla.dev/admin/v2';
@@ -84,24 +76,12 @@ export async function GET(request: NextRequest) {
     const data = await response.json();
     const orders = data.data || [];
 
-    // Filter by payment method if needed
-    let filteredOrders = orders;
-    if (user.orderType === 'cod') {
-      filteredOrders = orders.filter((order: any) =>
-        order.payment_method === 'cash_on_delivery' || order.payment_method === 'cod'
-      );
-    } else if (user.orderType === 'prepaid') {
-      filteredOrders = orders.filter((order: any) =>
-        order.payment_method !== 'cash_on_delivery' && order.payment_method !== 'cod'
-      );
-    }
-
     // Get currently active assigned order IDs (exclude completed/removed for reporting)
     const assignedOrders = await prisma.orderAssignment.findMany({
       where: {
         merchantId: MERCHANT_ID,
         status: {
-          in: ACTIVE_ASSIGNMENT_STATUSES,
+          in: ACTIVE_ASSIGNMENT_STATUS_VALUES,
         },
       },
       select: {
@@ -113,7 +93,7 @@ export async function GET(request: NextRequest) {
     });
 
     const assignedOrderIdSet = new Set(assignedOrders.map(a => a.orderId));
-    const unassignedOrders = filteredOrders.filter(
+    const unassignedOrders = orders.filter(
       (order: any) => !assignedOrderIdSet.has(String(order.id))
     );
 
@@ -122,7 +102,7 @@ export async function GET(request: NextRequest) {
       where: {
         userId: user.id,
         status: {
-          in: ACTIVE_ASSIGNMENT_STATUSES,
+          in: ACTIVE_ASSIGNMENT_STATUS_VALUES,
         },
       },
     });
@@ -133,8 +113,6 @@ export async function GET(request: NextRequest) {
         user: {
           id: user.id,
           name: user.name,
-          orderType: user.orderType,
-          specificStatus: user.specificStatus,
           autoAssign: user.autoAssign,
           isActive: user.isActive,
         },
@@ -146,9 +124,8 @@ export async function GET(request: NextRequest) {
         },
         ordersInSalla: {
           total: orders.length,
-          afterPaymentFilter: filteredOrders.length,
           available: unassignedOrders.length,
-          alreadyAssigned: filteredOrders.length - unassignedOrders.length,
+          alreadyAssigned: orders.length - unassignedOrders.length,
         },
         assignments: {
           totalAssignments: assignedOrders.length,

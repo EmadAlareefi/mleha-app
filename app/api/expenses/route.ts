@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 // GET /api/expenses - Get all expenses with optional filtering
 export async function GET(request: NextRequest) {
@@ -14,11 +15,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const role = (session.user as any)?.role;
-    const roles = ((session.user as any)?.roles || [role]) as string[];
-    const hasPermission = roles.includes('admin') || roles.includes('accountant');
-
-    if (!hasPermission) {
+    if (!hasServiceAccess(session, ['expenses'])) {
       return NextResponse.json(
         { error: 'لا تملك صلاحية لعرض المصروفات' },
         { status: 403 }
@@ -107,11 +104,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const role = (session.user as any)?.role;
-    const roles = ((session.user as any)?.roles || [role]) as string[];
-    const hasPermission = roles.includes('admin') || roles.includes('accountant');
-
-    if (!hasPermission) {
+    if (!hasServiceAccess(session, ['expenses'])) {
       return NextResponse.json(
         { error: 'لا تملك صلاحية لإضافة مصروفات' },
         { status: 403 }

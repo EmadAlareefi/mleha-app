@@ -4,11 +4,10 @@ import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { parseSettlementFile, SettlementProvider, ParsedSettlementRecord } from '@/app/lib/settlements/parsers';
 import { createHash } from 'crypto';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 function hasAccountingAccess(session: any): boolean {
-  const role = session?.user?.role;
-  const roles: string[] = session?.user?.roles || (role ? [role] : []);
-  return roles.includes('admin') || roles.includes('accountant');
+  return hasServiceAccess(session, 'settlements');
 }
 
 function isAdmin(session: any): boolean {

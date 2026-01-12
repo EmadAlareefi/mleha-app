@@ -2,6 +2,8 @@ import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { ensureUserServiceKeys } from '@/app/lib/user-services';
+import { getRolesFromServiceKeys, getAllServiceKeys } from '@/app/lib/service-definitions';
 
 // In production, store users in database
 // For now, using environment variables
@@ -33,6 +35,8 @@ export const authOptions: NextAuthOptions = {
               name: 'مسؤول النظام',
               username: ADMIN_USERNAME,
               role: 'admin',
+              roles: ['admin'],
+              serviceKeys: getAllServiceKeys(),
             };
           }
           return null;
@@ -55,19 +59,12 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          // Get user roles from role assignments table (with fallback to legacy single role)
-          const roleAssignments = await prisma.userRoleAssignment.findMany({
-            where: { userId: orderUser.id },
-            select: { role: true },
-          });
-
-          // If no role assignments, use legacy role field
-          const userRoles = roleAssignments.length > 0
-            ? roleAssignments.map(ra => ra.role.toLowerCase() as 'orders' | 'store_manager' | 'warehouse' | 'accountant')
-            : [(orderUser.role || 'ORDERS').toLowerCase() as 'orders' | 'store_manager' | 'warehouse' | 'accountant'];
+          const fallbackRoles = [orderUser.role];
+          const serviceKeys = await ensureUserServiceKeys(orderUser.id, fallbackRoles);
+          const userRoles = getRolesFromServiceKeys(serviceKeys);
 
           // Primary role is the first role (for backward compatibility)
-          const primaryRole = userRoles[0];
+          const primaryRole = userRoles[0] ?? 'orders';
 
           // Get warehouse assignments if user has warehouse role
           const hasWarehouseRole = userRoles.includes('warehouse');
@@ -99,9 +96,6 @@ export const authOptions: NextAuthOptions = {
           const orderUserData = hasOrdersRole
             ? {
                 autoAssign: orderUser.autoAssign,
-                maxOrders: orderUser.maxOrders,
-                orderType: orderUser.orderType,
-                specificStatus: orderUser.specificStatus,
               }
             : undefined;
 
@@ -111,6 +105,7 @@ export const authOptions: NextAuthOptions = {
             username: orderUser.username,
             role: primaryRole, // Primary role for backward compatibility
             roles: userRoles, // Array of all roles
+            serviceKeys,
             orderUserData,
             warehouseData,
           };
@@ -131,6 +126,7 @@ export const authOptions: NextAuthOptions = {
         token.username = (user as any).username;
         token.role = (user as any).role; // Primary role for backward compatibility
         token.roles = (user as any).roles || [(user as any).role]; // Array of all roles
+        token.serviceKeys = (user as any).serviceKeys;
         token.orderUserData = (user as any).orderUserData;
         token.warehouseData = (user as any).warehouseData;
       }
@@ -142,6 +138,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).username = token.username;
         (session.user as any).role = token.role; // Primary role for backward compatibility
         (session.user as any).roles = token.roles || [token.role]; // Array of all roles
+        (session.user as any).serviceKeys = token.serviceKeys;
         (session.user as any).orderUserData = token.orderUserData;
         (session.user as any).warehouseData = token.warehouseData;
       }

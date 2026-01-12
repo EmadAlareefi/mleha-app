@@ -2,17 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
-
-const getUserRoles = (sessionUser: any): string[] => {
-  if (!sessionUser) return [];
-  if (Array.isArray(sessionUser.roles)) {
-    return sessionUser.roles.filter(Boolean);
-  }
-  if (sessionUser.role) {
-    return [sessionUser.role];
-  }
-  return [];
-};
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,9 +13,8 @@ export async function POST(request: NextRequest) {
     }
 
     const user = session.user as any;
-    const roles = getUserRoles(user);
 
-    if (!roles.includes('admin')) {
+    if (!hasServiceAccess(session, 'order-invoice-search')) {
       return NextResponse.json({ success: false, error: 'لا تملك صلاحية طباعة الفواتير' }, { status: 403 });
     }
 

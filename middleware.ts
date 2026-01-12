@@ -1,5 +1,6 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
+import { serviceDefinitions, ServiceKey } from '@/app/lib/service-definitions';
 
 const PUBLIC_PATHS = [
   '/returns',
@@ -21,6 +22,45 @@ const isPublicPath = (pathname: string) =>
     (path) => pathname === path || pathname.startsWith(`${path}/`)
   );
 
+const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
+  ['order-prep', [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/]],
+  ['order-shipping', [/^\/order-shipping(\/.*)?$/]],
+  ['admin-order-prep', [/^\/admin\/order-prep(\/.*)?$/]],
+  ['warehouse', [/^\/warehouse(\/.*)?$/]],
+  ['warehouse-locations', [/^\/warehouse\/locations(\/.*)?$/]],
+  ['local-shipping', [/^\/local-shipping(\/.*)?$/]],
+  ['barcode-labels', [/^\/barcode-labels(\/.*)?$/]],
+  ['shipment-assignments', [/^\/shipment-assignments(\/.*)?$/]],
+  ['order-invoice-search', [/^\/order-invoice-search(\/.*)?$/]],
+  ['cod-tracker', [/^\/cod-tracker(\/.*)?$/]],
+  ['my-deliveries', [/^\/my-deliveries(\/.*)?$/]],
+  ['returns-management', [/^\/returns-management(\/.*)?$/, /^\/cancel-shipment(\/.*)?$/]],
+  ['returns-inspection', [/^\/returns-inspection(\/.*)?$/]],
+  ['returns-priority', [/^\/returns-priority(\/.*)?$/]],
+  ['returns-gifts', [/^\/returns-gifts(\/.*)?$/]],
+  ['settings', [/^\/settings(\/.*)?$/, /^\/erp-settings(\/.*)?$/]],
+  ['order-users-management', [/^\/order-users-management(\/.*)?$/]],
+  ['warehouse-management', [/^\/warehouse-management(\/.*)?$/]],
+  ['order-reports', [/^\/order-reports(\/.*)?$/]],
+  ['settlements', [/^\/settlements(\/.*)?$/]],
+  ['invoices', [/^\/invoices(\/.*)?$/]],
+  ['expenses', [/^\/expenses(\/.*)?$/]],
+]);
+
+const serviceHomeByKey = new Map<ServiceKey, string>(
+  serviceDefinitions.map((service) => [service.key, service.href])
+);
+
+function getFallbackPath(serviceKeys: ServiceKey[]): string {
+  for (const key of serviceKeys) {
+    const home = serviceHomeByKey.get(key);
+    if (home) {
+      return home;
+    }
+  }
+  return '/';
+}
+
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token;
@@ -33,98 +73,26 @@ export default withAuth(
 
     if (token) {
       const role = token.role as string | undefined;
-      const roles = (token.roles as string[]) || (role ? [role] : []);
-
-      const roleAccess: Record<
-        string,
-        { home?: string; allowed: RegExp[] }
-      > = {
-        orders: {
-          home: '/order-prep',
-        allowed: [
-          /^\/$/,
-          /^\/order-prep(\/.*)?$/,
-          /^\/order-shipping(\/.*)?$/,
-          /^\/order-history(\/.*)?$/,
-          /^\/api\/order-assignments(\/.*)?$/,
-          /^\/api\/order-prep\/product-locations(\/.*)?$/,
-          /^\/api\/order-prep\/print-order-number(\/.*)?$/,
-          /^\/api\/salla\/create-shipment(\/.*)?$/,
-          /^\/api\/salla\/shipments(\/.*)?$/,
-          /^\/barcode-labels(\/.*)?$/,
-        ],
-      },
-        store_manager: {
-          home: '/returns-management',
-          allowed: [
-            /^\/$/,
-            /^\/returns-management(\/.*)?$/,
-            /^\/returns-priority(\/.*)?$/,
-            /^\/returns-gifts(\/.*)?$/,
-            /^\/api\/returns(\/.*)?$/,
-            /^\/api\/high-priority-orders(\/.*)?$/,
-            /^\/api\/order-gifts(\/.*)?$/,
-            /^\/barcode-labels(\/.*)?$/,
-          ],
-        },
-        warehouse: {
-          allowed: [
-            /^\/$/,
-            /^\/warehouse(\/.*)?$/,
-            /^\/local-shipping(\/.*)?$/,
-            /^\/shipment-assignments(\/.*)?$/,
-            /^\/api\/shipments(\/.*)?$/,
-            /^\/api\/local-shipping(\/.*)?$/,
-            /^\/api\/shipment-assignments(\/.*)?$/,
-            /^\/api\/delivery-agents(\/.*)?$/,
-            /^\/api\/product-locations(\/.*)?$/,
-            /^\/barcode-labels(\/.*)?$/,
-          ],
-        },
-        accountant: {
-          home: '/order-reports',
-          allowed: [
-            /^\/$/,
-            /^\/order-reports(\/.*)?$/,
-            /^\/api\/order-history(\/.*)?$/,
-            /^\/expenses(\/.*)?$/,
-            /^\/api\/expenses(\/.*)?$/,
-            /^\/cod-tracker(\/.*)?$/,
-            /^\/api\/cod-collections(\/.*)?$/,
-            /^\/barcode-labels(\/.*)?$/,
-          ],
-        },
-        delivery_agent: {
-          home: '/my-deliveries',
-          allowed: [
-            /^\/$/,
-            /^\/my-deliveries(\/.*)?$/,
-            /^\/api\/shipment-assignments(\/.*)?$/,
-            /^\/api\/cod-collections(\/.*)?$/,
-            /^\/barcode-labels(\/.*)?$/,
-          ],
-        },
-      };
-
-      // Admin can't access order-prep (it's for order users only)
-      if (role === 'admin' && path.startsWith('/order-prep')) {
-        return NextResponse.redirect(new URL('/', req.url));
+      if (role === 'admin') {
+        return NextResponse.next();
       }
 
-      // Check if user has any role that allows access to this path
-      const hasAccess = roles.some(userRole => {
-        const restrictions = roleAccess[userRole];
-        if (!restrictions) return false;
-        return restrictions.allowed.some((pattern) => pattern.test(path));
-      });
+      const serviceKeys = (token.serviceKeys as string[]) || [];
+      const allowedServices = serviceKeys.filter((key): key is ServiceKey =>
+        SERVICE_PATHS.has(key as ServiceKey)
+      ) as ServiceKey[];
 
-      // If path requires role-based access and user doesn't have permission
-      if (!hasAccess && role !== 'admin') {
-        const primaryRestrictions = role ? roleAccess[role] : undefined;
-        if (primaryRestrictions && primaryRestrictions.home) {
-          // Redirect to primary role's home page
-          return NextResponse.redirect(new URL(primaryRestrictions.home, req.url));
-        }
+      if (path === '/') {
+        return NextResponse.next();
+      }
+
+      const hasAccess = allowedServices.some((service) =>
+        SERVICE_PATHS.get(service)?.some((pattern) => pattern.test(path))
+      );
+
+      if (!hasAccess) {
+        const fallback = getFallbackPath(allowedServices);
+        return NextResponse.redirect(new URL(fallback, req.url));
       }
     }
 
