@@ -18,9 +18,10 @@ export async function GET(request: NextRequest) {
     const whereConditions: any = {};
 
     // Apply time filter
+    let completedAtFilter: any;
     if (timeFilter === 'active') {
       // Show all active (non-completed) orders regardless of date
-      whereConditions.completedAt = null;
+      completedAtFilter = null;
     } else {
       // For historical views (today/week/month), filter by completion date
       const now = new Date();
@@ -40,20 +41,27 @@ export async function GET(request: NextRequest) {
           startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       }
 
-      whereConditions.completedAt = {
+      completedAtFilter = {
         gte: startDate,
       };
     }
 
     // Apply status filter on top of time filter
     if (statusFilter === 'active') {
-      whereConditions.completedAt = null;
+      completedAtFilter = null;
     } else if (statusFilter === 'completed') {
-      whereConditions.completedAt = { not: null };
+      completedAtFilter = {
+        ...(completedAtFilter && typeof completedAtFilter === 'object' ? completedAtFilter : {}),
+        not: null,
+      };
     } else if (statusFilter === 'under_review') {
       whereConditions.sallaStatus = '1065456688'; // تحت المراجعة
     } else if (statusFilter === 'reservation') {
       whereConditions.sallaStatus = '1576217163'; // تحت المراجعة حجز قطع
+    }
+
+    if (completedAtFilter !== undefined) {
+      whereConditions.completedAt = completedAtFilter;
     }
 
     // Fetch assignments

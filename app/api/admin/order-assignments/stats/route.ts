@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 
@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
  * GET /api/admin/order-assignments/stats
  * Get statistics for order assignments
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const now = new Date();
 
@@ -77,62 +77,80 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    // Helper function to calculate stats
-    const calculateStats = (assignments: typeof todayAssignments) => {
-      return {
+    const buildStatsBucket = (assignments: typeof todayAssignments) => {
+      const summary = {
         total: assignments.length,
-        completed: assignments.filter(a => a.completedAt !== null).length,
-        underReview: assignments.filter(a => a.sallaStatus === '1065456688').length,
-        reservation: assignments.filter(a => a.sallaStatus === '1576217163').length,
-        shipped: assignments.filter(a => a.sallaStatus === '165947469').length,
+        completed: 0,
+        underReview: 0,
+        reservation: 0,
+        shipped: 0,
+      };
+
+      const userStatsMap = new Map<string, {
+        userId: string;
+        userName: string;
+        total: number;
+        completed: number;
+        underReview: number;
+        reservation: number;
+      }>();
+
+      assignments.forEach((assignment) => {
+        if (assignment.completedAt) {
+          summary.completed++;
+        }
+        if (assignment.sallaStatus === '1065456688') {
+          summary.underReview++;
+        }
+        if (assignment.sallaStatus === '1576217163') {
+          summary.reservation++;
+        }
+        if (assignment.sallaStatus === '165947469') {
+          summary.shipped++;
+        }
+
+        const userId = assignment.userId;
+        const userName =
+          (assignment.user as any)?.name ||
+          (assignment.user as any)?.username ||
+          'Unknown';
+
+        if (!userStatsMap.has(userId)) {
+          userStatsMap.set(userId, {
+            userId,
+            userName,
+            total: 0,
+            completed: 0,
+            underReview: 0,
+            reservation: 0,
+          });
+        }
+
+        const userStats = userStatsMap.get(userId)!;
+        userStats.total++;
+
+        if (assignment.completedAt) {
+          userStats.completed++;
+        }
+        if (assignment.sallaStatus === '1065456688') {
+          userStats.underReview++;
+        }
+        if (assignment.sallaStatus === '1576217163') {
+          userStats.reservation++;
+        }
+      });
+
+      return {
+        ...summary,
+        byUser: Array.from(userStatsMap.values()).sort((a, b) => b.total - a.total),
       };
     };
 
-    // Calculate stats by user (for active orders)
-    const userStatsMap = new Map<string, {
-      userId: string;
-      userName: string;
-      total: number;
-      completed: number;
-      underReview: number;
-      reservation: number;
-    }>();
-
-    activeAssignments.forEach((assignment) => {
-      const userId = assignment.userId;
-      const userName = (assignment.user as any)?.name || 'Unknown';
-
-      if (!userStatsMap.has(userId)) {
-        userStatsMap.set(userId, {
-          userId,
-          userName,
-          total: 0,
-          completed: 0,
-          underReview: 0,
-          reservation: 0,
-        });
-      }
-
-      const userStats = userStatsMap.get(userId)!;
-      userStats.total++;
-
-      if (assignment.completedAt) {
-        userStats.completed++;
-      }
-      if (assignment.sallaStatus === '1065456688') {
-        userStats.underReview++;
-      }
-      if (assignment.sallaStatus === '1576217163') {
-        userStats.reservation++;
-      }
-    });
-
     const stats = {
-      active: calculateStats(activeAssignments),
-      today: calculateStats(todayAssignments),
-      week: calculateStats(weekAssignments),
-      month: calculateStats(monthAssignments),
-      byUser: Array.from(userStatsMap.values()),
+      active: buildStatsBucket(activeAssignments),
+      today: buildStatsBucket(todayAssignments),
+      week: buildStatsBucket(weekAssignments),
+      month: buildStatsBucket(monthAssignments),
     };
 
     return NextResponse.json({

@@ -124,6 +124,7 @@ View detailed performance metrics for each order prep user:
 
 ### 1. List Orders
 ```
+
 GET /api/admin/order-assignments/list?timeFilter=today&statusFilter=all
 ```
 **Response:**
@@ -144,13 +145,16 @@ GET /api/admin/order-assignments/stats
 {
   "success": true,
   "stats": {
-    "today": { "total": 50, "completed": 40, ... },
+    "active": { "total": 12, "completed": 0, "byUser": [...] },
+    "today": { "total": 50, "completed": 40, "byUser": [...] },
     "week": { ... },
-    "month": { ... },
-    "byUser": [...]
+    "month": { ... }
   }
 }
 ```
+
+Each time bucket now contains a `byUser` array so the dashboard can display
+performance metrics that match the selected filter (active, today, week, month).
 
 ### 3. Reassign Orders
 ```

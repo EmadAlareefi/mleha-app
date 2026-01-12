@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,47 +27,40 @@ interface OrderAssignment {
   notes?: string;
 }
 
+interface StatsByUser {
+  userId: string;
+  userName: string;
+  total: number;
+  completed: number;
+  underReview: number;
+  reservation: number;
+}
+
+interface StatsBucket {
+  total: number;
+  completed: number;
+  underReview: number;
+  reservation: number;
+  shipped: number;
+  byUser: StatsByUser[];
+}
+
 interface Stats {
-  active: {
-    total: number;
-    completed: number;
-    underReview: number;
-    reservation: number;
-    shipped: number;
-  };
-  today: {
-    total: number;
-    completed: number;
-    underReview: number;
-    reservation: number;
-    shipped: number;
-  };
-  week: {
-    total: number;
-    completed: number;
-    underReview: number;
-    reservation: number;
-    shipped: number;
-  };
-  month: {
-    total: number;
-    completed: number;
-    underReview: number;
-    reservation: number;
-    shipped: number;
-  };
-  byUser: Array<{
-    userId: string;
-    userName: string;
-    total: number;
-    completed: number;
-    underReview: number;
-    reservation: number;
-  }>;
+  active: StatsBucket;
+  today: StatsBucket;
+  week: StatsBucket;
+  month: StatsBucket;
 }
 
 type TimeFilter = 'active' | 'today' | 'week' | 'month';
 type StatusFilter = 'all' | 'active' | 'completed' | 'under_review' | 'reservation';
+
+const TIME_FILTER_LABELS: Record<TimeFilter, string> = {
+  active: 'الطلبات النشطة',
+  today: 'مكتملة اليوم',
+  week: 'مكتملة هذا الأسبوع',
+  month: 'مكتملة هذا الشهر',
+};
 
 export default function AdminOrderPrepPage() {
   const { data: session, status } = useSession();
@@ -84,15 +77,10 @@ export default function AdminOrderPrepPage() {
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [reassignUserId, setReassignUserId] = useState<string>('');
   const [showReassignModal, setShowReassignModal] = useState(false);
+  const currentStats = stats ? stats[timeFilter] : null;
+  const currentUserStats = currentStats?.byUser ?? [];
 
-  useEffect(() => {
-    if (isAdmin) {
-      loadUsers();
-      loadData();
-    }
-  }, [isAdmin, timeFilter, statusFilter]);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const response = await fetch('/api/admin/order-assignments/users');
       const data = await response.json();
@@ -102,9 +90,9 @@ export default function AdminOrderPrepPage() {
     } catch (error) {
       console.error('Failed to load users:', error);
     }
-  };
+  }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -132,7 +120,14 @@ export default function AdminOrderPrepPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, timeFilter]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadUsers();
+      loadData();
+    }
+  }, [isAdmin, loadData, loadUsers]);
 
   const handleSelectOrder = (orderId: string) => {
     const newSelected = new Set(selectedOrders);
@@ -448,9 +443,12 @@ export default function AdminOrderPrepPage() {
           )}
 
           {/* Users Performance */}
-          {stats && stats.byUser.length > 0 && (
+          {currentUserStats.length > 0 && (
             <Card className="p-6">
-              <h3 className="text-lg font-bold mb-4">أداء المستخدمين</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold">أداء المستخدمين</h3>
+                <span className="text-sm text-gray-500">{TIME_FILTER_LABELS[timeFilter]}</span>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -464,7 +462,7 @@ export default function AdminOrderPrepPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {stats.byUser.map((userStat) => (
+                    {currentUserStats.map((userStat) => (
                       <tr key={userStat.userId} className="border-b">
                         <td className="py-3 font-medium">{userStat.userName}</td>
                         <td className="text-center">{userStat.total}</td>
