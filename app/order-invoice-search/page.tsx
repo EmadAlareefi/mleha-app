@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import AppNavbar from '@/components/AppNavbar';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
-import { Search, Printer, AlertCircle } from 'lucide-react';
+import { Search, Printer, AlertCircle, FileText, Globe } from 'lucide-react';
+import { hasServiceAccess } from '@/app/lib/service-access';
+import type { ServiceKey } from '@/app/lib/service-definitions';
 
 const LABEL_PRINTER_OPTIONS = [
   { id: 75006700, label: 'الطابعة الرئيسية (75006700)' },
@@ -46,14 +48,83 @@ interface OrderAssignment {
   shipment?: ShipmentInfo | null;
 }
 
+function buildTrackingUrl(
+  trackingNumber?: string | null,
+  courierName?: string | null,
+  labelUrl?: string | null
+) {
+  if (!trackingNumber) return null;
+  const courier = (courierName || '').toLowerCase();
+  const label = (labelUrl || '').toLowerCase();
+
+  if (
+    courier.includes('smsa') ||
+    courier.includes('سمسا') ||
+    label.includes('smsa') ||
+    label.includes('سمسا')
+  ) {
+    const encoded = encodeURIComponent(trackingNumber);
+    return {
+      type: 'smsa',
+      url: `https://www.smsaexpress.com/sa/ar/trackingdetails?tracknumbers%5B0%5D=${encoded}`,
+    };
+  }
+  if (courier.includes('aramex')) {
+    return {
+      type: 'aramex',
+      url: `https://www.aramex.com/track/shipments/${trackingNumber}`,
+    };
+  }
+  if (
+    courier.includes('ajex') ||
+    courier.includes('aj-ex') ||
+    courier.includes('أيجكس') ||
+    courier.includes('ايجكس') ||
+    label.includes('ajex') ||
+    label.includes('aj-ex') ||
+    label.includes('أيجكس') ||
+    label.includes('ايجكس')
+  ) {
+    const encoded = encodeURIComponent(trackingNumber);
+    return {
+      type: 'ajex',
+      url: `https://aj-ex.com/ar/shipment-status/${encoded}`,
+    };
+  }
+  if (courier.includes('dhl')) {
+    return {
+      type: 'dhl',
+      url: `https://www.dhl.com/global-en/home/tracking/tracking-express.html?AWB=${trackingNumber}&brand=DHL`,
+    };
+  }
+  if (courier.includes('fedex')) {
+    return {
+      type: 'fedex',
+      url: `https://www.fedex.com/fedextrack/?tracknumbers=${trackingNumber}`,
+    };
+  }
+  if (courier.includes('ups')) {
+    return {
+      type: 'ups',
+      url: `https://www.ups.com/track?track=yes&trackNums=${trackingNumber}`,
+    };
+  }
+
+  const encodedQuery = encodeURIComponent(`${trackingNumber} tracking`);
+  return {
+    type: 'generic',
+    url: `https://www.google.com/search?q=${encodedQuery}`,
+  };
+}
+
 export default function OrderInvoiceSearchPage() {
   const { data: session, status } = useSession();
-  const role = (session?.user as any)?.role;
-  const roles = ((session?.user as any)?.roles || [role]) as string[];
-  const isAdmin = roles.includes('admin');
-  const allowedRolesForSearch = ['admin', 'warehouse', 'store_manager', 'orders'];
-  const isAuthorized = roles.some((userRole) => allowedRolesForSearch.includes(userRole));
-  const hasLimitedAccess = isAuthorized && !isAdmin;
+  const invoiceServiceKey: ServiceKey = 'order-invoice-search';
+  const isAuthorized = hasServiceAccess(session, invoiceServiceKey);
+  const primaryRole = (session?.user as any)?.role;
+  const userRoles: string[] =
+    ((session?.user as any)?.roles as string[]) || (primaryRole ? [primaryRole] : []);
+  const isAdmin = userRoles.includes('admin') || primaryRole === 'admin';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -148,6 +219,11 @@ export default function OrderInvoiceSearchPage() {
   });
 
   const handlePrintCommercialInvoice = () => {
+    if (!isAdmin) {
+      alert('طباعة الفواتير التجارية متاحة للمسؤولين فقط.');
+      return;
+    }
+
     if (!isCommercialInvoiceAvailable) {
       alert('الفاتورة التجارية متاحة فقط للطلبات الدولية.');
       return;
@@ -168,7 +244,7 @@ export default function OrderInvoiceSearchPage() {
 
   const handleReprintShipmentLabel = async (printerId?: number) => {
     if (!isAdmin) {
-      alert('هذا الإجراء متاح للمسؤولين فقط.');
+      alert('طباعة البوالص متاحة للمسؤولين فقط.');
       return;
     }
 
@@ -230,6 +306,11 @@ export default function OrderInvoiceSearchPage() {
   };
 
   const handlePrintInvoiceViaPrintNode = async () => {
+    if (!isAdmin) {
+      alert('إرسال الفواتير للطابعة متاح للمسؤولين فقط.');
+      return;
+    }
+
     if (!order) {
       return;
     }
@@ -433,8 +514,9 @@ export default function OrderInvoiceSearchPage() {
   const shipmentPrintedAt = shipmentInfo?.labelPrintedAt ? formatDate(shipmentInfo.labelPrintedAt) : null;
   const shipmentPrintCount = shipmentInfo?.printCount ?? null;
   const canShowShipmentDetails = Boolean(resolvedTrackingNumber || shipmentLabelUrl || resolvedShipmentStatus);
-  const canPrintShipmentLabel = Boolean(isAdmin && shipmentInfo && shipmentLabelUrl);
+  const hasPrintableShipmentLabel = Boolean(shipmentInfo && shipmentLabelUrl);
   const isPrintingShipmentLabel = printingShipmentPrinter !== null;
+  const shippingTracking = buildTrackingUrl(resolvedTrackingNumber, resolvedCourierName, shipmentLabelUrl);
 
   const isInternationalOrder = Boolean(order && shippingCountry && !isSaudiCountry(shippingCountry));
   const isCommercialInvoiceAvailable = Boolean(order && isInternationalOrder);
@@ -442,6 +524,7 @@ export default function OrderInvoiceSearchPage() {
   const shippingTypeColor = isInternationalOrder
     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
     : 'bg-blue-100 text-blue-800 border-blue-300';
+  const canPrintCommercialInvoice = isAdmin && isCommercialInvoiceAvailable;
 
   const orderCreatedAt = order?.orderData?.created_at ? formatDate(order.orderData.created_at) : '';
   const orderUpdatedAt = order?.orderData?.updated_at ? formatDate(order.orderData.updated_at) : '';
@@ -472,6 +555,28 @@ export default function OrderInvoiceSearchPage() {
     { label: 'تاريخ الدفع', value: paymentPaidAt },
   ].filter((entry) => Boolean(entry.value));
 
+  const shippingEntries = order
+    ? [
+        { label: 'اسم المستلم', value: shippingName || customerName || '—' },
+        { label: 'الدولة', value: shippingCountry || '—' },
+        { label: 'المدينة', value: shippingCity || '—' },
+        { label: 'الشارع', value: shippingStreet || '—' },
+        { label: 'الرمز البريدي', value: shippingPostalCode || '—' },
+        { label: 'الهاتف', value: shippingPhone || '—' },
+        { label: 'البريد الإلكتروني', value: customerEmail || '—' },
+      ]
+    : [];
+
+  const amountEntries = order
+    ? [
+        { label: 'المجموع الفرعي', value: formatCurrencyValue(subtotal) },
+        { label: 'تكلفة الشحن', value: formatCurrencyValue(shippingCost) },
+        { label: 'الخصومات', value: discount ? `-${formatCurrencyValue(Math.abs(discount))}` : formatCurrencyValue(0) },
+        { label: 'الضريبة', value: formatCurrencyValue(tax) },
+        { label: 'الإجمالي', value: formatCurrencyValue(total) },
+      ]
+    : [];
+
   // Show loading while checking session
   if (status === 'loading') {
     return (
@@ -485,10 +590,13 @@ export default function OrderInvoiceSearchPage() {
   if (!session || !isAuthorized) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md p-8 text-center">
-          <h1 className="text-2xl font-bold mb-4">البحث عن الطلبات والفواتير</h1>
-          <p className="text-gray-600 mb-6">يجب تسجيل الدخول بحساب مسؤول أو مستخدم مخوّل للوصول إلى هذه الصفحة</p>
-          <Button onClick={() => window.location.href = '/login'} className="w-full">
+        <Card className="w-full max-w-md p-8 text-center space-y-4">
+          <h1 className="text-2xl font-bold">البحث عن الطلبات والفواتير</h1>
+          <p className="text-gray-600">
+            يجب أن يكون حسابك مفعّلاً بخدمة &quot;البحث عن الطلبات&quot; للوصول إلى هذه الصفحة. يرجى التواصل مع
+            مسؤول النظام لمنح الصلاحية إذا كنت بحاجة إليها.
+          </p>
+          <Button onClick={() => (window.location.href = '/login')} className="w-full">
             تسجيل الدخول
           </Button>
         </Card>
@@ -503,9 +611,15 @@ export default function OrderInvoiceSearchPage() {
       <div className="w-full px-4 md:px-6 py-6">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Search Section */}
-          <Card className="p-6">
-            <h2 className="text-xl font-bold mb-4">ابحث عن طلب</h2>
-            <div className="flex gap-3">
+          <Card className="p-6 shadow-sm">
+            <div className="flex flex-col gap-2 mb-4">
+              <p className="text-sm font-semibold text-blue-600">خطوة البحث</p>
+              <h2 className="text-xl font-bold text-gray-900">ابحث عن طلب</h2>
+              <p className="text-sm text-gray-600">
+                أدخل رقم الطلب من سلة، الرقم المرجعي (Reference) أو رقم جوال العميل للحصول على التفاصيل مباشرة.
+              </p>
+            </div>
+            <div className="flex gap-3 flex-col md:flex-row">
               <div className="flex-1 relative">
                 <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                 <Input
@@ -526,10 +640,6 @@ export default function OrderInvoiceSearchPage() {
                 {searching ? 'جاري البحث...' : 'بحث'}
               </Button>
             </div>
-            <p className="text-sm text-gray-500 mt-3">
-              يمكنك البحث برقم الطلب من سلة، الرقم المرجعي (Reference)، أو رقم جوال العميل.
-            </p>
-
             {/* Error Message */}
             {error && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
@@ -539,151 +649,157 @@ export default function OrderInvoiceSearchPage() {
             )}
           </Card>
 
+          {!order && (
+            <Card className="p-8 text-center text-gray-600 border-dashed">
+              <p>ابحث عن الطلب لعرض تفاصيله وطباعة الفاتورة التجارية أو البوليصة عند الحاجة.</p>
+            </Card>
+          )}
+
           {/* Order Details */}
           {order && (
             <>
               {/* Order Header */}
-              {hasLimitedAccess ? (
-                <Card className="p-6 space-y-4">
+              <Card className="p-6 space-y-6">
+                {order.source === 'history' && (
+                  <div className="p-4 border border-amber-200 bg-amber-50 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5" />
+                    تم العثور على هذا الطلب في السجلات المكتملة (أرشيف). لا يمكن تعديله ولكن يمكن مراجعة تفاصيله وطباعتها.
+                  </div>
+                )}
+                {order.source === 'salla' && (
+                  <div className="p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800 flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5" />
+                    تم جلب هذا الطلب مباشرةً من بيانات سلة. قد لا يكون لديه تعيين داخلي بعد، لكن يمكنك عرض تفاصيله وطباعته.
+                  </div>
+                )}
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
                     <h2 className="text-2xl font-bold">طلب #{order.orderNumber}</h2>
                     {customerName && (
                       <p className="text-gray-600 mt-1">{customerName}</p>
                     )}
+                    {shippingLocationLabel && (
+                      <p className="text-sm text-gray-500 mt-1">{shippingLocationLabel}</p>
+                    )}
                   </div>
-                  <div className="rounded-lg border p-4 bg-gray-50">
-                    <p className="text-sm text-gray-500 mb-1">موقع الشحن</p>
-                    <p className="text-lg font-semibold text-gray-900">
-                      {shippingLocationLabel || 'غير متوفر'}
-                    </p>
+                  <div className="flex flex-col items-start gap-2 md:items-end">
+                    <span
+                      className={`inline-block px-4 py-2 rounded-full text-sm font-medium border ${getStatusColor(
+                        order.status,
+                        order.sallaStatus
+                      )}`}
+                    >
+                      {getStatusLabel(order.status, order.sallaStatus)}
+                    </span>
+                    <span className={`inline-block px-4 py-2 rounded-full text-xs font-medium border ${shippingTypeColor}`}>
+                      {shippingTypeLabel}
+                    </span>
+                    {shippingCountry && (
+                      <p className="text-xs text-gray-500">الدولة: {shippingCountry}</p>
+                    )}
                   </div>
-                </Card>
-              ) : (
-                <Card className="p-6 space-y-6">
-                  {order.source === 'history' && (
-                    <div className="p-4 border border-amber-200 bg-amber-50 rounded-lg text-sm text-amber-800 flex items-center gap-2">
-                      <AlertCircle className="h-5 w-5" />
-                      تم العثور على هذا الطلب في السجلات المكتملة (أرشيف). لا يمكن تعديله ولكن يمكن مراجعة تفاصيله وطباعتها.
-                    </div>
-                  )}
-                  {order.source === 'salla' && (
-                    <div className="p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800 flex items-center gap-2">
-                      <AlertCircle className="h-5 w-5" />
-                      تم جلب هذا الطلب مباشرةً من بيانات سلة. قد لا يكون لديه تعيين داخلي بعد، لكن يمكنك عرض تفاصيله وطباعته.
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <h2 className="text-2xl font-bold">طلب #{order.orderNumber}</h2>
-                      {customerName && (
-                        <p className="text-gray-600 mt-1">{customerName}</p>
-                      )}
-                      {shippingLocationLabel && (
-                        <p className="text-sm text-gray-500 mt-1">
-                          {shippingLocationLabel}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-start gap-2 md:items-end">
-                      <span
-                        className={`inline-block px-4 py-2 rounded-full text-sm font-medium border ${getStatusColor(
-                          order.status,
-                          order.sallaStatus
-                        )}`}
-                      >
-                        {getStatusLabel(order.status, order.sallaStatus)}
-                      </span>
-                      <span className={`inline-block px-4 py-2 rounded-full text-xs font-medium border ${shippingTypeColor}`}>
-                        {shippingTypeLabel}
-                      </span>
-                      {shippingCountry && (
-                        <p className="text-xs text-gray-500">الدولة: {shippingCountry}</p>
-                      )}
-                    </div>
-                  </div>
+                </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-500">العنوان التفصيلي</p>
-                      <p className="font-medium text-gray-900">
-                        {shippingStreet || '—'}
-                      </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {shippingEntries.slice(0, 3).map((entry) => (
+                    <div key={entry.label}>
+                      <p className="text-sm text-gray-500">{entry.label}</p>
+                      <p className="font-medium text-gray-900">{entry.value || '—'}</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-500">رقم الجوال</p>
-                      <p className="font-medium text-gray-900">{shippingPhone || '—'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">البريد الإلكتروني</p>
-                      <p className="font-medium text-gray-900">{customerEmail || '—'}</p>
-                    </div>
+                  ))}
+                </div>
+
+                {/* Assignment Info */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
+                  <div>
+                    <p className="text-sm text-gray-500">تم التعيين لـ</p>
+                    <p className="font-medium">{order.assignedUserName}</p>
                   </div>
-
-                  {/* Assignment Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
-                    <div>
-                      <p className="text-sm text-gray-500">تم التعيين لـ</p>
-                      <p className="font-medium">{order.assignedUserName}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">تاريخ التعيين</p>
-                      <p className="font-medium">{formatDate(order.assignedAt)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">تاريخ الإنهاء</p>
-                      <p className="font-medium">{order.completedAt ? formatDate(order.completedAt) : 'لم يُستكمل بعد'}</p>
-                    </div>
+                  <div>
+                    <p className="text-sm text-gray-500">تاريخ التعيين</p>
+                    <p className="font-medium">{formatDate(order.assignedAt)}</p>
                   </div>
+                  <div>
+                    <p className="text-sm text-gray-500">تاريخ الإنهاء</p>
+                    <p className="font-medium">{order.completedAt ? formatDate(order.completedAt) : 'لم يُستكمل بعد'}</p>
+                  </div>
+                </div>
 
-                  {order.notes && (
-                    <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                      <p className="text-sm font-medium text-orange-800">ملاحظات داخلية</p>
-                      <p className="text-orange-700 mt-1">{order.notes}</p>
-                    </div>
-                  )}
-                </Card>
-              )}
+                {order.notes && (
+                  <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <p className="text-sm font-medium text-orange-800">ملاحظات داخلية</p>
+                    <p className="text-orange-700 mt-1">{order.notes}</p>
+                  </div>
+                )}
+              </Card>
 
-              {!hasLimitedAccess && (
-                <>
-                  {canShowShipmentDetails && (
-                    <Card className="p-6 space-y-5">
+              {canShowShipmentDetails && (
+                <Card className="p-6 space-y-5">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h3 className="text-lg font-bold">تفاصيل الشحنة</h3>
                       <p className="text-sm text-gray-600">مراجعة حالة الشحنة ورابط البوليصة</p>
                     </div>
-                    {canPrintShipmentLabel && (
-                      <div className="flex flex-col gap-2 w-full md:w-auto">
-                        {LABEL_PRINTER_OPTIONS.map((printerOption, index) => {
-                          const isActivePrinter = printingShipmentPrinter === printerOption.id;
-                          const emphasisClasses =
-                            index === 0
-                              ? 'bg-emerald-600 hover:bg-emerald-700'
-                              : 'bg-blue-600 hover:bg-blue-700';
+                    {hasPrintableShipmentLabel && (
+                      isAdmin ? (
+                        <div className="flex flex-col gap-2 w-full md:w-auto">
+                          {LABEL_PRINTER_OPTIONS.map((printerOption, index) => {
+                            const isActivePrinter = printingShipmentPrinter === printerOption.id;
+                            const emphasisClasses =
+                              index === 0
+                                ? 'bg-emerald-600 hover:bg-emerald-700'
+                                : 'bg-blue-600 hover:bg-blue-700';
 
-                          return (
-                            <Button
-                              key={printerOption.id}
-                              onClick={() => handleReprintShipmentLabel(printerOption.id)}
-                              disabled={isPrintingShipmentLabel}
-                              className={`w-full md:w-auto ${emphasisClasses}`}
-                            >
-                              {isActivePrinter
-                                ? 'جاري إرسال البوليصة...'
-                                : shipmentInfo?.labelPrinted
-                                  ? `إعادة طباعة البوليصة - ${printerOption.label}`
-                                  : `طباعة البوليصة - ${printerOption.label}`}
-                            </Button>
-                          );
-                        })}
-                      </div>
+                            return (
+                              <Button
+                                key={printerOption.id}
+                                onClick={() => handleReprintShipmentLabel(printerOption.id)}
+                                disabled={isPrintingShipmentLabel}
+                                className={`w-full md:w-auto ${emphasisClasses}`}
+                              >
+                                {isActivePrinter
+                                  ? 'جاري إرسال البوليصة...'
+                                  : shipmentInfo?.labelPrinted
+                                    ? `إعادة طباعة البوليصة - ${printerOption.label}`
+                                    : `طباعة البوليصة - ${printerOption.label}`}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">
+                          طباعة البوالص متاحة للمسؤولين فقط.
+                        </p>
+                      )
                     )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <p className="text-sm text-gray-500">رقم التتبع</p>
-                      <p className="font-medium text-gray-900">{resolvedTrackingNumber || '—'}</p>
+                      <p className="font-medium text-gray-900">
+                        {shippingTracking?.url ? (
+                          <a
+                            href={shippingTracking.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-700 underline underline-offset-2"
+                          >
+                            {resolvedTrackingNumber}
+                          </a>
+                        ) : (
+                          resolvedTrackingNumber || '—'
+                        )}
+                      </p>
+                      {shippingTracking?.url && (
+                        <a
+                          href={shippingTracking.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-blue-600 underline underline-offset-2"
+                        >
+                          متابعة الشحنة
+                        </a>
+                      )}
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">شركة الشحن</p>
@@ -720,10 +836,10 @@ export default function OrderInvoiceSearchPage() {
                       عرض رابط البوليصة
                     </a>
                   )}
-                    </Card>
-                  )}
+                </Card>
+              )}
 
-                  {/* Order Financial Summary */}
+              {/* Order Financial Summary */}
               <Card className="p-6 space-y-5">
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div>
@@ -811,6 +927,18 @@ export default function OrderInvoiceSearchPage() {
                       {shippingNotes || 'لا توجد ملاحظات إضافية'}
                     </p>
                   </div>
+                </div>
+              </Card>
+
+              <Card className="p-6 space-y-4">
+                <h3 className="text-lg font-bold">خلاصة المبالغ</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {amountEntries.map((entry) => (
+                    <div key={entry.label} className="border rounded-lg p-4 bg-white">
+                      <p className="text-xs text-gray-500">{entry.label}</p>
+                      <p className="font-semibold text-gray-900 mt-1">{entry.value}</p>
+                    </div>
+                  ))}
                 </div>
               </Card>
 
@@ -920,9 +1048,7 @@ export default function OrderInvoiceSearchPage() {
                     );
                   })}
                 </div>
-                  </Card>
-                </>
-              )}
+              </Card>
 
               {/* Print Invoice Button */}
               <Card className="p-6">
@@ -937,11 +1063,16 @@ export default function OrderInvoiceSearchPage() {
                         ? `هذه الشحنة دولية (${shippingCountry || 'غير محددة'}) ويمكن طباعة الفاتورة`
                         : 'الفاتورة التجارية متاحة فقط للطلبات الدولية ولا يمكن طباعتها لهذا الطلب'}
                     </p>
+                    {!isAdmin && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        صلاحية طباعة الفواتير متاحة للمسؤولين فقط.
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-3 w-full md:w-auto">
                     <Button
                       onClick={handlePrintCommercialInvoice}
-                      disabled={!isCommercialInvoiceAvailable}
+                      disabled={!canPrintCommercialInvoice}
                       className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200 px-8 py-6 text-lg"
                     >
                       <Printer className="h-5 w-5 ml-2" />
@@ -949,7 +1080,7 @@ export default function OrderInvoiceSearchPage() {
                     </Button>
                     <Button
                       onClick={handlePrintInvoiceViaPrintNode}
-                      disabled={!isCommercialInvoiceAvailable || printingInvoiceViaPrintNode}
+                      disabled={!canPrintCommercialInvoice || printingInvoiceViaPrintNode}
                       variant="outline"
                       className="px-8 py-6 text-lg disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200"
                     >
