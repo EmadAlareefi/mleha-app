@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   '/api/orders/lookup',
   '/api/order-users',
   '/api/order-assignments',
+  '/api/order-prep',
   '/api/warehouses',
   '/api/auth',
   '/api/salla/sync-invoices',
@@ -54,7 +55,7 @@ const serviceHomeByKey = new Map<ServiceKey, string>(
 function getFallbackPath(serviceKeys: ServiceKey[]): string {
   for (const key of serviceKeys) {
     const home = serviceHomeByKey.get(key);
-    if (home) {
+    if (home && home !== '/warehouse') {
       return home;
     }
   }

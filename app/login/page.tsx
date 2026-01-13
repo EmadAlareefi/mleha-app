@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, Suspense } from 'react';
-import { signIn } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const defaultCallbackUrl = searchParams.get('callbackUrl') || '/';
+  const { update: updateSession } = useSession();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -32,29 +33,10 @@ function LoginForm() {
       if (result?.error) {
         setError('اسم المستخدم أو كلمة المرور غير صحيحة');
       } else if (result?.ok) {
-        // Fetch session to determine redirect based on role
-        const response = await fetch('/api/auth/session');
-        const session = await response.json();
+        // Force session refresh so the home page has fresh data immediately
+        await updateSession();
 
-        if (session?.user) {
-          const role = (session.user as any).role;
-
-          switch (role) {
-            case 'orders':
-              router.push('/order-prep');
-              break;
-            case 'store_manager':
-              router.push('/returns-management');
-              break;
-            case 'admin':
-              router.push(defaultCallbackUrl === '/order-prep' ? '/' : defaultCallbackUrl);
-              break;
-            default:
-              router.push(defaultCallbackUrl);
-          }
-        } else {
-          router.push(defaultCallbackUrl);
-        }
+        router.push(defaultCallbackUrl);
         router.refresh();
       }
     } catch (err) {

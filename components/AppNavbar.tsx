@@ -1,11 +1,13 @@
 'use client';
 
+import { useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Home, LogOut, Search, Sparkles, Users } from 'lucide-react';
+import { Download, Home, LogOut, Search, Sparkles, Users } from 'lucide-react';
 import { serviceDefinitions } from '@/app/lib/service-definitions';
 import type { ServiceKey } from '@/app/lib/service-definitions';
+import { usePwaInstallPrompt } from '@/components/hooks/usePwaInstallPrompt';
 
 interface AppNavbarProps {
   title?: string;
@@ -14,6 +16,7 @@ interface AppNavbarProps {
 
 export default function AppNavbar({ title, subtitle }: AppNavbarProps) {
   const { data: session } = useSession();
+  const { showInstallButton, isInstallPromptReady, requestInstall } = usePwaInstallPrompt();
   const userName = session?.user?.name || 'المستخدم';
   const userRole = (session?.user as any)?.role;
   const userRoles: string[] = (session?.user as any)?.roles || [];
@@ -105,6 +108,10 @@ export default function AppNavbar({ title, subtitle }: AppNavbarProps) {
     },
   ];
 
+  const handleInstallClick = useCallback(() => {
+    requestInstall();
+  }, [requestInstall]);
+
   return (
     <header className="sticky top-0 z-50 bg-gradient-to-b from-slate-900/80 via-slate-900/40 to-white/50 pb-4 pt-2 backdrop-blur">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -125,6 +132,20 @@ export default function AppNavbar({ title, subtitle }: AppNavbarProps) {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {showInstallButton && (
+                <Button
+                  type="button"
+                  onClick={handleInstallClick}
+                  className="rounded-2xl border border-emerald-100 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100"
+                  aria-label="تثبيت التطبيق"
+                  title="تثبيت التطبيق على جهازك"
+                  variant="ghost"
+                  disabled={!isInstallPromptReady}
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">تثبيت التطبيق</span>
+                </Button>
+              )}
               {navLinks.map((link) => {
                 const Icon = link.icon;
                 return (
