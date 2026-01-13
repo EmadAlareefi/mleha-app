@@ -1,17 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-
-export interface WarehouseInfo {
-  id: string;
-  name: string;
-  code?: string | null;
-  location?: string | null;
-}
+import type { WarehouseInfo } from '@/components/warehouse/types';
 
 const STORAGE_KEY = 'mleha:selectedWarehouse';
 
-export function useWarehouseSelection(warehouses: WarehouseInfo[] = []) {
+export function useWarehouseSelection(
+  warehouses: WarehouseInfo[] = [],
+  initialSelectedId?: string | null
+) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,8 +37,28 @@ export function useWarehouseSelection(warehouses: WarehouseInfo[] = []) {
       // ignore
     }
 
-    setSelectedId(null);
-  }, [warehouses]);
+    if (initialSelectedId && warehouses.some((w) => w.id === initialSelectedId)) {
+      setSelectedId(initialSelectedId);
+      try {
+        localStorage.setItem(STORAGE_KEY, initialSelectedId);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    const fallbackWarehouse = warehouses[0];
+    if (fallbackWarehouse) {
+      setSelectedId(fallbackWarehouse.id);
+      try {
+        localStorage.setItem(STORAGE_KEY, fallbackWarehouse.id);
+      } catch {
+        // ignore
+      }
+    } else {
+      setSelectedId(null);
+    }
+  }, [initialSelectedId, warehouses]);
 
   const selectedWarehouse = useMemo(
     () => warehouses.find((w) => w.id === selectedId) || null,

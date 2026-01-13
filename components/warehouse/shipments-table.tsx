@@ -15,20 +15,7 @@ import { SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
 import { Trash2, Package } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
-
-interface Shipment {
-  id: string;
-  trackingNumber: string;
-  company: string;
-  type: string;
-  scannedAt: string;
-  notes?: string | null;
-  warehouse?: {
-    id: string;
-    name: string;
-    code?: string | null;
-  } | null;
-}
+import type { Shipment } from '@/components/warehouse/types';
 
 interface ShipmentsTableProps {
   shipments: Shipment[];

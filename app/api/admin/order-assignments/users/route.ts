@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
-import { OrderUserRole } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -9,29 +8,14 @@ export const runtime = 'nodejs';
  * GET /api/admin/order-assignments/users
  * Get list of users with order role for assignment
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Fetch all OrderUsers (users with order role)
     const orderUsers = await prisma.orderUser.findMany({
       where: {
-        OR: [
-          {
-            servicePermissions: {
-              some: { serviceKey: 'order-prep' },
-            },
-          },
-          {
-            AND: [
-              { servicePermissions: { none: {} } },
-              {
-                OR: [
-                  { roleAssignments: { some: { role: OrderUserRole.ORDERS } } },
-                  { role: OrderUserRole.ORDERS },
-                ],
-              },
-            ],
-          },
-        ],
+        servicePermissions: {
+          some: { serviceKey: 'order-prep' },
+        },
       },
       select: {
         id: true,

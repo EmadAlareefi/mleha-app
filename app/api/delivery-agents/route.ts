@@ -35,10 +35,8 @@ export async function GET(request: NextRequest) {
     const deliveryAgents = await prisma.orderUser.findMany({
       where: {
         isActive: true,
-        roleAssignments: {
-          some: {
-            role: 'DELIVERY_AGENT',
-          },
+        servicePermissions: {
+          some: { serviceKey: 'my-deliveries' },
         },
       },
       select: {

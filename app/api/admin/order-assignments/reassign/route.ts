@@ -32,10 +32,9 @@ export async function POST(request: NextRequest) {
       where: { id: newUserId },
       select: {
         id: true,
-        role: true,
         isActive: true,
-        roleAssignments: {
-          select: { role: true },
+        servicePermissions: {
+          select: { serviceKey: true },
         },
       },
     });
@@ -54,14 +53,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user has orders role
-    const assignedRoles = newUser.roleAssignments.length > 0
-      ? newUser.roleAssignments.map((assignment) => assignment.role)
-      : [newUser.role];
+    const hasOrdersPermission = newUser.servicePermissions.some(
+      (permission) => permission.serviceKey === 'order-prep'
+    );
 
-    const hasOrdersRole = assignedRoles.some((role) => role === 'ORDERS');
-
-    if (!hasOrdersRole) {
+    if (!hasOrdersPermission) {
       return NextResponse.json(
         { error: 'المستخدم المحدد ليس لديه صلاحية طلبات' },
         { status: 400 }

@@ -131,7 +131,12 @@ export async function POST(request: NextRequest) {
     // Verify delivery agent exists and has correct role
     const deliveryAgent = await prisma.orderUser.findUnique({
       where: { id: deliveryAgentId },
-      include: { roleAssignments: true },
+      select: {
+        id: true,
+        servicePermissions: {
+          select: { serviceKey: true },
+        },
+      },
     });
 
     if (!deliveryAgent) {
@@ -141,11 +146,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const hasDeliveryRole = deliveryAgent.roleAssignments.some(
-      (ra) => ra.role === 'DELIVERY_AGENT'
+    const hasDeliveryPermission = deliveryAgent.servicePermissions.some(
+      (permission) => permission.serviceKey === 'my-deliveries'
     );
 
-    if (!hasDeliveryRole) {
+    if (!hasDeliveryPermission) {
       return NextResponse.json(
         { error: 'المستخدم المحدد ليس مندوب توصيل' },
         { status: 400 }

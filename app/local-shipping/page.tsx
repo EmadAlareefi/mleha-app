@@ -181,12 +181,14 @@ export default function LocalShippingPage() {
         <nav className="flex justify-center gap-3 mb-8">
           <Link
             href="/warehouse"
+            prefetch={false}
             className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
           >
             المستودع
           </Link>
           <Link
             href="/local-shipping"
+            prefetch={false}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
           >
             شحن محلي

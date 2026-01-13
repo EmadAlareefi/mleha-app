@@ -18,20 +18,7 @@ import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { useReactToPrint } from 'react-to-print';
 import Image from 'next/image';
-
-interface Shipment {
-  id: string;
-  trackingNumber: string;
-  company: string;
-  type: string;
-  scannedAt: string;
-  notes?: string | null;
-  warehouse?: {
-    id: string;
-    name: string;
-    code?: string | null;
-  } | null;
-}
+import type { Shipment } from '@/components/warehouse/types';
 
 interface DailyReportProps {
   shipments: Shipment[];

@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-
-function getWarehouseIdsFromSession(session: any): string[] {
-  const warehouses = (session?.user as any)?.warehouseData?.warehouses ?? [];
-  return Array.isArray(warehouses) ? warehouses.map((w: any) => w.id) : [];
-}
+import { resolveWarehouseIds } from '@/app/api/shipments/utils';
 
 // DELETE /api/shipments/[id] - Delete a shipment
 export async function DELETE(
@@ -48,7 +44,13 @@ export async function DELETE(
     }
 
     if (role === 'warehouse') {
-      const allowedWarehouseIds = getWarehouseIdsFromSession(session);
+      const allowedWarehouseIds = await resolveWarehouseIds(session);
+      if (!allowedWarehouseIds || allowedWarehouseIds.length === 0) {
+        return NextResponse.json(
+          { error: 'لم يتم ربط أي مستودع بحسابك' },
+          { status: 403 }
+        );
+      }
       if (
         !shipment.warehouseId ||
         !allowedWarehouseIds.includes(shipment.warehouseId)

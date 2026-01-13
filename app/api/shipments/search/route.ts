@@ -3,10 +3,6 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 
-function getWarehouseIdsFromSession(session: any): string[] {
-  const warehouses = (session?.user as any)?.warehouseData?.warehouses ?? [];
-  return Array.isArray(warehouses) ? warehouses.map((w: any) => w.id) : [];
-}
 
 // GET /api/shipments/search - Search for a shipment by tracking number
 export async function GET(request: NextRequest) {
@@ -20,8 +16,8 @@ export async function GET(request: NextRequest) {
     }
 
     const role = (session.user as any)?.role;
-    const allowedWarehouseIds =
-      role === 'warehouse' ? getWarehouseIdsFromSession(session) : null;
+    const roles = ((session.user as any)?.roles || [role]) as string[];
+    const hasWarehouseRole = roles.includes('warehouse');
 
     const { searchParams } = new URL(request.url);
     const trackingNumber = searchParams.get('trackingNumber');
@@ -41,27 +37,13 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    // Apply warehouse access control
-    if (role === 'warehouse') {
-      if (!allowedWarehouseIds || allowedWarehouseIds.length === 0) {
-        return NextResponse.json(
-          { error: 'لم يتم ربط أي مستودع بحسابك' },
-          { status: 403 }
-        );
-      }
-      if (requestedWarehouseId) {
-        if (!allowedWarehouseIds.includes(requestedWarehouseId)) {
-          return NextResponse.json(
-            { error: 'لا تملك صلاحية الوصول لهذا المستودع' },
-            { status: 403 }
-          );
-        }
-        where.warehouseId = requestedWarehouseId;
-      } else {
-        where.warehouseId = { in: allowedWarehouseIds };
-      }
-    } else if (requestedWarehouseId) {
+    // Apply warehouse selection when available
+    if (requestedWarehouseId) {
       where.warehouseId = requestedWarehouseId;
+    } else if (hasWarehouseRole) {
+      where.warehouseId = {
+        not: null,
+      };
     }
 
     const shipments = await prisma.shipment.findMany({

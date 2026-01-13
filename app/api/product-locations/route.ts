@@ -9,7 +9,7 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 export const runtime = 'nodejs';
 
 function hasWarehouseLocationAccess(session: any | null) {
-  return hasServiceAccess(session, ['warehouse', 'warehouse-locations']);
+  return hasServiceAccess(session, ['warehouse']);
 }
 
 function productLocationTableMissing(error: unknown) {

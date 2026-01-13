@@ -690,7 +690,7 @@ export default function OrderShippingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 overflow-x-hidden">
-      <AppNavbar title="شحن الطلبات" subtitle={`مرحباً، ${user.name}`} />
+      <AppNavbar title="شحن الطلبات" subtitle={`مرحباً، ${user.name}`} collapseOnMobile />
 
       <div className="w-full">
         <div className="w-full max-w-7xl mx-auto px-4 md:px-6 pt-6 pb-32 md:pb-40">

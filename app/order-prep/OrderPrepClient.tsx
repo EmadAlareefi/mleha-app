@@ -1172,7 +1172,11 @@ useEffect(() => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      <AppNavbar title="لوحة تحضير الطلبات" subtitle={`مرحباً، ${user.name}`} />
+      <AppNavbar
+        title="لوحة تحضير الطلبات"
+        subtitle={`مرحباً، ${user.name}`}
+        collapseOnMobile
+      />
 
       <div className="w-full">
         <div className="w-full max-w-7xl mx-auto px-4 md:px-6 pt-8 pb-32 md:pb-40">

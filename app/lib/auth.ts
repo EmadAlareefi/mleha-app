@@ -2,7 +2,7 @@ import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { ensureUserServiceKeys } from '@/app/lib/user-services';
+import { getUserServiceKeys } from '@/app/lib/user-services';
 import { getRolesFromServiceKeys, getAllServiceKeys } from '@/app/lib/service-definitions';
 
 // In production, store users in database
@@ -59,11 +59,12 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const fallbackRoles = [orderUser.role];
-          const serviceKeys = await ensureUserServiceKeys(orderUser.id, fallbackRoles);
-          const userRoles = getRolesFromServiceKeys(serviceKeys);
+          const serviceKeys = await getUserServiceKeys(orderUser.id);
+          if (serviceKeys.length === 0) {
+            return null;
+          }
 
-          // Primary role is the first role (for backward compatibility)
+          const userRoles = getRolesFromServiceKeys(serviceKeys);
           const primaryRole = userRoles[0] ?? 'orders';
 
           // Get warehouse assignments if user has warehouse role
@@ -99,16 +100,18 @@ export const authOptions: NextAuthOptions = {
               }
             : undefined;
 
-          return {
+          const sessionPayload = {
             id: orderUser.id,
             name: orderUser.name,
             username: orderUser.username,
-            role: primaryRole, // Primary role for backward compatibility
-            roles: userRoles, // Array of all roles
+            role: primaryRole,
+            roles: userRoles,
             serviceKeys,
             orderUserData,
             warehouseData,
           };
+
+          return sessionPayload;
         }
 
         // User not found

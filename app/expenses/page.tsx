@@ -2,6 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
@@ -26,11 +27,21 @@ type ExpenseSummary = {
   _count: number;
 };
 
+type ExpenseFormData = {
+  title: string;
+  description: string;
+  amount: string;
+  category: string;
+  expenseDate: string;
+  notes: string;
+};
+
 const EXPENSE_CATEGORIES = [
   { value: 'shipping', label: 'شحن' },
   { value: 'packaging', label: 'تغليف' },
   { value: 'marketing', label: 'تسويق' },
   { value: 'operations', label: 'عمليات' },
+  { value: 'partner-current', label: 'جاري الشريك' },
   { value: 'salaries', label: 'رواتب' },
   { value: 'utilities', label: 'مرافق' },
   { value: 'rent', label: 'إيجار' },
@@ -51,13 +62,14 @@ export default function ExpensesPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
   // Form state
-  const [formData, setFormData] = useState({
+  const getInitialFormData = (): ExpenseFormData => ({
     title: '',
     description: '',
     amount: '',
@@ -65,6 +77,39 @@ export default function ExpensesPage() {
     expenseDate: new Date().toISOString().split('T')[0],
     notes: '',
   });
+  const [formData, setFormData] = useState<ExpenseFormData>(getInitialFormData);
+  const resetForm = () => setFormData(getInitialFormData());
+
+  const handleFormCancel = () => {
+    setShowAddForm(false);
+    setEditingExpense(null);
+    resetForm();
+  };
+
+  const toggleFormVisibility = () => {
+    if (showAddForm) {
+      handleFormCancel();
+    } else {
+      resetForm();
+      setEditingExpense(null);
+      setShowAddForm(true);
+    }
+  };
+
+  const handleEditClick = (expense: Expense) => {
+    setEditingExpense(expense);
+    setShowAddForm(true);
+    setFormData({
+      title: expense.title || '',
+      description: expense.description || '',
+      amount: expense.amount?.toString() || '',
+      category: expense.category,
+      expenseDate: expense.expenseDate
+        ? new Date(expense.expenseDate).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0],
+      notes: expense.notes || '',
+    });
+  };
 
   const fetchExpenses = async () => {
     try {
@@ -102,35 +147,51 @@ export default function ExpensesPage() {
       return;
     }
 
+    const parsedAmount = parseFloat(formData.amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      alert('يرجى إدخال مبلغ صالح أكبر من صفر');
+      return;
+    }
+
+    const payload = {
+      title: formData.title,
+      description: formData.description || undefined,
+      amount: parsedAmount,
+      category: formData.category,
+      expenseDate: formData.expenseDate,
+      notes: formData.notes || undefined,
+    };
+
+    const endpoint = editingExpense
+      ? `/api/expenses/${editingExpense.id}`
+      : '/api/expenses';
+    const method = editingExpense ? 'PATCH' : 'POST';
+
     try {
-      const response = await fetch('/api/expenses', {
-        method: 'POST',
+      const response = await fetch(endpoint, {
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          amount: parseFloat(formData.amount),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create expense');
+        const error = await response.json().catch(() => ({}));
+        throw new Error(
+          error.error ||
+            (editingExpense
+              ? 'Failed to update expense'
+              : 'Failed to create expense')
+        );
       }
 
-      alert('تم إضافة المصروف بنجاح');
-      setShowAddForm(false);
-      setFormData({
-        title: '',
-        description: '',
-        amount: '',
-        category: 'other',
-        expenseDate: new Date().toISOString().split('T')[0],
-        notes: '',
-      });
+      alert(
+        editingExpense ? 'تم تحديث المصروف بنجاح' : 'تم إضافة المصروف بنجاح'
+      );
+      handleFormCancel();
       fetchExpenses();
     } catch (error: any) {
-      console.error('Error creating expense:', error);
-      alert(error.message || 'فشل في إضافة المصروف');
+      console.error('Error saving expense:', error);
+      alert(error.message || 'فشل في حفظ المصروف');
     }
   };
 
@@ -145,6 +206,9 @@ export default function ExpensesPage() {
       if (!response.ok) throw new Error('Failed to delete expense');
 
       alert('تم حذف المصروف بنجاح');
+      if (editingExpense?.id === id) {
+        handleFormCancel();
+      }
       fetchExpenses();
     } catch (error) {
       console.error('Error deleting expense:', error);
@@ -180,6 +244,33 @@ export default function ExpensesPage() {
 
   const getStatusLabel = (status: string) => {
     return STATUS_OPTIONS.find((s) => s.value === status)?.label || status;
+  };
+
+  const handleExport = () => {
+    if (!expenses.length) {
+      alert('لا توجد مصروفات لتصديرها');
+      return;
+    }
+
+    const rows = expenses.map((expense) => ({
+      المعرف: expense.id,
+      التاريخ: new Date(expense.expenseDate).toLocaleDateString('ar-SA'),
+      العنوان: expense.title,
+      الوصف: expense.description || '',
+      الفئة: getCategoryLabel(expense.category),
+      المبلغ: Number(expense.amount).toFixed(2),
+      العملة: expense.currency,
+      الحالة: getStatusLabel(expense.status),
+      'تم الإنشاء بواسطة': expense.createdBy,
+      'تاريخ الإنشاء': new Date(expense.createdAt).toLocaleString('ar-SA'),
+      الملاحظات: expense.notes || '',
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Expenses');
+    const timestamp = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(workbook, `expenses-${timestamp}.xlsx`);
   };
 
   const totalAmount = expenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
@@ -282,19 +373,40 @@ export default function ExpensesPage() {
               />
             </div>
 
-            <Button
-              onClick={() => setShowAddForm(!showAddForm)}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              {showAddForm ? 'إلغاء' : '➕ إضافة مصروف'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={handleExport}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                📥 تصدير إلى Excel
+              </Button>
+              <Button
+                type="button"
+                onClick={toggleFormVisibility}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {editingExpense
+                  ? 'إلغاء التعديل'
+                  : showAddForm
+                  ? 'إغلاق النموذج'
+                  : '➕ إضافة مصروف'}
+              </Button>
+            </div>
           </div>
         </Card>
 
         {/* Add Expense Form */}
         {showAddForm && (
           <Card className="p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">إضافة مصروف جديد</h2>
+            <h2 className="text-xl font-bold mb-4">
+              {editingExpense ? 'تعديل المصروف' : 'إضافة مصروف جديد'}
+            </h2>
+            {editingExpense && (
+              <p className="text-sm text-gray-500 mb-4">
+                يتم تعديل المصروف: {editingExpense.title}
+              </p>
+            )}
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -395,11 +507,11 @@ export default function ExpensesPage() {
                   type="submit"
                   className="bg-green-600 hover:bg-green-700 text-white"
                 >
-                  حفظ المصروف
+                  {editingExpense ? 'تحديث المصروف' : 'حفظ المصروف'}
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => setShowAddForm(false)}
+                  onClick={handleFormCancel}
                   className="bg-gray-500 hover:bg-gray-600 text-white"
                 >
                   إلغاء
@@ -477,6 +589,14 @@ export default function ExpensesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <div className="flex gap-2">
+                          {(isAdmin || expense.status === 'pending') && (
+                            <button
+                              onClick={() => handleEditClick(expense)}
+                              className="text-blue-600 hover:text-blue-900"
+                            >
+                              ✎ تعديل
+                            </button>
+                          )}
                           {expense.status === 'pending' && (
                             <>
                               <button

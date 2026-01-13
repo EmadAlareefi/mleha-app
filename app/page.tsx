@@ -113,13 +113,13 @@ export default function AdminDashboard() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <Link href={heroCtaHref}>
+                  <Link href={heroCtaHref} prefetch={false}>
                     <Button className="rounded-2xl bg-white px-6 py-5 text-slate-900 shadow-lg shadow-slate-900/20 hover:bg-white/90">
                       {heroCtaLabel}
                       <ArrowUpRight className="h-4 w-4" />
                     </Button>
                   </Link>
-                  <Link href={secondaryCtaHref}>
+                  <Link href={secondaryCtaHref} prefetch={false}>
                     <Button
                       variant="ghost"
                       className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-white hover:bg-white/20"
@@ -172,7 +172,7 @@ export default function AdminDashboard() {
               </Card>
             )}
             {visibleServices.map((service) => (
-              <Link key={service.href} href={service.href} className="h-full">
+              <Link key={service.href} href={service.href} className="h-full" prefetch={false}>
                 <Card className="group relative flex h-full flex-col justify-between rounded-3xl border border-slate-100/70 bg-white/95 p-6 shadow-[0_20px_40px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-[0_30px_60px_rgba(79,70,229,0.25)]">
                   <div>
                     <div

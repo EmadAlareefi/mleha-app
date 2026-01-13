@@ -121,10 +121,6 @@ export default function OrderInvoiceSearchPage() {
   const { data: session, status } = useSession();
   const invoiceServiceKey: ServiceKey = 'order-invoice-search';
   const isAuthorized = hasServiceAccess(session, invoiceServiceKey);
-  const primaryRole = (session?.user as any)?.role;
-  const userRoles: string[] =
-    ((session?.user as any)?.roles as string[]) || (primaryRole ? [primaryRole] : []);
-  const isAdmin = userRoles.includes('admin') || primaryRole === 'admin';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -219,11 +215,6 @@ export default function OrderInvoiceSearchPage() {
   });
 
   const handlePrintCommercialInvoice = () => {
-    if (!isAdmin) {
-      alert('طباعة الفواتير التجارية متاحة للمسؤولين فقط.');
-      return;
-    }
-
     if (!isCommercialInvoiceAvailable) {
       alert('الفاتورة التجارية متاحة فقط للطلبات الدولية.');
       return;
@@ -243,11 +234,6 @@ export default function OrderInvoiceSearchPage() {
   };
 
   const handleReprintShipmentLabel = async (printerId?: number) => {
-    if (!isAdmin) {
-      alert('طباعة البوالص متاحة للمسؤولين فقط.');
-      return;
-    }
-
     if (!order) {
       return;
     }
@@ -306,11 +292,6 @@ export default function OrderInvoiceSearchPage() {
   };
 
   const handlePrintInvoiceViaPrintNode = async () => {
-    if (!isAdmin) {
-      alert('إرسال الفواتير للطابعة متاح للمسؤولين فقط.');
-      return;
-    }
-
     if (!order) {
       return;
     }
@@ -524,7 +505,7 @@ export default function OrderInvoiceSearchPage() {
   const shippingTypeColor = isInternationalOrder
     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
     : 'bg-blue-100 text-blue-800 border-blue-300';
-  const canPrintCommercialInvoice = isAdmin && isCommercialInvoiceAvailable;
+  const canPrintCommercialInvoice = isCommercialInvoiceAvailable;
 
   const orderCreatedAt = order?.orderData?.created_at ? formatDate(order.orderData.created_at) : '';
   const orderUpdatedAt = order?.orderData?.updated_at ? formatDate(order.orderData.updated_at) : '';
@@ -741,36 +722,30 @@ export default function OrderInvoiceSearchPage() {
                       <p className="text-sm text-gray-600">مراجعة حالة الشحنة ورابط البوليصة</p>
                     </div>
                     {hasPrintableShipmentLabel && (
-                      isAdmin ? (
-                        <div className="flex flex-col gap-2 w-full md:w-auto">
-                          {LABEL_PRINTER_OPTIONS.map((printerOption, index) => {
-                            const isActivePrinter = printingShipmentPrinter === printerOption.id;
-                            const emphasisClasses =
-                              index === 0
-                                ? 'bg-emerald-600 hover:bg-emerald-700'
-                                : 'bg-blue-600 hover:bg-blue-700';
+                      <div className="flex flex-col gap-2 w-full md:w-auto">
+                        {LABEL_PRINTER_OPTIONS.map((printerOption, index) => {
+                          const isActivePrinter = printingShipmentPrinter === printerOption.id;
+                          const emphasisClasses =
+                            index === 0
+                              ? 'bg-emerald-600 hover:bg-emerald-700'
+                              : 'bg-blue-600 hover:bg-blue-700';
 
-                            return (
-                              <Button
-                                key={printerOption.id}
-                                onClick={() => handleReprintShipmentLabel(printerOption.id)}
-                                disabled={isPrintingShipmentLabel}
-                                className={`w-full md:w-auto ${emphasisClasses}`}
-                              >
-                                {isActivePrinter
-                                  ? 'جاري إرسال البوليصة...'
-                                  : shipmentInfo?.labelPrinted
-                                    ? `إعادة طباعة البوليصة - ${printerOption.label}`
-                                    : `طباعة البوليصة - ${printerOption.label}`}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-500">
-                          طباعة البوالص متاحة للمسؤولين فقط.
-                        </p>
-                      )
+                          return (
+                            <Button
+                              key={printerOption.id}
+                              onClick={() => handleReprintShipmentLabel(printerOption.id)}
+                              disabled={isPrintingShipmentLabel}
+                              className={`w-full md:w-auto ${emphasisClasses}`}
+                            >
+                              {isActivePrinter
+                                ? 'جاري إرسال البوليصة...'
+                                : shipmentInfo?.labelPrinted
+                                  ? `إعادة طباعة البوليصة - ${printerOption.label}`
+                                  : `طباعة البوليصة - ${printerOption.label}`}
+                            </Button>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1063,11 +1038,6 @@ export default function OrderInvoiceSearchPage() {
                         ? `هذه الشحنة دولية (${shippingCountry || 'غير محددة'}) ويمكن طباعة الفاتورة`
                         : 'الفاتورة التجارية متاحة فقط للطلبات الدولية ولا يمكن طباعتها لهذا الطلب'}
                     </p>
-                    {!isAdmin && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        صلاحية طباعة الفواتير متاحة للمسؤولين فقط.
-                      </p>
-                    )}
                   </div>
                   <div className="flex flex-col gap-3 w-full md:w-auto">
                     <Button

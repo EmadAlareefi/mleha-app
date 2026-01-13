@@ -4,10 +4,30 @@ import { detectShipmentCompany, isValidTrackingNumber } from '@/lib/shipment-det
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { resolveWarehouseIds } from '@/app/api/shipments/utils';
 
-function getWarehouseIdsFromSession(session: any): string[] {
-  const warehouses = (session?.user as any)?.warehouseData?.warehouses ?? [];
-  return Array.isArray(warehouses) ? warehouses.map((w: any) => w.id) : [];
+function hasWarehouseFeatureAccess(session: any) {
+  if (!session?.user) {
+    return false;
+  }
+
+  if (
+    hasServiceAccess(session, [
+      'warehouse',
+      'local-shipping',
+      'shipment-assignments',
+      'returns-inspection',
+    ])
+  ) {
+    return true;
+  }
+
+  const primaryRole = (session.user as any)?.role;
+  if (primaryRole === 'admin' || primaryRole === 'warehouse') {
+    return true;
+  }
+  const roles = ((session.user as any)?.roles || []) as string[];
+  return roles.includes('admin') || roles.includes('warehouse');
 }
 
 // GET /api/shipments - Get all shipments with optional filtering
@@ -21,7 +41,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!hasServiceAccess(session, ['warehouse', 'local-shipping', 'shipment-assignments', 'returns-inspection'])) {
+    if (!hasWarehouseFeatureAccess(session)) {
       return NextResponse.json(
         { error: 'لا تملك صلاحية لعرض الشحنات' },
         { status: 403 }
@@ -30,9 +50,7 @@ export async function GET(request: NextRequest) {
 
     const role = (session.user as any)?.role;
     const roles = ((session.user as any)?.roles || [role]) as string[];
-    const isWarehouseUser = roles.includes('warehouse');
-    const allowedWarehouseIds =
-      isWarehouseUser ? getWarehouseIdsFromSession(session) : null;
+    const hasWarehouseRole = roles.includes('warehouse');
 
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type'); // 'incoming' or 'outgoing'
@@ -63,26 +81,12 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    if (isWarehouseUser) {
-      if (!allowedWarehouseIds || allowedWarehouseIds.length === 0) {
-        return NextResponse.json(
-          { error: 'لم يتم ربط أي مستودع بحسابك' },
-          { status: 403 }
-        );
-      }
-      if (requestedWarehouseId) {
-        if (!allowedWarehouseIds.includes(requestedWarehouseId)) {
-          return NextResponse.json(
-            { error: 'لا تملك صلاحية الوصول لهذا المستودع' },
-            { status: 403 }
-          );
-        }
-        where.warehouseId = requestedWarehouseId;
-      } else {
-        where.warehouseId = { in: allowedWarehouseIds };
-      }
-    } else if (requestedWarehouseId) {
+    if (requestedWarehouseId) {
       where.warehouseId = requestedWarehouseId;
+    } else if (hasWarehouseRole) {
+      where.warehouseId = {
+        not: null,
+      };
     }
 
     const shipments = await prisma.shipment.findMany({
@@ -123,7 +127,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!hasServiceAccess(session, ['warehouse', 'local-shipping'])) {
+    if (!hasWarehouseFeatureAccess(session)) {
       return NextResponse.json(
         { error: 'لا تملك صلاحية لتسجيل الشحنات' },
         { status: 403 }
@@ -161,7 +165,7 @@ export async function POST(request: NextRequest) {
     }
 
     const allowedWarehouseIds =
-      isWarehouseUser ? getWarehouseIdsFromSession(session) : null;
+      isWarehouseUser ? await resolveWarehouseIds(session) : null;
 
     if (isWarehouseUser) {
       if (!allowedWarehouseIds || !allowedWarehouseIds.includes(warehouseId)) {

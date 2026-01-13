@@ -4,7 +4,7 @@ import { log } from '@/app/lib/logger';
 import bcrypt from 'bcryptjs';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-import { OrderUserRole, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   sanitizeServiceKeys,
   getRolesFromServiceKeys,
@@ -12,28 +12,11 @@ import {
 } from '@/app/lib/service-definitions';
 import {
   setUserServiceKeys,
-  mapPrismaRolesToServiceKeys,
-  mapServiceKeysToPrismaRoles,
+  derivePrimaryRole,
 } from '@/app/lib/user-services';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 export const runtime = 'nodejs';
-
-const ROLE_MAP: Record<string, OrderUserRole> = {
-  orders: OrderUserRole.ORDERS,
-  store_manager: OrderUserRole.STORE_MANAGER,
-  warehouse: OrderUserRole.WAREHOUSE,
-  accountant: OrderUserRole.ACCOUNTANT,
-  delivery_agent: OrderUserRole.DELIVERY_AGENT,
-};
-
-function normalizeRole(role?: string | null): OrderUserRole {
-  if (!role) return OrderUserRole.ORDERS;
-  const normalized = role.toLowerCase();
-  if (!ROLE_MAP[normalized]) {
-    throw new Error('دور المستخدم غير صالح');
-  }
-  return ROLE_MAP[normalized];
-}
 
 function serializeWarehouses(assignments: any[]) {
   return assignments
@@ -93,13 +76,42 @@ async function isWarehouseSchemaReady() {
   }
 }
 
+type DateParseResult = Date | null | 'invalid';
+
+function parseDateInput(value: unknown): DateParseResult {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value as string);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'invalid';
+  }
+
+  return parsed;
+}
+
+type SalaryParseResult = Prisma.Decimal | null | 'invalid';
+
+function parseSalaryInput(value: unknown): SalaryParseResult {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  try {
+    return new Prisma.Decimal(value as any);
+  } catch (error) {
+    return 'invalid';
+  }
+}
+
 /**
  * GET /api/order-users
  * Get all order users
  */
 export async function GET() {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user as any)?.role !== 'admin') {
+  if (!session || !hasServiceAccess(session, 'order-users-management')) {
     return NextResponse.json(
       { error: 'غير مصرح لك بالوصول إلى هذه الصفحة' },
       { status: 403 }
@@ -114,6 +126,10 @@ export async function GET() {
       name: true,
       email: true,
       phone: true,
+      employmentStartDate: true,
+      employmentEndDate: true,
+      salaryAmount: true,
+      salaryCurrency: true,
       role: true,
       orderType: true,
       specificStatus: true,
@@ -121,11 +137,6 @@ export async function GET() {
       autoAssign: true,
       maxOrders: true,
       createdAt: true,
-      roleAssignments: {
-        select: {
-          role: true,
-        },
-      },
       assignments: {
         where: {
           status: {
@@ -162,34 +173,16 @@ export async function GET() {
       success: true,
       warehousesSupported: warehousesAvailable,
       users: users.map((user: any) => {
-        const {
-          warehouseAssignments,
-          assignments,
-          role,
-          roleAssignments,
-          servicePermissions,
-          ...rest
-        } = user;
+        const { warehouseAssignments, assignments, servicePermissions, ...rest } = user;
 
-        // Get roles array from roleAssignments, fallback to single role
-        const rolesArray = roleAssignments && roleAssignments.length > 0
-          ? roleAssignments.map((ra: any) => ra.role.toLowerCase())
-          : [(role || OrderUserRole.ORDERS).toLowerCase()];
-
-        const prismaRoles = roleAssignments && roleAssignments.length > 0
-          ? roleAssignments.map((ra: any) => ra.role)
-          : [role || OrderUserRole.ORDERS];
-
-        const persistedServiceKeys = (servicePermissions || [])
-          .map((permission: any) => permission.serviceKey as ServiceKey);
-        const resolvedServiceKeys = persistedServiceKeys.length > 0
-          ? persistedServiceKeys
-          : mapPrismaRolesToServiceKeys(prismaRoles);
+        const resolvedServiceKeys = (servicePermissions || []).map(
+          (permission: any) => permission.serviceKey as ServiceKey
+        );
+        const derivedRoles = getRolesFromServiceKeys(resolvedServiceKeys);
 
         return {
           ...rest,
-          role: (role || OrderUserRole.ORDERS).toLowerCase(), // Primary role for backward compatibility
-          roles: rolesArray, // Array of all roles
+          roles: derivedRoles,
           serviceKeys: resolvedServiceKeys,
           _count: {
             assignments: assignments.length,
@@ -215,7 +208,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user as any)?.role !== 'admin') {
+  if (!session || !hasServiceAccess(session, 'order-users-management')) {
     return NextResponse.json(
       { error: 'غير مصرح لك بتنفيذ هذا الإجراء' },
       { status: 403 }
@@ -231,10 +224,12 @@ export async function POST(request: NextRequest) {
       email,
       phone,
       autoAssign,
-      role: roleInput,
-      roles: rolesInput,
       warehouseIds = [],
       serviceKeys: serviceKeysInput,
+      employmentStartDate,
+      employmentEndDate,
+      salaryAmount,
+      salaryCurrency,
     } = body;
 
     // Validation
@@ -257,34 +252,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let serviceKeys = sanitizeServiceKeys(serviceKeysInput);
-
-    if (serviceKeys.length === 0 && rolesInput && Array.isArray(rolesInput) && rolesInput.length > 0) {
-      const legacyRoles: OrderUserRole[] = [];
-      for (const legacyRole of rolesInput) {
-        try {
-          legacyRoles.push(normalizeRole(legacyRole));
-        } catch (roleError) {
-          return NextResponse.json(
-            { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
-            { status: 400 }
-          );
-        }
-      }
-      serviceKeys = mapPrismaRolesToServiceKeys(legacyRoles);
-    }
-
-    if (serviceKeys.length === 0 && roleInput) {
-      try {
-        const normalizedRole = normalizeRole(roleInput);
-        serviceKeys = mapPrismaRolesToServiceKeys([normalizedRole]);
-      } catch (roleError) {
-        return NextResponse.json(
-          { error: roleError instanceof Error ? roleError.message : 'دور المستخدم غير صالح' },
-          { status: 400 }
-        );
-      }
-    }
+    const serviceKeys = sanitizeServiceKeys(serviceKeysInput);
 
     if (serviceKeys.length === 0) {
       return NextResponse.json(
@@ -296,7 +264,7 @@ export async function POST(request: NextRequest) {
     const serviceRoles = getRolesFromServiceKeys(serviceKeys);
     const hasOrdersRole = serviceRoles.includes('orders');
     const hasWarehouseRole = serviceRoles.includes('warehouse');
-    const primaryRole = mapServiceKeysToPrismaRoles(serviceKeys)[0] ?? OrderUserRole.ORDERS;
+    const primaryRole = derivePrimaryRole(serviceKeys);
     const shouldAutoAssign = hasOrdersRole ? Boolean(autoAssign) : false;
 
     // Hash password
@@ -323,6 +291,42 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const parsedStartDate = parseDateInput(employmentStartDate);
+    if (parsedStartDate === 'invalid') {
+      return NextResponse.json(
+        { error: 'صيغة تاريخ بداية العمل غير صالحة' },
+        { status: 400 }
+      );
+    }
+
+    const parsedEndDate = parseDateInput(employmentEndDate);
+    if (parsedEndDate === 'invalid') {
+      return NextResponse.json(
+        { error: 'صيغة تاريخ نهاية العمل غير صالحة' },
+        { status: 400 }
+      );
+    }
+
+    if (parsedStartDate && parsedEndDate && parsedEndDate < parsedStartDate) {
+      return NextResponse.json(
+        { error: 'لا يمكن أن يكون تاريخ نهاية العمل أقدم من تاريخ البداية' },
+        { status: 400 }
+      );
+    }
+
+    const parsedSalaryAmount = parseSalaryInput(salaryAmount);
+    if (parsedSalaryAmount === 'invalid') {
+      return NextResponse.json(
+        { error: 'صيغة الراتب غير صالحة' },
+        { status: 400 }
+      );
+    }
+
+    const normalizedSalaryCurrency =
+      typeof salaryCurrency === 'string' && salaryCurrency.trim()
+        ? salaryCurrency.trim()
+        : null;
+
     // Create user
     const user = await prisma.orderUser.create({
       data: {
@@ -331,6 +335,10 @@ export async function POST(request: NextRequest) {
         name,
         email,
         phone,
+        employmentStartDate: parsedStartDate,
+        employmentEndDate: parsedEndDate,
+        salaryAmount: parsedSalaryAmount,
+        salaryCurrency: normalizedSalaryCurrency,
         role: primaryRole,
         orderType: 'all',
         specificStatus: null,
@@ -339,7 +347,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await setUserServiceKeys(user.id, serviceKeys, username);
+    await setUserServiceKeys(user.id, serviceKeys);
 
     let assignedWarehouses: Array<{
       id: string;
@@ -365,6 +373,8 @@ export async function POST(request: NextRequest) {
 
     log.info('Order user created', { userId: user.id, username, serviceKeys });
 
+    const derivedRoles = getRolesFromServiceKeys(serviceKeys);
+
     return NextResponse.json({
       success: true,
       user: {
@@ -373,7 +383,11 @@ export async function POST(request: NextRequest) {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        role: user.role.toLowerCase(),
+        employmentStartDate: user.employmentStartDate,
+        employmentEndDate: user.employmentEndDate,
+        salaryAmount: user.salaryAmount ? user.salaryAmount.toString() : null,
+        salaryCurrency: user.salaryCurrency,
+        roles: derivedRoles,
         isActive: user.isActive,
         autoAssign: user.autoAssign,
         serviceKeys,

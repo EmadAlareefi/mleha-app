@@ -27,20 +27,22 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['order-prep', [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/]],
   ['order-shipping', [/^\/order-shipping(\/.*)?$/]],
   ['admin-order-prep', [/^\/admin\/order-prep(\/.*)?$/]],
-  ['warehouse', [/^\/warehouse(\/.*)?$/]],
-  ['warehouse-locations', [/^\/warehouse\/locations(\/.*)?$/]],
-  ['local-shipping', [/^\/local-shipping(\/.*)?$/]],
+  ['warehouse', [/^\/warehouse(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
+  ['local-shipping', [/^\/local-shipping(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
+  ['warehouse-locations', [/^\/warehouse-locations(\/.*)?$/]],
   ['barcode-labels', [/^\/barcode-labels(\/.*)?$/]],
-  ['shipment-assignments', [/^\/shipment-assignments(\/.*)?$/]],
+  ['shipment-assignments', [/^\/shipment-assignments(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   ['order-invoice-search', [/^\/order-invoice-search(\/.*)?$/]],
   ['cod-tracker', [/^\/cod-tracker(\/.*)?$/]],
   ['my-deliveries', [/^\/my-deliveries(\/.*)?$/]],
   ['returns-management', [/^\/returns-management(\/.*)?$/, /^\/cancel-shipment(\/.*)?$/]],
-  ['returns-inspection', [/^\/returns-inspection(\/.*)?$/]],
+  ['returns-inspection', [/^\/returns-inspection(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   ['returns-priority', [/^\/returns-priority(\/.*)?$/]],
   ['returns-gifts', [/^\/returns-gifts(\/.*)?$/]],
   ['settings', [/^\/settings(\/.*)?$/, /^\/erp-settings(\/.*)?$/]],
   ['order-users-management', [/^\/order-users-management(\/.*)?$/]],
+  ['user-recognition', [/^\/user-recognition(\/.*)?$/]],
+  ['my-recognition', [/^\/my-recognition(\/.*)?$/]],
   ['warehouse-management', [/^\/warehouse-management(\/.*)?$/]],
   ['order-reports', [/^\/order-reports(\/.*)?$/]],
   ['settlements', [/^\/settlements(\/.*)?$/]],
@@ -52,10 +54,12 @@ const serviceHomeByKey = new Map<ServiceKey, string>(
   serviceDefinitions.map((service) => [service.key, service.href])
 );
 
+const FALLBACK_EXCLUDED_PATHS = new Set(['/warehouse', '/local-shipping']);
+
 function getFallbackPath(serviceKeys: ServiceKey[]): string {
   for (const key of serviceKeys) {
     const home = serviceHomeByKey.get(key);
-    if (home && home !== '/warehouse') {
+    if (home && !FALLBACK_EXCLUDED_PATHS.has(home)) {
       return home;
     }
   }

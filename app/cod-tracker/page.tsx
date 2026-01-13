@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
@@ -58,11 +58,7 @@ export default function CODTrackerPage() {
   const [discrepancyAmount, setDiscrepancyAmount] = useState('');
   const [discrepancyReason, setDiscrepancyReason] = useState('');
 
-  useEffect(() => {
-    fetchCollections();
-  }, [filterStatus]);
-
-  const fetchCollections = async () => {
+  const fetchCollections = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -83,7 +79,11 @@ export default function CODTrackerPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterStatus]);
+
+  useEffect(() => {
+    fetchCollections();
+  }, [fetchCollections]);
 
   const handleUpdateStatus = async () => {
     if (!selectedCollection || !newStatus) {
@@ -212,12 +212,14 @@ export default function CODTrackerPage() {
         <nav className="flex justify-center gap-3 mb-8">
           <Link
             href="/warehouse"
+            prefetch={false}
             className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
           >
             المستودع
           </Link>
           <Link
             href="/local-shipping"
+            prefetch={false}
             className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
           >
             شحن محلي
@@ -225,6 +227,7 @@ export default function CODTrackerPage() {
           {isWarehouse && (
             <Link
               href="/shipment-assignments"
+              prefetch={false}
               className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
             >
               تعيين الشحنات
@@ -232,6 +235,7 @@ export default function CODTrackerPage() {
           )}
           <Link
             href="/cod-tracker"
+            prefetch={false}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
           >
             تتبع التحصيل

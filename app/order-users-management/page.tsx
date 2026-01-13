@@ -34,6 +34,10 @@ interface OrderUser {
   serviceKeys: ServiceKey[];
   email?: string;
   phone?: string;
+  employmentStartDate?: string | null;
+  employmentEndDate?: string | null;
+  salaryAmount?: string | null;
+  salaryCurrency?: string | null;
   isActive: boolean;
   autoAssign: boolean;
   createdAt: string;
@@ -47,6 +51,48 @@ const ASSIGNABLE_SERVICES = getAssignableServices();
 const SERVICE_MAP = new Map(serviceDefinitions.map((service) => [service.key, service]));
 const inputClasses =
   'w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 transition focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
+
+const formatDateForInput = (value?: string | null) => {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toISOString().split('T')[0];
+};
+
+const formatDateForDisplay = (value?: string | null) => {
+  if (!value) {
+    return 'غير محدد';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'غير محدد';
+  }
+  return new Intl.DateTimeFormat('ar-SA', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+};
+
+const formatSalaryDisplay = (amount?: string | null, currency?: string | null) => {
+  if (!amount) {
+    return 'غير محدد';
+  }
+  const numericAmount = Number(amount);
+  const safeCurrency = currency || 'SAR';
+  if (Number.isNaN(numericAmount)) {
+    return `${amount} ${safeCurrency}`.trim();
+  }
+  const formattedAmount = new Intl.NumberFormat('ar-SA', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numericAmount);
+  return `${formattedAmount} ${safeCurrency}`.trim();
+};
 
 export default function OrderUsersManagementPage() {
   const [users, setUsers] = useState<OrderUser[]>([]);
@@ -65,6 +111,10 @@ export default function OrderUsersManagementPage() {
     name: '',
     email: '',
     phone: '',
+    employmentStartDate: '',
+    employmentEndDate: '',
+    salaryAmount: '',
+    salaryCurrency: 'SAR',
     isActive: true,
     autoAssign: true,
     warehouseIds: [] as string[],
@@ -190,6 +240,10 @@ export default function OrderUsersManagementPage() {
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
+        employmentStartDate: formData.employmentStartDate || null,
+        employmentEndDate: formData.employmentEndDate || null,
+        salaryAmount: formData.salaryAmount || null,
+        salaryCurrency: formData.salaryCurrency || null,
         isActive: formData.isActive,
         serviceKeys: formData.serviceKeys,
         autoAssign: hasOrdersAccess ? formData.autoAssign : false,
@@ -238,6 +292,10 @@ export default function OrderUsersManagementPage() {
       name: user.name,
       email: user.email || '',
       phone: user.phone || '',
+      employmentStartDate: formatDateForInput(user.employmentStartDate),
+      employmentEndDate: formatDateForInput(user.employmentEndDate),
+      salaryAmount: user.salaryAmount || '',
+      salaryCurrency: user.salaryCurrency || 'SAR',
       isActive: user.isActive,
       autoAssign: user.autoAssign,
       warehouseIds: user.warehouses?.map((w) => w.id) || [],
@@ -309,6 +367,10 @@ export default function OrderUsersManagementPage() {
       name: '',
       email: '',
       phone: '',
+      employmentStartDate: '',
+      employmentEndDate: '',
+      salaryAmount: '',
+      salaryCurrency: 'SAR',
       isActive: true,
       autoAssign: true,
       warehouseIds: [],
@@ -525,6 +587,76 @@ export default function OrderUsersManagementPage() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">
+                        تاريخ بداية العمل *
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.employmentStartDate}
+                        onChange={(e) =>
+                          setFormData({ ...formData, employmentStartDate: e.target.value })
+                        }
+                        className={inputClasses}
+                        required={!editingUser}
+                      />
+                      <p className="text-xs text-slate-500">اليوم الأول الذي بدأ فيه الموظف عمله.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">
+                        تاريخ نهاية العمل (اختياري)
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.employmentEndDate}
+                        onChange={(e) =>
+                          setFormData({ ...formData, employmentEndDate: e.target.value })
+                        }
+                        className={inputClasses}
+                      />
+                      <p className="text-xs text-slate-500">
+                        اتركه فارغاً إذا كان الموظف ما زال على رأس العمل.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">
+                        الراتب الشهري
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.salaryAmount}
+                        onChange={(e) => setFormData({ ...formData, salaryAmount: e.target.value })}
+                        className={inputClasses}
+                        placeholder="0.00"
+                      />
+                      <p className="text-xs text-slate-500">أدخل المبلغ الشهري دون البدلات.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">
+                        عملة الراتب
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.salaryCurrency}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            salaryCurrency: e.target.value.toUpperCase().slice(0, 10),
+                          })
+                        }
+                        className={inputClasses}
+                        placeholder="SAR"
+                      />
+                      <p className="text-xs text-slate-500">استخدم اختصار العملة مثل SAR أو USD.</p>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="mb-3 block text-sm font-semibold text-slate-700">
                       الروابط المسموح بها في الصفحة الرئيسية *
@@ -706,6 +838,18 @@ export default function OrderUsersManagementPage() {
                   const hasAccountantRole = derivedRoles.includes('accountant');
                   const serviceBadges =
                     serviceKeysForUser.length > 0 ? serviceKeysForUser : [];
+                  const startDateLabel = formatDateForDisplay(user.employmentStartDate);
+                  const endDateLabel = user.employmentEndDate
+                    ? formatDateForDisplay(user.employmentEndDate)
+                    : 'على رأس العمل';
+                  const salaryLabel = formatSalaryDisplay(
+                    user.salaryAmount,
+                    user.salaryCurrency
+                  );
+                  const endedEmployment = Boolean(user.employmentEndDate);
+                  const employmentStatusClasses = endedEmployment
+                    ? 'border-rose-100 bg-rose-50 text-rose-700'
+                    : 'border-emerald-100 bg-emerald-50 text-emerald-700';
                   return (
                     <Card
                       key={user.id}
@@ -747,6 +891,30 @@ export default function OrderUsersManagementPage() {
                             لا توجد روابط محددة
                           </span>
                         )}
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-slate-600 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">
+                            بداية العمل
+                          </p>
+                          <p className="mt-1 font-semibold text-slate-900">{startDateLabel}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">
+                            نهاية العمل
+                          </p>
+                          <p className="mt-1 font-semibold text-slate-900">{endDateLabel}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">الراتب</p>
+                          <p className="mt-1 font-semibold text-slate-900">{salaryLabel}</p>
+                          <span
+                            className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${employmentStatusClasses}`}
+                          >
+                            {endedEmployment ? 'انتهت الخدمة' : 'على رأس العمل'}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="mt-5 space-y-3 text-sm text-slate-600">

@@ -454,6 +454,11 @@ enum OrderUserRole {
   DELIVERY_AGENT
 }
 
+enum RewardPenaltyType {
+  REWARD
+  PENALTY
+}
+
 model OrderUser {
   id       String        @id @default(cuid())
   username String        @unique
@@ -461,7 +466,11 @@ model OrderUser {
   name     String
   email    String?
   phone    String?
-  role     OrderUserRole @default(ORDERS) // @deprecated - use roleAssignments instead
+  employmentStartDate DateTime?
+  employmentEndDate   DateTime?
+  salaryAmount        Decimal?   @db.Decimal(12, 2)
+  salaryCurrency      String?
+  role     OrderUserRole @default(ORDERS)
 
   // Order type assignment
   orderType      String // "all", "cod", "prepaid", "specific_status"
@@ -477,13 +486,32 @@ model OrderUser {
 
   assignments          OrderAssignment[]
   warehouseAssignments WarehouseAssignment[]
-  roleAssignments      UserRoleAssignment[]
   deliveryAssignments  ShipmentAssignment[]  @relation("DeliveryAssignments")
   printerLink          OrderUserPrinterLink?
   servicePermissions   UserServicePermission[]
+  recognitions         UserRecognition[]
 
   @@index([username])
   @@index([isActive])
+}
+
+model UserRecognition {
+  id                String             @id @default(cuid())
+  userId            String
+  kind              RewardPenaltyType
+  title             String
+  description       String?            @db.Text
+  points            Int                @default(0)
+  effectiveDate     DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  createdById       String?
+  createdByName     String?
+  createdByUsername String?
+
+  user OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, effectiveDate])
+  @@index([createdAt])
 }
 
 model OrderUserPrinterLink {
@@ -501,21 +529,6 @@ model OrderUserPrinterLink {
 }
 
 // New table for multiple role support
-model UserRoleAssignment {
-  id     String        @id @default(cuid())
-  userId String
-  role   OrderUserRole
-
-  assignedAt DateTime @default(now())
-  assignedBy String? // Username of admin who assigned this role
-
-  user OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, role])
-  @@index([userId])
-  @@index([role])
-}
-
 model UserServicePermission {
   id         String   @id @default(cuid())
   userId     String

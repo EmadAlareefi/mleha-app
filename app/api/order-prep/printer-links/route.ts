@@ -2,18 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { OrderUserRole, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { fetchPrintNodePrinters } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 export const runtime = 'nodejs';
 
-type UserWithRoles = {
+type UserWithPermissions = {
   id: string;
   username: string;
   name: string;
-  role: OrderUserRole;
-  roleAssignments: { role: OrderUserRole }[];
+  servicePermissions: { serviceKey: string }[];
   printerLink: {
     printerId: number;
     printerName: string | null;
@@ -23,12 +23,8 @@ type UserWithRoles = {
   } | null;
 };
 
-function hasOrdersRole(user: Pick<UserWithRoles, 'role' | 'roleAssignments'>) {
-  if (user.role === OrderUserRole.ORDERS) {
-    return true;
-  }
-
-  return user.roleAssignments?.some((assignment) => assignment.role === OrderUserRole.ORDERS);
+function hasOrdersPermission(user: Pick<UserWithPermissions, 'servicePermissions'>) {
+  return user.servicePermissions?.some((permission) => permission.serviceKey === 'order-prep');
 }
 
 function formatPrinterResponse(printers: Awaited<ReturnType<typeof fetchPrintNodePrinters>>) {
@@ -49,9 +45,9 @@ function formatPrinterResponse(printers: Awaited<ReturnType<typeof fetchPrintNod
   }));
 }
 
-function formatUserResponse(users: UserWithRoles[]) {
+function formatUserResponse(users: UserWithPermissions[]) {
   return users
-    .filter(hasOrdersRole)
+    .filter(hasOrdersPermission)
     .map((user) => ({
       id: user.id,
       username: user.username,
@@ -70,7 +66,7 @@ function formatUserResponse(users: UserWithRoles[]) {
 
 async function requireAdminSession() {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user as any)?.role !== 'admin') {
+  if (!session || !hasServiceAccess(session, 'order-users-management')) {
     return null;
   }
   return session;
@@ -92,11 +88,8 @@ export async function GET() {
           id: true,
           username: true,
           name: true,
-          role: true,
-          roleAssignments: {
-            select: {
-              role: true,
-            },
+          servicePermissions: {
+            select: { serviceKey: true },
           },
           printerLink: {
             select: {
@@ -153,11 +146,8 @@ export async function POST(request: NextRequest) {
       where: { id: userId },
       select: {
         id: true,
-        role: true,
-        roleAssignments: {
-          select: {
-            role: true,
-          },
+        servicePermissions: {
+          select: { serviceKey: true },
         },
       },
     });
@@ -166,7 +156,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'المستخدم غير موجود' }, { status: 404 });
     }
 
-    if (!hasOrdersRole(user)) {
+    if (!hasOrdersPermission(user)) {
       return NextResponse.json(
         { error: 'يمكن ربط مستخدمي التحضير فقط بالطابعات' },
         { status: 400 },
