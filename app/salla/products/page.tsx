@@ -887,7 +887,15 @@ function ProductRow({
           mode: entry.mode,
         };
       })
-      .filter((item): item is { identifer_type: string; identifer: string; quantity: number; mode: string } => {
+      .filter(
+        (
+          item
+        ): item is {
+          identifer_type: string;
+          identifer: string;
+          quantity: number;
+          mode: 'increment' | 'decrement';
+        } => {
         return Boolean(item?.identifer);
       });
 

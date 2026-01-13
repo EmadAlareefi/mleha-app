@@ -84,6 +84,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['warehouse'],
   },
   {
+    key: 'search-update-stock',
+    title: 'جرد وتحديث المخزون',
+    description: 'بحث SKU وخصم الطلبات المفتوحة قبل تحديث كميات سلة',
+    icon: '🧮',
+    href: '/warehouse/search-update-stock',
+    color: 'from-indigo-500 to-blue-500',
+    defaultRoles: ['admin', 'warehouse'],
+    grantsRoles: ['warehouse'],
+  },
+  {
     key: 'barcode-labels',
     title: 'ملصقات الباركود',
     description: 'إنشاء وطباعة ملصقات الباركود بحجم ٧×٤ سم',

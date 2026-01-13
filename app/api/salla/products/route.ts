@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-import { listSallaProducts } from '@/app/lib/salla-api';
+import { getSallaProductBySku, listSallaProducts } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 
@@ -39,10 +39,29 @@ export async function GET(request: NextRequest) {
 
     const page = parseNumber(searchParams.get('page'), 1);
     const perPage = parseNumber(searchParams.get('perPage'), 100);
-    const sku = searchParams.get('sku') || undefined;
+    const skuInput = searchParams.get('sku');
+    const sku = skuInput && skuInput.trim().length > 0 ? skuInput.trim() : undefined;
     const requestedStatus = searchParams.get('status') || undefined;
     const allowedStatuses = new Set(['hidden', 'sale', 'out']);
     const status = requestedStatus && allowedStatuses.has(requestedStatus) ? requestedStatus : undefined;
+
+    if (sku) {
+      const product = await getSallaProductBySku(resolved.merchantId, sku).catch(() => null);
+      if (product) {
+        return NextResponse.json({
+          success: true,
+          products: [product],
+          pagination: {
+            count: 1,
+            total: 1,
+            perPage: 1,
+            currentPage: 1,
+            totalPages: 1,
+          },
+          merchantId: resolved.merchantId,
+        });
+      }
+    }
 
     const { products, pagination } = await listSallaProducts(resolved.merchantId, {
       page,

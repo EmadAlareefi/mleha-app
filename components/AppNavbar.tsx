@@ -25,7 +25,7 @@ interface AppNavbarProps {
   collapseOnMobile?: boolean;
 }
 
-export default function AppNavbar({ title, subtitle, collapseOnMobile = false }: AppNavbarProps) {
+export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: AppNavbarProps) {
   const { data: session } = useSession();
   const { showInstallButton, isInstallPromptReady, requestInstall } = usePwaInstallPrompt();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(!collapseOnMobile);

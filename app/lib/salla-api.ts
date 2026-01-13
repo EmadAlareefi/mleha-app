@@ -827,3 +827,38 @@ export async function listSallaProducts(
     },
   };
 }
+
+export async function getSallaProductBySku(
+  merchantId: string,
+  sku: string
+): Promise<SallaProductSummary | null> {
+  const trimmed = sku?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const endpoint = `/products/sku/${encodeURIComponent(trimmed)}`;
+  const response = await sallaMakeRequest<{
+    status: number;
+    success: boolean;
+    data?: Record<string, any>;
+    message?: string;
+  }>(merchantId, endpoint);
+
+  if (!response) {
+    log.error('Failed to reach Salla product by SKU endpoint', { merchantId, sku: trimmed });
+    return null;
+  }
+
+  if (!response.success || !response.data) {
+    log.warn('Salla returned failure for product SKU lookup', {
+      merchantId,
+      sku: trimmed,
+      status: response.status,
+      message: response.message,
+    });
+    return null;
+  }
+
+  return normalizeProduct(response.data);
+}

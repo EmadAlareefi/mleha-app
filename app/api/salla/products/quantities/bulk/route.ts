@@ -9,8 +9,8 @@ export const runtime = 'nodejs';
 
 type IncomingAdjustment = {
   identifer_type?: string;
-  identifer?: string;
-  quantity?: number;
+  identifer?: string | number;
+  quantity?: number | string;
   mode?: string;
   branch?: string;
 };
