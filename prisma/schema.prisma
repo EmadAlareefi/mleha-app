@@ -309,7 +309,9 @@ model SallaProductQuantityRequest {
   productId        Int
   productName      String
   productSku       String?
+  productImageUrl  String?
   requestedAmount  Int
+  requestedRefundAmount Int?
   requestedFrom    String
   requestedBy      String
   requestedByUser  String?

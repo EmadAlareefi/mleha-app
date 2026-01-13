@@ -6,7 +6,7 @@ import { fulfillQuantityRequest } from '@/app/lib/salla-product-requests';
 export const runtime = 'nodejs';
 
 type RouteContext = {
-  params: { id: string };
+  params: { id: string } | Promise<{ id: string }>;
 };
 
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -16,7 +16,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'يجب تسجيل الدخول لتحديث الطلب' }, { status: 401 });
   }
 
-  const { id } = context.params;
+  const params = await context.params;
+  const { id } = params;
   if (!id) {
     return NextResponse.json({ error: 'رقم الطلب غير معروف' }, { status: 400 });
   }

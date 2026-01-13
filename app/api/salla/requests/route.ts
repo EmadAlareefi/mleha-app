@@ -57,26 +57,43 @@ export async function POST(request: NextRequest) {
 
     const productId = Number.parseInt(body.productId, 10);
     const requestedAmount = Number.parseInt(body.requestedAmount, 10);
-    const requestedFrom = typeof body.requestedFrom === 'string' ? body.requestedFrom.trim() : '';
+    const requestedFromInput = typeof body.requestedFrom === 'string' ? body.requestedFrom.trim() : '';
     const productName = typeof body.productName === 'string' ? body.productName.trim() : '';
 
     if (!Number.isFinite(productId) || productId <= 0) {
       throw new Error('رقم المنتج غير صحيح');
     }
-    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-      throw new Error('الكمية المطلوبة يجب أن تكون أكبر من صفر');
-    }
-    if (!requestedFrom) {
-      throw new Error('يرجى تحديد الشخص المطلوب منه');
-    }
-    if (!productName) {
-      throw new Error('اسم المنتج مطلوب');
-    }
-
+    const hasRequestedAmount = Number.isFinite(requestedAmount) && requestedAmount > 0;
     const requestedFor =
       typeof body.requestedFor === 'string' && body.requestedFor.trim().length > 0
         ? body.requestedFor
         : undefined;
+
+    const requestedRefundAmountRaw = body.requestedRefundAmount;
+    const requestedRefundAmount =
+      requestedRefundAmountRaw !== undefined && requestedRefundAmountRaw !== null && requestedRefundAmountRaw !== ''
+        ? Number.parseInt(requestedRefundAmountRaw, 10)
+        : undefined;
+    const hasRequestedRefund =
+      requestedRefundAmount !== undefined &&
+      Number.isFinite(requestedRefundAmount) &&
+      requestedRefundAmount > 0;
+
+    if (!productName) {
+      throw new Error('اسم المنتج مطلوب');
+    }
+    if (!hasRequestedAmount && !hasRequestedRefund) {
+      throw new Error('يرجى إدخال كمية للشراء أو كمية مرتجع واحدة على الأقل');
+    }
+    if (
+      requestedRefundAmount !== undefined &&
+      (!Number.isFinite(requestedRefundAmount) || requestedRefundAmount <= 0)
+    ) {
+      throw new Error('كمية المرتجع يجب أن تكون أكبر من صفر');
+    }
+
+    const normalizedRequestedAmount = hasRequestedAmount ? requestedAmount : 0;
+    const requestedFrom = requestedFromInput || 'غير محدد';
 
     const notes = typeof body.notes === 'string' ? body.notes : undefined;
     const merchantId = typeof body.merchantId === 'string' ? body.merchantId : undefined;
@@ -85,8 +102,13 @@ export async function POST(request: NextRequest) {
       productId,
       productName,
       productSku: typeof body.productSku === 'string' ? body.productSku : undefined,
+      productImageUrl:
+        typeof body.productImageUrl === 'string' && body.productImageUrl.trim().length > 0
+          ? body.productImageUrl
+          : undefined,
       merchantId,
-      requestedAmount,
+      requestedAmount: normalizedRequestedAmount,
+      requestedRefundAmount: hasRequestedRefund ? requestedRefundAmount : undefined,
       requestedFrom,
       requestedBy: (session.user as any)?.name || session.user?.email || 'مستخدم',
       requestedByUser: (session.user as any)?.id || session.user?.email || null,

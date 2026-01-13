@@ -6,8 +6,10 @@ const quantityRequestSelect = {
   productId: true,
   productName: true,
   productSku: true,
+  productImageUrl: true,
   merchantId: true,
   requestedAmount: true,
+  requestedRefundAmount: true,
   requestedFrom: true,
   requestedBy: true,
   requestedByUser: true,
@@ -30,8 +32,10 @@ export type CreateQuantityRequestInput = {
   productId: number;
   productName: string;
   productSku?: string | null;
+  productImageUrl?: string | null;
   merchantId?: string | null;
   requestedAmount: number;
+  requestedRefundAmount?: number | null;
   requestedFrom: string;
   requestedBy: string;
   requestedByUser?: string | null;
@@ -98,8 +102,10 @@ export async function createQuantityRequest(
       productId: input.productId,
       productName: input.productName,
       productSku: input.productSku ?? null,
+      productImageUrl: input.productImageUrl ?? null,
       merchantId: input.merchantId ?? null,
       requestedAmount: input.requestedAmount,
+      requestedRefundAmount: input.requestedRefundAmount ?? null,
       requestedFrom: input.requestedFrom,
       requestedBy: input.requestedBy,
       requestedByUser: input.requestedByUser ?? null,
