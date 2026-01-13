@@ -1,16 +1,28 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Loader2, PackageSearch, RefreshCcw, Search, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { SallaPaginationMeta, SallaProductSummary } from '@/app/lib/salla-api';
+import AppNavbar from '@/components/AppNavbar';
+import type {
+  SallaPaginationMeta,
+  SallaProductSummary,
+  SallaProductVariation,
+} from '@/app/lib/salla-api';
 
 const PAGE_SIZE = 100;
+const STATUS_OPTIONS = [
+  { value: '', label: 'كل الحالات' },
+  { value: 'hidden', label: 'مخفي' },
+  { value: 'sale', label: 'تخفيض' },
+  { value: 'out', label: 'نافد' },
+];
 
 type QuantityRequest = {
   productId: number;
@@ -28,6 +40,7 @@ type QuantityRequest = {
 type NewRequestPayload = {
   requestedFrom: string;
   requestedAmount: number;
+  requestedFor?: string;
   notes?: string;
 };
 
@@ -36,13 +49,32 @@ type FulfillPayload = {
   providedAmount: number;
 };
 
+type QuantityRequestRecord = {
+  id: string;
+  productId: number;
+  productName: string;
+  productSku?: string | null;
+  requestedAmount: number;
+  requestedFrom: string;
+  requestedBy: string;
+  requestedFor?: string | null;
+  notes?: string | null;
+  status: 'pending' | 'completed';
+  requestedAt: string;
+  fulfilledAt?: string | null;
+  providedBy?: string | null;
+  providedAmount?: number | null;
+};
+
+type ActionResult = { success: true } | { success: false; error: string };
+
 function formatCurrency(value: number | null | undefined, currency?: string) {
   if (value == null || Number.isNaN(value)) {
     return '—';
   }
 
   try {
-    return new Intl.NumberFormat('ar-SA', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency || 'SAR',
       maximumFractionDigits: 2,
@@ -60,13 +92,20 @@ function formatDate(value?: string | null) {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString('ar-SA', {
+  return date.toLocaleString('en-US', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatNumber(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) {
+    return '—';
+  }
+  return new Intl.NumberFormat('en-US').format(value);
 }
 
 export default function SallaProductsPage() {
@@ -79,7 +118,18 @@ export default function SallaProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchSku, setSearchSku] = useState('');
   const [skuInput, setSkuInput] = useState('');
-  const [requests, setRequests] = useState<Record<number, QuantityRequest>>({});
+  const [productRequests, setProductRequests] = useState<Record<number, QuantityRequestRecord[]>>({});
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [variationsMap, setVariationsMap] = useState<Record<number, SallaProductVariation[]>>({});
+  const [productVariationErrors, setProductVariationErrors] = useState<Record<number, string>>({});
+  const [variationsLoading, setVariationsLoading] = useState(false);
+  const [variationsGlobalError, setVariationsGlobalError] = useState<string | null>(null);
+  const [rowVariationsLoading, setRowVariationsLoading] = useState<Record<number, boolean>>({});
+  const [merchantId, setMerchantId] = useState<string | null>(null);
+  const variationsRequestId = useRef(0);
 
   const currentUserName = useMemo(() => {
     const user = session?.user as any;
@@ -93,7 +143,7 @@ export default function SallaProductsPage() {
   }, [status, router]);
 
   const fetchProducts = useCallback(
-    async (page: number, sku: string) => {
+    async (page: number, sku: string, statusValue: string) => {
       setLoading(true);
       setError(null);
 
@@ -105,6 +155,9 @@ export default function SallaProductsPage() {
 
         if (sku) {
           params.set('sku', sku);
+        }
+        if (statusValue) {
+          params.set('status', statusValue);
         }
 
         const response = await fetch(`/api/salla/products?${params.toString()}`, {
@@ -118,6 +171,8 @@ export default function SallaProductsPage() {
 
         setProducts(Array.isArray(data.products) ? data.products : []);
         setPagination(data.pagination ?? null);
+        setMerchantId(typeof data.merchantId === 'string' ? data.merchantId : null);
+        setLastUpdated(new Date().toISOString());
       } catch (err) {
         setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء تحميل المنتجات');
         setProducts([]);
@@ -129,15 +184,238 @@ export default function SallaProductsPage() {
     []
   );
 
+  const fetchVariations = useCallback(
+    async (items: SallaProductSummary[]) => {
+      if (!items || items.length === 0) {
+        setVariationsMap({});
+        setProductVariationErrors({});
+        setVariationsGlobalError(null);
+        setVariationsLoading(false);
+        setRowVariationsLoading({});
+        return;
+      }
+
+      const ids = items.map((item) => item.id);
+      const requestId = Date.now();
+      variationsRequestId.current = requestId;
+      setVariationsLoading(true);
+      setVariationsGlobalError(null);
+      setProductVariationErrors({});
+      setRowVariationsLoading({});
+
+      try {
+        const response = await fetch('/api/salla/products/variations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ productIds: ids }),
+        });
+        const data = await response.json();
+
+        if (variationsRequestId.current !== requestId) {
+          return;
+        }
+
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر تحميل متغيرات المنتجات');
+        }
+
+        const normalized: Record<number, SallaProductVariation[]> = {};
+        Object.entries(data.variations ?? {}).forEach(([key, value]) => {
+          const parsed = Number.parseInt(key, 10);
+          if (Number.isFinite(parsed)) {
+            normalized[parsed] = Array.isArray(value) ? value : [];
+          }
+        });
+
+        items.forEach((item) => {
+          if (!normalized[item.id]) {
+            normalized[item.id] = [];
+          }
+        });
+
+        const perProductErrors: Record<number, string> = {};
+        if (Array.isArray(data.failed)) {
+          data.failed.forEach((entry: { productId?: number; message?: string }) => {
+            if (!entry || typeof entry.productId !== 'number') {
+              return;
+            }
+            perProductErrors[entry.productId] =
+              entry.message || 'تعذر تحميل متغيرات هذا المنتج من سلة';
+          });
+        }
+
+        setVariationsMap(normalized);
+        setProductVariationErrors(perProductErrors);
+        setVariationsGlobalError(null);
+      } catch (err) {
+        if (variationsRequestId.current !== requestId) {
+          return;
+        }
+        const message =
+          err instanceof Error ? err.message : 'تعذر تحميل متغيرات المنتجات';
+        setVariationsMap({});
+        setProductVariationErrors({});
+        setVariationsGlobalError(message);
+        setRowVariationsLoading({});
+      } finally {
+        if (variationsRequestId.current === requestId) {
+          setVariationsLoading(false);
+        }
+      }
+    },
+    []
+  );
+
+  const fetchProductRequests = useCallback(async (productIds: number[]) => {
+    if (!productIds || productIds.length === 0) {
+      setProductRequests({});
+      return;
+    }
+
+    setRequestsLoading(true);
+    setRequestsError(null);
+
+    try {
+      const params = new URLSearchParams();
+      productIds.forEach((id) => params.append('productId', id.toString()));
+      const response = await fetch(`/api/salla/requests?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data?.error || 'تعذر تحميل طلبات الكميات');
+      }
+
+      const map: Record<number, QuantityRequestRecord[]> = {};
+      productIds.forEach((id) => {
+        map[id] = [];
+      });
+
+      if (Array.isArray(data.requests)) {
+        data.requests.forEach((request: QuantityRequestRecord) => {
+          if (!map[request.productId]) {
+            map[request.productId] = [];
+          }
+          map[request.productId].push(request);
+        });
+      }
+
+      Object.keys(map).forEach((key) => {
+        const id = Number.parseInt(key, 10);
+        map[id] = map[id].sort(
+          (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
+        );
+      });
+
+      setProductRequests(map);
+    } catch (err) {
+      setRequestsError(
+        err instanceof Error ? err.message : 'تعذر تحميل طلبات الكميات لهذا المنتج'
+      );
+      setProductRequests({});
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (status === 'authenticated') {
-      fetchProducts(currentPage, searchSku);
+      fetchProducts(currentPage, searchSku, statusFilter);
     }
-  }, [status, currentPage, searchSku, fetchProducts]);
+  }, [status, currentPage, searchSku, statusFilter, fetchProducts]);
+
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      return;
+    }
+    if (products.length === 0) {
+      setVariationsMap({});
+      setProductVariationErrors({});
+      setVariationsGlobalError(null);
+      setVariationsLoading(false);
+      return;
+    }
+    fetchVariations(products);
+  }, [status, products, fetchVariations]);
+
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      return;
+    }
+    if (products.length === 0) {
+      setProductRequests({});
+      return;
+    }
+    const ids = products.map((product) => product.id);
+    fetchProductRequests(ids);
+  }, [status, products, fetchProductRequests]);
 
   const handleRefresh = () => {
-    fetchProducts(currentPage, searchSku);
+    fetchProducts(currentPage, searchSku, statusFilter);
   };
+
+  const refreshVariationsForProduct = useCallback(
+    async (productId: number) => {
+      if (!productId) {
+        return;
+      }
+      setRowVariationsLoading((prev) => ({ ...prev, [productId]: true }));
+      try {
+        const response = await fetch('/api/salla/products/variations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ productIds: [productId] }),
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر تحديث بيانات المتغير');
+        }
+
+        const variations = Array.isArray(data.variations?.[productId])
+          ? data.variations[productId]
+          : [];
+
+        setVariationsMap((prev) => ({
+          ...prev,
+          [productId]: variations,
+        }));
+
+        setProductVariationErrors((prev) => {
+          const next = { ...prev };
+          const productError = Array.isArray(data.failed)
+            ? data.failed.find((entry: { productId?: number }) => entry.productId === productId)
+            : null;
+          if (productError) {
+            next[productId] =
+              (productError as { message?: string }).message ||
+              'تعذر تحميل متغيرات هذا المنتج من سلة';
+          } else {
+            delete next[productId];
+          }
+          return next;
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر تحديث متغيرات هذا المنتج';
+        setProductVariationErrors((prev) => ({
+          ...prev,
+          [productId]: message,
+        }));
+      } finally {
+        setRowVariationsLoading((prev) => {
+          const next = { ...prev };
+          delete next[productId];
+          return next;
+        });
+      }
+    },
+    []
+  );
 
   const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -156,42 +434,90 @@ export default function SallaProductsPage() {
     });
   };
 
+  const handleStatusChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    setCurrentPage(1);
+    setStatusFilter(value);
+  };
+
   const handleCreateRequest = useCallback(
-    (product: SallaProductSummary, payload: NewRequestPayload) => {
-      setRequests((prev) => ({
-        ...prev,
-        [product.id]: {
-          productId: product.id,
-          requestedBy: currentUserName,
-          requestedFrom: payload.requestedFrom,
-          requestedAmount: payload.requestedAmount,
-          notes: payload.notes,
-          status: 'pending',
-          requestedAt: new Date().toISOString(),
-        },
-      }));
+    async (product: SallaProductSummary, payload: NewRequestPayload): Promise<ActionResult> => {
+      try {
+        const response = await fetch('/api/salla/requests', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            productId: product.id,
+            productName: product.name,
+            productSku: product.sku,
+            merchantId,
+            requestedAmount: payload.requestedAmount,
+            requestedFrom: payload.requestedFrom,
+            requestedFor: payload.requestedFor,
+            notes: payload.notes,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر إنشاء طلب الكمية');
+        }
+        const created: QuantityRequestRecord = data.request;
+        setProductRequests((prev) => {
+          const updated = { ...prev };
+          const list = updated[product.id] ? [...updated[product.id]] : [];
+          list.push(created);
+          list.sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
+          updated[product.id] = list;
+          return updated;
+        });
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'تعذر إنشاء طلب الكمية',
+        };
+      }
     },
-    [currentUserName]
+    [merchantId]
   );
 
-  const handleFulfillRequest = useCallback((productId: number, payload: FulfillPayload) => {
-    setRequests((prev) => {
-      const existing = prev[productId];
-      if (!existing) {
-        return prev;
+  const handleFulfillRequest = useCallback(
+    async (productId: number, requestId: string, payload: FulfillPayload): Promise<ActionResult> => {
+      try {
+        const response = await fetch(`/api/salla/requests/${requestId}/fulfill`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر تحديث حالة الطلب');
+        }
+        const updatedRequest: QuantityRequestRecord = data.request;
+        setProductRequests((prev) => {
+          const list = prev[productId] ? [...prev[productId]] : [];
+          const index = list.findIndex((item) => item.id === requestId);
+          if (index !== -1) {
+            list[index] = updatedRequest;
+          }
+          const next = { ...prev };
+          next[productId] = list;
+          return next;
+        });
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'تعذر تحديث حالة الطلب',
+        };
       }
-      return {
-        ...prev,
-        [productId]: {
-          ...existing,
-          status: 'completed',
-          providedBy: payload.providedBy,
-          providedAmount: payload.providedAmount,
-          fulfilledAt: new Date().toISOString(),
-        },
-      };
-    });
-  }, []);
+    },
+    []
+  );
 
   if (status === 'loading') {
     return (
@@ -207,161 +533,328 @@ export default function SallaProductsPage() {
 
   const totalPages = pagination?.totalPages ?? 1;
   const totalProducts = pagination?.total ?? products.length;
+  const formattedLastUpdated = lastUpdated ? formatDate(lastUpdated) : 'بانتظار التحديث';
+  const quickStats = [
+    { label: 'النتائج المعروضة', value: formatNumber(totalProducts) },
+    { label: 'الصفحة الحالية', value: `${formatNumber(currentPage)} / ${formatNumber(totalPages)}` },
+    { label: 'حد الصفحة', value: `${formatNumber(PAGE_SIZE)} منتج` },
+    { label: 'آخر تحديث', value: formattedLastUpdated },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <Card>
-          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-2xl flex items-center gap-2">
-                <PackageSearch className="h-6 w-6 text-blue-600" />
-                قائمة منتجات سلة
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50">
+      <AppNavbar />
+      <main className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 space-y-10">
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,3fr),minmax(0,2fr)]">
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-900 to-indigo-700 p-8 text-white shadow-2xl">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_55%)]" />
+            <div className="absolute -left-10 top-10 h-32 w-32 rounded-full bg-white/10 blur-3xl" />
+            <div className="relative z-10 flex flex-col gap-6">
+              <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
+                <span className="rounded-full bg-white/15 px-3 py-1">سلة</span>
+                <span className="rounded-full bg-white/15 px-3 py-1">الفريق التجاري</span>
+              </div>
+              <div>
+                <h1 className="flex items-center gap-3 text-3xl font-semibold md:text-4xl">
+                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20">
+                    <PackageSearch className="h-6 w-6 text-white" />
+                  </span>
+                  لوحة منتجات سلة
+                </h1>
+                <p className="mt-4 text-base text-white/80">
+                  اعرض كل منتجات سلة مع حالة التوفر والأسعار، ونسّق طلبات الكميات عبر فريق المستودع
+                  والمتاجر مباشرة من لوحة واحدة حديثة.
+                </p>
+              </div>
+              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {quickStats.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-2xl bg-white/10 px-4 py-3 text-white backdrop-blur"
+                  >
+                    <dt className="text-xs uppercase tracking-wide text-white/70">{stat.label}</dt>
+                    <dd className="text-xl font-semibold">{stat.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className="rounded-2xl bg-white px-6 py-5 text-slate-900 shadow-lg shadow-slate-900/20 hover:bg-white/90"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  تحديث البيانات
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push('/returns')}
+                  className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-white hover:bg-white/20"
+                >
+                  الانتقال إلى المرتجعات
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push('/salla/requests')}
+                  className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-white hover:bg-white/20"
+                >
+                  لوحة طلبات الكميات
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-3xl border border-indigo-100 bg-white/80 p-6 shadow-lg shadow-indigo-100/60 backdrop-blur">
+            <h2 className="text-xl font-semibold text-slate-900">لماذا هذه الصفحة؟</h2>
+            <p className="mt-3 text-sm text-slate-600 leading-relaxed">
+              تزودك هذه الشاشة بنظرة فورية على المنتجات القادمة من واجهة سلة الرسمية، مع إمكانية
+              البحث الفوري عن أي SKU، ومعالجة طلبات الكميات من نفس الجدول دون الحاجة للتنقل بين
+              أنظمة متعددة.
+            </p>
+            <div className="mt-6 rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/70 p-4 text-indigo-900">
+              <p className="text-sm font-medium">نصيحة سريعة</p>
+              <p className="text-sm text-indigo-800 mt-1">
+                استخدم البحث لتحديد المنتج المطلوب ثم حرّك الطلب إلى منسق المستودع لحظياً عن طريق
+                نموذج “طلب كمية”.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-100 bg-white/95 shadow-xl shadow-slate-200/60">
+          <Card className="border-none shadow-none">
+            <CardHeader className="border-b border-slate-100 pb-6">
+              <CardTitle className="text-2xl flex flex-col gap-2 text-slate-900 sm:flex-row sm:items-center sm:justify-between">
+                <span>فلترة المنتجات</span>
+                <span className="text-base font-normal text-slate-500">
+                  اعرض آخر التحديثات مباشرة من سلة
+                </span>
               </CardTitle>
-              <CardDescription>
-                راجع آخر 100 منتج في كل صفحة، وابحث باستخدام SKU لعرض نتائج دقيقة، ثم نسق طلبات الكميات مع فريقك.
-              </CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              onClick={handleRefresh}
-              disabled={loading}
-              className="flex items-center gap-2"
-            >
-              <RefreshCcw className="h-4 w-4" />
-              <span>تحديث</span>
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSearchSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="flex-1">
-                <label htmlFor="sku-input" className="block text-sm font-medium text-gray-700 mb-1">
-                  البحث برمز SKU
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    id="sku-input"
-                    placeholder="أدخل SKU مثال: DRESS-XL-RED"
-                    value={skuInput}
-                    onChange={(event) => setSkuInput(event.target.value)}
-                  />
-                  <Button type="submit" className="flex items-center gap-2 whitespace-nowrap">
-                    <Search className="h-4 w-4" />
-                    <span>بحث</span>
-                  </Button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-center">
-                <div className="rounded-lg border p-3 bg-white shadow-sm">
-                  <p className="text-sm text-muted-foreground">إجمالي النتائج</p>
-                  <p className="text-xl font-semibold">{totalProducts}</p>
-                </div>
-                <div className="rounded-lg border p-3 bg-white shadow-sm">
-                  <p className="text-sm text-muted-foreground">صفحة</p>
-                  <p className="text-xl font-semibold">
-                    {currentPage} <span className="text-sm text-gray-500">/{totalPages}</span>
-                  </p>
-                </div>
-              </div>
-            </form>
-
-            {error && (
-              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-xl">جدول المنتجات</CardTitle>
-              <CardDescription>
-                يعرض {PAGE_SIZE} منتجاً كحد أقصى في كل صفحة، ويمكنك التنقل بين الصفحات أو إرسال طلب كمية لكل منتج.
-              </CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => handlePageChange('prev')}
-                disabled={loading || currentPage === 1}
+            </CardHeader>
+            <CardContent className="pt-6">
+              <form
+                onSubmit={handleSearchSubmit}
+                className="flex flex-col gap-4 lg:flex-row lg:items-end"
               >
-                الصفحة السابقة
-              </Button>
-              <Button
-                onClick={() => handlePageChange('next')}
-                disabled={loading || currentPage >= totalPages}
-              >
-                الصفحة التالية
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-gray-50">
-                    <TableHead className="w-72">المنتج</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>السعر</TableHead>
-                    <TableHead>المتوفر</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead className="w-[320px]">طلب كمية</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="py-8 text-center">
-                        <div className="flex flex-col items-center gap-3 text-gray-600">
-                          <Loader2 className="h-6 w-6 animate-spin" />
-                          <p>جاري تحميل المنتجات من سلة...</p>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {!loading && products.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="py-10 text-center text-gray-500">
-                        لا توجد منتجات مطابقة لبحثك حالياً.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {!loading &&
-                    products.map((product) => (
-                      <ProductRow
-                        key={product.id}
-                        product={product}
-                        request={requests[product.id] ?? null}
-                        onCreateRequest={handleCreateRequest}
-                        onFulfillRequest={handleFulfillRequest}
-                      />
+                <div className="flex-1">
+                  <label htmlFor="sku-input" className="block text-sm font-medium text-gray-700 mb-2">
+                    البحث برمز SKU
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      id="sku-input"
+                      placeholder="أدخل SKU مثال: DRESS-XL-RED"
+                      value={skuInput}
+                      onChange={(event) => setSkuInput(event.target.value)}
+                      className="h-12 rounded-2xl border-slate-200 bg-slate-50/80 text-base"
+                    />
+                    <Button
+                      type="submit"
+                      className="h-12 rounded-2xl bg-slate-900 text-white hover:bg-slate-800"
+                    >
+                      <Search className="h-4 w-4 ml-2" />
+                      بحث
+                    </Button>
+                  </div>
+                </div>
+                <div className="w-full sm:w-56">
+                  <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">
+                    حالة المنتج
+                  </label>
+                  <Select
+                    id="status-filter"
+                    value={statusFilter}
+                    onChange={handleStatusChange}
+                    className="h-12 rounded-2xl border-slate-200 bg-slate-50/80 text-base"
+                  >
+                    {STATUS_OPTIONS.map((option) => (
+                      <option key={option.value || 'all'} value={option.value}>
+                        {option.label}
+                      </option>
                     ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                  </Select>
+                </div>
+                <div className="grid flex-1 grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center shadow-inner">
+                    <p className="text-sm text-slate-500">إجمالي النتائج</p>
+                    <p className="text-2xl font-semibold text-slate-900">
+                      {formatNumber(totalProducts)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center shadow-inner">
+                    <p className="text-sm text-slate-500">الصفحة</p>
+                    <p className="text-2xl font-semibold text-slate-900">
+                      {formatNumber(currentPage)}
+                      <span className="text-sm text-slate-500"> / {formatNumber(totalPages)}</span>
+                    </p>
+                  </div>
+                </div>
+              </form>
+              {error && (
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="rounded-3xl border border-slate-100 bg-white/95 p-2 shadow-xl shadow-slate-200/60">
+          <Card className="border-none shadow-none">
+            <CardHeader className="flex flex-col gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-2xl text-slate-900">جدول المنتجات</CardTitle>
+                <CardDescription className="text-base text-slate-500">
+                  يظهر {PAGE_SIZE} منتجاً في كل صفحة مع إمكانية إرسال طلب كمية لكل عنصر.
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="outline"
+                  className="rounded-2xl border-slate-200"
+                  onClick={() => handlePageChange('prev')}
+                  disabled={loading || currentPage === 1}
+                >
+                  الصفحة السابقة
+                </Button>
+                <Button
+                  className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800"
+                  onClick={() => handlePageChange('next')}
+                  disabled={loading || currentPage >= totalPages}
+                >
+                  الصفحة التالية
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto rounded-3xl">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50/80 text-slate-600">
+                      <TableHead className="w-72 text-slate-600">المنتج</TableHead>
+                      <TableHead className="text-slate-600">SKU</TableHead>
+                      <TableHead className="text-slate-600">السعر</TableHead>
+                      <TableHead className="text-slate-600">المتوفر</TableHead>
+                      <TableHead className="text-slate-600">الحالة</TableHead>
+                      <TableHead className="w-[320px] text-slate-600">طلب كمية</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-10 text-center">
+                          <div className="flex flex-col items-center gap-3 text-slate-500">
+                            <Loader2 className="h-6 w-6 animate-spin" />
+                            <p>جاري تحميل المنتجات من سلة...</p>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {!loading && products.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-10 text-center text-slate-500">
+                          لا توجد منتجات مطابقة لبحثك حالياً.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {!loading &&
+                      products.map((product) => (
+                        <ProductRow
+                          key={product.id}
+                          product={product}
+                          requests={productRequests[product.id] ?? []}
+                          requestsLoading={requestsLoading}
+                          requestsError={requestsError}
+                          onCreateRequest={handleCreateRequest}
+                          onFulfillRequest={handleFulfillRequest}
+                          variations={variationsMap[product.id] ?? []}
+                          variationsLoading={variationsLoading}
+                          rowVariationsLoading={!!rowVariationsLoading[product.id]}
+                          variationError={productVariationErrors[product.id]}
+                          globalVariationError={variationsGlobalError}
+                          onRefreshVariations={() => refreshVariationsForProduct(product.id)}
+                        />
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
     </div>
   );
 }
 
 type ProductRowProps = {
   product: SallaProductSummary;
-  request: QuantityRequest | null;
-  onCreateRequest: (product: SallaProductSummary, payload: NewRequestPayload) => void;
-  onFulfillRequest: (productId: number, payload: FulfillPayload) => void;
+  requests: QuantityRequestRecord[];
+  requestsLoading: boolean;
+  requestsError?: string | null;
+  onCreateRequest: (
+    product: SallaProductSummary,
+    payload: NewRequestPayload
+  ) => Promise<ActionResult>;
+  onFulfillRequest: (
+    productId: number,
+    requestId: string,
+    payload: FulfillPayload
+  ) => Promise<ActionResult>;
+  variations: SallaProductVariation[];
+  variationsLoading: boolean;
+  rowVariationsLoading: boolean;
+  variationError?: string | null;
+  globalVariationError?: string | null;
+  onRefreshVariations: () => void;
 };
 
-function ProductRow({ product, request, onCreateRequest, onFulfillRequest }: ProductRowProps) {
-  const [requestForm, setRequestForm] = useState({ requestedFrom: '', requestedAmount: '', notes: '' });
-  const [fulfillForm, setFulfillForm] = useState({ providedBy: '', providedAmount: '' });
+function ProductRow({
+  product,
+  requests,
+  requestsLoading,
+  requestsError,
+  onCreateRequest,
+  onFulfillRequest,
+  variations,
+  variationsLoading,
+  rowVariationsLoading,
+  variationError,
+  globalVariationError,
+  onRefreshVariations,
+}: ProductRowProps) {
+  const [requestForm, setRequestForm] = useState({
+    requestedFrom: '',
+    requestedAmount: '',
+    requestedFor: '',
+    notes: '',
+  });
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [fulfillError, setFulfillError] = useState<string | null>(null);
+  const [variationAdjustments, setVariationAdjustments] = useState<
+    Record<string, { quantity: string; mode: 'increment' | 'decrement' }>
+  >({});
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateFeedback, setUpdateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const variationList = variations ?? [];
+  const variationMessage = variationError || globalVariationError;
+  const rowLoading = variationsLoading || rowVariationsLoading;
+  const hasPendingAdjustments = Object.values(variationAdjustments).some(
+    (entry) => Number.parseInt(entry.quantity, 10) > 0
+  );
+  const variationAdjustmentEntries = variationList.map((variation) => {
+    const key = variation.id?.toString() ?? `${variation.name}-${variation.sku ?? ''}`;
+    return {
+      key,
+      variation,
+      entry: variationAdjustments[key] ?? { quantity: '', mode: 'increment' as const },
+    };
+  });
 
-  const handleRequestSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    setVariationAdjustments({});
+    setUpdateFeedback(null);
+  }, [product.id]);
+
+  const handleRequestSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const requestedFrom = requestForm.requestedFrom.trim();
     const requestedAmount = Number.parseInt(requestForm.requestedAmount, 10);
@@ -371,31 +864,95 @@ function ProductRow({ product, request, onCreateRequest, onFulfillRequest }: Pro
       return;
     }
 
-    onCreateRequest(product, {
+    setRequestSubmitting(true);
+    const result = await onCreateRequest(product, {
       requestedFrom,
       requestedAmount,
+      requestedFor: requestForm.requestedFor || undefined,
       notes: requestForm.notes.trim() || undefined,
     });
-    setRequestForm({ requestedFrom: '', requestedAmount: '', notes: '' });
-    setRequestError(null);
-  };
+    setRequestSubmitting(false);
 
-  const handleFulfillSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const providedBy = fulfillForm.providedBy.trim();
-    const providedAmount = Number.parseInt(fulfillForm.providedAmount, 10);
-
-    if (!providedBy || !Number.isFinite(providedAmount) || providedAmount <= 0) {
-      setFulfillError('يرجى إدخال اسمك والكمية التي وفرتها (رقم أكبر من صفر).');
+    if (!result.success) {
+      setRequestError(result.error);
       return;
     }
 
-    onFulfillRequest(product.id, {
-      providedBy,
-      providedAmount,
-    });
-    setFulfillForm({ providedBy: '', providedAmount: '' });
-    setFulfillError(null);
+    setRequestForm({ requestedFrom: '', requestedAmount: '', requestedFor: '', notes: '' });
+    setRequestError(null);
+  };
+
+  const handleAdjustmentQuantityChange = (variationKey: string, value: string) => {
+    setVariationAdjustments((prev) => ({
+      ...prev,
+      [variationKey]: {
+        quantity: value,
+        mode: prev[variationKey]?.mode ?? 'increment',
+      },
+    }));
+  };
+
+  const handleAdjustmentModeChange = (variationKey: string, mode: 'increment' | 'decrement') => {
+    setVariationAdjustments((prev) => ({
+      ...prev,
+      [variationKey]: {
+        quantity: prev[variationKey]?.quantity ?? '',
+        mode,
+      },
+    }));
+  };
+
+  const handleSubmitAdjustments = async () => {
+    const payload = variationAdjustmentEntries
+      .map(({ variation, entry }) => {
+        const quantity = Number.parseInt(entry.quantity, 10);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          return null;
+        }
+        return {
+          identifer_type: 'variant_id',
+          identifer: variation.id?.toString() ?? '',
+          quantity,
+          mode: entry.mode,
+        };
+      })
+      .filter((item): item is { identifer_type: string; identifer: string; quantity: number; mode: string } => {
+        return Boolean(item?.identifer);
+      });
+
+    if (payload.length === 0) {
+      setUpdateFeedback({ type: 'error', message: 'يرجى إدخال الكمية المطلوبة لكل متغير قبل الإرسال.' });
+      return;
+    }
+
+    setUpdateLoading(true);
+    setUpdateFeedback(null);
+
+    try {
+      const response = await fetch('/api/salla/products/quantities/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ products: payload }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data?.error || 'تعذر تحديث كميات المتغيرات');
+      }
+
+      setUpdateFeedback({ type: 'success', message: 'تم تحديث الكميات بنجاح.' });
+      setVariationAdjustments({});
+      onRefreshVariations();
+    } catch (error) {
+      setUpdateFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'حدث خطأ أثناء تحديث الكميات.',
+      });
+    } finally {
+      setUpdateLoading(false);
+    }
   };
 
   const statusColor =
@@ -404,120 +961,338 @@ function ProductRow({ product, request, onCreateRequest, onFulfillRequest }: Pro
       : 'bg-amber-100 text-amber-700 border-amber-200';
 
   return (
-    <TableRow>
-      <TableCell>
-        <div className="flex items-center gap-3">
-          {product.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={product.imageUrl}
-              alt={product.name}
-              className="h-12 w-12 rounded-md border object-cover"
-            />
-          ) : (
-            <div className="h-12 w-12 rounded-md border bg-gray-100 flex items-center justify-center text-gray-500 text-sm">
-              لا صورة
-            </div>
-          )}
-          <div>
-            <p className="font-medium text-sm">{product.name}</p>
-            <p className="text-xs text-gray-500 mt-0.5">#{product.id}</p>
-            {product.lastUpdatedAt && (
-              <p className="text-xs text-gray-400">آخر تحديث: {formatDate(product.lastUpdatedAt)}</p>
+    <Fragment>
+      <TableRow>
+        <TableCell>
+          <div className="flex items-center gap-3">
+            {product.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={product.imageUrl}
+                alt={product.name}
+                className="h-12 w-12 rounded-md border object-cover"
+              />
+            ) : (
+              <div className="h-12 w-12 rounded-md border bg-gray-100 flex items-center justify-center text-gray-500 text-sm">
+                لا صورة
+              </div>
             )}
+            <div>
+              <p className="font-medium text-sm">{product.name}</p>
+              <p className="text-xs text-gray-500 mt-0.5">#{product.id}</p>
+              {product.lastUpdatedAt && (
+                <p className="text-xs text-gray-400">آخر تحديث: {formatDate(product.lastUpdatedAt)}</p>
+              )}
+            </div>
           </div>
-        </div>
-      </TableCell>
-      <TableCell>
-        <p className="font-medium">{product.sku || '—'}</p>
-      </TableCell>
-      <TableCell>
-        <p>{formatCurrency(product.priceAmount ?? null, product.currency)}</p>
-      </TableCell>
-      <TableCell>
-        <p className="font-semibold">{product.availableQuantity ?? '—'}</p>
-      </TableCell>
-      <TableCell>
-        <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-gray-700 bg-gray-100">
-          {product.status || 'غير محدد'}
-        </span>
-      </TableCell>
-      <TableCell>
-        <div className="space-y-3 text-sm">
-          {!request && (
-            <form onSubmit={handleRequestSubmit} className="space-y-2">
-              <p className="text-xs text-gray-500">أرسل طلب كمية لزميلك:</p>
+        </TableCell>
+        <TableCell>
+          <p className="font-medium">{product.sku || '—'}</p>
+        </TableCell>
+        <TableCell>
+          <p>{formatCurrency(product.priceAmount ?? null, product.currency)}</p>
+        </TableCell>
+        <TableCell>
+        <p className="font-semibold">{formatNumber(product.availableQuantity ?? null)}</p>
+        </TableCell>
+        <TableCell>
+          <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-gray-700 bg-gray-100">
+            {product.status || 'غير محدد'}
+          </span>
+        </TableCell>
+        <TableCell>
+          <div className="space-y-3 text-sm">
+            <form onSubmit={handleRequestSubmit} className="space-y-2 rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
+              <p className="text-xs text-gray-500">أضف طلب كمية جديد</p>
               <Input
                 placeholder="اطلب من..."
                 value={requestForm.requestedFrom}
-                onChange={(event) => setRequestForm((prev) => ({ ...prev, requestedFrom: event.target.value }))}
+                onChange={(event) =>
+                  setRequestForm((prev) => ({ ...prev, requestedFrom: event.target.value }))
+                }
               />
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   placeholder="الكمية"
                   type="number"
                   min={1}
                   value={requestForm.requestedAmount}
-                  onChange={(event) => setRequestForm((prev) => ({ ...prev, requestedAmount: event.target.value }))}
+                  onChange={(event) =>
+                    setRequestForm((prev) => ({ ...prev, requestedAmount: event.target.value }))
+                  }
                 />
                 <Input
-                  placeholder="ملاحظات (اختياري)"
-                  value={requestForm.notes}
-                  onChange={(event) => setRequestForm((prev) => ({ ...prev, notes: event.target.value }))}
+                  type="date"
+                  value={requestForm.requestedFor}
+                  onChange={(event) =>
+                    setRequestForm((prev) => ({ ...prev, requestedFor: event.target.value }))
+                  }
                 />
               </div>
-              <Button type="submit" className="w-full text-sm flex items-center justify-center gap-2">
+              <Input
+                placeholder="ملاحظات (اختياري)"
+                value={requestForm.notes}
+                onChange={(event) => setRequestForm((prev) => ({ ...prev, notes: event.target.value }))}
+              />
+              <Button
+                type="submit"
+                className="w-full text-sm flex items-center justify-center gap-2"
+                disabled={requestSubmitting}
+              >
+                {requestSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 <Users className="h-4 w-4" />
                 <span>طلب كمية</span>
               </Button>
               {requestError && <p className="text-xs text-red-600">{requestError}</p>}
             </form>
-          )}
 
-          {request && (
-            <div className="rounded-lg border px-3 py-2 bg-white shadow-sm space-y-2">
-              <div className={`inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-xs ${statusColor}`}>
-                {request.status === 'completed' ? 'تم التنفيذ' : 'بانتظار التوفير'}
+            {requestsError && (
+              <p className="text-xs text-red-600">تعذر تحميل الطلبات: {requestsError}</p>
+            )}
+
+            {requestsLoading ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                جاري تحميل الطلبات...
               </div>
-              <div className="text-xs text-gray-600 space-y-1">
-                <p>
-                  تم طلب <span className="font-semibold">{request.requestedAmount}</span> من{' '}
-                  <span className="font-semibold">{request.requestedFrom}</span> بواسطة{' '}
-                  <span className="font-semibold">{request.requestedBy}</span>
-                </p>
-                <p>تاريخ الطلب: {formatDate(request.requestedAt)}</p>
-                {request.notes && <p className="text-gray-500">ملاحظة: {request.notes}</p>}
-                {request.status === 'completed' && (
-                  <p className="text-emerald-700">
-                    وفّر {request.providedBy} كمية {request.providedAmount} في {formatDate(request.fulfilledAt)}
+            ) : requests.length === 0 ? (
+              <p className="text-xs text-slate-500">لا توجد طلبات مسجلة لهذا المنتج بعد.</p>
+            ) : (
+              <div className="space-y-2">
+                {requests.map((request) => (
+                  <QuantityRequestCard
+                    key={request.id}
+                    request={request}
+                    onFulfill={async (payload) =>
+                      onFulfillRequest(product.id, request.id, payload)
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+      <TableRow className="bg-slate-50/60">
+        <TableCell colSpan={6}>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-slate-800">
+                المتغيرات ({formatNumber(variationList.length)})
+              </p>
+              {rowLoading && (
+                <span className="inline-flex items-center gap-2 text-xs text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  جاري تحميل المتغيرات...
+                </span>
+              )}
+            </div>
+            {variationMessage ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {variationMessage}
+              </div>
+            ) : variationList.length === 0 && !rowLoading ? (
+              <p className="mt-3 text-sm text-slate-500">لا توجد متغيرات مسجلة لهذا المنتج.</p>
+            ) : (
+              <>
+              <div className="mt-4 flex flex-wrap gap-3">
+                {variationAdjustmentEntries.map(({ variation, entry, key }) => {
+                  const quantity =
+                    typeof variation.availableQuantity === 'number'
+                      ? variation.availableQuantity
+                      : variation.availableQuantity != null
+                        ? Number(variation.availableQuantity)
+                        : null;
+                  const isEmpty = quantity == null || quantity <= 0;
+                  const quantityLabel = formatNumber(quantity);
+                  const subLabelClass = isEmpty ? 'text-white/80' : 'text-slate-500';
+                  const modeButtons: Array<'increment' | 'decrement'> = ['increment', 'decrement'];
+                  return (
+                    <div
+                      key={key}
+                      className={`w-28 overflow-hidden rounded-lg border shadow-sm ${
+                        isEmpty
+                          ? 'border-red-500 bg-red-500 text-white'
+                          : 'border-slate-200 bg-slate-900/5 text-slate-800'
+                      }`}
+                    >
+                      <div
+                        className={`px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide ${
+                          isEmpty ? 'bg-red-600/80 text-white' : 'bg-white/70 text-slate-700'
+                        }`}
+                      >
+                        {variation.name || 'متغير'}
+                      </div>
+                      <div className="px-2 py-2 text-center space-y-1.5">
+                        <div>
+                          <p className={`text-[10px] ${subLabelClass}`}>الكمية الحالية</p>
+                          <p
+                            className={`text-lg font-bold ${
+                              isEmpty ? 'text-white' : 'text-slate-900'
+                            }`}
+                          >
+                            {quantityLabel}
+                          </p>
+                        </div>
+                        <input
+                          type="number"
+                          min={0}
+                          value={entry.quantity}
+                          onChange={(event) => handleAdjustmentQuantityChange(key, event.target.value)}
+                          className="w-full rounded-md border border-slate-200 bg-white/80 px-2 py-1 text-[11px] text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          placeholder="0"
+                        />
+                        <div className="flex gap-1">
+                          {modeButtons.map((modeOption) => {
+                            const isActive = entry.mode === modeOption;
+                            return (
+                              <button
+                                key={modeOption}
+                                type="button"
+                                onClick={() => handleAdjustmentModeChange(key, modeOption)}
+                                className={`flex-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold transition ${
+                                  isActive
+                                    ? modeOption === 'increment'
+                                      ? 'border-emerald-500 bg-emerald-500 text-white'
+                                      : 'border-amber-500 bg-amber-500 text-white'
+                                    : 'border-white/50 bg-white/40 text-slate-700 hover:bg-white/60'
+                                }`}
+                              >
+                                {modeOption === 'increment' ? 'زيادة' : 'تخفيض'}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800"
+                  onClick={handleSubmitAdjustments}
+                  disabled={!hasPendingAdjustments || updateLoading}
+                >
+                  {updateLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                  تحديث كميات المتغيرات
+                </Button>
+                {updateFeedback && (
+                  <p
+                    className={`text-sm ${
+                      updateFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'
+                    }`}
+                  >
+                    {updateFeedback.message}
                   </p>
                 )}
               </div>
-
-              {request.status === 'pending' && (
-                <form onSubmit={handleFulfillSubmit} className="space-y-2">
-                  <Input
-                    placeholder="اسم الموفّر"
-                    value={fulfillForm.providedBy}
-                    onChange={(event) => setFulfillForm((prev) => ({ ...prev, providedBy: event.target.value }))}
-                  />
-                  <Input
-                    placeholder="الكمية الموفّرة"
-                    type="number"
-                    min={1}
-                    value={fulfillForm.providedAmount}
-                    onChange={(event) => setFulfillForm((prev) => ({ ...prev, providedAmount: event.target.value }))}
-                  />
-                  <Button type="submit" variant="outline" className="w-full text-sm">
-                    تم توفير الكمية
-                  </Button>
-                  {fulfillError && <p className="text-xs text-red-600">{fulfillError}</p>}
-                </form>
-              )}
-            </div>
-          )}
-        </div>
-      </TableCell>
-    </TableRow>
+              </>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+    </Fragment>
   );
 }
+
+type QuantityRequestCardProps = {
+  request: QuantityRequestRecord;
+  onFulfill: (payload: FulfillPayload) => Promise<ActionResult>;
+};
+
+function QuantityRequestCard({ request, onFulfill }: QuantityRequestCardProps) {
+  const [form, setForm] = useState({ providedBy: '', providedAmount: '' });
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (request.status === 'completed') {
+      setForm({ providedBy: '', providedAmount: '' });
+      setSuccess(null);
+      setError(null);
+    }
+  }, [request.status]);
+
+  const handleFulfillSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const providedBy = form.providedBy.trim();
+    const providedAmount = Number.parseInt(form.providedAmount, 10);
+
+    if (!providedBy || !Number.isFinite(providedAmount) || providedAmount <= 0) {
+      setError('يرجى إدخال اسم الموفّر والكمية الموفرة (أكبر من صفر).');
+      return;
+    }
+
+    setLoading(true);
+    const result = await onFulfill({ providedBy, providedAmount });
+    setLoading(false);
+    if (!result.success) {
+      setError(result.error);
+      setSuccess(null);
+      return;
+    }
+
+    setError(null);
+    setSuccess('تم تحديث الطلب بنجاح.');
+  };
+
+  const statusLabel = request.status === 'completed' ? 'تم التنفيذ' : 'بانتظار التوفير';
+  const statusClasses =
+    request.status === 'completed'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : 'border-amber-200 bg-amber-50 text-amber-700';
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">
+            طلب {formatNumber(request.requestedAmount)} من {request.requestedFrom}
+          </p>
+          <p className="text-xs text-slate-500">بواسطة {request.requestedBy}</p>
+        </div>
+        <span className={`rounded-full border px-3 py-0.5 text-xs font-semibold ${statusClasses}`}>
+          {statusLabel}
+        </span>
+      </div>
+      <div className="mt-2 space-y-1 text-xs text-slate-600">
+        <p>تاريخ الطلب: {formatDate(request.requestedAt)}</p>
+        {request.requestedFor && <p>موعد التوريد المطلوب: {formatDate(request.requestedFor)}</p>}
+        {request.notes && <p className="text-slate-500">ملاحظات: {request.notes}</p>}
+        {request.status === 'completed' && (
+          <p className="text-emerald-700">
+            اكتمل بواسطة {request.providedBy} بتوفير {formatNumber(request.providedAmount ?? null)} في{' '}
+            {formatDate(request.fulfilledAt)}
+          </p>
+        )}
+      </div>
+
+      {request.status === 'pending' && (
+        <form onSubmit={handleFulfillSubmit} className="mt-3 space-y-2">
+          <Input
+            placeholder="اسم الموفّر"
+            value={form.providedBy}
+            onChange={(event) => setForm((prev) => ({ ...prev, providedBy: event.target.value }))}
+          />
+          <Input
+            placeholder="الكمية الموفّرة"
+            type="number"
+            min={1}
+            value={form.providedAmount}
+            onChange={(event) => setForm((prev) => ({ ...prev, providedAmount: event.target.value }))}
+          />
+          <Button type="submit" variant="outline" className="w-full text-sm" disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            تم توفير الكمية
+          </Button>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          {success && <p className="text-xs text-emerald-600">{success}</p>}
+        </form>
+      )}
+    </div>
+  );
+}
+  

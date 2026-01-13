@@ -25,7 +25,14 @@ const isPublicPath = (pathname: string) =>
 
 const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['order-prep', [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/]],
-  ['order-shipping', [/^\/order-shipping(\/.*)?$/]],
+  [
+    'order-shipping',
+    [
+      /^\/order-shipping(\/.*)?$/,
+      /^\/api\/salla\/create-shipment(\/.*)?$/,
+      /^\/api\/salla\/shipments(\/.*)?$/,
+    ],
+  ],
   ['admin-order-prep', [/^\/admin\/order-prep(\/.*)?$/]],
   ['warehouse', [/^\/warehouse(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   ['local-shipping', [/^\/local-shipping(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
@@ -39,6 +46,8 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['returns-inspection', [/^\/returns-inspection(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   ['returns-priority', [/^\/returns-priority(\/.*)?$/]],
   ['returns-gifts', [/^\/returns-gifts(\/.*)?$/]],
+  ['salla-products', [/^\/salla\/products(\/.*)?$/, /^\/api\/salla\/products(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/]],
+  ['salla-requests', [/^\/salla\/requests(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/]],
   ['settings', [/^\/settings(\/.*)?$/, /^\/erp-settings(\/.*)?$/]],
   ['order-users-management', [/^\/order-users-management(\/.*)?$/]],
   ['user-recognition', [/^\/user-recognition(\/.*)?$/]],

@@ -337,11 +337,11 @@ export async function getSallaProduct(
     );
 
     if (!response || !response.success) {
-    log.error('Failed to fetch Salla product', { merchantId, productId, response });
-    return null;
-  }
+      log.error('Failed to fetch Salla product', { merchantId, productId, response });
+      return null;
+    }
 
-  const product = response.data;
+    const product = response.data;
     const category = product.categories && product.categories.length > 0
       ? product.categories[0].name
       : undefined;
@@ -359,6 +359,61 @@ export async function getSallaProduct(
   }
 }
 
+export async function getSallaProductVariations(
+  merchantId: string,
+  productId: string | number
+): Promise<SallaProductVariation[]> {
+  try {
+    const response = await sallaMakeRequest<{
+      status: number;
+      success: boolean;
+      data: Array<Record<string, any>>;
+      pagination?: Record<string, any>;
+      message?: string;
+    }>(merchantId, `/products/${productId}/variants`);
+
+    if (!response) {
+      throw new Error('تعذر الوصول إلى بيانات المنتج من سلة');
+    }
+
+    if (!response.success) {
+      const message =
+        typeof response.message === 'string' && response.message.trim().length > 0
+          ? response.message
+          : 'تعذر تحميل بيانات المنتج من سلة';
+      throw new Error(message);
+    }
+
+    const normalized: SallaProductVariation[] = [];
+    const seen = new Set<string | number>();
+
+    if (Array.isArray(response.data)) {
+      for (const variation of response.data) {
+        const entry = normalizeVariationEntry(variation);
+        if (!entry) {
+          continue;
+        }
+        const key = entry.id ?? entry.sku ?? entry.name;
+        if (key && seen.has(key)) {
+          continue;
+        }
+        if (key) {
+          seen.add(key);
+        }
+        normalized.push(entry);
+      }
+    }
+
+    return normalized;
+  } catch (error) {
+    log.error('Error fetching Salla product variations', { merchantId, productId, error });
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('تعذر تحميل متغيرات المنتج من سلة');
+  }
+}
+
 export interface SallaProductSummary {
   id: number;
   name: string;
@@ -369,6 +424,17 @@ export interface SallaProductSummary {
   status?: string;
   imageUrl?: string | null;
   lastUpdatedAt?: string | null;
+  variations?: SallaProductVariation[];
+}
+
+export interface SallaProductVariation {
+  id: number | string;
+  name: string;
+  sku?: string;
+  priceAmount?: number | null;
+  currency?: string;
+  availableQuantity?: number | null;
+  barcode?: string | null;
 }
 
 interface SallaProductsApiResponse {
@@ -388,6 +454,7 @@ export interface SallaProductsQueryOptions {
   page?: number;
   perPage?: number;
   sku?: string;
+  status?: string;
 }
 
 export interface SallaPaginationMeta {
@@ -409,6 +476,210 @@ function safeNumber(value: unknown): number | null {
     }
   }
   return null;
+}
+
+function extractVariationOptionLabels(variation: Record<string, any>): string[] {
+  const labels: string[] = [];
+  const optionSources = [
+    Array.isArray(variation?.options) ? variation.options : null,
+    Array.isArray(variation?.attributes) ? variation.attributes : null,
+    Array.isArray(variation?.values) ? variation.values : null,
+    Array.isArray(variation?.option_values) ? variation.option_values : null,
+  ].filter(Boolean) as Array<Array<any>>;
+
+  for (const options of optionSources) {
+    for (const option of options) {
+      const name =
+        typeof option?.name === 'string' && option.name.trim().length > 0
+          ? option.name.trim()
+          : typeof option?.title === 'string' && option.title.trim().length > 0
+            ? option.title.trim()
+            : undefined;
+      const value =
+        typeof option?.value === 'string' && option.value.trim().length > 0
+          ? option.value.trim()
+          : typeof option === 'string'
+            ? option.trim()
+            : undefined;
+      if (name && value) {
+        labels.push(`${name}: ${value}`);
+      } else if (value) {
+        labels.push(value);
+      }
+    }
+
+    if (labels.length > 0) {
+      break;
+    }
+  }
+
+  if (labels.length === 0 && typeof variation?.option === 'string') {
+    labels.push(variation.option);
+  }
+
+  return labels;
+}
+
+function normalizeVariationEntry(
+  variation: Record<string, any>,
+  fallbackCurrency?: string
+): SallaProductVariation | null {
+  if (!variation || typeof variation !== 'object') {
+    return null;
+  }
+
+  const rawId =
+    typeof variation?.id === 'number'
+      ? variation.id
+      : typeof variation?.id === 'string' && variation.id.trim().length > 0
+        ? variation.id.trim()
+        : undefined;
+
+  const sku =
+    typeof variation?.sku === 'string'
+      ? variation.sku
+      : typeof variation?.sku_code === 'string'
+        ? variation.sku_code
+        : typeof variation?.skuCode === 'string'
+          ? variation.skuCode
+          : undefined;
+
+  const barcode =
+    typeof variation?.barcode === 'string'
+      ? variation.barcode
+      : typeof variation?.bar_code === 'string'
+        ? variation.bar_code
+        : undefined;
+
+  const quantity = safeNumber(
+    variation?.quantity ??
+      variation?.stock_quantity ??
+      variation?.available_quantity ??
+      variation?.inventory_quantity ??
+      variation?.inventory?.available ??
+      variation?.stock
+  );
+
+  const priceAmount = safeNumber(
+    variation?.price?.amount ??
+      variation?.price?.value ??
+      variation?.price ??
+      variation?.prices?.price ??
+      variation?.prices?.base ??
+      variation?.regular_price?.amount ??
+      variation?.regular_price
+  );
+
+  const currency =
+    typeof variation?.price?.currency === 'string'
+      ? variation.price.currency
+      : typeof variation?.currency === 'string'
+        ? variation.currency
+        : typeof variation?.prices?.currency === 'string'
+          ? variation.prices.currency
+          : fallbackCurrency;
+
+  const optionLabels = extractVariationOptionLabels(variation);
+
+  let name =
+    typeof variation?.name === 'string' && variation.name.trim().length > 0
+      ? variation.name.trim()
+      : undefined;
+
+  if (!name && optionLabels.length > 0) {
+    name = optionLabels.join(' / ');
+  }
+
+  if (!name && sku) {
+    name = `SKU ${sku}`;
+  }
+
+  if (!name && rawId != null) {
+    name = `متغير ${rawId}`;
+  }
+
+  if (!name) {
+    name = 'متغير';
+  }
+
+  return {
+    id: rawId ?? sku ?? name,
+    name,
+    sku,
+    barcode: barcode || undefined,
+    availableQuantity: quantity,
+    priceAmount,
+    currency,
+  };
+}
+
+function normalizeProductVariations(product: Record<string, any>): SallaProductVariation[] {
+  const currency =
+    typeof product?.price?.currency === 'string'
+      ? product.price.currency
+      : typeof product?.currency === 'string'
+        ? product.currency
+        : undefined;
+
+  const candidateArrays: any[][] = [];
+
+  if (Array.isArray(product?.variations)) {
+    candidateArrays.push(product.variations);
+  }
+
+  if (Array.isArray(product?.variants)) {
+    candidateArrays.push(product.variants);
+  }
+
+  if (Array.isArray(product?.variation)) {
+    candidateArrays.push(product.variation);
+  }
+
+  if (Array.isArray(product?.inventory?.variations)) {
+    candidateArrays.push(product.inventory.variations);
+  }
+
+  if (Array.isArray(product?.options)) {
+    for (const option of product.options) {
+      if (Array.isArray(option?.combinations)) {
+        candidateArrays.push(option.combinations);
+      }
+    }
+  }
+
+  if (Array.isArray(product?.options?.combinations)) {
+    candidateArrays.push(product.options.combinations);
+  }
+
+  const normalized: SallaProductVariation[] = [];
+  const seen = new Set<string>();
+
+  for (const array of candidateArrays) {
+    for (const variation of array) {
+      const normalizedVariation = normalizeVariationEntry(variation, currency);
+      if (!normalizedVariation) {
+        continue;
+      }
+
+      const dedupeKey =
+        typeof normalizedVariation.id === 'string'
+          ? normalizedVariation.id
+          : typeof normalizedVariation.id === 'number'
+            ? normalizedVariation.id.toString()
+            : normalizedVariation.sku || normalizedVariation.name;
+
+      if (dedupeKey) {
+        if (seen.has(dedupeKey)) {
+          continue;
+        }
+        seen.add(dedupeKey);
+      }
+
+      normalized.push(normalizedVariation);
+    }
+  }
+
+  return normalized;
 }
 
 function normalizeProduct(product: Record<string, any>): SallaProductSummary {
@@ -475,6 +746,7 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
     : typeof product?.updatedAt === 'string'
       ? product.updatedAt
       : undefined;
+  const variations = normalizeProductVariations(product);
 
   return {
     id: rawId ?? Date.now(),
@@ -486,6 +758,7 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
     status,
     imageUrl: mainImage || null,
     lastUpdatedAt,
+    variations,
   };
 }
 
@@ -505,6 +778,9 @@ export async function listSallaProducts(
   const trimmedSku = options?.sku?.trim();
   if (trimmedSku) {
     query.set('sku', trimmedSku);
+  }
+  if (options?.status) {
+    query.set('status', options.status);
   }
 
   const endpoint = `/products?${query.toString()}`;

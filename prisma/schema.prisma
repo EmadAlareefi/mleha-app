@@ -303,6 +303,30 @@ model SallaProductLocation {
   @@index([updatedAt])
 }
 
+model SallaProductQuantityRequest {
+  id               String   @id @default(cuid())
+  merchantId       String?
+  productId        Int
+  productName      String
+  productSku       String?
+  requestedAmount  Int
+  requestedFrom    String
+  requestedBy      String
+  requestedByUser  String?
+  requestedFor     DateTime?
+  notes            String?  @db.Text
+  status           String   @default("pending")
+  requestedAt      DateTime @default(now())
+  fulfilledAt      DateTime?
+  providedBy       String?
+  providedAmount   Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([productId, status])
+  @@index([requestedAt])
+}
+
 model ReturnRequest {
   id            String  @id @default(cuid())
   merchantId    String // Salla merchant ID
