@@ -96,6 +96,7 @@ export default function SearchAndUpdateStockPage() {
   const [updateFeedback, setUpdateFeedback] = useState<UpdateFeedback | null>(null);
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
   const [lastQuery, setLastQuery] = useState<string | null>(null);
+  const [confirmingUpdate, setConfirmingUpdate] = useState(false);
 
   const activeResult = results[selectedIndex] ?? null;
 
@@ -336,6 +337,22 @@ export default function SearchAndUpdateStockPage() {
       setUpdateLoading(false);
     }
   }, [activeResult, derivedEntries, locationChanged, locationInput, refreshActiveProduct]);
+
+  const handleUpdateRequest = useCallback(() => {
+    if (!hasUpdateableData || updateLoading) {
+      return;
+    }
+    setConfirmingUpdate(true);
+  }, [hasUpdateableData, updateLoading]);
+
+  const handleCancelConfirmation = useCallback(() => {
+    setConfirmingUpdate(false);
+  }, []);
+
+  const handleConfirmUpdate = useCallback(() => {
+    setConfirmingUpdate(false);
+    void handleUpdate();
+  }, [handleUpdate]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -667,7 +684,7 @@ export default function SearchAndUpdateStockPage() {
             <Button
               type="button"
               disabled={!hasUpdateableData || updateLoading}
-              onClick={handleUpdate}
+              onClick={handleUpdateRequest}
               className="h-12 rounded-2xl bg-indigo-600 px-8 text-sm font-semibold text-white shadow-lg shadow-indigo-400/40 hover:bg-indigo-500 disabled:opacity-70"
             >
               {updateLoading ? (
@@ -682,6 +699,55 @@ export default function SearchAndUpdateStockPage() {
                 </>
               )}
             </Button>
+          </div>
+        </div>
+      )}
+
+      {confirmingUpdate && activeResult && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl border border-slate-100 bg-white/95 p-6 text-right shadow-2xl shadow-indigo-100">
+            <div className="flex items-center gap-2 text-slate-600">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <p className="text-sm font-semibold text-slate-800">تأكيد تحديث المخزون</p>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">
+              سيتم إرسال التغييرات التالية إلى سلة. يرجى التأكد من صحة البيانات قبل الإكمال.
+            </p>
+            <div className="mt-4 space-y-2 rounded-2xl bg-slate-50/80 p-4 text-sm text-slate-600">
+              {variantsNeedingUpdate > 0 && (
+                <p>
+                  تعديل{' '}
+                  <span className="font-semibold text-indigo-600">{variantsNeedingUpdate}</span>{' '}
+                  متغير/متغيرات حسب العد الفعلي.
+                </p>
+              )}
+              {locationChanged && (
+                <p>
+                  تحديث موقع التخزين إلى{' '}
+                  <span className="font-semibold text-slate-900">{locationInput.trim()}</span>.
+                </p>
+              )}
+            </div>
+            <p className="mt-3 text-xs text-slate-400">لا يمكن التراجع عن هذه العملية بعد الإرسال.</p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelConfirmation}
+                className="h-11 rounded-2xl px-6 text-sm font-semibold text-slate-600"
+                disabled={updateLoading}
+              >
+                تراجع
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmUpdate}
+                disabled={updateLoading}
+                className="h-11 rounded-2xl bg-indigo-600 px-6 text-sm font-semibold text-white shadow-lg shadow-indigo-400/40 hover:bg-indigo-500 disabled:opacity-70"
+              >
+                تأكيد التحديث
+              </Button>
+            </div>
           </div>
         </div>
       )}

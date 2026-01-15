@@ -4,8 +4,17 @@ import { authOptions } from '@/app/lib/auth';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
+import { hasServiceAccess } from '@/app/lib/service-access';
+import type { ServiceKey } from '@/app/lib/service-definitions';
 
 export const runtime = 'nodejs';
+
+const ALLOWED_SERVICES: ServiceKey[] = [
+  'warehouse',
+  'warehouse-locations',
+  'order-prep',
+  'search-update-stock',
+];
 
 type IncomingAdjustment = {
   identifer_type?: string;
@@ -18,8 +27,11 @@ type IncomingAdjustment = {
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
 
-  if (!session) {
-    return NextResponse.json({ error: 'يجب تسجيل الدخول لتنفيذ هذا الطلب' }, { status: 401 });
+  if (!session || !hasServiceAccess(session, ALLOWED_SERVICES)) {
+    return NextResponse.json(
+      { error: 'ليس لديك صلاحية لتحديث كميات المنتجات من سلة' },
+      { status: 403 }
+    );
   }
 
   try {
