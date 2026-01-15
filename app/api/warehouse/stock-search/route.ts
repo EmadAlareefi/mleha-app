@@ -18,7 +18,12 @@ import { getStatusById } from '@/SALLA_ORDER_STATUSES';
 
 export const runtime = 'nodejs';
 
-const ALLOWED_SERVICES: ServiceKey[] = ['warehouse', 'warehouse-locations', 'order-prep'];
+const ALLOWED_SERVICES: ServiceKey[] = [
+  'warehouse',
+  'warehouse-locations',
+  'order-prep',
+  'search-update-stock',
+];
 const MAX_PRODUCTS = 5;
 
 type PendingAssignment = {
