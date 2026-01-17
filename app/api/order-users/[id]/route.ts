@@ -131,6 +131,7 @@ export async function PUT(
       email,
       phone,
       affiliateName,
+      affiliateCommission,
       isActive,
       autoAssign,
       password,
@@ -262,6 +263,18 @@ export async function PUT(
         ? salaryCurrency.trim()
         : null;
 
+    let parsedCommission = undefined;
+    if (affiliateCommission !== undefined && affiliateCommission !== null && affiliateCommission !== '') {
+      try {
+        parsedCommission = new Prisma.Decimal(affiliateCommission);
+      } catch (e) {
+        return NextResponse.json(
+          { error: 'صيغة النسبة غير صالحة' },
+          { status: 400 }
+        );
+      }
+    }
+
     const updateData: any = {
       name,
       email,
@@ -277,6 +290,10 @@ export async function PUT(
       autoAssign: shouldAutoAssign,
       maxOrders: 0,
     };
+
+    if (parsedCommission !== undefined) {
+      updateData.affiliateCommission = parsedCommission;
+    }
 
     // Add username to update data if provided
     if (username) {
@@ -349,6 +366,7 @@ export async function PUT(
         email: user.email,
         phone: user.phone,
         affiliateName: user.affiliateName,
+        affiliateCommission: user.affiliateCommission,
         employmentStartDate: user.employmentStartDate,
         employmentEndDate: user.employmentEndDate,
         salaryAmount: user.salaryAmount ? user.salaryAmount.toString() : null,

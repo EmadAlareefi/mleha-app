@@ -59,18 +59,36 @@ export async function GET(request: NextRequest) {
         _count: {
           _all: true,
         },
+        _sum: {
+          totalAmount: true,
+          affiliateCommission: true,
+        },
       }),
     ]);
 
     const totalAmount = Number(amountStats._sum.totalAmount ?? 0);
 
-    // Group statuses
-    const statusStats = statusBreakdown.map((entry) => ({
-      slug: entry.statusSlug,
-      name: entry.statusName || entry.statusSlug,
-      count: entry._count._all,
-      percentage: totalCount > 0 ? (entry._count._all / totalCount) * 100 : 0,
-    })).sort((a, b) => b.count - a.count);
+    // Group statuses and calculate commission per status
+    const statusStats = statusBreakdown.map((entry) => {
+      const totalOrderValue = Number(entry._sum.totalAmount ?? 0);
+      // If affiliateCommission is null for an order, it defaults to 10.
+      // entry._sum.affiliateCommission here is the sum of commission rates for all orders in this group.
+      // We need the *effective* commission for this group, which is the sum of (totalAmount * rate/100).
+      // Since we don't have individual order amounts here, we'll calculate an average rate for the group.
+      const commissionEarnedForGroup = totalOrderValue * (Number(entry._sum.affiliateCommission ?? 0) / entry._count._all / 100);
+
+      return {
+        slug: entry.statusSlug,
+        name: entry.statusName || entry.statusSlug,
+        count: entry._count._all,
+        totalAmount: totalOrderValue,
+        commissionEarned: isNaN(commissionEarnedForGroup) ? 0 : commissionEarnedForGroup,
+        percentage: totalCount > 0 ? (entry._count._all / totalCount) * 100 : 0,
+      };
+    }).sort((a, b) => b.count - a.count);
+
+    // Recalculate totalCommissionEarned by summing up from statusStats
+    const totalCommissionEarned = statusStats.reduce((acc, stat) => acc + stat.commissionEarned, 0);
 
     // Get recent orders (last 10)
     const recentOrders = await prisma.sallaOrder.findMany({
@@ -87,6 +105,7 @@ export async function GET(request: NextRequest) {
         currency: true,
         placedAt: true,
         campaignName: true,
+        affiliateCommission: true,
       }
     });
 
@@ -96,6 +115,8 @@ export async function GET(request: NextRequest) {
         totalOrders: totalCount,
         totalSales: totalAmount,
         averageOrderValue: totalCount > 0 ? totalAmount / totalCount : 0,
+        totalCommissionEarned: totalCommissionEarned,
+        averageCommissionPerOrder: totalCount > 0 ? totalCommissionEarned / totalCount : 0,
       },
       statusStats,
       recentOrders: recentOrders.map(order => ({

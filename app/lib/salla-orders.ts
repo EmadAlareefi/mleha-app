@@ -409,6 +409,14 @@ async function syncOrdersForMerchant(
   let pagesProcessed = 0;
   const errors: SyncStats['errors'] = [];
 
+  const affiliates = await prisma.orderUser.findMany({
+    where: { affiliateName: { not: null } },
+    select: { affiliateName: true, affiliateCommission: true },
+  });
+  const affiliateMap = new Map<string, Prisma.Decimal>(
+    affiliates.map(u => [u.affiliateName!, u.affiliateCommission ?? new Prisma.Decimal(10)])
+  );
+
   while (true) {
     const response = await fetchOrdersPage(merchantId, page, perPage, {
       startDate: options.startDate,
@@ -449,6 +457,11 @@ async function syncOrdersForMerchant(
         const dates = extractDates(order);
         const statusInfo = deriveStatusInfo(order);
         const campaign = extractCampaign(order);
+
+        let affiliateCommission = new Prisma.Decimal(10.0);
+        if (campaign.name && affiliateMap.has(campaign.name)) {
+          affiliateCommission = affiliateMap.get(campaign.name)!;
+        }
 
         await prisma.sallaOrder.upsert({
           where: {
@@ -492,6 +505,7 @@ async function syncOrdersForMerchant(
             campaignSource: campaign.source ?? undefined,
             campaignMedium: campaign.medium ?? undefined,
             campaignName: campaign.name ?? undefined,
+            affiliateCommission: affiliateCommission,
             rawOrder: order,
           },
           update: {
@@ -527,6 +541,7 @@ async function syncOrdersForMerchant(
             campaignSource: campaign.source ?? undefined,
             campaignMedium: campaign.medium ?? undefined,
             campaignName: campaign.name ?? undefined,
+            affiliateCommission: affiliateCommission,
             rawOrder: order,
           },
         });

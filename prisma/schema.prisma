@@ -207,6 +207,7 @@ model SallaOrder {
   campaignSource String?
   campaignMedium String?
   campaignName   String?
+  affiliateCommission Decimal? @db.Decimal(5, 2)
 
   // ERP sync tracking
   erpSyncedAt     DateTime?
@@ -499,10 +500,11 @@ model OrderUser {
   role     OrderUserRole @default(ORDERS)
 
   // Affiliate info
-  affiliateName String? @unique
+  affiliateName       String?  @unique
+  affiliateCommission Decimal? @default(10.00) @db.Decimal(5, 2)
 
   // Order type assignment
-  orderType      String // "all", "cod", "prepaid", "specific_status"
+  orderType String // "all", "cod", "prepaid", "specific_status"
   specificStatus String? // If orderType is "specific_status"
 
   // Settings

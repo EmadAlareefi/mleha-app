@@ -35,6 +35,7 @@ interface OrderUser {
   email?: string;
   phone?: string;
   affiliateName?: string | null;
+  affiliateCommission?: string | number | null;
   employmentStartDate?: string | null;
   employmentEndDate?: string | null;
   salaryAmount?: string | null;
@@ -113,6 +114,7 @@ export default function OrderUsersManagementPage() {
     email: '',
     phone: '',
     affiliateName: '',
+    affiliateCommission: '',
     employmentStartDate: '',
     employmentEndDate: '',
     salaryAmount: '',
@@ -243,6 +245,7 @@ export default function OrderUsersManagementPage() {
         email: formData.email,
         phone: formData.phone,
         affiliateName: formData.affiliateName,
+        affiliateCommission: formData.affiliateCommission,
         employmentStartDate: formData.employmentStartDate || null,
         employmentEndDate: formData.employmentEndDate || null,
         salaryAmount: formData.salaryAmount || null,
@@ -296,6 +299,7 @@ export default function OrderUsersManagementPage() {
       email: user.email || '',
       phone: user.phone || '',
       affiliateName: user.affiliateName || '',
+      affiliateCommission: user.affiliateCommission ? String(user.affiliateCommission) : '10',
       employmentStartDate: formatDateForInput(user.employmentStartDate),
       employmentEndDate: formatDateForInput(user.employmentEndDate),
       salaryAmount: user.salaryAmount || '',
@@ -372,6 +376,7 @@ export default function OrderUsersManagementPage() {
       email: '',
       phone: '',
       affiliateName: '',
+      affiliateCommission: '10',
       employmentStartDate: '',
       employmentEndDate: '',
       salaryAmount: '',
@@ -600,6 +605,20 @@ export default function OrderUsersManagementPage() {
                         placeholder="مثال: mm11"
                       />
                       <p className="text-xs text-slate-500">لربط المستخدم بإحصائيات الحملات التسويقية.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-600">نسبة العمولة (%)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={formData.affiliateCommission}
+                        onChange={(e) => setFormData({ ...formData, affiliateCommission: e.target.value })}
+                        className={inputClasses}
+                        placeholder="10"
+                      />
+                      <p className="text-xs text-slate-500">النسبة المئوية لعمولة المسوق (الافتراضي 10%).</p>
                     </div>
                   </div>
 
@@ -881,7 +900,7 @@ export default function OrderUsersManagementPage() {
                             {user.email || 'لا يوجد بريد'} • {user.phone || 'لا يوجد هاتف'}
                             {user.affiliateName && (
                               <span className="mr-2 inline-flex items-center rounded-md bg-purple-50 px-2 py-1 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-700/10">
-                                مسوق: {user.affiliateName}
+                                مسوق: {user.affiliateName} ({Number(user.affiliateCommission || 10)}%)
                               </span>
                             )}
                           </div>

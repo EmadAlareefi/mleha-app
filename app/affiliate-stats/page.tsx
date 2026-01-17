@@ -18,12 +18,16 @@ interface AffiliateStats {
   totalOrders: number;
   totalSales: number;
   averageOrderValue: number;
+  totalCommissionEarned: number;
+  averageCommissionPerOrder: number;
 }
 
 interface StatusStat {
   slug: string | null;
   name: string | null;
   count: number;
+  totalAmount?: number;
+  commissionEarned?: number; // New field
   percentage: number;
 }
 
@@ -37,6 +41,7 @@ interface Order {
   currency: string | null;
   placedAt: string | null;
   campaignName: string | null;
+  affiliateCommission: number | null; // New field
 }
 
 const STATUS_BADGE_MAP: Record<string, string> = {
@@ -203,9 +208,24 @@ export default function AffiliateStatsPage() {
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.averageOrderValue || 0)}</h3>
             </div>
           </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="p-6 flex items-center gap-4">
+            <div className="p-4 bg-yellow-100 rounded-full text-yellow-600">
+              <CreditCard className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">إجمالي العمولات</p>
+              <h3 className="text-2xl font-bold">{formatCurrency(stats?.totalCommissionEarned || 0)}</h3>
+            </div>
+          </Card>
+          <Card className="p-6 flex items-center gap-4">
+            <div className="p-4 bg-orange-100 rounded-full text-orange-600">
+              <TrendingUp className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">متوسط عمولة الطلب</p>
+              <h3 className="text-2xl font-bold">{formatCurrency(stats?.averageCommissionPerOrder || 0)}</h3>
+            </div>
+          </Card>
           {/* Status Breakdown */}
           <Card className="p-6 lg:col-span-1">
             <h3 className="text-lg font-bold mb-4">حالات الطلبات</h3>
@@ -216,9 +236,21 @@ export default function AffiliateStatsPage() {
                     <span className={`w-3 h-3 rounded-full ${stat.slug === 'completed' ? 'bg-green-500' : 'bg-gray-400'}`} />
                     <span className="text-sm text-gray-700">{stat.name || stat.slug}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{stat.count}</span>
-                    <span className="text-xs text-gray-500">({stat.percentage.toFixed(1)}%)</span>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{stat.count}</span>
+                      <span className="text-xs text-gray-500">({stat.percentage.toFixed(1)}%)</span>
+                    </div>
+                    {stat.totalAmount !== undefined && (
+                      <span className="text-xs font-medium text-gray-600">
+                        ({formatCurrency(stat.totalAmount)})
+                      </span>
+                    )}
+                    {stat.commissionEarned !== undefined && (
+                      <span className="text-xs font-medium text-purple-600">
+                        عمولة: {formatCurrency(stat.commissionEarned)}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -236,22 +268,28 @@ export default function AffiliateStatsPage() {
                     <th className="px-4 py-3">رقم الطلب</th>
                     <th className="px-4 py-3">التاريخ</th>
                     <th className="px-4 py-3">المبلغ</th>
+                    <th className="px-4 py-3">العمولة</th>
                     <th className="px-4 py-3">الحالة</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {recentOrders.map((order) => (
-                    <tr key={order.id} className="border-b hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">
-                        #{order.orderNumber || order.orderId}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {order.placedAt ? new Date(order.placedAt).toLocaleDateString('ar-SA') : '-'}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-gray-900">
-                        {formatCurrency(order.totalAmount, order.currency || 'SAR')}
-                      </td>
-                      <td className="px-4 py-3">
+                  {recentOrders.map((order) => {
+                    const commission = order.totalAmount * ((order.affiliateCommission ?? 10) / 100);
+                    return (
+                      <tr key={order.id} className="border-b hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          #{order.orderNumber || order.orderId}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500">
+                          {order.placedAt ? new Date(order.placedAt).toLocaleDateString('ar-SA') : '-'}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          {formatCurrency(order.totalAmount, order.currency || 'SAR')}
+                        </td>
+                        <td className="px-4 py-3 text-purple-600 font-medium">
+                          {formatCurrency(commission, order.currency || 'SAR')} ({order.affiliateCommission ?? 10}%)
+                        </td>
+                        <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(order.statusSlug)}`}>
                           {order.statusName || order.statusSlug}
                         </span>

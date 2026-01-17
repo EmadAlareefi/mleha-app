@@ -57,6 +57,17 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   const { slug: statusSlug, name: statusName } = deriveStatusInfo(order);
   const campaign = extractCampaign(order);
 
+  let affiliateCommission = new Prisma.Decimal(10.0);
+  if (campaign.name) {
+    const affiliateUser = await prisma.orderUser.findUnique({
+      where: { affiliateName: campaign.name },
+      select: { affiliateCommission: true },
+    });
+    if (affiliateUser?.affiliateCommission) {
+      affiliateCommission = affiliateUser.affiliateCommission;
+    }
+  }
+
   await prisma.sallaOrder.upsert({
     where: {
       merchantId_orderId: {
@@ -99,6 +110,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       campaignSource: campaign.source ?? undefined,
       campaignMedium: campaign.medium ?? undefined,
       campaignName: campaign.name ?? undefined,
+      affiliateCommission: affiliateCommission,
       rawOrder: order,
     },
     update: {
@@ -134,6 +146,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       campaignSource: campaign.source ?? undefined,
       campaignMedium: campaign.medium ?? undefined,
       campaignName: campaign.name ?? undefined,
+      affiliateCommission: affiliateCommission,
       rawOrder: order,
     },
   });

@@ -132,6 +132,7 @@ export async function GET() {
       salaryCurrency: true,
       role: true,
       affiliateName: true,
+      affiliateCommission: true,
       orderType: true,
       specificStatus: true,
       isActive: true,
@@ -225,6 +226,7 @@ export async function POST(request: NextRequest) {
       email,
       phone,
       affiliateName,
+      affiliateCommission,
       autoAssign,
       warehouseIds = [],
       serviceKeys: serviceKeysInput,
@@ -341,6 +343,18 @@ export async function POST(request: NextRequest) {
         ? salaryCurrency.trim()
         : null;
 
+    let parsedCommission = new Prisma.Decimal(10.0);
+    if (affiliateCommission !== undefined && affiliateCommission !== null && affiliateCommission !== '') {
+      try {
+        parsedCommission = new Prisma.Decimal(affiliateCommission);
+      } catch (e) {
+        return NextResponse.json(
+          { error: 'صيغة النسبة غير صالحة' },
+          { status: 400 }
+        );
+      }
+    }
+
     // Create user
     const user = await prisma.orderUser.create({
       data: {
@@ -355,6 +369,7 @@ export async function POST(request: NextRequest) {
         salaryCurrency: normalizedSalaryCurrency,
         role: primaryRole,
         affiliateName: affiliateName || null,
+        affiliateCommission: parsedCommission,
         orderType: 'all',
         specificStatus: null,
         autoAssign: shouldAutoAssign,
@@ -399,6 +414,7 @@ export async function POST(request: NextRequest) {
         email: user.email,
         phone: user.phone,
         affiliateName: user.affiliateName,
+        affiliateCommission: user.affiliateCommission,
         employmentStartDate: user.employmentStartDate,
         employmentEndDate: user.employmentEndDate,
         salaryAmount: user.salaryAmount ? user.salaryAmount.toString() : null,
