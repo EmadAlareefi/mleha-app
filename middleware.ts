@@ -72,7 +72,7 @@ const serviceHomeByKey = new Map<ServiceKey, string>(
   serviceDefinitions.map((service) => [service.key, service.href])
 );
 
-const FALLBACK_EXCLUDED_PATHS = new Set(['/warehouse', '/local-shipping']);
+const FALLBACK_EXCLUDED_PATHS = new Set(['/warehouse', '/local-shipping', '/returns-management']);
 
 function getFallbackPath(serviceKeys: ServiceKey[]): string {
   for (const key of serviceKeys) {
@@ -105,7 +105,11 @@ export default withAuth(
         SERVICE_PATHS.has(key as ServiceKey)
       ) as ServiceKey[];
 
-      if (path === '/') {
+      if (
+        path === '/' ||
+        path.startsWith('/affiliate-stats') ||
+        path.startsWith('/api/affiliate-stats')
+      ) {
         return NextResponse.next();
       }
 

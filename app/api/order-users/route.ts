@@ -131,6 +131,7 @@ export async function GET() {
       salaryAmount: true,
       salaryCurrency: true,
       role: true,
+      affiliateName: true,
       orderType: true,
       specificStatus: true,
       isActive: true,
@@ -223,6 +224,7 @@ export async function POST(request: NextRequest) {
       name,
       email,
       phone,
+      affiliateName,
       autoAssign,
       warehouseIds = [],
       serviceKeys: serviceKeysInput,
@@ -250,6 +252,18 @@ export async function POST(request: NextRequest) {
         { error: 'اسم المستخدم موجود بالفعل' },
         { status: 400 }
       );
+    }
+
+    if (affiliateName) {
+      const existingAffiliate = await prisma.orderUser.findUnique({
+        where: { affiliateName },
+      });
+      if (existingAffiliate) {
+        return NextResponse.json(
+          { error: 'اسم المسوق مستخدم بالفعل' },
+          { status: 400 }
+        );
+      }
     }
 
     const serviceKeys = sanitizeServiceKeys(serviceKeysInput);
@@ -340,6 +354,7 @@ export async function POST(request: NextRequest) {
         salaryAmount: parsedSalaryAmount,
         salaryCurrency: normalizedSalaryCurrency,
         role: primaryRole,
+        affiliateName: affiliateName || null,
         orderType: 'all',
         specificStatus: null,
         autoAssign: shouldAutoAssign,
@@ -383,6 +398,7 @@ export async function POST(request: NextRequest) {
         name: user.name,
         email: user.email,
         phone: user.phone,
+        affiliateName: user.affiliateName,
         employmentStartDate: user.employmentStartDate,
         employmentEndDate: user.employmentEndDate,
         salaryAmount: user.salaryAmount ? user.salaryAmount.toString() : null,

@@ -173,29 +173,26 @@ export async function POST(request: NextRequest) {
 
     const filteredOrders = orders;
 
-    // Get already assigned order IDs for this merchant (only active assignments)
-    // This prevents assigning orders that are actively being worked on by other users
-    const assignedOrderIds = await prisma.orderAssignment.findMany({
+    // Get ALL already assigned order IDs for this merchant (both active and completed/removed)
+    // This prevents assigning orders that have EVER been assigned to anyone
+    const allAssignedOrderIds = await prisma.orderAssignment.findMany({
       where: {
         merchantId: MERCHANT_ID,
-        status: {
-          in: ACTIVE_ASSIGNMENT_STATUS_VALUES,
-        },
+        // No status filter: we want to exclude ANY order that has an assignment record
       },
       select: {
         orderId: true,
       },
     });
 
-    const assignedOrderIdSet = new Set(assignedOrderIds.map(a => a.orderId));
+    const assignedOrderIdSet = new Set(allAssignedOrderIds.map(a => a.orderId));
 
-    log.info('Active assignments by others', {
+    log.info('Existing assignments (all statuses)', {
       count: assignedOrderIdSet.size,
-      orderIds: Array.from(assignedOrderIdSet),
+      // specific logging if needed
     });
 
-    // Also get orders already assigned to THIS user (regardless of status)
-    // This prevents unique constraint violations on (userId, orderId)
+    // Also get orders already assigned to THIS user (regardless of status) - strictly redundancy now but safe
     const userAssignedOrders = await prisma.orderAssignment.findMany({
       where: {
         userId: user.id,

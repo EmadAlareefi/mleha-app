@@ -130,6 +130,7 @@ export async function PUT(
       name,
       email,
       phone,
+      affiliateName,
       isActive,
       autoAssign,
       password,
@@ -145,6 +146,7 @@ export async function PUT(
       where: { id },
       select: {
         username: true,
+        affiliateName: true,
       },
     });
 
@@ -164,6 +166,21 @@ export async function PUT(
       if (existingUser) {
         return NextResponse.json(
           { error: 'اسم المستخدم موجود بالفعل. الرجاء اختيار اسم مستخدم آخر.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (affiliateName && affiliateName !== (userRecord as any).affiliateName) {
+       // We need to fetch current affiliateName first if not in userRecord select
+       // But userRecord only selected username. Let's rely on a separate query or update the select above.
+       // Actually, easier to just try/catch unique constraint violation or do a check.
+       const existingAffiliate = await prisma.orderUser.findUnique({
+        where: { affiliateName },
+      });
+      if (existingAffiliate && existingAffiliate.id !== id) {
+        return NextResponse.json(
+          { error: 'اسم المسوق مستخدم بالفعل' },
           { status: 400 }
         );
       }
@@ -249,6 +266,7 @@ export async function PUT(
       name,
       email,
       phone,
+      affiliateName: affiliateName || null,
       isActive,
       employmentStartDate: parsedStartDate,
       employmentEndDate: parsedEndDate,
@@ -330,6 +348,7 @@ export async function PUT(
         name: user.name,
         email: user.email,
         phone: user.phone,
+        affiliateName: user.affiliateName,
         employmentStartDate: user.employmentStartDate,
         employmentEndDate: user.employmentEndDate,
         salaryAmount: user.salaryAmount ? user.salaryAmount.toString() : null,

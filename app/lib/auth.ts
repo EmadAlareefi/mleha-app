@@ -107,6 +107,7 @@ export const authOptions: NextAuthOptions = {
             role: primaryRole,
             roles: userRoles,
             serviceKeys,
+            affiliateName: orderUser.affiliateName,
             orderUserData,
             warehouseData,
           };
@@ -130,6 +131,7 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as any).role; // Primary role for backward compatibility
         token.roles = (user as any).roles || [(user as any).role]; // Array of all roles
         token.serviceKeys = (user as any).serviceKeys;
+        token.affiliateName = (user as any).affiliateName;
         token.orderUserData = (user as any).orderUserData;
         token.warehouseData = (user as any).warehouseData;
       }
@@ -142,6 +144,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role; // Primary role for backward compatibility
         (session.user as any).roles = token.roles || [token.role]; // Array of all roles
         (session.user as any).serviceKeys = token.serviceKeys;
+        (session.user as any).affiliateName = token.affiliateName;
         (session.user as any).orderUserData = token.orderUserData;
         (session.user as any).warehouseData = token.warehouseData;
       }

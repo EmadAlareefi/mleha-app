@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
 import { serviceDefinitions } from '@/app/lib/service-definitions';
 import type { ServiceKey } from '@/app/lib/service-definitions';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, TrendingUp } from 'lucide-react';
 
 type Role = 'admin' | 'orders' | 'store_manager' | 'warehouse' | 'accountant' | 'delivery_agent';
 
@@ -197,6 +197,32 @@ export default function AdminDashboard() {
                 </Card>
               </Link>
             ))}
+
+            {/* Affiliate Stats Card */}
+            {(session?.user as any)?.affiliateName && (
+              <Link href="/affiliate-stats" className="h-full" prefetch={false}>
+                <Card className="group relative flex h-full flex-col justify-between rounded-3xl border border-slate-100/70 bg-white/95 p-6 shadow-[0_20px_40px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-1 hover:border-purple-200 hover:shadow-[0_30px_60px_rgba(147,51,234,0.25)]">
+                  <div>
+                    <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500 to-purple-600 text-3xl text-white shadow-lg shadow-black/10 transition-transform duration-300 group-hover:scale-110">
+                      <TrendingUp className="h-8 w-8" />
+                    </div>
+                    <div className="mb-3 flex items-center gap-2">
+                      <h3 className="text-xl font-semibold text-slate-900">إحصائيات المسوق</h3>
+                      <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700">
+                        جديد
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-600">
+                      عرض إحصائيات المبيعات والطلبات الخاصة بكود التسويق: {(session?.user as any)?.affiliateName}
+                    </p>
+                  </div>
+                  <div className="mt-6 flex items-center text-indigo-600 transition-transform duration-300 group-hover:translate-x-1">
+                    <span className="font-medium">الدخول</span>
+                    <ArrowUpRight className="mr-2 h-4 w-4" />
+                  </div>
+                </Card>
+              </Link>
+            )}
           </div>
         )}
       </main>

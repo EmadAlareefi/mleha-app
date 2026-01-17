@@ -498,6 +498,9 @@ model OrderUser {
   salaryCurrency      String?
   role     OrderUserRole @default(ORDERS)
 
+  // Affiliate info
+  affiliateName String? @unique
+
   // Order type assignment
   orderType      String // "all", "cod", "prepaid", "specific_status"
   specificStatus String? // If orderType is "specific_status"
