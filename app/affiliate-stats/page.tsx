@@ -107,7 +107,8 @@ export default function AffiliateStatsPage() {
     }
   };
 
-  const formatCurrency = (amount: number, currency: string = 'SAR') => {
+  const formatCurrency = (amount: number | null | undefined, currency: string = 'SAR') => {
+    if (amount === null || amount === undefined) return '-'; // Display a dash for undefined amounts
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency,
@@ -231,27 +232,8 @@ export default function AffiliateStatsPage() {
             <h3 className="text-lg font-bold mb-4">حالات الطلبات</h3>
             <div className="space-y-4">
               {statusStats.map((stat, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-3 h-3 rounded-full ${stat.slug === 'completed' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                    <span className="text-sm text-gray-700">{stat.name || stat.slug}</span>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{stat.count}</span>
-                      <span className="text-xs text-gray-500">({stat.percentage.toFixed(1)}%)</span>
-                    </div>
-                    {stat.totalAmount !== undefined && (
-                      <span className="text-xs font-medium text-gray-600">
-                        ({formatCurrency(stat.totalAmount)})
-                      </span>
-                    )}
-                    {stat.commissionEarned !== undefined && (
-                      <span className="text-xs font-medium text-purple-600">
-                        عمولة: {formatCurrency(stat.commissionEarned)}
-                      </span>
-                    )}
-                  </div>
+                <div key={stat.slug || index}>
+                  <p>Test</p>
                 </div>
               ))}
               {statusStats.length === 0 && <p className="text-gray-500 text-sm">لا توجد بيانات</p>}
@@ -290,12 +272,13 @@ export default function AffiliateStatsPage() {
                           {formatCurrency(commission, order.currency || 'SAR')} ({order.affiliateCommission ?? 10}%)
                         </td>
                         <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(order.statusSlug)}`}>
-                          {order.statusName || order.statusSlug}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                          <span className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(order.statusSlug)}`}>
+                            {order.statusName || order.statusSlug}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {recentOrders.length === 0 && (
                     <tr>
                       <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
