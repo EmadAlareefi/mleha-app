@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { Prisma } from '@prisma/client';
+import { getSallaAccessToken } from '@/app/lib/salla-oauth';
 
 export const runtime = 'nodejs';
+const READY_FOR_PICKUP_SLUG = 'ready_for_pickup';
+const SALLA_API_BASE_URL = 'https://api.salla.dev/admin/v2';
 
 /**
  * POST /api/order-assignments/complete
@@ -33,6 +36,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Attempt to update the order status in Salla so it never returns to the prep queue
+    let finalSallaStatus = assignment.sallaStatus || null;
+    let sallaStatusUpdated = false;
+    try {
+      const accessToken = await getSallaAccessToken(assignment.merchantId);
+
+      if (accessToken) {
+        const response = await fetch(`${SALLA_API_BASE_URL}/orders/${assignment.orderId}/status`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ slug: READY_FOR_PICKUP_SLUG }),
+        });
+
+        if (response.ok) {
+          finalSallaStatus = READY_FOR_PICKUP_SLUG;
+          sallaStatusUpdated = true;
+          log.info('Salla order marked as ready_for_pickup on completion', {
+            assignmentId,
+            orderId: assignment.orderId,
+          });
+        } else {
+          const errorText = await response.text();
+          log.warn('Failed to update Salla status during completion', {
+            assignmentId,
+            orderId: assignment.orderId,
+            status: response.status,
+            error: errorText,
+          });
+        }
+      } else {
+        log.warn('Missing Salla access token when completing order', {
+          assignmentId,
+          orderId: assignment.orderId,
+        });
+      }
+    } catch (sallaError) {
+      log.error('Error updating Salla status on completion', {
+        assignmentId,
+        orderId: assignment.orderId,
+        error: sallaError instanceof Error ? sallaError.message : sallaError,
+      });
+    }
+
     // Calculate duration
     let durationMinutes = null;
     if (assignment.startedAt) {
@@ -60,7 +109,7 @@ export async function POST(request: NextRequest) {
         startedAt: assignment.startedAt,
         finishedAt: new Date(),
         durationMinutes,
-        finalSallaStatus: assignment.sallaStatus,
+        finalSallaStatus,
         notes: assignment.notes,
       },
     });
@@ -71,6 +120,8 @@ export async function POST(request: NextRequest) {
       data: {
         status: 'completed',
         completedAt: new Date(),
+        sallaStatus: finalSallaStatus,
+        sallaUpdated: assignment.sallaUpdated || sallaStatusUpdated,
       },
     });
 

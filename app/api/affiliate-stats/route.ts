@@ -44,86 +44,105 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // Get basic stats
-    const [totalCount, amountStats, statusBreakdown] = await Promise.all([
-      prisma.sallaOrder.count({ where }),
-      prisma.sallaOrder.aggregate({
+    const [ordersForStats, recentOrdersRaw] = await Promise.all([
+      prisma.sallaOrder.findMany({
         where,
-        _sum: {
-          totalAmount: true,
-        },
-      }),
-      prisma.sallaOrder.groupBy({
-        where,
-        by: ['statusSlug', 'statusName'],
-        _count: {
-          _all: true,
-        },
-        _sum: {
+        select: {
+          id: true,
           totalAmount: true,
           affiliateCommission: true,
+          statusSlug: true,
+          statusName: true,
         },
+      }),
+      prisma.sallaOrder.findMany({
+        where,
+        orderBy: { placedAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          orderId: true,
+          orderNumber: true,
+          statusSlug: true,
+          statusName: true,
+          totalAmount: true,
+          currency: true,
+          placedAt: true,
+          campaignName: true,
+          affiliateCommission: true,
+        }
       }),
     ]);
 
-    const totalAmount = Number(amountStats._sum.totalAmount ?? 0);
+    const totalCount = ordersForStats.length;
 
-    // Group statuses and calculate commission per status
-    const statusStats = statusBreakdown.map((entry) => {
-      const totalOrderValue = Number(entry._sum.totalAmount ?? 0);
-      // If affiliateCommission is null for an order, it defaults to 10.
-      // entry._sum.affiliateCommission here is the sum of commission rates for all orders in this group.
-      // We need the *effective* commission for this group, which is the sum of (totalAmount * rate/100).
-      // Since we don't have individual order amounts here, we'll calculate an average rate for the group.
-      const commissionEarnedForGroup = totalOrderValue * (Number(entry._sum.affiliateCommission ?? 0) / entry._count._all / 100);
+    type StatusAccumulator = {
+      slug: string | null;
+      name: string | null;
+      count: number;
+      totalAmount: number;
+      commissionEarned: number;
+    };
 
-      return {
-        slug: entry.statusSlug,
-        name: entry.statusName || entry.statusSlug,
-        count: entry._count._all,
-        totalAmount: totalOrderValue,
-        commissionEarned: isNaN(commissionEarnedForGroup) ? 0 : commissionEarnedForGroup,
-        percentage: totalCount > 0 ? (entry._count._all / totalCount) * 100 : 0,
+    const statusAccumulator = new Map<string, StatusAccumulator>();
+    let totalSales = 0;
+    let totalCommissionEarned = 0;
+
+    for (const order of ordersForStats) {
+      const amount = Number(order.totalAmount ?? 0);
+      const commissionRate =
+        order.affiliateCommission === null || order.affiliateCommission === undefined
+          ? 10
+          : Number(order.affiliateCommission);
+      const commissionEarned = amount * (commissionRate / 100);
+
+      totalSales += amount;
+      totalCommissionEarned += commissionEarned;
+
+      const key = order.statusSlug ?? 'unknown';
+      const current = statusAccumulator.get(key) ?? {
+        slug: order.statusSlug,
+        name: order.statusName || order.statusSlug || 'Unknown',
+        count: 0,
+        totalAmount: 0,
+        commissionEarned: 0,
       };
-    }).sort((a, b) => b.count - a.count);
 
-    // Recalculate totalCommissionEarned by summing up from statusStats
-    const totalCommissionEarned = statusStats.reduce((acc, stat) => acc + stat.commissionEarned, 0);
+      current.count += 1;
+      current.totalAmount += amount;
+      current.commissionEarned += commissionEarned;
+      statusAccumulator.set(key, current);
+    }
+
+    const statusStats = Array.from(statusAccumulator.values())
+      .map((stat) => ({
+        ...stat,
+        percentage: totalCount > 0 ? (stat.count / totalCount) * 100 : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
 
     // Get recent orders (last 10)
-    const recentOrders = await prisma.sallaOrder.findMany({
-      where,
-      orderBy: { placedAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        orderId: true,
-        orderNumber: true,
-        statusSlug: true,
-        statusName: true,
-        totalAmount: true,
-        currency: true,
-        placedAt: true,
-        campaignName: true,
-        affiliateCommission: true,
-      }
-    });
+    const recentOrders = recentOrdersRaw.map(order => ({
+      ...order,
+      placedAt: order.placedAt?.toISOString(),
+      totalAmount: Number(order.totalAmount ?? 0),
+      affiliateCommission:
+        order.affiliateCommission === null || order.affiliateCommission === undefined
+          ? null
+          : Number(order.affiliateCommission),
+    }));
 
     return NextResponse.json({
       success: true,
       stats: {
         totalOrders: totalCount,
-        totalSales: totalAmount,
-        averageOrderValue: totalCount > 0 ? totalAmount / totalCount : 0,
+        totalSales: totalSales,
+        averageOrderValue: totalCount > 0 ? totalSales / totalCount : 0,
         totalCommissionEarned: totalCommissionEarned,
         averageCommissionPerOrder: totalCount > 0 ? totalCommissionEarned / totalCount : 0,
       },
       statusStats,
-      recentOrders: recentOrders.map(order => ({
-        ...order,
-        placedAt: order.placedAt?.toISOString(),
-        totalAmount: Number(order.totalAmount),
-      })),
+      recentOrders,
       affiliateName,
     });
 

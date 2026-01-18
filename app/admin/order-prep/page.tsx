@@ -1,5 +1,9 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';

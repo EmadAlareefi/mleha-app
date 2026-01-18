@@ -9,6 +9,8 @@ import { fetchSallaWithRetry } from '@/app/lib/fetch-with-retry';
 export const runtime = 'nodejs';
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE_URL = 'https://api.salla.dev/admin/v2';
+const MAX_CONCURRENT_SALLA_REQUESTS = 4;
+const SALLA_FETCH_TIMEOUT_MS = 12000;
 
 type AssignmentWithUser = OrderAssignment & {
   user: {
@@ -185,7 +187,9 @@ const calculateDurationMinutes = (assignment: { startedAt: Date | null; assigned
 
 const fetchOrderDetailsWithItems = async (orderId: string, accessToken: string) => {
   const detailUrl = `${SALLA_API_BASE_URL}/orders/${encodeURIComponent(orderId)}`;
-  const detailResponse = await fetchSallaWithRetry(detailUrl, accessToken);
+  const detailResponse = await fetchSallaWithRetry(detailUrl, accessToken, {
+    timeoutMs: SALLA_FETCH_TIMEOUT_MS,
+  });
 
   if (!detailResponse.ok) {
     const errorText = await detailResponse.text();
@@ -201,7 +205,9 @@ const fetchOrderDetailsWithItems = async (orderId: string, accessToken: string) 
 
   try {
     const itemsUrl = `${SALLA_API_BASE_URL}/orders/items?order_id=${encodeURIComponent(orderId)}`;
-    const itemsResponse = await fetchSallaWithRetry(itemsUrl, accessToken);
+    const itemsResponse = await fetchSallaWithRetry(itemsUrl, accessToken, {
+      timeoutMs: SALLA_FETCH_TIMEOUT_MS,
+    });
 
     if (itemsResponse.ok) {
       const itemsData = await itemsResponse.json();
@@ -313,7 +319,7 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    const assignments = await prisma.orderAssignment.findMany({
+    const assignments = (await prisma.orderAssignment.findMany({
       where,
       orderBy: {
         assignedAt: 'asc', // Oldest first (FIFO)
@@ -327,7 +333,7 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-    });
+    })) as AssignmentWithUser[];
 
     const orderIds = assignments.map((assignment) => assignment.orderId);
     let priorityMap = new Map<string, HighPriorityOrder>();
@@ -366,48 +372,59 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      for (const assignment of assignments as AssignmentWithUser[]) {
-        try {
-          const orderData = await fetchOrderDetailsWithItems(assignment.orderId, accessToken);
-          const sallaStatus = getOrderStatusSlug(orderData) || assignment.sallaStatus;
-          const labelUrl = getShipmentLabelUrl(orderData);
+      const results = await runWithConcurrency<AssignmentWithUser, AssignmentProcessResult>(
+        assignments,
+        MAX_CONCURRENT_SALLA_REQUESTS,
+        async (assignment) => {
+          try {
+            const orderData = await fetchOrderDetailsWithItems(assignment.orderId, accessToken);
+            const sallaStatus = getOrderStatusSlug(orderData) || assignment.sallaStatus;
+            const labelUrl = getShipmentLabelUrl(orderData);
 
-          if (labelUrl) {
-            await autoCompleteAssignmentDueToLabel({
-              assignment,
-              orderData: orderData as Prisma.InputJsonValue,
-              finalSallaStatus: sallaStatus,
-              labelUrl,
+            if (labelUrl) {
+              await autoCompleteAssignmentDueToLabel({
+                assignment,
+                orderData: orderData as Prisma.InputJsonValue,
+                finalSallaStatus: sallaStatus,
+                labelUrl,
+              });
+              return { type: 'auto-completed', assignmentId: assignment.id } as const;
+            }
+
+            await prisma.orderAssignment.update({
+              where: { id: assignment.id },
+              data: {
+                orderData: orderData as Prisma.InputJsonValue,
+                sallaStatus,
+              },
             });
-            autoCompletedAssignments.push(assignment.id);
-            continue;
+
+            return {
+              type: 'updated',
+              assignment: {
+                ...assignment,
+                orderData,
+                sallaStatus: sallaStatus ?? null,
+              },
+            } as const;
+          } catch (error) {
+            log.error('Failed to fetch live order data from Salla', {
+              assignmentId: assignment.id,
+              orderId: assignment.orderId,
+              error,
+            });
+            throw error;
           }
-
-          await prisma.orderAssignment.update({
-            where: { id: assignment.id },
-            data: {
-              orderData: orderData as Prisma.InputJsonValue,
-              sallaStatus,
-            },
-          });
-
-          assignmentsWithLiveData.push({
-            ...assignment,
-            orderData,
-            sallaStatus: sallaStatus ?? null,
-          });
-        } catch (error) {
-          log.error('Failed to fetch live order data from Salla', {
-            assignmentId: assignment.id,
-            orderId: assignment.orderId,
-            error,
-          });
-          return NextResponse.json(
-            { error: 'فشل الاتصال بسلة للحصول على الطلبات' },
-            { status: 502 }
-          );
         }
-      }
+      );
+
+      results.forEach((result) => {
+        if (result.type === 'auto-completed') {
+          autoCompletedAssignments.push(result.assignmentId);
+        } else if (result.type === 'updated') {
+          assignmentsWithLiveData.push(result.assignment);
+        }
+      });
     }
 
     const enrichedAssignments = assignmentsWithLiveData
@@ -450,3 +467,34 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+type AssignmentProcessResult =
+  | { type: 'auto-completed'; assignmentId: string }
+  | { type: 'updated'; assignment: AssignmentWithUser };
+
+const runWithConcurrency = async <T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> => {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results: R[] = new Array(items.length);
+  let currentIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () =>
+    (async () => {
+      while (true) {
+        const index = currentIndex++;
+        if (index >= items.length) {
+          break;
+        }
+        results[index] = await worker(items[index], index);
+      }
+    })()
+  );
+
+  await Promise.all(workers);
+  return results;
+};

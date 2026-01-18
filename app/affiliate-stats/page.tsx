@@ -231,11 +231,26 @@ export default function AffiliateStatsPage() {
           <Card className="p-6 lg:col-span-1">
             <h3 className="text-lg font-bold mb-4">حالات الطلبات</h3>
             <div className="space-y-4">
-              {statusStats.map((stat, index) => (
-                <div key={stat.slug || index}>
-                  <p>Test</p>
-                </div>
-              ))}
+              {statusStats.map((stat, index) => {
+                const percentageLabel = Number.isFinite(stat.percentage) ? stat.percentage.toFixed(1) : '0.0';
+                return (
+                  <div key={stat.slug || index} className="flex items-center justify-between rounded-xl border bg-white/70 p-4">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{stat.name || stat.slug || 'غير معروف'}</p>
+                      <p className="text-xs text-gray-500">
+                        {stat.count} طلب - {percentageLabel}%
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">المبيعات</p>
+                      <p className="text-sm font-semibold text-gray-900">{formatCurrency(stat.totalAmount || 0)}</p>
+                      <p className="text-xs text-purple-600 mt-1">
+                        {formatCurrency(stat.commissionEarned || 0)} عمولة
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
               {statusStats.length === 0 && <p className="text-gray-500 text-sm">لا توجد بيانات</p>}
             </div>
           </Card>
@@ -281,7 +296,7 @@ export default function AffiliateStatsPage() {
                   })}
                   {recentOrders.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                         لا توجد طلبات حديثة
                       </td>
                     </tr>

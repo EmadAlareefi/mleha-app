@@ -5,6 +5,7 @@ interface RetryOptions {
   baseDelay?: number;
   maxDelay?: number;
   shouldRetry?: (response: Response) => boolean;
+  timeoutMs?: number;
 }
 
 /**
@@ -25,14 +26,28 @@ export async function fetchWithRetry(
     baseDelay = 1000,
     maxDelay = 10000,
     shouldRetry = (response) => response.status >= 500,
+    timeoutMs,
   } = retryOptions;
 
   let lastError: Error | null = null;
   let lastResponse: Response | null = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    let controller: AbortController | null = null;
+    let cleanup: (() => void) | undefined;
+    let timeoutError: Error | null = null;
+
     try {
-      const response = await fetch(url, options);
+      ({ controller, timeoutError, cleanup } = createTimeoutController(options, timeoutMs));
+      const response = await fetch(
+        url,
+        controller
+          ? {
+              ...options,
+              signal: controller.signal,
+            }
+          : options
+      );
 
       // If successful or not retryable, return immediately
       if (response.ok || !shouldRetry(response)) {
@@ -62,7 +77,16 @@ export async function fetchWithRetry(
       await new Promise(resolve => setTimeout(resolve, delay));
 
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      const isTimeoutError =
+        !!controller &&
+        !!timeoutError &&
+        controller.signal.aborted &&
+        controller.signal.reason === timeoutError;
+      lastError = isTimeoutError
+        ? timeoutError
+        : error instanceof Error
+          ? error
+          : new Error(String(error));
 
       // If this was the last attempt, throw the error
       if (attempt === maxRetries) {
@@ -87,6 +111,8 @@ export async function fetchWithRetry(
 
       // Wait before retrying
       await new Promise(resolve => setTimeout(resolve, delay));
+    } finally {
+      cleanup?.();
     }
   }
 
@@ -100,28 +126,62 @@ export async function fetchWithRetry(
 /**
  * Fetch with retry specifically configured for Salla API
  */
+type FetchSallaOptions = RequestInit & { timeoutMs?: number };
+
 export async function fetchSallaWithRetry(
   url: string,
   accessToken: string,
-  options?: RequestInit
+  options?: FetchSallaOptions
 ): Promise<Response> {
+  const { timeoutMs, ...requestOptions } = options ?? {};
   return fetchWithRetry(
     url,
     {
-      ...options,
+      ...requestOptions,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        ...options?.headers,
+        ...requestOptions?.headers,
       },
     },
     {
       maxRetries: 3,
       baseDelay: 1000,
       maxDelay: 8000,
+      timeoutMs: timeoutMs ?? 12000,
       // Retry on 5xx errors and rate limiting
       shouldRetry: (response) =>
         response.status >= 500 || response.status === 429,
     }
   );
 }
+
+const createTimeoutController = (options?: RequestInit, timeoutMs?: number) => {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return { controller: null, timeoutError: null, cleanup: undefined };
+  }
+
+  const controller = new AbortController();
+  const timeoutError = new Error(`Request timed out after ${timeoutMs}ms`);
+  const timeoutId = setTimeout(() => controller.abort(timeoutError), timeoutMs);
+  const originalSignal = options?.signal;
+  let abortHandler: (() => void) | null = null;
+
+  if (originalSignal) {
+    if (originalSignal.aborted) {
+      controller.abort(originalSignal.reason);
+    } else {
+      abortHandler = () => controller.abort(originalSignal.reason);
+      originalSignal.addEventListener('abort', abortHandler, { once: true });
+    }
+  }
+
+  const cleanup = () => {
+    clearTimeout(timeoutId);
+    if (abortHandler && originalSignal) {
+      originalSignal.removeEventListener('abort', abortHandler);
+    }
+  };
+
+  return { controller, timeoutError, cleanup };
+};
