@@ -18,6 +18,7 @@ import {
 } from '@/app/lib/returns/item-images';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { CopyPhoneButton } from '@/components/CopyPhoneButton';
 
 export const revalidate = 0;
 
@@ -68,7 +69,40 @@ async function getReturnRequestWithOrder(id: string) {
     console.error('Failed to fetch Salla order for details page', { error });
   }
 
-  return { returnRequest, sallaOrder };
+  const shipmentRecord = await prisma.sallaShipment.findFirst({
+    where: {
+      merchantId: returnRequest.merchantId,
+      OR: [
+        { orderId: returnRequest.orderId },
+        { orderNumber: returnRequest.orderNumber },
+      ],
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  const shipmentData = shipmentRecord?.shipmentData as any;
+  const labelUrl =
+    shipmentRecord?.labelUrl ||
+    shipmentData?.label_url ||
+    shipmentData?.label?.url ||
+    (typeof shipmentData?.label === 'string' ? shipmentData.label : null);
+
+  const shipment = shipmentRecord
+    ? {
+        id: shipmentRecord.id,
+        trackingNumber: shipmentRecord.trackingNumber,
+        courierName: shipmentRecord.courierName,
+        status: shipmentRecord.status,
+        labelUrl,
+        labelPrinted: shipmentRecord.labelPrinted,
+        labelPrintedAt: shipmentRecord.labelPrintedAt ? shipmentRecord.labelPrintedAt.toISOString() : null,
+        printCount: shipmentRecord.printCount,
+      }
+    : null;
+
+  return { returnRequest, sallaOrder, shipment };
 }
 
 const badgeToneClasses: Record<string, string> = {
@@ -88,7 +122,7 @@ export default async function ReturnOrderDetailsPage({
   if (!data) {
     notFound();
   }
-  const { returnRequest, sallaOrder } = data;
+  const { returnRequest, sallaOrder, shipment } = data;
   const inspectionSummary = summarizeItemConditions(returnRequest.items);
   const itemsWithImages = returnRequest.items.map((item) => ({
     ...item,
@@ -98,6 +132,7 @@ export default async function ReturnOrderDetailsPage({
     ...item,
     imageUrl: extractOrderItemImage(item),
   }));
+  const shipmentLabelUrl = shipment?.labelUrl || null;
 
   const statusClass =
     STATUS_COLORS[returnRequest.status] || 'bg-gray-100 text-gray-800 border-gray-300';
@@ -160,9 +195,14 @@ export default async function ReturnOrderDetailsPage({
                   <dt>الاسم</dt>
                   <dd>{returnRequest.customerName}</dd>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <dt>الهاتف</dt>
-                  <dd>{returnRequest.customerPhone || '—'}</dd>
+                  <dd className="flex items-center gap-2">
+                    <span>{returnRequest.customerPhone || '—'}</span>
+                    {returnRequest.customerPhone ? (
+                      <CopyPhoneButton phone={returnRequest.customerPhone} />
+                    ) : null}
+                  </dd>
                 </div>
                 <div className="flex justify-between">
                   <dt>البريد</dt>
@@ -205,6 +245,67 @@ export default async function ReturnOrderDetailsPage({
             </div>
           </div>
         </Card>
+
+        {shipment && (
+          <Card className="p-6 space-y-4">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-xl font-semibold">بوليصة الشحن</h2>
+              <p className="text-sm text-gray-500">
+                عرض وتحميل بوليصة التتبع الخاصة بشركة الشحن
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-700">
+              <div>
+                <p className="text-xs text-gray-500">شركة الشحن</p>
+                <p className="font-medium text-gray-900">{shipment.courierName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">رقم التتبع</p>
+                <p className="font-medium text-gray-900">{shipment.trackingNumber}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">الحالة</p>
+                <p className="font-medium text-gray-900">{shipment.status}</p>
+              </div>
+            </div>
+
+            {shipmentLabelUrl ? (
+              <>
+                <div className="rounded-xl border bg-white overflow-hidden">
+                  <iframe
+                    src={shipmentLabelUrl}
+                    title="Shipment Label"
+                    className="w-full h-[600px]"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button asChild>
+                    <a
+                      href={shipmentLabelUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      تحميل البوليصة
+                    </a>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <a
+                      href={shipmentLabelUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      فتح في نافذة جديدة
+                    </a>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="p-4 rounded-lg bg-yellow-50 border border-yellow-100 text-sm text-yellow-800">
+                لا يتوفر رابط بوليصة لعرضه حالياً.
+              </div>
+            )}
+          </Card>
+        )}
 
         <Card className="p-6 space-y-4 border border-gray-200 bg-gray-100">
           <div className="flex flex-wrap gap-2">
