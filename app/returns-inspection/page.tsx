@@ -27,6 +27,7 @@ import {
   ReturnItemCondition,
   summarizeItemConditions,
 } from '@/app/lib/returns/inspection';
+import { resolveReturnItemImage } from '@/app/lib/returns/item-images';
 import { cn } from '@/lib/utils';
 
 interface ReturnRequestItem {
@@ -139,124 +140,6 @@ const formatPrice = (value: string | number) => {
   return '—';
 };
 
-const extractOrderItemImage = (item: SallaOrderLineItem | undefined): string | null => {
-  if (!item) {
-    return null;
-  }
-
-  const directCandidates = [
-    item.product?.thumbnail,
-    item.thumbnail,
-    item.image,
-    (item as Record<string, unknown>).featured_image as string | undefined,
-  ];
-
-  for (const candidate of directCandidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate;
-    }
-  }
-
-  const collections = [
-    item.images,
-    item.product?.images,
-    item.files,
-    item.codes,
-    (item as Record<string, unknown>).media as Array<any> | undefined,
-  ];
-
-  for (const collection of collections) {
-    if (!Array.isArray(collection)) {
-      continue;
-    }
-    for (const entry of collection) {
-      if (typeof entry === 'string' && entry.trim()) {
-        return entry;
-      }
-      if (entry && typeof entry === 'object') {
-        const maybe =
-          (entry as any).url ||
-          (entry as any).image ||
-          (entry as any).src;
-        if (typeof maybe === 'string' && maybe.trim()) {
-          return maybe;
-        }
-      }
-    }
-  }
-
-  return null;
-};
-
-const stringsEqual = (a?: string | number | null, b?: string | number | null) => {
-  if (a === undefined || a === null || b === undefined || b === null) {
-    return false;
-  }
-  return String(a).trim() === String(b).trim();
-};
-
-const resolveItemImage = (
-  item: ReturnRequestItem,
-  order: SallaOrderPreview | null
-): string | null => {
-  if (!order?.items || !Array.isArray(order.items)) {
-    return null;
-  }
-
-  const orderItems = order.items;
-  const productId = item.productId ? String(item.productId) : null;
-  const variantId = item.variantId ? String(item.variantId) : null;
-
-  const productMatch = orderItems.find((orderItem) => {
-    const orderProductId =
-      orderItem.product?.id ??
-      orderItem.product_id ??
-      orderItem.productId ??
-      orderItem.id;
-    if (!productId || !orderProductId) {
-      return false;
-    }
-    if (String(orderProductId) !== productId) {
-      return false;
-    }
-    if (!variantId) {
-      return true;
-    }
-    const orderVariantId =
-      orderItem.variant?.id ??
-      orderItem.variant_id ??
-      orderItem.variantId;
-    return orderVariantId ? String(orderVariantId) === variantId : false;
-  });
-
-  if (productMatch) {
-    return extractOrderItemImage(productMatch);
-  }
-
-  if (item.productSku) {
-    const skuMatch = orderItems.find(
-      (orderItem) =>
-        stringsEqual(orderItem.product?.sku, item.productSku) ||
-        stringsEqual(orderItem.sku, item.productSku)
-    );
-    if (skuMatch) {
-      return extractOrderItemImage(skuMatch);
-    }
-  }
-
-  const nameMatch = orderItems.find(
-    (orderItem) =>
-      stringsEqual(orderItem.product?.name, item.productName) ||
-      stringsEqual(orderItem.name, item.productName)
-  );
-
-  if (nameMatch) {
-    return extractOrderItemImage(nameMatch);
-  }
-
-  return null;
-};
-
 const normalizeInspectableItems = (
   rawItems: ReturnRequestItem[],
   order: SallaOrderPreview | null,
@@ -271,7 +154,7 @@ const normalizeInspectableItems = (
     conditionStatus: item.conditionStatus ?? null,
     conditionNotes: item.conditionNotes ?? '',
     imageUrl:
-      resolveItemImage(item, order) ??
+      resolveReturnItemImage(item, order?.items) ??
       (previousImageMap ? previousImageMap.get(item.id) ?? null : null),
   }));
 };

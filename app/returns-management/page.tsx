@@ -9,6 +9,11 @@ import {
   ReturnItemCondition,
   summarizeItemConditions,
 } from '@/app/lib/returns/inspection';
+import {
+  STATUS_LABELS,
+  STATUS_COLORS,
+  INSPECTION_BADGE_STYLES,
+} from '@/app/lib/returns/status';
 
 interface ReturnItem {
   id: string;
@@ -51,38 +56,11 @@ interface ReturnRequest {
   } | null;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  pending_review: 'قيد المراجعة',
-  approved: 'مقبول',
-  rejected: 'مرفوض',
-  shipped: 'تم الشحن',
-  delivered: 'تم التسليم',
-  completed: 'مكتمل',
-  cancelled: 'ملغي',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  pending_review: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-  approved: 'bg-blue-100 text-blue-800 border-blue-300',
-  rejected: 'bg-red-100 text-red-800 border-red-300',
-  shipped: 'bg-purple-100 text-purple-800 border-purple-300',
-  delivered: 'bg-green-100 text-green-800 border-green-300',
-  completed: 'bg-gray-100 text-gray-800 border-gray-300',
-  cancelled: 'bg-gray-100 text-gray-600 border-gray-300',
-};
-
 const gregorianDateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
   day: '2-digit',
   month: 'long',
   year: 'numeric',
 });
-
-const INSPECTION_BADGE_STYLES = {
-  success: 'bg-green-50 text-green-800 border-green-200',
-  warning: 'bg-amber-50 text-amber-800 border-amber-200',
-  danger: 'bg-red-50 text-red-800 border-red-200',
-  muted: 'bg-gray-100 text-gray-700 border-gray-200',
-};
 
 const formatPrice = (value: number | string) => {
   const amount = typeof value === 'number' ? value : Number(value);
@@ -482,7 +460,12 @@ export default function ReturnsManagementPage() {
                         </div>
 
                         <h3 className="font-semibold text-lg mb-2">
-                          طلب #{request.orderNumber}
+                          <Link
+                            href={`/returns-management/${request.id}`}
+                            className="text-blue-700 hover:text-blue-900 hover:underline focus-visible:underline focus-visible:outline-none"
+                          >
+                            طلب #{request.orderNumber}
+                          </Link>
                         </h3>
 
                         <div className="text-sm text-gray-600 space-y-1">
