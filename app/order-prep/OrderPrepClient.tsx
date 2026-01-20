@@ -987,46 +987,26 @@ useEffect(() => {
 
     setMovingToReview(true);
     try {
-      // Update status to "تحت المراجعة" (ID: 1065456688)
-      const updateResponse = await fetch('/api/order-assignments/update-status', {
+      const response = await fetch('/api/order-assignments/release', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           assignmentId: currentOrder.id,
-          status: 'under_review',
-          updateSalla: true,
-          sallaStatus: '1065456688', // تحت المراجعة status ID
+          targetStatusId: 1065456688,
         }),
       });
 
-      const updateData = await parseJsonResponse(updateResponse, 'POST /api/order-assignments/update-status');
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/release');
 
-      if (!updateData.success) {
-        alert(updateData.error || 'فشل تحديث حالة الطلب');
-        return;
-      }
-
-      // Complete the order (move to history)
-      const completeResponse = await fetch('/api/order-assignments/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assignmentId: currentOrder.id,
-        }),
-      });
-
-      const completeData = await parseJsonResponse(completeResponse, 'POST /api/order-assignments/complete');
-
-      if (completeData.success) {
-        // Clear current order and load next
+      if (data.success) {
         setCurrentOrder(null);
-        await loadMyOrders(true);
+        await loadMyOrders(true, { silent: false });
         if (showHistoryPanel) {
           await loadRecentHistory();
         }
       } else {
-        const errorMsg = completeData.details ? `${completeData.error}\n\nتفاصيل: ${completeData.details}` : completeData.error;
-        alert(errorMsg || 'فشل الانتقال للطلب التالي');
+        const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
+        alert(errorMsg || 'فشل تحديث حالة الطلب');
       }
     } catch (error) {
       console.error('Move to under review exception:', error);
@@ -1041,46 +1021,26 @@ useEffect(() => {
 
     setMovingToReservation(true);
     try {
-      // Update status to "تحت المراجعة حجز قطع" (ID: 1576217163)
-      const updateResponse = await fetch('/api/order-assignments/update-status', {
+      const response = await fetch('/api/order-assignments/release', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           assignmentId: currentOrder.id,
-          status: 'under_review_reservation',
-          updateSalla: true,
-          sallaStatus: '1576217163', // تحت المراجعة حجز قطع status ID
+          targetStatusId: 1576217163,
         }),
       });
 
-      const updateData = await parseJsonResponse(updateResponse, 'POST /api/order-assignments/update-status');
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/release');
 
-      if (!updateData.success) {
-        alert(updateData.error || 'فشل تحديث حالة الطلب');
-        return;
-      }
-
-      // Complete the order (move to history)
-      const completeResponse = await fetch('/api/order-assignments/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assignmentId: currentOrder.id,
-        }),
-      });
-
-      const completeData = await parseJsonResponse(completeResponse, 'POST /api/order-assignments/complete');
-
-      if (completeData.success) {
-        // Clear current order and load next
+      if (data.success) {
         setCurrentOrder(null);
-        await loadMyOrders(true);
+        await loadMyOrders(true, { silent: false });
         if (showHistoryPanel) {
           await loadRecentHistory();
         }
       } else {
-        const errorMsg = completeData.details ? `${completeData.error}\n\nتفاصيل: ${completeData.details}` : completeData.error;
-        alert(errorMsg || 'فشل الانتقال للطلب التالي');
+        const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
+        alert(errorMsg || 'فشل تحديث حالة الطلب');
       }
     } catch (error) {
       console.error('Move to reservation exception:', error);
