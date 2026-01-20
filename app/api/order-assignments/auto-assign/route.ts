@@ -211,13 +211,25 @@ export async function POST(request: NextRequest) {
             merchantId: MERCHANT_ID,
             orderId: { in: orderIdsForLookup },
           },
-          select: {
-            orderId: true,
+          orderBy: {
+            assignedAt: 'desc',
           },
         })
       : [];
 
-    const assignedOrderIds = new Set(existingAssignments.map((assignment) => assignment.orderId));
+    const activeStatusSet = new Set<string>(ACTIVE_ASSIGNMENT_STATUS_VALUES as readonly string[]);
+    const activeOrderIds = new Set(
+      existingAssignments
+        .filter((assignment) => assignment.status && activeStatusSet.has(assignment.status))
+        .map((assignment) => assignment.orderId)
+    );
+
+    const latestAssignmentByOrder = new Map<string, (typeof existingAssignments)[number]>();
+    for (const assignment of existingAssignments) {
+      if (!latestAssignmentByOrder.has(assignment.orderId)) {
+        latestAssignmentByOrder.set(assignment.orderId, assignment);
+      }
+    }
 
     log.info('Orders fetched from Salla', {
       totalOrders: orders.length,
@@ -242,26 +254,61 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const unassignedOrders = orders.filter((order: any) => {
+    type CandidateOrder = {
+      order: any;
+      reassignment?: {
+        assignment: (typeof existingAssignments)[number];
+      };
+    };
+
+    const candidateOrders: CandidateOrder[] = [];
+    let skippedDueToLinkedUser = 0;
+
+    for (const order of orders) {
       const orderId = extractOrderId(order);
       if (!orderId) {
-        return false;
+        continue;
       }
-      return !assignedOrderIds.has(orderId);
-    });
+
+      if (activeOrderIds.has(orderId)) {
+        continue;
+      }
+
+      const latestAssignment = latestAssignmentByOrder.get(orderId);
+      if (latestAssignment) {
+        if (latestAssignment.userId === user.id) {
+          candidateOrders.push({
+            order,
+            reassignment: { assignment: latestAssignment },
+          });
+        } else {
+          skippedDueToLinkedUser += 1;
+        }
+        continue;
+      }
+
+      candidateOrders.push({ order });
+    }
+
+    const reassignmentCount = candidateOrders.filter((entry) => entry.reassignment).length;
 
     log.info('Available Salla orders after filtering historical assignments', {
       beforeFilter: orders.length,
-      afterFilter: unassignedOrders.length,
-      skippedDueToHistory: assignedOrderIds.size,
+      afterFilter: candidateOrders.length,
+      reassignmentCount,
+      skippedDueToActiveAssignments: activeOrderIds.size,
+      skippedDueToLinkedUser,
     });
 
     const originalIndex = new Map<string, number>(
-      unassignedOrders.map((order: any, index: number) => [String(order.id), index])
+      candidateOrders.map((entry, index) => [String(entry.order.id), index])
     );
-    const prioritizedOrders = [...unassignedOrders].sort((a: any, b: any) => {
-      const aKey = String(a.id);
-      const bKey = String(b.id);
+    const prioritizedOrders = [...candidateOrders].sort((a, b) => {
+      if (a.reassignment && !b.reassignment) return -1;
+      if (!a.reassignment && b.reassignment) return 1;
+
+      const aKey = String(a.order.id);
+      const bKey = String(b.order.id);
       const aRank = priorityRank.has(aKey) ? priorityRank.get(aKey)! : Number.POSITIVE_INFINITY;
       const bRank = priorityRank.has(bKey) ? priorityRank.get(bKey)! : Number.POSITIVE_INFINITY;
 
@@ -272,8 +319,8 @@ export async function POST(request: NextRequest) {
       return (originalIndex.get(aKey) ?? 0) - (originalIndex.get(bKey) ?? 0);
     });
 
-    log.info('Unassigned orders after prioritization', {
-      availableOrderIds: prioritizedOrders.map((o: any) => o.id),
+    log.info('Candidate orders after prioritization', {
+      availableOrderIds: prioritizedOrders.map((entry) => entry.order.id),
     });
 
     const fetchOrderDetailsWithItems = async (order: any) => {
@@ -322,7 +369,8 @@ export async function POST(request: NextRequest) {
     let skippedDueToDuplicate = 0;
     let skippedDueToStatusUpdate = 0;
 
-    for (const order of prioritizedOrders) {
+    for (const candidate of prioritizedOrders) {
+      const order = candidate.order;
       if (assignments.length >= availableSlots) {
         break;
       }
@@ -343,21 +391,78 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const assignment = await prisma.orderAssignment.create({
-          data: {
-            userId: user.id,
-            merchantId: MERCHANT_ID,
+        let assignment: Awaited<ReturnType<typeof prisma.orderAssignment.create>> | null = null;
+        let previousAssignmentState:
+          | {
+              status: string | null;
+              assignedAt: Date | null;
+              startedAt: Date | null;
+              completedAt: Date | null;
+              removedAt: Date | null;
+              sallaStatus: string | null;
+              orderData: Prisma.InputJsonValue | null;
+              orderNumber: string;
+            }
+          | null = null;
+
+        if (candidate.reassignment) {
+          const existingAssignment = candidate.reassignment.assignment;
+          previousAssignmentState = {
+            status: existingAssignment.status,
+            assignedAt: existingAssignment.assignedAt,
+            startedAt: existingAssignment.startedAt,
+            completedAt: existingAssignment.completedAt,
+            removedAt: existingAssignment.removedAt,
+            sallaStatus: existingAssignment.sallaStatus,
+            orderData: (existingAssignment.orderData ??
+              Prisma.JsonNull) as Prisma.InputJsonValue | null,
+            orderNumber: existingAssignment.orderNumber,
+          };
+
+          assignment = await prisma.orderAssignment.update({
+            where: { id: existingAssignment.id },
+            data: {
+              userId: user.id,
+              status: 'assigned',
+              assignedAt: new Date(),
+              startedAt: null,
+              completedAt: null,
+              removedAt: null,
+              orderId: normalizedOrderId,
+              orderNumber: normalizedOrderNumber,
+              orderData: orderWithDetails as any,
+              sallaStatus:
+                orderWithDetails.status?.slug ||
+                orderWithDetails.status?.id?.toString() ||
+                order.status?.slug ||
+                order.status?.id?.toString() ||
+                fallbackStatusValue,
+              sallaUpdated: false,
+            },
+          });
+
+          log.info('Reassigning order to previous user', {
             orderId: normalizedOrderId,
-            orderNumber: normalizedOrderNumber,
-            orderData: orderWithDetails as any,
-            sallaStatus:
-              orderWithDetails.status?.slug ||
-              orderWithDetails.status?.id?.toString() ||
-              order.status?.slug ||
-              order.status?.id?.toString() ||
-              fallbackStatusValue,
-          },
-        });
+            assignmentId: assignment.id,
+            userId: user.id,
+          });
+        } else {
+          assignment = await prisma.orderAssignment.create({
+            data: {
+              userId: user.id,
+              merchantId: MERCHANT_ID,
+              orderId: normalizedOrderId,
+              orderNumber: normalizedOrderNumber,
+              orderData: orderWithDetails as any,
+              sallaStatus:
+                orderWithDetails.status?.slug ||
+                orderWithDetails.status?.id?.toString() ||
+                order.status?.slug ||
+                order.status?.id?.toString() ||
+                fallbackStatusValue,
+            },
+          });
+        }
 
         const updateUrl = `${baseUrl}/orders/${normalizedOrderId}/status`;
         let statusUpdated = false;
@@ -380,6 +485,14 @@ export async function POST(request: NextRequest) {
             });
             assignments.push(updatedAssignment);
             statusUpdated = true;
+            log.info('Order status updated to preparing on assignment', {
+              orderId: updatedAssignment.orderId,
+              assignmentId: updatedAssignment.id,
+              userId: user.id,
+              statusId: resolvedPreparingStatusId,
+              statusName: preparingStatus?.name || 'جاري التجهيز',
+              reassigned: Boolean(candidate.reassignment),
+            });
           } else {
             const errorText = await statusResponse.text();
             log.warn('Failed to update Salla status to preparing', {
@@ -399,7 +512,23 @@ export async function POST(request: NextRequest) {
 
         if (!statusUpdated) {
           skippedDueToStatusUpdate += 1;
-          await prisma.orderAssignment.delete({ where: { id: assignment.id } });
+          if (candidate.reassignment && previousAssignmentState) {
+            await prisma.orderAssignment.update({
+              where: { id: assignment.id },
+              data: {
+                status: previousAssignmentState.status,
+                assignedAt: previousAssignmentState.assignedAt,
+                startedAt: previousAssignmentState.startedAt,
+                completedAt: previousAssignmentState.completedAt,
+                removedAt: previousAssignmentState.removedAt,
+                sallaStatus: previousAssignmentState.sallaStatus,
+                orderData: previousAssignmentState.orderData,
+                orderNumber: previousAssignmentState.orderNumber,
+              },
+            });
+          } else {
+            await prisma.orderAssignment.delete({ where: { id: assignment.id } });
+          }
           continue;
         }
       } catch (error) {
@@ -429,7 +558,7 @@ export async function POST(request: NextRequest) {
         skippedDueToStatusUpdate,
       });
     }
-    log.info('Order status updated to preparing on assignment', {
+    log.info('Assignments ready after processing', {
       userId: user.id,
       assignmentsUpdated: assignments.map((assignment) => assignment.orderId),
       statusId: preparingStatusId,
