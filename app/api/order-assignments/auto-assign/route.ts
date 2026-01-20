@@ -7,6 +7,7 @@ import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses
 export const runtime = 'nodejs';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
+const RELEASE_STATUS_IDS = new Set(['1065456688', '1576217163']);
 
 /**
  * POST /api/order-assignments/auto-assign
@@ -267,6 +268,11 @@ export async function POST(request: NextRequest) {
     for (const order of orders) {
       const orderId = extractOrderId(order);
       if (!orderId) {
+        continue;
+      }
+
+      const statusId = String(order?.status?.id ?? '');
+      if (statusId && RELEASE_STATUS_IDS.has(statusId)) {
         continue;
       }
 
