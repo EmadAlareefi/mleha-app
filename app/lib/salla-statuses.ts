@@ -117,6 +117,83 @@ export function getStatusName(
   return defaultNames[slug] || slug;
 }
 
+export interface NewOrderStatusFilters {
+  primaryStatus: SallaOrderStatus | null;
+  relatedStatuses: SallaOrderStatus[];
+  queryValues: string[];
+}
+
+/**
+ * Build a canonical list of status filters that represent "New Order" in Salla.
+ * This includes the parent status plus any custom sub-statuses that inherit from it.
+ */
+export function getNewOrderStatusFilters(
+  statuses: SallaOrderStatus[]
+): NewOrderStatusFilters {
+  const slug = 'under_review';
+  const normalizedStatuses = Array.isArray(statuses) ? statuses : [];
+
+  const topLevelMatches = normalizedStatuses.filter(
+    (status) => !status.parent && status.slug === slug
+  );
+
+  const parentStatus =
+    topLevelMatches.find(
+      (status) => status.name === 'طلب جديد' || status.name === 'New Order'
+    ) || topLevelMatches[0] || null;
+
+  const childStatuses = parentStatus
+    ? normalizedStatuses.filter((status) => status.parent?.id === parentStatus.id)
+    : [];
+
+  // Include any other statuses that share the same slug to avoid missing custom setups
+  const slugMatches = normalizedStatuses.filter((status) => status.slug === slug);
+
+  const combinedStatuses = [
+    parentStatus,
+    ...childStatuses,
+    ...slugMatches,
+  ].filter((status): status is SallaOrderStatus => Boolean(status));
+
+  const uniqueStatuses: SallaOrderStatus[] = [];
+  const seenStatusIds = new Set<number>();
+  for (const status of combinedStatuses) {
+    if (seenStatusIds.has(status.id)) {
+      continue;
+    }
+    seenStatusIds.add(status.id);
+    uniqueStatuses.push(status);
+  }
+
+  const queryValues = new Set<string>();
+  const addQueryValue = (value?: number | string | null) => {
+    if (value === null || value === undefined) {
+      return;
+    }
+    const normalized =
+      typeof value === 'string' ? value.trim() : value.toString().trim();
+    if (!normalized) {
+      return;
+    }
+    queryValues.add(normalized);
+  };
+
+  uniqueStatuses.forEach((status) => {
+    addQueryValue(status.id);
+    addQueryValue(status.slug);
+    addQueryValue(status.original?.id);
+  });
+
+  // Always include known fallback identifiers/slugs in case the API changes order.
+  ['under_review', '449146439', '566146469'].forEach(addQueryValue);
+
+  return {
+    primaryStatus: parentStatus ?? uniqueStatuses[0] ?? null,
+    relatedStatuses: uniqueStatuses,
+    queryValues: Array.from(queryValues),
+  };
+}
+
 /**
  * Default statuses as fallback
  */

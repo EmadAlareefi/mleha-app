@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSallaAccessToken } from '@/app/lib/salla-oauth';
-import { getSallaOrderStatuses, getStatusBySlug } from '@/app/lib/salla-statuses';
+import { getSallaOrderStatuses, getNewOrderStatusFilters } from '@/app/lib/salla-statuses';
 import { log } from '@/app/lib/logger';
 import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses';
 
@@ -48,33 +48,84 @@ export async function GET(request: NextRequest) {
 
     // Fetch order statuses
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
-
-    // Determine which status to look for (always use "under_review")
-    const underReviewStatus = getStatusBySlug(statuses, 'under_review');
-    const statusFilter = underReviewStatus?.id.toString() || '566146469';
+    const { primaryStatus: underReviewStatus, queryValues } = getNewOrderStatusFilters(statuses);
+    const statusFilters = queryValues.length > 0 ? queryValues : ['under_review', '566146469'];
+    const primaryStatusFilter = statusFilters[0] || null;
     const statusInfo = underReviewStatus;
 
-    // Fetch orders from Salla with this status
+    const getOrderTimestamp = (order: any): number => {
+      const candidates = [
+        order?.date?.date,
+        order?.created_at,
+        order?.createdAt,
+        order?.updated_at,
+        order?.updatedAt,
+      ];
+      for (const candidate of candidates) {
+        if (candidate) {
+          const timestamp = Date.parse(candidate);
+          if (!Number.isNaN(timestamp)) {
+            return timestamp;
+          }
+        }
+      }
+      return 0;
+    };
+
+    // Fetch orders from Salla with these statuses
     const baseUrl = 'https://api.salla.dev/admin/v2';
-    const url = `${baseUrl}/orders?status=${statusFilter}&per_page=50&sort_by=created_at-asc`;
+    const { fetchSallaWithRetry } = await import('@/app/lib/fetch-with-retry');
+    const allOrders: any[] = [];
+    const seenOrderIds = new Set<string>();
+    let successfulFetches = 0;
 
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    for (const filterValue of statusFilters) {
+      const url = `${baseUrl}/orders?status=${encodeURIComponent(filterValue)}&per_page=50&sort_by=created_at-asc`;
+      let response: Response;
+      try {
+        response = await fetchSallaWithRetry(url, accessToken);
+      } catch (error) {
+        log.warn('Failed to fetch debug orders from Salla after retries', {
+          statusFilter: filterValue,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        continue;
+      }
 
-    if (!response.ok) {
-      const errorText = await response.text();
+      if (!response.ok) {
+        const errorText = await response.text();
+        log.warn('Failed to fetch debug orders from Salla', {
+          status: response.status,
+          error: errorText,
+          statusFilter: filterValue,
+        });
+        continue;
+      }
+
+      successfulFetches += 1;
+      const data = await response.json();
+      const orders = Array.isArray(data.data) ? data.data : [];
+      orders.forEach((order: any) => {
+        const key = String(order?.id ?? order?.reference_id ?? '');
+        if (!key || seenOrderIds.has(key)) {
+          return;
+        }
+        seenOrderIds.add(key);
+        allOrders.push(order);
+      });
+    }
+
+    if (successfulFetches === 0) {
       return NextResponse.json({
         error: 'فشل جلب الطلبات من سلة',
-        details: errorText,
+        details: 'لم يتمكن النظام من تحميل طلبات حالة "طلب جديد"',
       }, { status: 500 });
     }
 
-    const data = await response.json();
-    const orders = data.data || [];
+    const sortedOrders = allOrders.sort(
+      (a, b) => getOrderTimestamp(a) - getOrderTimestamp(b)
+    );
+    const orders = sortedOrders.slice(0, 50);
 
     // Get currently active assigned order IDs (exclude completed/removed for reporting)
     const assignedOrders = await prisma.orderAssignment.findMany({
@@ -117,7 +168,8 @@ export async function GET(request: NextRequest) {
           isActive: user.isActive,
         },
         statusConfig: {
-          statusFilter: statusFilter,
+          statusFilter: primaryStatusFilter,
+          statusFilters,
           statusId: statusInfo?.id || null,
           statusName: statusInfo?.name || 'غير معروف',
           statusSlug: statusInfo?.slug || 'unknown',
@@ -126,6 +178,7 @@ export async function GET(request: NextRequest) {
           total: orders.length,
           available: unassignedOrders.length,
           alreadyAssigned: orders.length - unassignedOrders.length,
+          filters: statusFilters,
         },
         assignments: {
           totalAssignments: assignedOrders.length,

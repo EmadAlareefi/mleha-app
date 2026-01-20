@@ -95,63 +95,144 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch order statuses to get the correct status information
-    const { getSallaOrderStatuses, getStatusBySlug } = await import('@/app/lib/salla-statuses');
+    const { getSallaOrderStatuses, getStatusBySlug, getNewOrderStatusFilters } = await import('@/app/lib/salla-statuses');
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
 
-    // ALWAYS fetch orders with status "طلب جديد" (New Order)
-    // This is the parent status with ID 449146439 and slug 'under_review'
-    // Find by name to ensure we get the correct parent status
-    const newOrderStatus = statuses.find(s =>
-      s.name === 'طلب جديد' ||
-      s.id === 449146439 ||
-      (s.slug === 'under_review' && !s.parent)
-    );
+    const { primaryStatus: newOrderStatus, queryValues: statusFilters } = getNewOrderStatusFilters(statuses);
+    const filtersToQuery = statusFilters.length > 0 ? statusFilters : ['under_review', '449146439'];
+    const fallbackStatusValue = filtersToQuery[0] || 'under_review';
 
-    const statusFilter = newOrderStatus?.id.toString() || '449146439'; // Use ID 449146439 as fallback
-
-    log.info('Fetching orders with status', {
-      statusFilter,
+    log.info('Fetching orders with status filters', {
+      statusFilters: filtersToQuery,
       statusName: newOrderStatus?.name || 'طلب جديد',
-      statusId: newOrderStatus?.id || statusFilter,
+      statusId: newOrderStatus?.id || null,
     });
 
-    // Fetch orders from Salla using status ID, sorted by oldest first
+    const getOrderTimestamp = (order: any): number => {
+      const candidates = [
+        order?.date?.date,
+        order?.created_at,
+        order?.createdAt,
+        order?.updated_at,
+        order?.updatedAt,
+      ];
+      for (const candidate of candidates) {
+        if (candidate) {
+          const timestamp = Date.parse(candidate);
+          if (!Number.isNaN(timestamp)) {
+            return timestamp;
+          }
+        }
+      }
+      return 0;
+    };
+
     const baseUrl = 'https://api.salla.dev/admin/v2';
-    const url = `${baseUrl}/orders?status=${statusFilter}&per_page=${fetchLimit}&sort_by=created_at-asc`;
-
-    // Use retry logic for fetching orders
     const { fetchSallaWithRetry } = await import('@/app/lib/fetch-with-retry');
-    let response: Response;
+    const allOrders: any[] = [];
+    const seenOrderIds = new Set<string>();
+    let successfulFetches = 0;
 
-    try {
-      response = await fetchSallaWithRetry(url, accessToken);
-    } catch (error) {
-      log.error('Failed to fetch orders from Salla after retries', {
-        error: error instanceof Error ? error.message : 'Unknown error',
+    for (const filterValue of filtersToQuery) {
+      const url = `${baseUrl}/orders?status=${encodeURIComponent(filterValue)}&per_page=${fetchLimit}&sort_by=created_at-asc`;
+
+      let response: Response;
+      try {
+        response = await fetchSallaWithRetry(url, accessToken);
+      } catch (error) {
+        log.warn('Failed to fetch orders from Salla after retries', {
+          statusFilter: filterValue,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        continue;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        log.warn('Failed to fetch orders from Salla', {
+          status: response.status,
+          error: errorText,
+          statusFilter: filterValue,
+        });
+        continue;
+      }
+
+      successfulFetches += 1;
+      const data = await response.json();
+      const orders = Array.isArray(data.data) ? data.data : [];
+      orders.forEach((order: any) => {
+        const key = String(order?.id ?? order?.reference_id ?? '');
+        if (!key || seenOrderIds.has(key)) {
+          return;
+        }
+        seenOrderIds.add(key);
+        allOrders.push(order);
       });
+    }
+
+    if (successfulFetches === 0) {
       return NextResponse.json(
         { error: 'فشل جلب الطلبات من سلة' },
         { status: 500 }
       );
     }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      log.error('Failed to fetch orders from Salla', {
-        status: response.status,
-        error: errorText,
-      });
-      return NextResponse.json(
-        { error: 'فشل جلب الطلبات من سلة' },
-        { status: 500 }
-      );
-    }
+    const sortedOrders = allOrders.sort(
+      (a, b) => getOrderTimestamp(a) - getOrderTimestamp(b)
+    );
+    const orders = sortedOrders.slice(0, fetchLimit);
 
-    const data = await response.json();
-    const orders = data.data || [];
+    const extractOrderId = (order: any): string | null => {
+      const rawId =
+        order?.id ??
+        order?.order_id ??
+        order?.orderId ??
+        order?.reference_id ??
+        order?.referenceId;
+      if (rawId === undefined || rawId === null) {
+        return null;
+      }
+      const value = String(rawId).trim();
+      return value ? value : null;
+    };
+
+    const orderIdsForLookup = orders
+      .map((order: any) => extractOrderId(order))
+      .filter((orderId): orderId is string => Boolean(orderId));
+
+    const existingAssignments = orderIdsForLookup.length
+      ? await prisma.orderAssignment.findMany({
+          where: {
+            merchantId: MERCHANT_ID,
+            orderId: { in: orderIdsForLookup },
+          },
+          select: {
+            id: true,
+            orderId: true,
+            orderNumber: true,
+            status: true,
+            userId: true,
+          },
+        })
+      : [];
+
+    const activeStatusSet = new Set<string>(ACTIVE_ASSIGNMENT_STATUS_VALUES);
+    const isActiveStatus = (status?: string | null): boolean =>
+      Boolean(status && activeStatusSet.has(status));
+
+    const assignmentMap = new Map(
+      existingAssignments.map((assignment) => [assignment.orderId, assignment])
+    );
+    const activeOrderIds = new Set(
+      existingAssignments
+        .filter((assignment) => isActiveStatus(assignment.status))
+        .map((assignment) => assignment.orderId)
+    );
 
     log.info('Orders fetched from Salla', {
       totalOrders: orders.length,
+      uniqueOrders: sortedOrders.length,
+      statusFilters: filtersToQuery,
       orderIds: orders.map((o: any) => o.id),
     });
 
@@ -171,48 +252,19 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const filteredOrders = orders;
-
-    // Get ALL already assigned order IDs for this merchant (both active and completed/removed)
-    // This prevents assigning orders that have EVER been assigned to anyone
-    const allAssignedOrderIds = await prisma.orderAssignment.findMany({
-      where: {
-        merchantId: MERCHANT_ID,
-        // No status filter: we want to exclude ANY order that has an assignment record
-      },
-      select: {
-        orderId: true,
-      },
+    const unassignedOrders = orders.filter((order: any) => {
+      const orderId = extractOrderId(order);
+      if (!orderId) {
+        return false;
+      }
+      return !activeOrderIds.has(orderId);
     });
 
-    const assignedOrderIdSet = new Set(allAssignedOrderIds.map(a => a.orderId));
-
-    log.info('Existing assignments (all statuses)', {
-      count: assignedOrderIdSet.size,
-      // specific logging if needed
+    log.info('Available Salla orders after filtering active assignments', {
+      beforeFilter: orders.length,
+      afterFilter: unassignedOrders.length,
+      activeAssignmentsDetected: activeOrderIds.size,
     });
-
-    // Also get orders already assigned to THIS user (regardless of status) - strictly redundancy now but safe
-    const userAssignedOrders = await prisma.orderAssignment.findMany({
-      where: {
-        userId: user.id,
-      },
-      select: {
-        orderId: true,
-      },
-    });
-
-    const userAssignedOrderIdSet = new Set(userAssignedOrders.map(a => a.orderId));
-
-    log.info('Orders already assigned to this user', {
-      count: userAssignedOrderIdSet.size,
-      orderIds: Array.from(userAssignedOrderIdSet),
-    });
-
-    // Filter out already assigned orders (both active assignments by others and any assignment by this user)
-    const unassignedOrders = filteredOrders.filter(
-      (order: any) => !assignedOrderIdSet.has(String(order.id)) && !userAssignedOrderIdSet.has(String(order.id))
-    );
 
     const originalIndex = new Map<string, number>(
       unassignedOrders.map((order: any, index: number) => [String(order.id), index])
@@ -230,12 +282,8 @@ export async function POST(request: NextRequest) {
       return (originalIndex.get(aKey) ?? 0) - (originalIndex.get(bKey) ?? 0);
     });
 
-    log.info('Unassigned orders after filtering', {
-      beforeFilter: filteredOrders.length,
-      afterFilter: unassignedOrders.length,
-      filteredByActiveAssignments: filteredOrders.filter((o: any) => assignedOrderIdSet.has(String(o.id))).length,
-      filteredByUserAssignments: filteredOrders.filter((o: any) => userAssignedOrderIdSet.has(String(o.id))).length,
-      availableOrderIds: unassignedOrders.map((o: any) => o.id),
+    log.info('Unassigned orders after prioritization', {
+      availableOrderIds: prioritizedOrders.map((o: any) => o.id),
     });
 
     const fetchOrderDetailsWithItems = async (order: any) => {
@@ -281,6 +329,7 @@ export async function POST(request: NextRequest) {
     };
 
     const assignments: Awaited<ReturnType<typeof prisma.orderAssignment.create>>[] = [];
+    const reopenedOrderIds: string[] = [];
     let skippedDueToDuplicate = 0;
 
     for (const order of prioritizedOrders) {
@@ -290,25 +339,62 @@ export async function POST(request: NextRequest) {
 
       const orderWithDetails = await fetchOrderDetailsWithItems(order);
 
+      const normalizedOrderId = extractOrderId(orderWithDetails) || extractOrderId(order);
+      const normalizedOrderNumber = String(
+        orderWithDetails.reference_id ||
+        orderWithDetails.id ||
+        order.reference_id ||
+        order.id
+      );
+
+      if (!normalizedOrderId) {
+        log.warn('Skipping order without valid ID', { order });
+        continue;
+      }
+
+      const existingAssignment = assignmentMap.get(normalizedOrderId);
+
       try {
+        if (existingAssignment && !isActiveStatus(existingAssignment.status)) {
+          const assignment = await prisma.orderAssignment.update({
+            where: { id: existingAssignment.id },
+            data: {
+              userId: user.id,
+              status: 'assigned',
+              assignedAt: new Date(),
+              startedAt: null,
+              completedAt: null,
+              removedAt: null,
+              orderId: normalizedOrderId,
+              orderNumber: normalizedOrderNumber,
+              orderData: orderWithDetails as any,
+              sallaStatus:
+                orderWithDetails.status?.slug ||
+                orderWithDetails.status?.id?.toString() ||
+                order.status?.slug ||
+                order.status?.id?.toString() ||
+                fallbackStatusValue,
+              sallaUpdated: false,
+            },
+          });
+          assignments.push(assignment);
+          reopenedOrderIds.push(normalizedOrderId);
+          continue;
+        }
+
         const assignment = await prisma.orderAssignment.create({
           data: {
             userId: user.id,
             merchantId: MERCHANT_ID,
-            orderId: String(orderWithDetails.id ?? order.id),
-            orderNumber: String(
-              orderWithDetails.reference_id ||
-              orderWithDetails.id ||
-              order.reference_id ||
-              order.id
-            ),
+            orderId: normalizedOrderId,
+            orderNumber: normalizedOrderNumber,
             orderData: orderWithDetails as any,
             sallaStatus:
               orderWithDetails.status?.slug ||
               orderWithDetails.status?.id?.toString() ||
               order.status?.slug ||
               order.status?.id?.toString() ||
-              statusFilter,
+              fallbackStatusValue,
           },
         });
         assignments.push(assignment);
@@ -316,7 +402,7 @@ export async function POST(request: NextRequest) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           skippedDueToDuplicate += 1;
           log.warn('Order already assigned to another user during auto-assignment', {
-            orderId: order.id,
+            orderId: normalizedOrderId,
             userId: user.id,
             target: error.meta?.target,
           });
@@ -330,6 +416,13 @@ export async function POST(request: NextRequest) {
       log.info('Some orders were skipped because they were already assigned', {
         userId: user.id,
         skippedDueToDuplicate,
+      });
+    }
+
+    if (reopenedOrderIds.length > 0) {
+      log.info('Reopened completed assignments based on live Salla status', {
+        userId: user.id,
+        reopenedOrderIds,
       });
     }
 

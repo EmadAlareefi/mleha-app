@@ -1269,6 +1269,9 @@ useEffect(() => {
                   <div className="space-y-1 text-gray-700">
                     <p><strong>الحالة المطلوبة:</strong> {debugData.statusConfig.statusName} ({debugData.statusConfig.statusSlug})</p>
                     <p><strong>معرف الحالة:</strong> {debugData.statusConfig.statusId}</p>
+                    {Array.isArray(debugData.statusConfig.statusFilters) && debugData.statusConfig.statusFilters.length > 1 && (
+                      <p><strong>الفلاتر المستخدمة:</strong> {debugData.statusConfig.statusFilters.join(', ')}</p>
+                    )}
                   </div>
                 </div>
 
