@@ -101,6 +101,11 @@ export async function POST(request: NextRequest) {
     const { primaryStatus: newOrderStatus, queryValues: statusFilters } = getNewOrderStatusFilters(statuses);
     const filtersToQuery = statusFilters.length > 0 ? statusFilters : ['under_review', '449146439'];
     const fallbackStatusValue = filtersToQuery[0] || 'under_review';
+    const preparingStatus = getStatusBySlug(statuses, 'in_progress');
+    const preparingStatusId = preparingStatus?.id?.toString() || '1939592358';
+    const preparingStatusSlug = preparingStatus?.slug || 'in_progress';
+    const numericPreparingStatusId = Number.parseInt(preparingStatusId, 10);
+    const resolvedPreparingStatusId = Number.isNaN(numericPreparingStatusId) ? 1939592358 : numericPreparingStatusId;
 
     log.info('Fetching orders with status filters', {
       statusFilters: filtersToQuery,
@@ -207,27 +212,12 @@ export async function POST(request: NextRequest) {
             orderId: { in: orderIdsForLookup },
           },
           select: {
-            id: true,
             orderId: true,
-            orderNumber: true,
-            status: true,
-            userId: true,
           },
         })
       : [];
 
-    const activeStatusSet = new Set<string>(ACTIVE_ASSIGNMENT_STATUS_VALUES);
-    const isActiveStatus = (status?: string | null): boolean =>
-      Boolean(status && activeStatusSet.has(status));
-
-    const assignmentMap = new Map(
-      existingAssignments.map((assignment) => [assignment.orderId, assignment])
-    );
-    const activeOrderIds = new Set(
-      existingAssignments
-        .filter((assignment) => isActiveStatus(assignment.status))
-        .map((assignment) => assignment.orderId)
-    );
+    const assignedOrderIds = new Set(existingAssignments.map((assignment) => assignment.orderId));
 
     log.info('Orders fetched from Salla', {
       totalOrders: orders.length,
@@ -257,13 +247,13 @@ export async function POST(request: NextRequest) {
       if (!orderId) {
         return false;
       }
-      return !activeOrderIds.has(orderId);
+      return !assignedOrderIds.has(orderId);
     });
 
-    log.info('Available Salla orders after filtering active assignments', {
+    log.info('Available Salla orders after filtering historical assignments', {
       beforeFilter: orders.length,
       afterFilter: unassignedOrders.length,
-      activeAssignmentsDetected: activeOrderIds.size,
+      skippedDueToHistory: assignedOrderIds.size,
     });
 
     const originalIndex = new Map<string, number>(
@@ -329,8 +319,8 @@ export async function POST(request: NextRequest) {
     };
 
     const assignments: Awaited<ReturnType<typeof prisma.orderAssignment.create>>[] = [];
-    const reopenedOrderIds: string[] = [];
     let skippedDueToDuplicate = 0;
+    let skippedDueToStatusUpdate = 0;
 
     for (const order of prioritizedOrders) {
       if (assignments.length >= availableSlots) {
@@ -352,36 +342,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const existingAssignment = assignmentMap.get(normalizedOrderId);
-
       try {
-        if (existingAssignment && !isActiveStatus(existingAssignment.status)) {
-          const assignment = await prisma.orderAssignment.update({
-            where: { id: existingAssignment.id },
-            data: {
-              userId: user.id,
-              status: 'assigned',
-              assignedAt: new Date(),
-              startedAt: null,
-              completedAt: null,
-              removedAt: null,
-              orderId: normalizedOrderId,
-              orderNumber: normalizedOrderNumber,
-              orderData: orderWithDetails as any,
-              sallaStatus:
-                orderWithDetails.status?.slug ||
-                orderWithDetails.status?.id?.toString() ||
-                order.status?.slug ||
-                order.status?.id?.toString() ||
-                fallbackStatusValue,
-              sallaUpdated: false,
-            },
-          });
-          assignments.push(assignment);
-          reopenedOrderIds.push(normalizedOrderId);
-          continue;
-        }
-
         const assignment = await prisma.orderAssignment.create({
           data: {
             userId: user.id,
@@ -397,7 +358,50 @@ export async function POST(request: NextRequest) {
               fallbackStatusValue,
           },
         });
-        assignments.push(assignment);
+
+        const updateUrl = `${baseUrl}/orders/${normalizedOrderId}/status`;
+        let statusUpdated = false;
+
+        try {
+          const statusResponse = await fetchSallaWithRetry(updateUrl, accessToken, {
+            method: 'POST',
+            body: JSON.stringify({
+              status_id: resolvedPreparingStatusId,
+            }),
+          });
+
+          if (statusResponse.ok) {
+            const updatedAssignment = await prisma.orderAssignment.update({
+              where: { id: assignment.id },
+              data: {
+                sallaStatus: preparingStatusSlug,
+                sallaUpdated: true,
+              },
+            });
+            assignments.push(updatedAssignment);
+            statusUpdated = true;
+          } else {
+            const errorText = await statusResponse.text();
+            log.warn('Failed to update Salla status to preparing', {
+              orderId: normalizedOrderId,
+              userId: user.id,
+              status: statusResponse.status,
+              error: errorText,
+            });
+          }
+        } catch (statusError) {
+          log.warn('Error updating Salla status to preparing', {
+            orderId: normalizedOrderId,
+            userId: user.id,
+            error: statusError instanceof Error ? statusError.message : statusError,
+          });
+        }
+
+        if (!statusUpdated) {
+          skippedDueToStatusUpdate += 1;
+          await prisma.orderAssignment.delete({ where: { id: assignment.id } });
+          continue;
+        }
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           skippedDueToDuplicate += 1;
@@ -419,54 +423,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (reopenedOrderIds.length > 0) {
-      log.info('Reopened completed assignments based on live Salla status', {
+    if (skippedDueToStatusUpdate > 0) {
+      log.warn('Skipped orders because Salla status could not be updated to in_progress', {
         userId: user.id,
-        reopenedOrderIds,
+        skippedDueToStatusUpdate,
       });
     }
-
-    // Update Salla status to "جاري التجهيز" (processing/preparing) for newly assigned orders
-    // This prevents overlap between users as the order is immediately marked as being processed
-    // Use dynamic lookup instead of hardcoded ID
-    const preparingStatus = getStatusBySlug(statuses, 'in_progress');
-    const preparingStatusId = preparingStatus?.id.toString() || '1939592358'; // Fallback to default ID
-
-    for (const assignment of assignments) {
-      try {
-        const updateUrl = `${baseUrl}/orders/${assignment.orderId}/status`;
-        const response = await fetch(updateUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            status_id: parseInt(preparingStatusId), // جاري التجهيز - use status_id as number
-          }),
-        });
-
-        if (response.ok) {
-          // Update the assignment record with the new Salla status
-          await prisma.orderAssignment.update({
-            where: { id: assignment.id },
-            data: {
-              sallaStatus: preparingStatus?.slug || preparingStatusId,
-              sallaUpdated: true,
-            },
-          });
-
-          log.info('Order status updated to preparing on assignment', {
-            orderId: assignment.orderId,
-            statusId: preparingStatusId,
-            statusName: preparingStatus?.name || 'جاري التجهيز',
-          });
-        }
-      } catch (error) {
-        log.warn('Failed to update Salla status on assignment', { orderId: assignment.orderId, error });
-      }
-    }
-
+    log.info('Order status updated to preparing on assignment', {
+      userId: user.id,
+      assignmentsUpdated: assignments.map((assignment) => assignment.orderId),
+      statusId: preparingStatusId,
+      statusName: preparingStatus?.name || 'جاري التجهيز',
+    });
     log.info('Orders auto-assigned successfully', {
       userId: user.id,
       assignedCount: assignments.length,
