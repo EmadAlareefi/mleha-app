@@ -96,10 +96,11 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
       ...(Object.keys(printOptions).length > 0 ? { options: printOptions } : {}),
     };
 
+    const basicAuth = Buffer.from(`${PRINTNODE_API_KEY}:`).toString('base64');
     const response = await fetch(PRINTNODE_PRINTJOBS_URL, {
       method: 'POST',
       headers: {
-        'Authorization': 'Basic ' + btoa(`${PRINTNODE_API_KEY}:`),
+        'Authorization': 'Basic ' + basicAuth,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(printJobData),
@@ -144,9 +145,10 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
  */
 export async function fetchPrintNodePrinters(): Promise<PrintNodePrinter[]> {
   try {
+    const basicAuth = Buffer.from(`${PRINTNODE_API_KEY}:`).toString('base64');
     const response = await fetch(`${PRINTNODE_BASE_URL}/printers`, {
       headers: {
-        'Authorization': 'Basic ' + btoa(`${PRINTNODE_API_KEY}:`),
+        'Authorization': 'Basic ' + basicAuth,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
