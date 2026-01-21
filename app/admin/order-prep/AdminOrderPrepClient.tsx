@@ -597,25 +597,12 @@ export default function AdminOrderPrepPage() {
             </Card>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <Card className="p-5">
-              <p className="text-sm text-gray-500">الطلبات النشطة</p>
-              <p className="text-3xl font-bold text-gray-900">{assignments.length}</p>
-              <p className="text-xs text-gray-400 mt-1">موزعة على الحالات أدناه</p>
+              <p className="text-sm text-gray-500">الطلبات المرتبطة حالياً</p>
+              <p className="text-3xl font-bold text-gray-900">{liveOrdersTotal}</p>
+              <p className="text-xs text-gray-400 mt-1">عدد الطلبات التي تم تعيينها ويتم العمل عليها الآن</p>
             </Card>
-
-            <Card className="p-5">
-              <p className="text-sm text-gray-500">طلبات تحت المراجعة</p>
-              <p className="text-3xl font-bold text-orange-600">{currentStats?.underReview ?? 0}</p>
-              <p className="text-xs text-gray-400 mt-1">بانتظار قرار الإدارة</p>
-            </Card>
-
-            <Card className="p-5">
-              <p className="text-sm text-gray-500">طلبات حجز القطع</p>
-              <p className="text-3xl font-bold text-purple-600">{currentStats?.reservation ?? 0}</p>
-              <p className="text-xs text-gray-400 mt-1">متوقفة بسبب توفر المنتجات</p>
-            </Card>
-
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
