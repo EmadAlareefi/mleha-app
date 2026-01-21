@@ -4,6 +4,7 @@ import { log } from '@/app/lib/logger';
 interface UpdateStatusOptions {
   statusId?: string | number | null;
   slug?: string | null;
+  subStatusId?: string | number | null;
 }
 
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -41,6 +42,19 @@ export async function updateSallaOrderStatus(
       }
 
       payload = { status_id: numericStatusId };
+      if (options.subStatusId !== undefined && options.subStatusId !== null) {
+        const numericSubStatusId =
+          typeof options.subStatusId === 'string'
+            ? Number.parseInt(options.subStatusId, 10)
+            : options.subStatusId;
+        if (
+          typeof numericSubStatusId !== 'number' ||
+          Number.isNaN(numericSubStatusId)
+        ) {
+          return { success: false, error: 'invalid_sub_status_id' };
+        }
+        payload.sub_status_id = numericSubStatusId;
+      }
     } else {
       payload = { slug: options.slug };
     }

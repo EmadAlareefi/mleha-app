@@ -1,0 +1,137 @@
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/lib/auth';
+import { hasServiceAccess } from '@/app/lib/service-access';
+import { assignOldestOrderToUser, getActiveAssignmentsForUser } from '@/app/lib/order-prep-service';
+import { log } from '@/app/lib/logger';
+import { prisma } from '@/lib/prisma';
+import { getSallaAccessToken } from '@/app/lib/salla-oauth';
+
+const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
+const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
+const NEW_ORDER_STATUS_IDS = new Set(['449146439', '1065456688', '1576217163', '1882207425', '566146469']);
+const NEW_ORDER_STATUS_SLUGS = new Set(['under_review']);
+
+export const runtime = 'nodejs';
+
+export async function GET() {
+  const session = await getServerSession(authOptions);
+
+  if (!session?.user) {
+    return NextResponse.json({ error: 'يجب تسجيل الدخول' }, { status: 401 });
+  }
+
+  if (!hasServiceAccess(session, ['order-prep'])) {
+    return NextResponse.json({ error: 'ليست لديك صلاحية للوصول' }, { status: 403 });
+  }
+
+  const user = session.user as any;
+
+  const orderUser = await prisma.orderUser.findUnique({
+    where: { id: user.id },
+    select: { id: true, name: true },
+  });
+
+  if (!orderUser) {
+    return NextResponse.json(
+      { error: 'هذا الحساب غير مضاف ضمن مستخدمي التحضير. يرجى إنشاء حساب تحضير خاص بك.' },
+      { status: 403 }
+    );
+  }
+  try {
+    let assignments = await getActiveAssignmentsForUser(orderUser.id);
+    assignments = await ensureOrdersStillNew(assignments);
+
+    if (assignments.length > 0) {
+      return NextResponse.json({ success: true, assignments, autoAssigned: false });
+    }
+
+    const autoAssigned = await assignOldestOrderToUser({
+      id: orderUser.id,
+      name: orderUser.name || user.name,
+    });
+
+    return NextResponse.json({
+      success: true,
+      assignments: autoAssigned ? [autoAssigned] : [],
+      autoAssigned: Boolean(autoAssigned),
+    });
+  } catch (error) {
+    log.error('Failed to load order prep assignments', { userId: user.id, error });
+    return NextResponse.json({ error: 'تعذر تحميل الطلبات' }, { status: 500 });
+  }
+}
+
+async function ensureOrdersStillNew(assignments: Awaited<ReturnType<typeof getActiveAssignmentsForUser>>) {
+  if (assignments.length === 0) {
+    return assignments;
+  }
+
+  const accessToken = await getSallaAccessToken(MERCHANT_ID);
+  if (!accessToken) {
+    log.warn('Unable to validate Salla status - missing token');
+    return assignments;
+  }
+
+  const validAssignments = [];
+  for (const assignment of assignments) {
+    try {
+      const stillNew = await isOrderStillNew(assignment.orderId, accessToken);
+      if (stillNew) {
+        validAssignments.push(assignment);
+        continue;
+      }
+
+      await prisma.orderPrepAssignment.delete({
+        where: { id: assignment.id },
+      });
+
+      log.info('Removed order prep assignment due to status change', {
+        assignmentId: assignment.id,
+        orderId: assignment.orderId,
+      });
+    } catch (error) {
+      log.warn('Failed to validate Salla status for assignment', {
+        assignmentId: assignment.id,
+        orderId: assignment.orderId,
+        error: error instanceof Error ? error.message : error,
+      });
+      validAssignments.push(assignment);
+    }
+  }
+
+  return validAssignments;
+}
+
+async function isOrderStillNew(orderId: string, accessToken: string) {
+  const response = await fetch(`${SALLA_API_BASE}/orders/${encodeURIComponent(orderId)}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch order ${orderId} from Salla (status ${response.status})`);
+  }
+
+  const data = await response.json();
+  const status = data?.data?.status;
+  const subStatus = status?.sub_status || status?.subStatus;
+  const primaryId = status?.id ? status.id.toString() : null;
+  const subId = subStatus?.id ? subStatus.id.toString() : null;
+  const slug = subStatus?.slug || status?.slug || null;
+
+  if (subId && NEW_ORDER_STATUS_IDS.has(subId)) {
+    return true;
+  }
+  if (primaryId && NEW_ORDER_STATUS_IDS.has(primaryId)) {
+    return true;
+  }
+  if (slug && NEW_ORDER_STATUS_SLUGS.has(slug)) {
+    return true;
+  }
+
+  return false;
+}

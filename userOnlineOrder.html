@@ -1,0 +1,1473 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load core_extras %}
+{% csrf_token %}
+
+{% block title %}الطلبات{% endblock %}
+
+{% block styles %}
+<style>
+    .lds-hourglass {
+        display: inline-block;
+        position: absolute;
+        width: 80px;
+        height: 80px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+
+    }
+
+    .lds-hourglass:after {
+        content: " ";
+        display: block;
+        border-radius: 50%;
+        width: 0;
+        height: 0;
+        margin: 8px;
+        box-sizing: border-box;
+        border: 32px solid #fff;
+        border-color: #fff transparent #fff transparent;
+        animation: lds-hourglass 1.2s infinite;
+    }
+
+    .card-footer {
+        font-size: 20px;
+    }
+
+    @keyframes lds-hourglass {
+        0% {
+            transform: rotate(0);
+            animation-timing-function: cubic-bezier(0.55, 0.055, 0.675, 0.19);
+        }
+
+        50% {
+            transform: rotate(900deg);
+            animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
+        }
+
+        100% {
+            transform: rotate(1800deg);
+        }
+    }
+
+    #loadingScreenReturns {
+        height: 100%;
+        width: 100%;
+        left: 0;
+        top: 0;
+        overflow: hidden;
+        position: fixed;
+        z-index: 9999;
+        background-color: rgb(37, 37, 37);
+    }
+
+    tr,
+    td {
+        vertical-align: middle;
+        text-wrap: nowrap;
+    }
+
+    .under_preparation {
+        color: white;
+        background-color: #b942d7;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .completed {
+        color: white;
+        background-color: #1d3b70;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+
+    .processing {
+        color: white;
+        background-color: #81d742;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .packaging_user,
+    .packaging-done {
+        color: white;
+        background-color: #8696f0;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .date {
+        color: black;
+        background-color: #f7f7f7;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .on-hold {
+        color: white;
+        background-color: #cdd742;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .waiting {
+        color: white;
+        background-color: #cdd742;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .packagingCompleted {
+        color: white;
+        background-color: green;
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .pending {
+        color: white;
+        background-color: rgb(143, 143, 143);
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .cancelled,
+    .failed {
+        color: white;
+        background-color: rgb(255, 152, 152);
+        padding: 5px 10px;
+        border-radius: 5px;
+    }
+
+    .line-spread {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .btn-small {
+        font-size: 0.75rem;
+        padding: 0px 11px;
+        border-radius: 0;
+    }
+
+    .images {
+        display: flex;
+        overflow: auto;
+    }
+
+    figure {
+        min-width: fit-content;
+    }
+
+    .button-card-footer {
+        color: var(--bs-card-cap-color);
+        background-color: var(--bs-card-cap-bg);
+        border-top: var(--bs-card-border-width) solid var(--bs-card-border-color);
+    }
+
+    .button-card-footer small {
+        padding: var(--bs-card-cap-padding-y) var(--bs-card-cap-padding-x);
+    }
+
+    #toastsArea {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+    }
+
+    .green {
+        background-color: rgb(2, 114, 2) !important;
+    }
+
+    .green small {
+        color: white !important;
+    }
+
+    .purple {
+        background-color: rgb(133, 0, 122) !important;
+        color: white !important;
+    }
+
+    .yellow {
+        background-color: rgb(246, 248, 103) !important;
+
+    }
+
+    .yellow small {
+        color: black !important;
+    }
+
+    .gift-offer {
+        background-color: #fff3cd;
+        color: #9c6500;
+        font-weight: bold;
+    }
+
+    .orange {
+        background-color: rgb(231, 100, 12) !important;
+    }
+
+    .orange small {
+        color: white !important;
+    }
+
+    .info {
+        background-color: #e7e7e7;
+    }
+
+    .gift {
+        background-color: rgb(255, 246, 125);
+    }
+
+    .wallet {
+        background-color: red !important;
+    }
+
+    .isMobile {
+        background-color: red;
+        color: white !important;
+        font-weight: bold;
+    }
+
+    .red {
+        color: red;
+    }
+
+    .quantity-value {
+        font-size: 1.35rem;
+        font-weight: bold;
+    }
+
+    .wh_location {
+        font-weight: bold;
+        background: orange;
+        padding: 5px 10px;
+        border-radius: 5px;
+        margin-bottom: 5px;
+    }
+
+    .extra-fee small {
+        /* background-color: #16630f; */
+        color: black;
+    }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<div id="loadingScreenReturns" style="display: none;">
+    <div class="lds-hourglass"></div>
+</div>
+{% if count %}
+<div style="margin-bottom: 10px;">عدد الطلبات المرتبطة بالموظف {{count}}</div>
+<div style="display: flex; gap: 10px;max-width: 296px; flex-wrap: wrap; margin: 10px 0;">
+    {% for order in userOrders %}
+    <a href="{% url 'onlineOrdersByOrderNumber' order.order_number %}">{{order.order_number}}</a>
+    {% endfor %}
+</div>
+{% endif %}
+{% if shipping %}
+<div style="margin-bottom: 30px;">
+    <input id="searchInput" type="text" class="form-control" placeholder="رقم الطلب">
+</div>
+{% endif %}
+{% if dresses %}
+<div style="margin-bottom: 30px;">
+    <input id="searchInputDresses" type="text" class="form-control" placeholder="رقم الطلب">
+</div>
+{% endif %}
+<div class="row row-cols-1 row-cols-lg-3 row-cols-md-2 g-4">
+    {% for order in orders %}
+    <div class="col">
+        {% if not dresses %}
+        {% if not order.number|checkIfDressesDone %}
+        <button class="btn btn-dark" style="margin-bottom: 10px; width: 100%;"
+            onclick="setOnlineOrderToDresses(this,'{{order.number}}')">تحويل الطلب لمخزن الفساتين</button>
+        {% endif %}
+        {% endif %}
+        {% if single %}
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button class="btn btn-dark" onclick="this.disabled=true,removeUserFromOrder('{{order.number}}')">ازالة
+                المجهز</button>
+            <button class="btn btn-dark" style="margin-bottom: 10px;"
+                onclick="setAppCompleted('{{order.number}}')">تحويل
+                الطلب
+                {{order.number}} إلى
+                تم التجهيز</button>
+        </div>
+        {% endif %}
+        <div class="card h-100" style="position: relative;">
+            <div style="position: absolute; top: 50px; right: 10px; display: flex; flex-direction: column; gap: 15px;">
+                {% if order.billing.country != 'SA' %}
+                <div>
+                    <span class="tax" style="background: rgb(131, 0, 0);color: white; padding: 8px;">فاتورة ضريبية (شحن
+                        دولي)</span>
+
+                </div>
+                {% endif %}
+                {% if order.number|getPackagingDoneStatus %}
+                <div>
+                    <span class="packagingCompleted">تم التجهيز بواسطة {{order.number|getPackagingDoneStatus}}</span>
+                </div>
+                {% endif %}
+                {% if order.number|getShippingUser %}
+                <div>
+                    <span class="packagingCompleted">تم الشحن بواسطة {{order.number|getShippingUser}}</span>
+                </div>
+                {% endif %}
+            </div>
+            <div style="position: absolute; top: 10px; right: 10px;">
+                <span id="status_{{order.number}}" class="{{order.status}}">{{order.status|getStatusLabel}}</span>
+                {% if order.number|getPackagingUser != None %}
+                <span class="packaging_user">{{order.number|getPackagingUser}}</span>
+                {% endif %}
+                {% if order.number|getDressesPackagingUser != None %}
+                <span class="packaging_user">مجهز الفساتين {{order.number|getDressesPackagingUser}}</span>
+                {% endif %}
+            </div>
+            <span class="date"
+                style="position: absolute; top: 10px; left: 10px;">{{order.date_created|slice:":10"}}</span>
+
+            <div id="images_{{order.number}}" class="images">
+                {% for line_item in order.line_items %}
+
+                <figure>
+                    <img src="{{line_item.image.src}}" class="card-img-top" alt="{{line_item.sku}}"
+                        style="width: 100%;">
+                    <div style="padding: 0 10px;">{{line_item.name}}</div>
+                    <div style="display: flex; flex-direction: column; gap: 5px;font-size: 20px;">
+
+                        <figcaption class="line-spread" style="padding: 0 10px;">
+                            <!-- <span>{{line_item.sku}}</span><b>{{line_item.quantity}}</b> -->
+                            <b>{{line_item|getTotalItemWithTax|floatformat:0}} SAR</b>
+                        </figcaption>
+                        <figcaption style="padding: 0 10px;">
+                            <!-- <span>{{line_item.sku}}</span><b>{{line_item.quantity}}</b> -->
+                            <b>{{line_item.sku}}</b>
+                        </figcaption>
+                        {% if line_item.wh_location %}
+                        <div style="margin-bottom: 20px;">
+                            <div class="wh_location">المخزن: {{line_item.wh_location}}</div>
+                        </div>
+                        {% endif %}
+                        <button class="btn btn-dark" style="width: 100%;"
+                            onclick="checkIfAvailable(this,'{{line_item.product_id}}','{{line_item.variation_id}}')">
+                            التحقق من التوافر
+                        </button>
+                        <figcaption class="line-spread"
+                            style="padding: 0 10px; display: flex; justify-content: space-between;">
+                            {% if line_item.meta_data|getSizeFromLineItemMetaData %}
+                            <span>مقاس:{{line_item.meta_data|getSizeFromLineItemMetaData}}</span>
+                            {% endif %}
+                            <span class="quantity-value {% if line_item.quantity > 1 %}red{% endif %}">العدد:
+                                {{line_item.quantity}}</span>
+                        </figcaption>
+                        {% if line_item.meta_data|getColorFromLineItemMetaData %}
+                        <figcaption class="line-spread" style="padding: 0 10px;"><span>اللون:
+                                {{line_item.meta_data|getColorFromLineItemMetaData}}</span></figcaption>
+                        {% endif %}
+                        {% if line_item.meta_data|getSizeFromLineItemMetaData %}
+                        <div class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#notFoundQtyModal"
+                            onclick="updateNotFoundData(this,'{{order.number}}','{{line_item.image.src}}','{{line_item.sku}}','{{line_item.meta_data|getSizeFromLineItemMetaData}}')">
+                            غير
+                            متوفر</div>
+                        {% else %}
+                        <div class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#notFoundQtyModal"
+                            onclick="updateNotFoundData(this,'{{order.number}}','{{line_item.image.src}}','{{line_item.sku}}')">
+                            غير
+                            متوفر</div>
+                        {% endif %}
+
+                    </div>
+                </figure>
+                <!-- </div> -->
+                <!-- <div style="position: relative;">
+                    <div style="position: absolute; bottom: 0; background-color: rgb(25, 25, 146); color: white;" class="line-spread">
+                    <div>{{line_item.sku}}</div>
+                    <div>{{line_item.quantity}}</div>
+                    </div>
+                </div> -->
+                {% endfor %}
+            </div>
+            <div class="card-body">
+                <h5 class="card-title line-spread"><span>{{order.billing.first_name}} {{order.billing.last_name}}
+                    </span> <a href="https://old.alesaei-aes.com/wp-admin/post.php?post={{order.number}}&action=edit"
+                        target="_blank" rel="noopener noreferrer"><span>{{order.number}}</span></a></h5>
+            </div>
+            {% with isMobile=order.meta_data|isMobile %}
+            {% if isMobile %}
+            <div class="card-footer">
+                <small class="line-spread">طلب تطبيق</small>
+            </div>
+            {% endif %}
+            {% endwith %}
+            {% for fee_line in order.fee_lines %}
+            <div class="card-footer extra-fee
+                {% if fee_line.name == 'كيس ورقي مميز للاهداء' %} orange {% endif %}
+                {% if fee_line.name == 'تغليف كهدية' %} yellow {% endif %}
+                {% if fee_line.name == 'تغليف آمن' %} green {% endif %}
+                {% if fee_line.name == 'تغليف قماش للحفاظ على الملابس يدوم طويلًا' %} green {% endif %}
+                ">
+                <small class="line-spread"><span>{{fee_line.name}}</span> <span>{{fee_line.total}}
+                        SAR</span></small>
+            </div>
+            {% endfor %}
+
+            <div class="card-footer info">
+                <small class="text-muted line-spread">
+                    <span>طريقة الدفع:</span> <span>
+                        {{order.payment_method_title}}</span></small>
+            </div>
+            {% for shipping_line in order.shipping_lines %}
+            <div class="card-footer {% if 'بنفس اليوم' in shipping_line.method_title %} purple {% endif %}">
+                <small class="line-spread"><span> {{shipping_line.method_title}}</span> <span>
+                        {{shipping_line.total}} SAR</span></small>
+            </div>
+            {% endfor %}
+
+            <div class="card-footer">
+                <small class="line-spread red"><span>اجمالي القطع
+                        <b>({{order.line_items|getItemsQty}})</b></span>
+                    <span>{{order.line_items|getTotalItemsWithTax|floatformat:0}} SAR</span></small>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted line-spread"><span>اجمالي الطلب</span> <b>{{order.total}} SAR</b></small>
+            </div>
+            {% with order_total=order.total|abs %}
+            {% if order_total >= 299 and order_total <= 499 %}
+            <div class="card-footer gift-offer">
+                <small class="line-spread"><span>ايباد مجاني هدية</span></small>
+            </div>
+            {% elif order_total > 499 %}
+            <div class="card-footer gift-offer">
+                <small class="line-spread"><span>اثنين ايباد مجاني</span></small>
+            </div>
+            {% endif %}
+            {% endwith %}
+            <div class="card-footer info">
+                <b class="text-muted line-spread">
+                    <span>المدينة:</span> <span>
+                        {{order.billing.city}}</span></b>
+            </div>
+            {% if order.customer_note %}
+            <div class="card-footer info">
+                <b class="text-muted line-spread">
+                    <span>ملاحظة العميل:</span> <span>
+                        {{order.customer_note}}</span></b>
+            </div>
+            {% endif %}
+            {% if shipping %}
+            {% with shipment=order.meta_data|getShipmentFromOrder %}
+            {% if shipment %}
+            <div class="button-card-footer line-spread" style="background-color: rgb(180, 255, 180);">
+                <small class="">رقم الشحنة: {{shipment}}</small>
+                {% if setToCompleted %}
+                {% endif %}
+                <button class="btn btn-dark btn-small" onclick="openLabel('{{shipment}}')">طباعة</button>
+                <button class="btn btn-dark btn-small" data-bs-toggle="modal"
+                    data-bs-target="#createSmsaShipmentConfirmationModal"
+                    onclick="setGlobalOrderNumber('{{order.id}}')">إنشاء شحنة
+                    سمسا</button>
+            </div>
+            {%else%}
+            <div class="button-card-footer line-spread" id="shipping_line_{{order.number}}"
+                style="background-color: rgb(252, 176, 176);">
+                <small class="">رقم الشحنة</small>
+                <small id="awno_{{order.number}}" class=""></small>
+                <div id="createShipmentBtn_{{order.id}}" style="display: flex;">
+                    <button class="btn btn-dark btn-small" data-bs-toggle="modal"
+                        data-bs-target="#createSmsaShipmentConfirmationModal"
+                        onclick="setGlobalOrderNumber('{{order.id}}')">إنشاء شحنة
+                        سمسا</button>
+                    <button class="btn btn-dark btn-small" onclick="createLocalShipment('{{order.id}}')">إنشاء
+                        شحنة جدة</button>
+                </div>
+            </div>
+            {%endif%}
+            {% endwith %}
+
+            {% else %}
+            <div class="button-card-footer line-spread">
+                <button class="btn btn-success btn-small"
+                    onclick="sendToPrinter('{{order.number}}','{{order.date_created}}')"
+                    style="width: 100%;height: 40px;">
+                    طباعة</button>
+            </div>
+            <div class="button-card-footer line-spread" id="setPackagingCompleted_{{order.number}}">
+                <button id="setPackagingCompleted_btn_{{order.number}}" class="btn btn-success btn-small"
+                    data-bs-toggle="modal" data-bs-target="#exampleModal"
+                    onclick="setGlobalOrderNumber('{{order.number}}')" style="width: 100%;height: 40px;">تم
+                    التجهيز</button>
+            </div>
+            {% endif %}
+
+            {% with invoice_number=order|getInfosoftInvoiceFromOrder %}
+            {% if invoice_number %}
+            <div class="button-card-footer line-spread" id="invoice_line_{{order.number}}"
+                style="background-color: rgb(180, 255, 180);">
+                <small class="">رقم الفاتورة</small>
+                <small class="text-muted">{{invoice_number}}</small>
+            </div>
+            {% elif setToCompleted %}
+            <div class="button-card-footer line-spread" id="invoice_line_{{order.number}}"
+                style="background-color: rgb(252, 176, 176);">
+                <small class="">رقم الفاتورة</small>
+                <small id="invoice_{{order.number}}" class="text-muted"></small>
+                <div id="createInvoiceBtn_{{order.number}}" style="display: flex;">
+                    <button class="btn btn-dark btn-small" onclick="createInvoice('{{order.number}}',0)">إنشاء فاتورة
+                        توصيل جدة</button>
+                    <button class="btn btn-dark btn-small" onclick="createInvoice('{{order.number}}',1)">إنشاء
+                        فاتورة</button>
+                    <button class="btn btn-dark btn-small" onclick="openCreateInvoiceModal('{{order.number}}')">إنشاء
+                        فاتورة يدوية</button>
+                </div>
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            {% if order.status != 'waiting' %}
+            <div class="button-card-footer line-spread" style="margin-top: 20px;" id="set_onHold_{{order.number}}">
+                <button id="set_onHold_btn_{{order.number}}" disabled class="on-hold-btn btn btn-warning btn-small"
+                    data-bs-toggle="modal" data-bs-target="#setOnHoldConfirmationModal"
+                    onclick="setGlobalOrderNumber('{{order.number}}')" style="width: 100%;height: 40px;">تحويل إلى قيد
+                    الانتظار</button>
+            </div>
+            {% endif %}
+            {% if setToCompleted and order.status != 'completed'%}
+            <div class="button-card-footer line-spread" id="set_completed_{{order.number}}">
+                <button id="set_completed_btn_{{order.number}}" class="btn btn-warning btn-small"
+                    onclick="setCompleted('{{order.number}}')" style="width: 100%;height: 40px;">تحويل إلى مكتمل
+                </button>
+            </div>
+            {% endif %}
+            <div class="card-footer">
+                <small class="text-muted">{{order.date_created|slice:":10"}}</small>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+<!-- Modal -->
+<div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exampleModalLabel">تأكيد</h5>
+            </div>
+            <div class="modal-body">
+                هل أنت متأكد؟
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">الغاء</button>
+                <button type="button" class="btn btn-primary" onclick="setPackagingCompleted()">نعم</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="setOnHoldConfirmationModal" tabindex="-1" aria-labelledby="setOnHoldConfirmationModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="setOnHoldConfirmationModalLabel">تأكيد</h5>
+            </div>
+            <div class="modal-body">
+                هل أنت متأكد من تغيير حالة الطلب إلى قيد الانتظار؟
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">الغاء</button>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal" onclick="setOnHold()">نعم</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="createSmsaShipmentConfirmationModal" tabindex="-1"
+    aria-labelledby="createSmsaShipmentConfirmationModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createSmsaShipmentConfirmationModalLabel">تأكيد</h5>
+            </div>
+            <div class="modal-body">
+                هل أنت متأكد من انشاء شحنة سمسا للطلب؟
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">الغاء</button>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal"
+                    onclick="createShipment()">نعم</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="notFoundQtyModal" tabindex="-1" aria-labelledby="notFoundQtyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="notFoundQtyModalLabel">تأكيد</h5>
+            </div>
+            <div class="modal-body">
+                كم الكمية الغير متاحة؟
+                <input id="notFoundQty" type="number" class="form-control">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">الغاء</button>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal"
+                    onclick="setNotFound(this)">ارسال</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="toastsArea">
+
+</div>
+<input name="csrfmiddlewaretoken" value="{{ csrf_token }}" hidden></input>
+
+<!-- <div style="display: flex;justify-content: space-between;">
+    {% if page != 1 %}
+    <button class="btn btn-dark" onclick="prev()">السابق</button>
+    <button class="btn btn-dark" onclick="next()">التالي</button>
+    {% else %}
+    <span></span>
+    <a href="{% url 'onlineOrders' 2 %}"><button class="btn btn-dark">التالي</button></a>
+    {% endif %}
+
+</div>
+<table class="table">
+    <thead>
+        <tr>
+            <th scope="col">#</th>
+            <th scope="col">الحالة</th>
+            <th scope="col">الاسم</th>
+            <th scope="col">رقم الجوال</th>
+            <th scope="col">طريقة الدفع </th>
+            <th scope="col">التاريخ</th>
+            <th scope="col">الاجمالي</th>
+            <th scope="col">الشحنة</th>
+            <th scope="col">الفاتورة</th>
+            <th scope="col">طباعة</th>
+            <th scope="col">استعراض</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for order in orders %}
+        <tr>
+            <th scope="row">{{ forloop.counter }}</th>
+            <td>{{order.id}}</td>
+            <td><span class="{{order.status}}">{{order.status|getStatusLabel}}</span></td>
+            <td>{{order.billing.first_name}} {{order.billing.last_name}}</td>
+            <td>{{order.billing.phone}}</td>
+            <td style="text-wrap: wrap;">{{order.payment_method|getPaymentTitle}}</td>
+            <td>{{order.date_created}}</td>
+            <td>{{order.total}}</td>
+            {% with shipment=order.meta_data|getShipmentFromOrder %}
+            <td>{% if shipment %} <button class="btn btn-link" onclick="openLabel('{{shipment}}')">{{shipment}}</button>
+                {%else%}
+                <button id="createShipmentBtn_{{order.id}}" class="btn btn-dark"
+                    onclick="createShipment('{{order.id}}')">إنشاء شحنة</button>
+                {%endif%}
+            </td>
+            {% endwith %}
+
+            {% with invoice_number=order|getInfosoftInvoiceFromOrder %}
+            <td id="td_{{order.order_number}}" style="position: relative;">
+                {% if invoice_number %}
+                {{invoice_number}}
+                {%else%}
+                <button id="createInvoiceBtn_{{order.id}}" class="btn btn-dark"
+                    onclick="createInvoice('{{order.id}}')">إنشاء فاتورة</button>
+                {%endif%}
+            </td>
+            {% endwith %}
+
+            <td>
+                <div class="btn btn-dark" onclick="printInvoice('{{order.id}}')">طباعة
+                </div>
+            </td>
+            <td>
+                <div class="btn btn-dark" onclick="browseOrder('{{order.id}}')">استعراض
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table> -->
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js"></script>
+
+<script>
+    function sendToPrinter(order_number, date) {
+        let formatedDate = date.slice(0, 10);
+        $.ajax({
+            type: 'GET',
+            url: `/printOrderNumberLabel/${order_number}/${formatedDate}`,
+            success: function (response) {
+                if (response.success) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto"> تمت الطباعة بنجاح </strong>
+                            </div>
+                            <div class="toast-body">
+                            ${response.response}
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                } else {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto">حدث خطأ اثناء الطباعة</strong>
+                            </div>
+                            <div class="toast-body">
+                            ${response.response}
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+                // The response should contain the base64 encoded PDF
+                // Here, you can do whatever you want with the PDF, for example, display it in an iframe
+                // var pdfData = 'data:application/pdf;base64,' + response;
+                // $('#pdfViewer').attr('src', pdfData);
+
+            },
+            error: function (xhr, status, error) {
+                console.error('Error:', error);
+            }
+        });
+    }
+
+</script>
+
+<script>
+    // Get the input element
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        // Add an event listener for the input event
+        searchInput.addEventListener('input', function () {
+            // Get the current value of the input
+            const inputValue = searchInput.value;
+            if (inputValue.length < 6) {
+                return
+            }
+            // You can perform your AJAX request here, for example using the Fetch API
+            // Replace the URL with your actual API endpoint
+            const apiUrl = '/getWooOrder/' + inputValue;
+
+            // Perform the AJAX request
+            fetch(apiUrl)
+                .then(response => response.json())
+                .then(data => {
+                    console.log(data);
+                    if (data.order) {
+                        window.location.href = `/userOnlineOrder/shipping/${data.order.number}`;
+                    }
+                })
+                .catch(error => console.error('Error fetching data:', error));
+        });
+    }
+
+    const searchInputDresses = document.getElementById('searchInputDresses');
+    if (searchInputDresses) {
+        // Add an event listener for the input event
+        searchInputDresses.addEventListener('input', function () {
+            // Get the current value of the input
+            const inputValue = searchInputDresses.value;
+            if (inputValue.length < 6) {
+                return
+            }
+            // You can perform your AJAX request here, for example using the Fetch API
+            // Replace the URL with your actual API endpoint
+            const apiUrl = '/getWooOrder/' + inputValue;
+
+            // Perform the AJAX request
+            fetch(apiUrl)
+                .then(response => response.json())
+                .then(data => {
+                    console.log(data);
+                    if (data.order) {
+                        window.location.href = `/userOnlineOrder/dresses/${data.order.number}`;
+                    }
+                })
+                .catch(error => console.error('Error fetching data:', error));
+        });
+    }
+</script>
+
+<script>
+    const currentUrl = window.location.href;
+    var global_order_number;
+    // setNotFound(this,'{{order.number}}','{{line_item.image.src}}','{{line_item.sku}}')"
+    var g_event;
+    var g_order_number;
+    var g_line_item_image_src;
+    var g_line_item_sku;
+    var g_size;
+    const notFoundQtyElement = document.getElementById("notFoundQty");
+    function updateNotFoundData(event, order_number, line_item_image_src, line_item_sku, size = '') {
+        g_order_number = event;
+        g_order_number = order_number;
+        g_line_item_image_src = line_item_image_src;
+        g_line_item_sku = line_item_sku;
+        g_size = size;
+        notFoundQtyElement.value = 1;
+    }
+    async function setNotFound(event) {
+        event.disabled = true;
+        $.ajax({
+            type: "POST",
+            url: `/setNotFound/`,
+            data: {
+                order_number: g_order_number,
+                sku: g_line_item_sku,
+                image_url: g_line_item_image_src,
+                size: g_size,
+                qty: notFoundQtyElement.value,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            },
+            success: function (res) {
+                if (res.done) {
+                    // g_event.classList.remove("btn");
+                    // g_event.classList.remove("btn-dark");
+                    // g_event.onclick = function () {
+                    //     return false;
+                    // }
+                    const btns = document.getElementsByClassName("on-hold-btn");
+                    for (let index = 0; index < btns.length; index++) {
+                        const element = btns[index];
+                        element.disabled = false;
+                    }
+                }
+                if (res.exists) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto"> رسالة خطأ </strong>
+                            </div>
+                            <div class="toast-body">
+                            تم إضافة القطعة إلى القائمة مسبقاً
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+                if (res.error) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto"> رسالة خطأ </strong>
+                            </div>
+                            <div class="toast-body">
+                            ${res.error}
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+            },
+            error: function (xhr, ajaxOptions, thrownError) {
+            },
+            complete: function (data) {
+                event.disabled = false;
+                notFoundQtyElement.value = 1;
+            }
+
+        });
+        // event.removeAttribute("onclick");
+        // event.classList.remove("btn");
+        // event.classList.remove("btn-dark");
+    }
+    function printInvoice(order_number) {
+        window.open(`/invoice/${order_number}`, '_blank');
+    }
+
+    function browseOrder(order_number) {
+        window.open(`https://old.alesaei-aes.com/wp-admin/post.php?post=${order_number}&action=edit`, '_blank');
+    }
+    function getLastPart(url) {
+        const parts = url.split('/');
+        return parts.at(-1);
+    }
+    function prev() {
+        const page = getLastPart(currentUrl);
+        window.location.href = `/onlineOrders/${parseInt(page) - 1}`
+    }
+    function next() {
+        const page = getLastPart(currentUrl);
+        window.location.href = `/onlineOrders/${parseInt(page) + 1}`
+    }
+    async function setOnHold() {
+        const set_onHold_ = document.getElementById(`set_onHold_${global_order_number}`);
+        set_onHold_.style.display = "none";
+        var url = `/setOnHold/${global_order_number}`;
+        return await fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest', //Necessary to work with request.is_ajax()
+            },
+        })
+            .then(response => {
+                return response.json();
+            })
+            .then(data => {
+                if (data.done) {
+                    const statusEl = document.getElementById(`status_${global_order_number}`);
+                    statusEl.innerText = 'قيد الانتظار';
+                    statusEl.classList.remove('processing');
+                    statusEl.classList.add('waiting');
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <strong class="me-auto">${global_order_number}</strong>
+                            </div>
+                            <div class="toast-body">
+                                تم تحويل الطلب إلى قيد الانتظار
+                                </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                    location.reload();
+                } else {
+                    set_onHold_.style.display = "block";
+                }
+            })
+    }
+    function setGlobalOrderNumber(order_number) {
+        global_order_number = order_number;
+    }
+    async function setPackagingCompleted() {
+        const set_PackagingCompleted = document.getElementById(`setPackagingCompleted_${global_order_number}`);
+        set_PackagingCompleted.style.display = "none";
+        var url = `/setPackagingCompleted/${global_order_number}`;
+        $("#loadingScreenReturns").show();
+        return await fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest', //Necessary to work with request.is_ajax()
+            },
+        })
+            .then(response => {
+                return response.json();
+            })
+            .then(data => {
+                if (data.done) {
+                    const statusEl = document.getElementById(`status_${global_order_number}`);
+                    statusEl.innerText = 'تم التجهيز';
+                    statusEl.classList.remove('processing');
+                    statusEl.classList.add('packagingCompleted');
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <strong class="me-auto">${global_order_number}</strong>
+                            </div>
+                            <div class="toast-body">
+                                تم
+                                </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                    window.location.href = `/userOnlineOrder/`;
+                } else {
+                    set_PackagingCompleted.style.display = "block";
+                }
+            }).finally(() => {
+                $("#loadingScreenReturns").hide();
+            })
+    }
+
+    async function setAppCompleted(order_number) {
+        var url = `/setAppCompleted/${order_number}`;
+        return await fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest', //Necessary to work with request.is_ajax()
+            },
+        })
+            .then(response => {
+                return response.json();
+            })
+            .then(data => {
+                if (data.done) {
+                    location.reload();
+                }
+            })
+    }
+
+    async function setCompleted(order_number) {
+        const set_onHold_ = document.getElementById(`set_completed_${order_number}`);
+        set_onHold_.style.display = "none";
+        var url = `/setCompleted/${order_number}`;
+        return await fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest', //Necessary to work with request.is_ajax()
+            },
+        })
+            .then(response => {
+                return response.json();
+            })
+            .then(data => {
+                if (data.done) {
+                    const statusEl = document.getElementById(`status_${order_number}`);
+                    statusEl.innerText = 'مكتمل';
+                    statusEl.classList.remove('processing');
+                    statusEl.classList.remove('waiting');
+                    statusEl.classList.add('completed');
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <strong class="me-auto">${order_number}</strong>
+                            </div>
+                            <div class="toast-body">
+                                تم تحويل الطلب إلى مكتمل
+                                </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                } else {
+                    set_onHold_.style.display = "block";
+                }
+            })
+    }
+    function createShipment() {
+        $("#loadingScreenReturns").show();
+        if (global_order_number.endsWith("Enter")) {
+            global_order_number = global_order_number.replace('Enter', '');
+        }
+        $.ajax({
+            type: "POST",
+            url: `/createSmsaShipment`,
+            data: {
+                order_number: global_order_number,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            },
+            success: function (res) {
+                if (res.done) {
+                    const div = document.getElementById(`createShipmentBtn_${global_order_number}`);
+                    div.style.display = "none";
+                    document.getElementById(`awno_${global_order_number}`).innerText = global_order_number;
+                    document.getElementById(`shipping_line_${global_order_number}`).classList.add("greenBg");
+                }
+                if (res.exists) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto"> رسالة خطأ </strong>
+                            </div>
+                            <div class="toast-body">
+                            تم طباعة الشحنة سابقاً (لطباعة الشحنة مرة أخرى يرجى التواصل مع مدير المتجر)
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+                // else if (res.label) {
+                //     printJS({ printable: res.label, type: 'pdf', base64: true })
+                // }
+                if (res.error) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto"> رسالة خطأ </strong>
+                            </div>
+                            <div class="toast-body">
+                            ${res.error}
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+            },
+            error: function (xhr, ajaxOptions, thrownError) {
+            },
+            complete: function (data) {
+                $("#loadingScreenReturns").hide();
+            }
+        });
+    }
+
+    function createLocalShipment(order_number) {
+        $("#loadingScreenReturns").show();
+        $.ajax({
+            type: "POST",
+            url: `/createLocalShipment`,
+            data: {
+                order_number: order_number,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            },
+            success: function (res) {
+                if (res.done) {
+                    const div = document.getElementById(`createShipmentBtn_${order_number}`);
+                    div.style.display = "none";
+                    document.getElementById(`awno_${order_number}`).innerText = order_number;
+                    document.getElementById(`shipping_line_${order_number}`).classList.add("greenBg");
+                    location.reload();
+                }
+                if (res.exists) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto"> رسالة خطأ </strong>
+                            </div>
+                            <div class="toast-body">
+                            تم طباعة الشحنة سابقاً (لطباعة الشحنة مرة أخرى يرجى التواصل مع مدير المتجر)
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+                // else if (res.label) {
+                //     printJS({ printable: res.label, type: 'pdf', base64: true })
+                // }
+                if (res.error) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <svg style="margin-left:4px" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-alert-triangle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong class="me-auto"> رسالة خطأ </strong>
+                            </div>
+                            <div class="toast-body">
+                            ${res.error}
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+            },
+            error: function (xhr, ajaxOptions, thrownError) {
+            },
+            complete: function (data) {
+                $("#loadingScreenReturns").hide();
+            }
+        });
+    }
+
+    async function openLabel(awb) {
+        // awb="290835476609";
+        base64String = await getPdfFile(awb);
+        // if (base64String) {
+        //     printJS({ printable: base64String, type: 'pdf', base64: true })
+        // }
+    }
+    async function getPdfFile(awb) {
+        var url = `/getShipmentLabel/${awb}`;
+        return await fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest', //Necessary to work with request.is_ajax()
+            },
+        })
+            .then(response => {
+                return response.json();
+            })
+            .then(data => {
+                console.log(data);
+                if (data.label) {
+                    $("#toastsArea").empty();
+                    $("#toastsArea").append(`
+                        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                            <div class="toast-header">
+                            <strong class="me-auto">${awb}</strong>
+                            </div>
+                            <div class="toast-body">
+                                تم طباعة الشحنة بنجاح
+                            </div>
+                        </div>
+                        `)
+                    $(".toast").toast("show");
+                }
+                if (data["error"]) {
+                    return false
+                } else {
+                    return data["label"]
+                }
+            })
+    }
+    async function createManualInvoice() {
+        const invoice_order_number = document.getElementById("invoice_order_number").value
+        const invoice_number = document.getElementById("invoice_number").value
+
+        $.ajax({
+            type: "POST",
+            url: `/sellManualOrder/${invoice_order_number}`,
+            data: {
+                invoice_number: invoice_number,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            },
+            success: function (data) {
+                $("#toastsArea").empty();
+                $("#toastsArea").append(`
+                            <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                                <div class="toast-header">
+                                <strong class="me-auto">${data["invoiceId"]}</strong>
+                                </div>
+                                <div class="toast-body">
+                                    تم إنشاء الفاتورة بنجاح
+                                    </div>
+                            </div>
+                            `)
+                $(".toast").toast("show");
+                const btn = document.getElementById(`createInvoiceBtn_${invoice_order_number}`);
+                btn.style.display = "none";
+                document.getElementById(`invoice_${invoice_order_number}`).innerText = data["invoiceId"];
+                document.getElementById(`invoice_line_${invoice_order_number}`).classList.add("greenBg");
+            },
+            error: function (xhr, ajaxOptions, thrownError) {
+                console.log(thrownError);
+            },
+
+        });
+    }
+    function openCreateInvoiceModal(order_number) {
+        document.getElementById("invoice_order_number").value = order_number;
+        var myModal = new bootstrap.Modal(document.getElementById("invoiceModal"), {});
+        myModal.show();
+    }
+    async function createInvoice(order_number, smsa) {
+        try {
+            const btn = document.getElementById(`createInvoiceBtn_${order_number}`);
+            btn.style.display = "none";
+            var url = `/sellOrder/${order_number}/${smsa}`;
+            return await fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest', //Necessary to work with request.is_ajax()
+                },
+            })
+                .then(response => {
+                    return response.json();
+                })
+                .then(data => {
+                    console.log(data);
+                    if (data["error"]) {
+                        $("#toastsArea").empty();
+                        $("#toastsArea").append(`
+                            <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                                <div class="toast-header">
+                                <strong class="me-auto">خطأ</strong>
+                                </div>
+                                <div class="toast-body">
+                                    ${data["error"]}
+                                </div>
+                            </div>
+                            `)
+                        $(".toast").toast("show");
+                        btn.style.display = "block";
+
+
+                    } else if (data["status"] == false) {
+                        $("#toastsArea").empty();
+                        $("#toastsArea").append(`
+                            <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                                <div class="toast-header">
+                                <strong class="me-auto">خطأ</strong>
+                                </div>
+                                <div class="toast-body">
+                                    حدث خطأ غير معروف
+                                </div>
+                            </div>
+                            `)
+                        $(".toast").toast("show");
+                        btn.style.display = "block";
+                    } else if (data["status"] == true) {
+                        $("#toastsArea").empty();
+                        $("#toastsArea").append(`
+                            <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                                <div class="toast-header">
+                                <strong class="me-auto">${data["invoiceId"]}</strong>
+                                </div>
+                                <div class="toast-body">
+                                    تم إنشاء الفاتورة بنجاح
+                                    </div>
+                            </div>
+                            `)
+                        $(".toast").toast("show");
+                        document.getElementById(`invoice_${order_number}`).innerText = data["invoiceId"];
+                        document.getElementById(`invoice_line_${order_number}`).classList.add("greenBg");
+                    }
+                })
+
+        } catch (error) {
+            $("#toastsArea").append(`
+            <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="toast-header">
+                <strong class="me-auto">خطأ - طلب رقم ${order_number}</strong>
+                </div>
+                <div class="toast-body">
+                    ${error}
+                    </div>
+            </div>
+            `)
+            $(".toast").toast("show");
+        }
+    }
+    // // const toastTrigger = document.getElementById('liveToastBtn')
+    // // const toastLiveExample = document.getElementById('liveToast')
+
+    // // if (toastTrigger) {
+    // // const toastBootstrap = bootstrap.Toast.getOrCreateInstance(toastLiveExample)
+    // // toastTrigger.addEventListener('click', () => {
+    // //     toastBootstrap.show()
+    // // })
+    // // }
+    // (function ($) {
+    //     $('.toast').show(option)
+    // })($);
+    // (function ($) {
+    //     var _timeoutHandler = 0,
+    //         _inputString = '',
+    //         _onKeypress = function (e) {
+    //             if (_timeoutHandler) {
+    //                 clearTimeout(_timeoutHandler);
+    //             }
+    //             _inputString += e.key;
+    //             _timeoutHandler = setTimeout(function () {
+    //                 if (_inputString.length <= 3) {
+    //                     _inputString = '';
+    //                     return;
+    //                 }
+    //                 $(e.target).trigger('altdeviceinput', _inputString);
+    //                 console.log(_inputString);
+    //                 if (_inputString.endsWith("Enter")) {
+    //                     _inputString = _inputString.replace('Enter', '');
+    //                 }
+    //                 console.log(_inputString);
+    //                 $(window).scrollTop($(`*:contains('${_inputString}')`).parent('tr').offset().top);
+    //                 this.createInvoice(_inputString);
+    //                 // $('#scanned_number').val(_inputString)
+    //                 _inputString = '';
+
+    //             }, 20);
+    //         };
+    //     $(document).on({
+    //         keypress: _onKeypress
+    //     });
+    // })($);
+    function removeUserFromOrder(order_number) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', `/removeUserFromOrder/${order_number}`, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('X-CSRFToken', '{{ csrf_token }}');
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                var response = JSON.parse(xhr.responseText);
+                location.reload();
+            }
+        };
+        xhr.send();
+    }
+
+    function setOnlineOrderToDresses(event, id) {
+        event.disabled = true;
+        $.ajax({
+            type: "GET",
+            url: `/setOnlineOrderToDresses/${id}`,
+            success: function (res) {
+                if (res.success) {
+                    Toastify({
+                        text: "تم تحويل الطلب لقسم الفساتين",
+                        duration: 3000,  // 3 seconds
+                        close: true,
+                        gravity: "top",  // "top" or "bottom"
+                        position: "left",  // "left", "center", or "right"
+                    }).showToast();
+                    event.classList.remove("btn-dark");
+                    event.classList.add("btn-success");
+                }
+            },
+            error: function (xhr, ajaxOptions, thrownError) {
+                event.disabled = false;
+            }
+        });
+        window.location.reload();
+    }
+    const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    function checkIfAvailable(event, product_id, variation_id = 0) {
+        event.disabled = true;
+        console.log(product_id);
+        console.log(variation_id);
+        var url = `/getWooProductById`;
+        fetch(url, {
+            method: "post",
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRFToken': csrftoken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({ "product_id": product_id, "variation_id": variation_id }),
+        })
+            .then(response => {
+                return response.json();
+            })
+            .then(data => {
+                console.log(data);
+                if (data.product) {
+                    if (data.product.stock_quantity > 0) {
+                        event.innerText = "متوفر"
+                        event.classList.remove("btn-dark");
+                        event.classList.add("btn-success");
+                    } else if (data.product.stock_quantity <= 0) {
+                        event.innerText = "غير متوفر";
+                        event.classList.remove("btn-dark");
+                        event.classList.add("btn-danger");
+                    } else {
+                        Toastify({
+                            text: "حدث خطأ في معرفة الكمية المتوفرة",
+                            duration: 3000,  // 3 seconds
+                            close: true,
+                            gravity: "top",  // "top" or "bottom"
+                            position: "left",  // "left", "center", or "right"
+                        }).showToast();
+                        event.disabled = false;
+                    }
+                } else {
+                    event.disabled = false;
+                    Toastify({
+                        text: "حدث خطأ في جلب المنتج",
+                        duration: 3000,  // 3 seconds
+                        close: true,
+                        gravity: "top",  // "top" or "bottom"
+                        position: "left",  // "left", "center", or "right"
+                    }).showToast();
+                }
+                // if (data.error) {
+                //     modalBody.innerHTML = "<div style='text-align: center;'>لا توجد صورة</div>";
+                // }
+                // else if (data.products) {
+                //     modalBody.innerHTML = '';
+                //     data.products[0].images.forEach(img => {
+                //         let imgTag = `<img src="${img.src}" class="card-img-top" alt="...">`;
+                //         modalBody.innerHTML += imgTag;
+                //     });
+                // }
+            }).catch(function (err) {
+                event.disabled = false;
+                console.log(err);
+            });
+    }
+</script>
+{% endblock scripts %}

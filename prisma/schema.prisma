@@ -516,6 +516,7 @@ model OrderUser {
   updatedAt DateTime @updatedAt
 
   assignments          OrderAssignment[]
+  prepAssignments      OrderPrepAssignment[]
   warehouseAssignments WarehouseAssignment[]
   deliveryAssignments  ShipmentAssignment[]  @relation("DeliveryAssignments")
   printerLink          OrderUserPrinterLink?
@@ -603,6 +604,34 @@ model OrderAssignment {
   @@index([userId])
   @@index([status])
   @@index([merchantId, orderId])
+  @@index([assignedAt])
+}
+
+model OrderPrepAssignment {
+  id        String   @id @default(cuid())
+  merchantId String
+
+  userId   String
+  userName String
+  user     OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  orderId        String
+  orderNumber    String?
+  orderReference String?
+  orderData      Json
+
+  status      String   @default("assigned")
+  assignedAt  DateTime @default(now())
+  startedAt   DateTime?
+  waitingAt   DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  lastStatusUpdateAt DateTime @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([userId])
+  @@index([status])
   @@index([assignedAt])
 }
 

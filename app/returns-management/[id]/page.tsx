@@ -12,6 +12,8 @@ import {
 import {
   CONDITION_LABELS,
   summarizeItemConditions,
+  isReturnItemCondition,
+  type ReturnItemCondition,
 } from '@/app/lib/returns/inspection';
 import {
   resolveReturnItemImage,
@@ -123,11 +125,28 @@ export default async function ReturnOrderDetailsPage({
     notFound();
   }
   const { returnRequest, sallaOrder, smsaLabelDataUrl } = data;
-  const inspectionSummary = summarizeItemConditions(returnRequest.items);
-  const itemsWithImages = returnRequest.items.map((item) => ({
-    ...item,
-    imageUrl: resolveReturnItemImage(item, sallaOrder?.items ?? null),
+  const inspectionItems = returnRequest.items.map((item) => ({
+    quantity: item.quantity,
+    conditionStatus: isReturnItemCondition(item.conditionStatus)
+      ? (item.conditionStatus as ReturnItemCondition)
+      : null,
   }));
+  const inspectionSummary = summarizeItemConditions(inspectionItems);
+  type ReturnRequestItemWithImage = (typeof returnRequest.items)[number] & {
+    conditionStatus: ReturnItemCondition | null;
+    imageUrl: string | null;
+  };
+
+  const itemsWithImages: ReturnRequestItemWithImage[] = returnRequest.items.map((item) => {
+    const normalizedCondition = isReturnItemCondition(item.conditionStatus)
+      ? (item.conditionStatus as ReturnItemCondition)
+      : null;
+    return {
+      ...item,
+      conditionStatus: normalizedCondition,
+      imageUrl: resolveReturnItemImage(item, sallaOrder?.items ?? null),
+    };
+  });
   const orderItemsWithImages = (sallaOrder?.items ?? []).map((item) => ({
     ...item,
     imageUrl: extractOrderItemImage(item),

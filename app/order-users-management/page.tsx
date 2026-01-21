@@ -3,6 +3,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import AppNavbar from '@/components/AppNavbar';
 import {
   getAssignableServices,
@@ -864,183 +872,206 @@ export default function OrderUsersManagementPage() {
                 </p>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {users.map((user) => {
-                  const serviceKeysForUser = (user.serviceKeys || []) as ServiceKey[];
-                  const derivedRoles = getRolesFromServiceKeys(serviceKeysForUser);
-                  const hasOrdersRole = derivedRoles.includes('orders');
-                  const hasWarehouseRole = derivedRoles.includes('warehouse');
-                  const hasAccountantRole = derivedRoles.includes('accountant');
-                  const serviceBadges =
-                    serviceKeysForUser.length > 0 ? serviceKeysForUser : [];
-                  const startDateLabel = formatDateForDisplay(user.employmentStartDate);
-                  const endDateLabel = user.employmentEndDate
-                    ? formatDateForDisplay(user.employmentEndDate)
-                    : 'على رأس العمل';
-                  const salaryLabel = formatSalaryDisplay(
-                    user.salaryAmount,
-                    user.salaryCurrency
-                  );
-                  const endedEmployment = Boolean(user.employmentEndDate);
-                  const employmentStatusClasses = endedEmployment
-                    ? 'border-rose-100 bg-rose-50 text-rose-700'
-                    : 'border-emerald-100 bg-emerald-50 text-emerald-700';
-                  return (
-                    <Card
-                      key={user.id}
-                      className="flex h-full flex-col rounded-3xl border border-white/40 bg-white/95 p-6 shadow-lg shadow-slate-900/10 transition hover:-translate-y-1 hover:shadow-2xl"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-                            @{user.username}
-                          </p>
-                          <h3 className="mt-1 text-xl font-semibold text-slate-900">{user.name}</h3>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {user.email || 'لا يوجد بريد'} • {user.phone || 'لا يوجد هاتف'}
-                            {user.affiliateName && (
-                              <span className="mr-2 inline-flex items-center rounded-md bg-purple-50 px-2 py-1 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-700/10">
-                                مسوق: {user.affiliateName} ({Number(user.affiliateCommission || 10)}%)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <span
-                          className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                            user.isActive
-                              ? 'bg-emerald-50 text-emerald-600'
-                              : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {user.isActive ? 'نشط' : 'غير نشط'}
-                        </span>
-                      </div>
+              <Card className="rounded-3xl border border-white/40 bg-white/95 p-0 shadow-lg shadow-slate-900/10">
+                <Table className="text-xs text-slate-600">
+                  <TableHeader className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <TableRow className="border-slate-200">
+                      <TableHead className="px-6 py-4 text-right text-slate-500">
+                        المستخدم
+                      </TableHead>
+                      <TableHead className="px-6 py-4 text-right text-slate-500">
+                        التوظيف والمزايا
+                      </TableHead>
+                      <TableHead className="px-6 py-4 text-right text-slate-500">
+                        الوصول والارتباط
+                      </TableHead>
+                      <TableHead className="px-6 py-4 text-right text-slate-500">
+                        الإجراءات
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="bg-white text-xs">
+                    {users.map((user) => {
+                        const serviceKeysForUser = (user.serviceKeys || []) as ServiceKey[];
+                        const derivedRoles = getRolesFromServiceKeys(serviceKeysForUser);
+                        const hasOrdersRole = derivedRoles.includes('orders');
+                        const hasWarehouseRole = derivedRoles.includes('warehouse');
+                        const hasAccountantRole = derivedRoles.includes('accountant');
+                        const serviceBadges =
+                          serviceKeysForUser.length > 0 ? serviceKeysForUser : [];
+                        const startDateLabel = formatDateForDisplay(user.employmentStartDate);
+                        const endDateLabel = user.employmentEndDate
+                          ? formatDateForDisplay(user.employmentEndDate)
+                          : 'على رأس العمل';
+                        const salaryLabel = formatSalaryDisplay(
+                          user.salaryAmount,
+                          user.salaryCurrency
+                        );
+                        const endedEmployment = Boolean(user.employmentEndDate);
+                        const employmentStatusClasses = endedEmployment
+                          ? 'border-rose-100 bg-rose-50 text-rose-700'
+                          : 'border-emerald-100 bg-emerald-50 text-emerald-700';
 
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {serviceBadges.length > 0 ? (
-                          serviceBadges.map((key) => (
-                            <span
-                              key={key}
-                              className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700"
-                            >
-                              {SERVICE_MAP.get(key)?.title || key}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500">
-                            لا توجد روابط محددة
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-slate-600 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4">
-                          <p className="text-xs uppercase tracking-wide text-slate-500">
-                            بداية العمل
-                          </p>
-                          <p className="mt-1 font-semibold text-slate-900">{startDateLabel}</p>
-                        </div>
-                        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4">
-                          <p className="text-xs uppercase tracking-wide text-slate-500">
-                            نهاية العمل
-                          </p>
-                          <p className="mt-1 font-semibold text-slate-900">{endDateLabel}</p>
-                        </div>
-                        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4">
-                          <p className="text-xs uppercase tracking-wide text-slate-500">الراتب</p>
-                          <p className="mt-1 font-semibold text-slate-900">{salaryLabel}</p>
-                          <span
-                            className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${employmentStatusClasses}`}
-                          >
-                            {endedEmployment ? 'انتهت الخدمة' : 'على رأس العمل'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 space-y-3 text-sm text-slate-600">
-                        {hasOrdersRole && (
-                          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
-                            <p className="font-semibold text-indigo-900">وصول تحضير الطلبات</p>
-                            <p className="mt-1 text-xs text-indigo-700">
-                              الطلبات النشطة: {user._count.assignments}
-                            </p>
-                            <p className="text-xs text-indigo-700">
-                              التعيين التلقائي: {user.autoAssign ? 'مفعّل' : 'معطّل'}
-                            </p>
-                          </div>
-                        )}
-
-                        {hasWarehouseRole && (
-                          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                            <p className="font-semibold text-emerald-900">وصول المستودعات</p>
-                            {user.warehouses && user.warehouses.length > 0 ? (
-                              <ul className="mt-2 space-y-1 text-xs text-emerald-700">
-                                {user.warehouses.map((warehouse) => (
-                                  <li key={warehouse.id}>
-                                    {warehouse.name}
-                                    {warehouse.code ? ` (${warehouse.code})` : ''}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="mt-2 text-xs text-rose-600">
-                                لم يتم ربط أي مستودع بهذا المستخدم
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {hasAccountantRole && (
-                          <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
-                            <p className="font-semibold text-amber-900">
-                              صلاحية التقارير والمصروفات
-                            </p>
-                            <p className="mt-1 text-xs text-amber-700">
-                              يمكنه عرض تقارير الطلبات ومراقبة المصروفات.
-                            </p>
-                          </div>
-                        )}
-
-                        {!hasOrdersRole && !hasWarehouseRole && !hasAccountantRole && (
-                          <p className="text-xs text-slate-500">
-                            {serviceBadges.length > 0
-                              ? 'يرتبط بالروابط الموضحة أعلاه.'
-                              : 'لا توجد روابط مرتبطة بهذا المستخدم بعد.'}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="mt-6 flex flex-col gap-2">
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            onClick={() => handleEdit(user)}
-                            className="flex-1 rounded-2xl border-slate-200 text-slate-700 hover:text-slate-900"
-                          >
-                            تعديل
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => handleDelete(user.id)}
-                            className="rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50"
-                          >
-                            حذف
-                          </Button>
-                        </div>
-                        {hasOrdersRole && user._count.assignments > 0 && (
-                          <Button
-                            variant="outline"
-                            onClick={() => handleResetOrders(user.id, user.name)}
-                            className="rounded-2xl border-amber-200 text-amber-700 hover:bg-amber-50"
-                          >
-                            إعادة تعيين الطلبات ({user._count.assignments})
-                          </Button>
-                        )}
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
+                        return (
+                          <TableRow key={user.id} className="align-top border-slate-100">
+                            <TableCell className="px-6 py-4">
+                              <div className="flex flex-col gap-2 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-base font-semibold text-slate-900">
+                                      {user.name}
+                                    </p>
+                                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">
+                                      @{user.username}
+                                    </p>
+                                  </div>
+                                  <span
+                                    className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                      user.isActive
+                                        ? 'bg-emerald-50 text-emerald-600'
+                                        : 'bg-slate-100 text-slate-500'
+                                    }`}
+                                  >
+                                    {user.isActive ? 'نشط' : 'غير نشط'}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500">
+                                  {user.email || 'لا يوجد بريد'} • {user.phone || 'لا يوجد هاتف'}
+                                </p>
+                                {user.affiliateName && (
+                                  <span className="inline-flex w-fit items-center rounded-md bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-700 ring-1 ring-inset ring-purple-700/10">
+                                    مسوق: {user.affiliateName} ({Number(user.affiliateCommission || 10)}%)
+                                  </span>
+                                )}
+                                <div className="flex flex-wrap gap-1">
+                                  {serviceBadges.length > 0 ? (
+                                    serviceBadges.map((key) => (
+                                      <span
+                                        key={key}
+                                        className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700"
+                                      >
+                                        {SERVICE_MAP.get(key)?.title || key}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="rounded-full border border-slate-200 px-3 py-1 text-[11px] text-slate-500">
+                                      لا توجد روابط محددة
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-6 py-4">
+                              <div className="space-y-2 text-[11px]">
+                                <div className="flex justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 px-3 py-2">
+                                  <span className="text-slate-500">بداية العمل</span>
+                                  <span className="font-semibold text-slate-900">
+                                    {startDateLabel}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 px-3 py-2">
+                                  <span className="text-slate-500">نهاية العمل</span>
+                                  <span className="font-semibold text-slate-900">{endDateLabel}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 px-3 py-2">
+                                  <div className="flex flex-col">
+                                    <span className="text-slate-500">الراتب</span>
+                                    <span className="text-sm font-semibold text-slate-900">
+                                      {salaryLabel}
+                                    </span>
+                                  </div>
+                                  <span
+                                    className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${employmentStatusClasses}`}
+                                  >
+                                    {endedEmployment ? 'انتهت الخدمة' : 'على رأس العمل'}
+                                  </span>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-6 py-4">
+                              <div className="space-y-3">
+                                {hasOrdersRole && (
+                                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
+                                    <p className="font-semibold text-indigo-900">وصول التحضير</p>
+                                    <p className="text-indigo-700">
+                                      الطلبات النشطة: {user._count.assignments}
+                                    </p>
+                                    <p className="text-indigo-700">
+                                      التعيين التلقائي: {user.autoAssign ? 'مفعّل' : 'معطّل'}
+                                    </p>
+                                  </div>
+                                )}
+                                {hasWarehouseRole && (
+                                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                                    <p className="font-semibold text-emerald-900">مستودعات مرتبطة</p>
+                                    {user.warehouses && user.warehouses.length > 0 ? (
+                                      <ul className="mt-1 space-y-1 text-emerald-700">
+                                        {user.warehouses.map((warehouse) => (
+                                          <li key={warehouse.id}>
+                                            {warehouse.name}
+                                            {warehouse.code ? ` (${warehouse.code})` : ''}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p className="mt-1 text-rose-600">لا توجد مستودعات مرتبطة</p>
+                                    )}
+                                  </div>
+                                )}
+                                {hasAccountantRole && (
+                                  <div className="rounded-2xl border border-amber-100 bg-amber-50/70 px-3 py-2">
+                                    <p className="font-semibold text-amber-900">
+                                      صلاحية التقارير والمصروفات
+                                    </p>
+                                    <p className="text-amber-700">
+                                      يمكنه عرض تقارير الطلبات ومراقبة المصروفات.
+                                    </p>
+                                  </div>
+                                )}
+                                {!hasOrdersRole && !hasWarehouseRole && !hasAccountantRole && (
+                                  <p className="text-slate-500">
+                                    {serviceBadges.length > 0
+                                      ? 'يرتبط بالروابط الموضحة أعلاه.'
+                                      : 'لا توجد روابط مرتبطة بهذا المستخدم بعد.'}
+                                  </p>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-6 py-4">
+                              <div className="flex flex-col gap-2">
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => handleEdit(user)}
+                                    className="flex-1 rounded-2xl border-slate-200 text-slate-700 hover:text-slate-900"
+                                  >
+                                    تعديل
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => handleDelete(user.id)}
+                                    className="rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50"
+                                  >
+                                    حذف
+                                  </Button>
+                                </div>
+                                {hasOrdersRole && user._count.assignments > 0 && (
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => handleResetOrders(user.id, user.name)}
+                                    className="rounded-2xl border-amber-200 text-amber-700 hover:bg-amber-50"
+                                  >
+                                    إعادة تعيين الطلبات ({user._count.assignments})
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                  </TableBody>
+                </Table>
+              </Card>
             )}
           </>
         )}

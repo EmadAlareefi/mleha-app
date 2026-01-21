@@ -90,12 +90,13 @@ export async function fetchWithRetry(
 
       // If this was the last attempt, throw the error
       if (attempt === maxRetries) {
+        const message = lastError?.message || 'Unknown error';
         log.error('All retry attempts failed', {
           url,
           attempts: maxRetries,
-          error: lastError.message,
+          error: message,
         });
-        throw lastError;
+        throw lastError ?? new Error(message);
       }
 
       // Calculate delay with exponential backoff
@@ -105,7 +106,7 @@ export async function fetchWithRetry(
         url,
         attempt,
         maxRetries,
-        error: lastError.message,
+        error: lastError?.message || 'Unknown error',
         delayMs: delay,
       });
 

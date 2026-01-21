@@ -118,6 +118,20 @@ View detailed performance metrics for each order prep user:
 - 🔵 Blue - In Progress
 - 🟡 Yellow - Pending
 
+### 🧹 Remove Assignments
+
+**Purpose:** Delete assignments from users without changing their Salla status so the orders can be reassigned or auto-assigned later.
+
+**Process:**
+1. Select one or more orders (checkboxes)
+2. Click "🗑️ إزالة من المستخدم"
+3. Confirm the removal action
+
+**What Happens:**
+- Assignment rows are deleted for active orders
+- Orders immediately become available for future assignment
+- Completed/archived orders are ignored automatically
+
 ---
 
 ## API Endpoints
@@ -173,7 +187,16 @@ Body: {
 }
 ```
 
-### 5. Get Users
+### 5. Remove Assignments
+```
+POST /api/admin/order-assignments/remove
+Body: {
+  "assignmentIds": ["id1", "id2"]
+}
+```
+Removes the assignment rows so the orders can be picked up again later. Completed orders are skipped.
+
+### 6. Get Users
 ```
 GET /api/admin/order-assignments/users
 ```

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,15 +52,94 @@ interface Stats {
   month: StatsBucket;
 }
 
-type TimeFilter = 'active' | 'today' | 'week' | 'month';
-type StatusFilter = 'all' | 'active' | 'completed' | 'under_review' | 'reservation';
+type AssignmentState = 'new' | 'assigned';
 
-const TIME_FILTER_LABELS: Record<TimeFilter, string> = {
-  active: 'الطلبات النشطة',
-  today: 'مكتملة اليوم',
-  week: 'مكتملة هذا الأسبوع',
-  month: 'مكتملة هذا الشهر',
+interface LiveSallaOrder {
+  id: string | null;
+  orderNumber: string | null;
+  createdAt: string | null;
+  paymentMethod: string | null;
+  totalAmount: number | null;
+  customerName: string | null;
+  itemsCount: number | null;
+  statusId: string | null;
+  statusSlug: string | null;
+  statusLabel: string | null;
+  statusParentId: string | null;
+  statusParentName: string | null;
+  statusGroupKey: string | null;
+  assignmentState: AssignmentState;
+  assignmentReason: string | null;
+  assignmentId: string | null;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  assignmentStatus: string | null;
+}
+
+interface LiveOrdersSummary {
+  success?: boolean;
+  fetchedAt: string;
+  statusFilters?: string[];
+  primaryStatusName?: string | null;
+  statusDetails?: {
+    primaryStatusName: string | null;
+    relatedStatuses: Array<{
+      id: number;
+      name: string;
+      slug: string;
+      parentId: number | null;
+      parentName: string | null;
+    }>;
+  };
+  totals: {
+    new: number;
+    assigned: number;
+  };
+  orders: LiveSallaOrder[];
+}
+
+const LIVE_STATE_STYLES: Record<
+  AssignmentState,
+  { label: string; className: string }
+> = {
+  new: {
+    label: 'بانتظار التعيين',
+    className: 'bg-gray-100 text-gray-800 border-gray-300',
+  },
+  assigned: {
+    label: 'تم تعيينه',
+    className: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  },
 };
+
+const NEW_ORDER_STATUS_COLUMNS = [
+  {
+    id: '449146439',
+    fallbackName: 'طلب جديد',
+    description: 'بانتظار المراجعة الأولية',
+    pillAccentClass: 'border-slate-200',
+  },
+  {
+    id: '1065456688',
+    fallbackName: 'تحت المراجعة ع',
+    description: 'مراجعة عامة قبل التعيين',
+    pillAccentClass: 'border-amber-200',
+  },
+  {
+    id: '1576217163',
+    fallbackName: 'تحت المراجعة حجز قطع',
+    description: 'بانتظار توفر قطع محددة',
+    pillAccentClass: 'border-purple-200',
+  },
+  {
+    id: '1882207425',
+    fallbackName: 'تحت المراجعة ا',
+    description: 'مراجعة متقدمة من الفريق',
+    pillAccentClass: 'border-blue-200',
+  },
+] as const;
+
+const NON_REMOVABLE_ASSIGNMENT_STATUSES = new Set(['completed', 'removed', 'released']);
 
 export default function AdminOrderPrepPage() {
   const { data: session, status } = useSession();
@@ -68,16 +147,21 @@ export default function AdminOrderPrepPage() {
   const roles = ((session?.user as any)?.roles || [role]) as string[];
   const isAdmin = roles.includes('admin');
 
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('active');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [assignments, setAssignments] = useState<OrderAssignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
   const [users, setUsers] = useState<OrderUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [liveOrders, setLiveOrders] = useState<LiveOrdersSummary | null>(null);
+  const [liveOrdersLoading, setLiveOrdersLoading] = useState(false);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [initialized, setInitialized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [reassignUserId, setReassignUserId] = useState<string>('');
   const [showReassignModal, setShowReassignModal] = useState(false);
-  const currentStats = stats ? stats[timeFilter] : null;
+  const currentStats = stats?.active ?? null;
   const currentUserStats = currentStats?.byUser ?? [];
 
   const loadUsers = useCallback(async () => {
@@ -92,12 +176,12 @@ export default function AdminOrderPrepPage() {
     }
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadAssignmentsData = useCallback(async () => {
+    setAssignmentsLoading(true);
     try {
       const params = new URLSearchParams({
-        timeFilter,
-        statusFilter,
+        timeFilter: 'active',
+        statusFilter: 'all',
       });
 
       const [assignmentsRes, statsRes] = await Promise.all([
@@ -110,24 +194,96 @@ export default function AdminOrderPrepPage() {
 
       if (assignmentsData.success) {
         setAssignments(assignmentsData.assignments);
+      } else {
+        setAssignments([]);
+        setError(assignmentsData.error || 'تعذر تحميل الطلبات');
       }
 
       if (statsData.success) {
         setStats(statsData.stats);
+      } else {
+        setStats(null);
       }
-    } catch (error) {
-      console.error('Failed to load data:', error);
+
+      if (assignmentsData.success) {
+        setError(null);
+      }
+    } catch (loadError) {
+      console.error('Failed to load assignments data:', loadError);
+      setError('فشل تحميل بيانات الطلبات');
     } finally {
-      setLoading(false);
+      setAssignmentsLoading(false);
     }
-  }, [statusFilter, timeFilter]);
+  }, []);
+
+  const loadLiveOrders = useCallback(async () => {
+    setLiveOrdersLoading(true);
+    try {
+      const response = await fetch('/api/admin/order-assignments/new-orders?limit=60');
+      if (!response.ok) {
+        const text = await response.text();
+        console.warn('Failed to load live Salla orders', { status: response.status, text });
+        setLiveOrders(null);
+        return;
+      }
+
+      const data = await response.json();
+      if (data?.orders) {
+        setLiveOrders({
+          fetchedAt: data.fetchedAt,
+          statusFilters: data.statusFilters,
+          primaryStatusName: data.primaryStatusName,
+          statusDetails: data.statusDetails,
+          totals: data.totals || { new: 0, assigned: 0 },
+          orders: data.orders,
+        });
+      } else {
+        setLiveOrders(null);
+      }
+    } catch (liveError) {
+      console.error('Failed to fetch live Salla orders:', liveError);
+      setLiveOrders(null);
+    } finally {
+      setLiveOrdersLoading(false);
+    }
+  }, []);
+
+  const refreshAll = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!options?.silent) {
+        setDashboardLoading(true);
+      }
+      try {
+        await Promise.all([loadAssignmentsData(), loadLiveOrders()]);
+        setLastUpdated(new Date());
+      } finally {
+        if (!options?.silent) {
+          setDashboardLoading(false);
+        }
+        setInitialized(true);
+      }
+    },
+    [loadAssignmentsData, loadLiveOrders],
+  );
 
   useEffect(() => {
     if (isAdmin) {
       loadUsers();
-      loadData();
+      refreshAll();
     }
-  }, [isAdmin, loadData, loadUsers]);
+  }, [isAdmin, loadUsers, refreshAll]);
+
+  useEffect(() => {
+    if (!isAdmin || !autoRefresh) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      refreshAll({ silent: true });
+    }, 20000);
+
+    return () => clearInterval(interval);
+  }, [autoRefresh, isAdmin, refreshAll]);
 
   const handleSelectOrder = (orderId: string) => {
     const newSelected = new Set(selectedOrders);
@@ -169,7 +325,7 @@ export default function AdminOrderPrepPage() {
         alert(`تم نقل ${data.reassignedCount} طلب بنجاح`);
         setSelectedOrders(new Set());
         setShowReassignModal(false);
-        loadData();
+        refreshAll({ silent: true });
       } else {
         alert(data.error || 'فشل نقل الطلبات');
       }
@@ -205,7 +361,7 @@ export default function AdminOrderPrepPage() {
       if (data.success) {
         alert(`تم إعادة فتح ${data.reopenedCount} طلب بنجاح`);
         setSelectedOrders(new Set());
-        loadData();
+        refreshAll({ silent: true });
       } else {
         alert(data.error || 'فشل إعادة فتح الطلبات');
       }
@@ -213,6 +369,77 @@ export default function AdminOrderPrepPage() {
       console.error('Reopen error:', error);
       alert('فشل إعادة فتح الطلبات');
     }
+  };
+
+  const performAssignmentsRemoval = async (assignmentIds: string[]) => {
+    try {
+      const response = await fetch('/api/admin/order-assignments/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentIds }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert(data.message || `تم إزالة ${data.removedCount} طلب`);
+        await refreshAll({ silent: true });
+        return true;
+      }
+
+      alert(data.error || 'فشل إزالة الطلبات');
+      return false;
+    } catch (error) {
+      console.error('Remove assignments error:', error);
+      alert('فشل إزالة الطلبات');
+      return false;
+    }
+  };
+
+  const handleRemoveAssignments = async () => {
+    if (selectedOrders.size === 0) {
+      alert('الرجاء اختيار الطلبات التي ترغب في إزالتها من المستخدم الحالي');
+      return;
+    }
+
+    const confirmed = confirm(
+      `سيتم إزالة ${selectedOrders.size} طلب من مستخدميهم الحاليين وإرجاعهم للطابور.\n\nمتابعة؟`
+    );
+
+    if (!confirmed) return;
+
+    const success = await performAssignmentsRemoval(Array.from(selectedOrders));
+    if (success) {
+      setSelectedOrders(new Set());
+    }
+  };
+
+  const handleRemoveUserAssignments = async (userId: string, userName: string) => {
+    const activeAssignments = assignments.filter(
+      (assignment) =>
+        assignment.assignedUserId === userId &&
+        !NON_REMOVABLE_ASSIGNMENT_STATUSES.has((assignment.status || '').toLowerCase()),
+    );
+
+    if (activeAssignments.length === 0) {
+      alert('لا يوجد طلبات نشطة قابلة للإزالة لهذا المستخدم');
+      return;
+    }
+
+    const confirmed = confirm(
+      `سيتم إزالة ${activeAssignments.length} طلب من المستخدم ${userName}.\n\nهل تريد المتابعة؟`
+    );
+
+    if (!confirmed) return;
+
+    await performAssignmentsRemoval(activeAssignments.map((assignment) => assignment.id));
+  };
+
+  const handleRemoveSingleAssignment = async (assignmentId: string, orderNumber?: string | null) => {
+    const confirmed = confirm(`هل ترغب في إزالة الطلب ${orderNumber ? `#${orderNumber}` : ''} من المستخدم الحالي؟`);
+    if (!confirmed) return;
+
+    await performAssignmentsRemoval([assignmentId]);
   };
 
   const formatDate = (dateString: string) => {
@@ -226,12 +453,10 @@ export default function AdminOrderPrepPage() {
   };
 
   const getStatusLabel = (status: string, sallaStatus: string | null) => {
-    // Check Salla status IDs
     if (sallaStatus === '1065456688') return 'تحت المراجعة';
     if (sallaStatus === '1576217163') return 'تحت المراجعة حجز قطع';
     if (sallaStatus === '165947469') return 'تم الشحن';
 
-    // Fallback to local status
     const statusMap: Record<string, string> = {
       'pending': 'معلق',
       'in_progress': 'جاري التجهيز',
@@ -246,7 +471,6 @@ export default function AdminOrderPrepPage() {
   };
 
   const getStatusColor = (status: string, sallaStatus: string | null) => {
-    // Check Salla status IDs
     if (sallaStatus === '1065456688') return 'bg-orange-100 text-orange-800 border-orange-300';
     if (sallaStatus === '1576217163') return 'bg-purple-100 text-purple-800 border-purple-300';
     if (sallaStatus === '165947469') return 'bg-green-100 text-green-800 border-green-300';
@@ -263,6 +487,49 @@ export default function AdminOrderPrepPage() {
     };
     return colorMap[status] || 'bg-gray-100 text-gray-800 border-gray-300';
   };
+
+  const getPaymentLabel = (orderData: any) => {
+    const payment =
+      orderData?.payment_method ||
+      orderData?.paymentMethod ||
+      orderData?.payment?.method ||
+      orderData?.payment?.method_name ||
+      orderData?.payment?.methodName ||
+      orderData?.payment?.title ||
+      null;
+    return payment ? String(payment).toUpperCase() : '—';
+  };
+
+  const formatAmount = (amount: number | null) => {
+    if (typeof amount === 'number' && !Number.isNaN(amount)) {
+      return `${amount.toFixed(2)} ر.س`;
+    }
+    return '—';
+  };
+
+  const liveStatusColumns = useMemo(() => {
+    return NEW_ORDER_STATUS_COLUMNS.map((column) => {
+      const relatedStatuses = liveOrders?.statusDetails?.relatedStatuses || [];
+      const statusMeta = relatedStatuses.find((status) => String(status.id) === column.id);
+      const resolvedLabel =
+        statusMeta?.name ||
+        (column.id === NEW_ORDER_STATUS_COLUMNS[0].id
+          ? liveOrders?.primaryStatusName || column.fallbackName
+          : column.fallbackName);
+      const columnOrders =
+        liveOrders?.orders?.filter((order) => order.statusId === column.id) || [];
+      return {
+        ...column,
+        label: resolvedLabel || column.fallbackName,
+        orders: columnOrders,
+      };
+    });
+  }, [liveOrders]);
+
+  const liveOrdersTotal = liveStatusColumns.reduce((sum, column) => sum + column.orders.length, 0);
+  const liveOrdersTimestamp = liveOrders?.fetchedAt ? new Date(liveOrders.fetchedAt) : null;
+  const liveTotals = liveOrders?.totals || { new: 0, assigned: 0 };
+  const lastUpdatedLabel = lastUpdated ? formatDate(lastUpdated.toISOString()) : null;
 
   if (status === 'loading') {
     return (
@@ -286,130 +553,139 @@ export default function AdminOrderPrepPage() {
     );
   }
 
+  if (!initialized) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-lg text-gray-600">جاري تحميل لوحة التحكم...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <AppNavbar title="إدارة طلبات التحضير" subtitle="لوحة تحكم المسؤول" />
 
       <div className="w-full px-4 md:px-6 py-6">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Statistics Cards */}
-          {stats && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="p-6">
-                <h3 className="text-sm font-medium text-gray-600 mb-2">إجمالي الطلبات</h3>
-                <p className="text-3xl font-bold text-blue-600">
-                  {stats[timeFilter].total}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {timeFilter === 'active' ? 'الحالية' : timeFilter === 'today' ? 'اليوم' : timeFilter === 'week' ? 'هذا الأسبوع' : 'هذا الشهر'}
-                </p>
-              </Card>
-
-              <Card className="p-6">
-                <h3 className="text-sm font-medium text-gray-600 mb-2">مكتملة</h3>
-                <p className="text-3xl font-bold text-green-600">
-                  {stats[timeFilter].completed}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {stats[timeFilter].total > 0
-                    ? `${Math.round((stats[timeFilter].completed / stats[timeFilter].total) * 100)}%`
-                    : '0%'}
-                </p>
-              </Card>
-
-              <Card className="p-6">
-                <h3 className="text-sm font-medium text-gray-600 mb-2">تحت المراجعة</h3>
-                <p className="text-3xl font-bold text-orange-600">
-                  {stats[timeFilter].underReview}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">يحتاج متابعة</p>
-              </Card>
-
-              <Card className="p-6">
-                <h3 className="text-sm font-medium text-gray-600 mb-2">حجز قطع</h3>
-                <p className="text-3xl font-bold text-purple-600">
-                  {stats[timeFilter].reservation}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">قيد الحجز</p>
-              </Card>
-            </div>
-          )}
-
-          {/* Filters */}
           <Card className="p-6">
-            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-              {/* Time Filter */}
-              <div className="flex gap-2">
-                <Button
-                  onClick={() => setTimeFilter('active')}
-                  variant={timeFilter === 'active' ? 'default' : 'outline'}
-                  className={timeFilter === 'active' ? 'bg-blue-600' : ''}
-                >
-                  الطلبات النشطة
-                </Button>
-                <Button
-                  onClick={() => setTimeFilter('today')}
-                  variant={timeFilter === 'today' ? 'default' : 'outline'}
-                  className={timeFilter === 'today' ? 'bg-blue-600' : ''}
-                >
-                  مكتملة اليوم
-                </Button>
-                <Button
-                  onClick={() => setTimeFilter('week')}
-                  variant={timeFilter === 'week' ? 'default' : 'outline'}
-                  className={timeFilter === 'week' ? 'bg-blue-600' : ''}
-                >
-                  مكتملة الأسبوع
-                </Button>
-                <Button
-                  onClick={() => setTimeFilter('month')}
-                  variant={timeFilter === 'month' ? 'default' : 'outline'}
-                  className={timeFilter === 'month' ? 'bg-blue-600' : ''}
-                >
-                  مكتملة الشهر
-                </Button>
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">لوحة المراقبة المباشرة</h2>
+                <p className="text-sm text-gray-500">عرض كل الطلبات النشطة بدون الحاجة للفلاتر</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {lastUpdatedLabel ? `آخر تحديث: ${lastUpdatedLabel}` : 'يتم التحميل...'}
+                </p>
               </div>
-
-              {/* Status Filter */}
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() => setStatusFilter('all')}
-                  variant={statusFilter === 'all' ? 'default' : 'outline'}
-                  size="sm"
+                  variant={autoRefresh ? 'default' : 'outline'}
+                  className={autoRefresh ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+                  onClick={() => setAutoRefresh((value) => !value)}
                 >
-                  الكل
+                  {autoRefresh ? 'التحديث التلقائي مفعّل' : 'تشغيل التحديث التلقائي'}
                 </Button>
-                <Button
-                  onClick={() => setStatusFilter('active')}
-                  variant={statusFilter === 'active' ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  نشط
-                </Button>
-                <Button
-                  onClick={() => setStatusFilter('completed')}
-                  variant={statusFilter === 'completed' ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  مكتمل
-                </Button>
-                <Button
-                  onClick={() => setStatusFilter('under_review')}
-                  variant={statusFilter === 'under_review' ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  تحت المراجعة
-                </Button>
-                <Button
-                  onClick={() => setStatusFilter('reservation')}
-                  variant={statusFilter === 'reservation' ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  حجز قطع
+                <Button onClick={() => refreshAll()} disabled={dashboardLoading}>
+                  {dashboardLoading ? 'جاري التحديث...' : 'تحديث الآن'}
                 </Button>
               </div>
             </div>
           </Card>
+
+          {error && (
+            <Card className="p-4 border border-rose-200 bg-rose-50 text-rose-800 text-sm">
+              {error}
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Card className="p-5">
+              <p className="text-sm text-gray-500">الطلبات النشطة</p>
+              <p className="text-3xl font-bold text-gray-900">{assignments.length}</p>
+              <p className="text-xs text-gray-400 mt-1">موزعة على الحالات أدناه</p>
+            </Card>
+
+            <Card className="p-5">
+              <p className="text-sm text-gray-500">طلبات تحت المراجعة</p>
+              <p className="text-3xl font-bold text-orange-600">{currentStats?.underReview ?? 0}</p>
+              <p className="text-xs text-gray-400 mt-1">بانتظار قرار الإدارة</p>
+            </Card>
+
+            <Card className="p-5">
+              <p className="text-sm text-gray-500">طلبات حجز القطع</p>
+              <p className="text-3xl font-bold text-purple-600">{currentStats?.reservation ?? 0}</p>
+              <p className="text-xs text-gray-400 mt-1">متوقفة بسبب توفر المنتجات</p>
+            </Card>
+
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            {liveStatusColumns.map((column) => (
+              <Card key={column.id} className="p-4 flex flex-col gap-4 border border-slate-100 h-full">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{column.label}</p>
+                    <p className="text-xs text-gray-500">{column.description}</p>
+                  </div>
+                  <span className="text-2xl font-bold text-gray-900">{column.orders.length}</span>
+                </div>
+                <div className="flex-1 space-y-2 pr-1">
+                    {column.orders.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-6">
+                        {liveOrdersLoading ? 'جاري التحديث...' : 'لا يوجد طلبات في هذه الحالة'}
+                      </p>
+                    ) : (
+                      column.orders.map((order) => (
+                        <div
+                          key={order.id || order.orderNumber}
+                          className={`rounded-2xl border ${column.pillAccentClass} bg-white shadow-sm p-3`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">
+                                #{order.orderNumber || order.id}
+                              </p>
+                              <p className="text-xs text-gray-500 truncate">
+                                {order.customerName || order.paymentMethod || '—'}
+                              </p>
+                            </div>
+                            <span
+                              className={`inline-flex items-center px-2 py-1 rounded-full border text-[11px] font-semibold ${LIVE_STATE_STYLES[order.assignmentState]?.className}`}
+                            >
+                              {LIVE_STATE_STYLES[order.assignmentState]?.label}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
+                            <span>الدفع: {order.paymentMethod || '—'}</span>
+                            <span>المبلغ: {formatAmount(order.totalAmount)}</span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
+                            {order.assignedUserName ? (
+                              <span className="inline-flex items-center gap-1">
+                                مرتبط بـ {order.assignedUserName}
+                                {order.assignmentId && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                                    aria-label={`إزالة المستخدم من الطلب #${order.orderNumber || order.id}`}
+                                    onClick={() => handleRemoveSingleAssignment(order.assignmentId as string, order.orderNumber)}
+                                  >
+                                    ×
+                                  </Button>
+                                )}
+                              </span>
+                            ) : (
+                              <span>غير مرتبط بأي مستخدم</span>
+                            )}
+                            <span>{order.createdAt ? formatDate(order.createdAt) : '—'}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+              </Card>
+            ))}
+          </div>
 
           {/* Bulk Actions */}
           {selectedOrders.size > 0 && (
@@ -432,6 +708,12 @@ export default function AdminOrderPrepPage() {
                     🔄 إعادة فتح
                   </Button>
                   <Button
+                    onClick={handleRemoveAssignments}
+                    className="bg-rose-600 hover:bg-rose-700"
+                  >
+                    🗑️ إزالة من المستخدم
+                  </Button>
+                  <Button
                     onClick={() => setSelectedOrders(new Set())}
                     variant="outline"
                   >
@@ -447,7 +729,7 @@ export default function AdminOrderPrepPage() {
             <Card className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold">أداء المستخدمين</h3>
-                <span className="text-sm text-gray-500">{TIME_FILTER_LABELS[timeFilter]}</span>
+                <span className="text-sm text-gray-500">الطلبات النشطة</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -459,6 +741,7 @@ export default function AdminOrderPrepPage() {
                       <th className="text-center pb-3 font-semibold">تحت المراجعة</th>
                       <th className="text-center pb-3 font-semibold">حجز قطع</th>
                       <th className="text-center pb-3 font-semibold">معدل الإنجاز</th>
+                      <th className="text-center pb-3 font-semibold">إجراءات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -480,6 +763,15 @@ export default function AdminOrderPrepPage() {
                             ? `${Math.round((userStat.completed / userStat.total) * 100)}%`
                             : '0%'}
                         </td>
+                        <td className="text-center">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRemoveUserAssignments(userStat.userId, userStat.userName)}
+                          >
+                            إزالة الارتباطات
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -488,129 +780,6 @@ export default function AdminOrderPrepPage() {
             </Card>
           )}
 
-          {/* Orders Table */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold">الطلبات ({assignments.length})</h3>
-              <Button onClick={loadData} variant="outline" size="sm">
-                🔄 تحديث
-              </Button>
-            </div>
-
-            {loading ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500">جاري التحميل...</p>
-              </div>
-            ) : assignments.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500">لا توجد طلبات</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-gray-50">
-                      <th className="text-right p-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedOrders.size === assignments.length}
-                          onChange={handleSelectAll}
-                          className="rounded"
-                        />
-                      </th>
-                      <th className="text-right p-3 font-semibold">رقم الطلب</th>
-                      <th className="text-right p-3 font-semibold">المستخدم</th>
-                      <th className="text-right p-3 font-semibold">الحالة</th>
-                      <th className="text-right p-3 font-semibold">النوع</th>
-                      <th className="text-right p-3 font-semibold">العلامات</th>
-                      <th className="text-right p-3 font-semibold">وقت التعيين</th>
-                      <th className="text-right p-3 font-semibold">وقت البدء</th>
-                      <th className="text-right p-3 font-semibold">وقت الإنهاء</th>
-                      <th className="text-right p-3 font-semibold">العميل</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {assignments.map((assignment) => (
-                      <tr key={assignment.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedOrders.has(assignment.id)}
-                            onChange={() => handleSelectOrder(assignment.id)}
-                            className="rounded"
-                          />
-                        </td>
-                        <td className="p-3 font-medium">{assignment.orderNumber}</td>
-                        <td className="p-3">{assignment.assignedUserName}</td>
-                        <td className="p-3">
-                          <span
-                            className={`inline-block px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(
-                              assignment.status,
-                              assignment.sallaStatus
-                            )}`}
-                          >
-                            {getStatusLabel(assignment.status, assignment.sallaStatus)}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          {(() => {
-                            const country = assignment.orderData?.customer?.country
-                              || assignment.orderData?.shipping_address?.country
-                              || assignment.orderData?.billing_address?.country;
-
-                            if (country && country !== 'SA') {
-                              return (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
-                                  🌍 دولي
-                                </span>
-                              );
-                            }
-                            return (
-                              <span className="text-xs text-gray-400">محلي</span>
-                            );
-                          })()}
-                        </td>
-                        <td className="p-3">
-                          {assignment.orderData?.tags && assignment.orderData.tags.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {assignment.orderData.tags.slice(0, 2).map((tag: any, idx: number) => (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300"
-                                >
-                                  🏷️ {typeof tag === 'string' ? tag : tag.name || tag.value}
-                                </span>
-                              ))}
-                              {assignment.orderData.tags.length > 2 && (
-                                <span className="text-xs text-gray-500">
-                                  +{assignment.orderData.tags.length - 2}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-400">-</span>
-                          )}
-                        </td>
-                        <td className="p-3 text-xs text-gray-600">
-                          {formatDate(assignment.assignedAt)}
-                        </td>
-                        <td className="p-3 text-xs text-gray-600">
-                          {assignment.startedAt ? formatDate(assignment.startedAt) : '-'}
-                        </td>
-                        <td className="p-3 text-xs text-gray-600">
-                          {assignment.completedAt ? formatDate(assignment.completedAt) : '-'}
-                        </td>
-                        <td className="p-3 text-xs">
-                          {assignment.orderData?.customer?.first_name}{' '}
-                          {assignment.orderData?.customer?.last_name}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
         </div>
       </div>
 

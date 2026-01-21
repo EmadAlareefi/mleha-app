@@ -5,8 +5,75 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { log } from '@/app/lib/logger';
 import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
+import { getSallaAccessToken } from '@/app/lib/salla-oauth';
+import { fetchSallaWithRetry } from '@/app/lib/fetch-with-retry';
 
 export const runtime = 'nodejs';
+const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
+
+async function waitForSallaStatusUpdate(options: {
+  merchantId: string;
+  orderId: string;
+  expectedStatusId?: string | null;
+  expectedSlug?: string | null;
+  attempts?: number;
+  delayMs?: number;
+}): Promise<boolean> {
+  const {
+    merchantId,
+    orderId,
+    expectedStatusId,
+    expectedSlug,
+    attempts = 5,
+    delayMs = 1000,
+  } = options;
+
+  if (!expectedStatusId && !expectedSlug) {
+    return true;
+  }
+
+  const accessToken = await getSallaAccessToken(merchantId);
+  if (!accessToken) {
+    return false;
+  }
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const response = await fetchSallaWithRetry(
+        `${SALLA_API_BASE}/orders/${orderId}`,
+        accessToken,
+        { method: 'GET' }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const status = data?.data?.status;
+        const slug = status?.sub_status?.slug || status?.slug;
+        const statusId = status?.sub_status?.id || status?.id;
+        const normalizedId = statusId ? statusId.toString() : null;
+
+        if (
+          (expectedStatusId && normalizedId === expectedStatusId) ||
+          (expectedSlug && slug === expectedSlug)
+        ) {
+          return true;
+        }
+      }
+    } catch (error) {
+      log.warn('Failed to confirm Salla status update', {
+        orderId,
+        attempt,
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+
+    if (attempt < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return false;
+}
 
 /**
  * POST /api/order-assignments/release
@@ -76,8 +143,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await prisma.orderAssignment.delete({
+    const normalizedTargetId =
+      typeof targetStatusId === 'number'
+        ? targetStatusId.toString()
+        : typeof targetStatusId === 'string'
+          ? targetStatusId
+          : null;
+    const normalizedTargetSlug = targetStatusSlug || null;
+
+    const statusConfirmed = await waitForSallaStatusUpdate({
+      merchantId,
+      orderId,
+      expectedStatusId: normalizedTargetId,
+      expectedSlug: normalizedTargetSlug,
+    });
+
+    if (!statusConfirmed) {
+      log.warn('Salla status did not confirm release within timeout', {
+        assignmentId,
+        merchantId,
+        orderId,
+        targetStatusId: normalizedTargetId,
+        targetStatusSlug: normalizedTargetSlug,
+      });
+    }
+
+    const now = new Date();
+    await prisma.orderAssignment.update({
       where: { id: assignmentId },
+      data: {
+        status: 'released',
+        removedAt: now,
+        sallaStatus:
+          targetStatusSlug ||
+          (typeof targetStatusId === 'number'
+            ? targetStatusId.toString()
+            : (targetStatusId as string | null)) ||
+          assignment.sallaStatus,
+      },
     });
 
     log.info('Released assignment back to under review', {
@@ -91,7 +194,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'تم نقل الطلب إلى الحالة المطلوبة وإعادته إلى قائمة الطلبات الجديدة',
+      message: statusConfirmed
+        ? 'تم نقل الطلب إلى الحالة المطلوبة وإعادته إلى قائمة الطلبات الجديدة'
+        : 'تم إرسال الطلب للحالة المطلوبة، قد يستغرق الأمر لحظات قبل أن يظهر في قائمة الطلبات الجديدة',
     });
   } catch (error) {
     log.error('Failed to release assignment', { error });

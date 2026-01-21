@@ -255,12 +255,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    type CandidateOrder = {
-      order: any;
-      reassignment?: {
-        assignment: (typeof existingAssignments)[number];
-      };
-    };
+type CandidateOrder = {
+  order: any;
+  reassignment?: {
+    assignment: (typeof existingAssignments)[number];
+  };
+  releasedAssignment?: (typeof existingAssignments)[number];
+};
 
     const candidateOrders: CandidateOrder[] = [];
     let skippedDueToLinkedUser = 0;
@@ -271,8 +272,9 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const statusId = String(order?.status?.id ?? '');
-      if (statusId && RELEASE_STATUS_IDS.has(statusId)) {
+      const isReleaseStatus = isReleaseStatusFromOrder(order);
+
+      if (isReleaseStatus) {
         continue;
       }
 
@@ -282,6 +284,14 @@ export async function POST(request: NextRequest) {
 
       const latestAssignment = latestAssignmentByOrder.get(orderId);
       if (latestAssignment) {
+        if (latestAssignment.status === 'released') {
+          if (isReleaseStatus) {
+            continue;
+          }
+          candidateOrders.push({ order, releasedAssignment: latestAssignment });
+          continue;
+        }
+
         if (latestAssignment.userId === user.id) {
           candidateOrders.push({
             order,
@@ -383,6 +393,64 @@ export async function POST(request: NextRequest) {
 
       const orderWithDetails = await fetchOrderDetailsWithItems(order);
 
+      const remoteStatusId = String(
+        orderWithDetails?.status?.id ??
+        orderWithDetails?.status_id ??
+        orderWithDetails?.statusId ??
+        ''
+      );
+      const remoteStatusSlug = String(
+        orderWithDetails?.status?.slug ??
+        orderWithDetails?.status_slug ??
+        orderWithDetails?.statusSlug ??
+        ''
+      );
+      const remoteSubStatusId = String(
+        orderWithDetails?.status?.sub_status?.id ??
+        orderWithDetails?.sub_status?.id ??
+        ''
+      );
+      const remoteSubStatusSlug = String(
+        orderWithDetails?.status?.sub_status?.slug ??
+        orderWithDetails?.sub_status?.slug ??
+        ''
+      );
+
+      if (isReleaseStatusFromOrder(orderWithDetails)) {
+        log.info('Skipping order still under review in Salla', {
+          orderId: order.id,
+          userId: user.id,
+          status: orderWithDetails?.status?.name,
+          statusId: remoteStatusId,
+          subStatusId: remoteSubStatusId,
+          reassignedToSameUser: Boolean(candidate.reassignment),
+          releasedAssignmentId: candidate.releasedAssignment?.id ?? null,
+        });
+        continue;
+      }
+
+      if (candidate.releasedAssignment) {
+        const releaseStatusValue = candidate.releasedAssignment.sallaStatus || '';
+        const stillReleased =
+          releaseStatusValue === remoteStatusId ||
+          releaseStatusValue === remoteStatusSlug ||
+          (remoteSubStatusId && releaseStatusValue === remoteSubStatusId) ||
+          (remoteSubStatusSlug && releaseStatusValue === remoteSubStatusSlug);
+
+        if (stillReleased) {
+          log.info('Skipping released order because Salla status still matches release target', {
+            orderId: order.id,
+            userId: user.id,
+            releaseStatus: releaseStatusValue,
+            remoteStatusId,
+            remoteStatusSlug,
+            remoteSubStatusId,
+            remoteSubStatusSlug,
+          });
+          continue;
+        }
+      }
+
       const normalizedOrderId = extractOrderId(orderWithDetails) || extractOrderId(order);
       const normalizedOrderNumber = String(
         orderWithDetails.reference_id ||
@@ -398,22 +466,12 @@ export async function POST(request: NextRequest) {
 
       try {
         let assignment: Awaited<ReturnType<typeof prisma.orderAssignment.create>> | null = null;
-        let previousAssignmentState:
-          | {
-              status: string | null;
-              assignedAt: Date | null;
-              startedAt: Date | null;
-              completedAt: Date | null;
-              removedAt: Date | null;
-              sallaStatus: string | null;
-              orderData: Prisma.InputJsonValue | null;
-              orderNumber: string;
-            }
-          | null = null;
+        let rollbackData: Prisma.OrderAssignmentUpdateInput | null = null;
 
         if (candidate.reassignment) {
           const existingAssignment = candidate.reassignment.assignment;
-          previousAssignmentState = {
+          rollbackData = {
+            user: { connect: { id: existingAssignment.userId } },
             status: existingAssignment.status,
             assignedAt: existingAssignment.assignedAt,
             startedAt: existingAssignment.startedAt,
@@ -421,7 +479,49 @@ export async function POST(request: NextRequest) {
             removedAt: existingAssignment.removedAt,
             sallaStatus: existingAssignment.sallaStatus,
             orderData: (existingAssignment.orderData ??
-              Prisma.JsonNull) as Prisma.InputJsonValue | null,
+              Prisma.JsonNull) as Prisma.InputJsonValue,
+            orderNumber: existingAssignment.orderNumber,
+          };
+
+          assignment = await prisma.orderAssignment.update({
+            where: { id: existingAssignment.id },
+            data: {
+              user: { connect: { id: user.id } },
+              status: 'assigned',
+              assignedAt: new Date(),
+              startedAt: null,
+              completedAt: null,
+              removedAt: null,
+              orderId: normalizedOrderId,
+              orderNumber: normalizedOrderNumber,
+              orderData: orderWithDetails as any,
+              sallaStatus:
+                orderWithDetails.status?.slug ||
+                orderWithDetails.status?.id?.toString() ||
+                order.status?.slug ||
+                order.status?.id?.toString() ||
+                fallbackStatusValue,
+              sallaUpdated: false,
+            },
+          });
+
+          log.info('Reassigning order to previous user', {
+            orderId: normalizedOrderId,
+            assignmentId: assignment.id,
+            userId: user.id,
+          });
+        } else if (candidate.releasedAssignment) {
+          const existingAssignment = candidate.releasedAssignment;
+          rollbackData = {
+            user: { connect: { id: existingAssignment.userId } },
+            status: 'released',
+            assignedAt: existingAssignment.assignedAt,
+            startedAt: existingAssignment.startedAt,
+            completedAt: existingAssignment.completedAt,
+            removedAt: existingAssignment.removedAt,
+            sallaStatus: existingAssignment.sallaStatus,
+            orderData: (existingAssignment.orderData ??
+              Prisma.JsonNull) as Prisma.InputJsonValue,
             orderNumber: existingAssignment.orderNumber,
           };
 
@@ -447,7 +547,7 @@ export async function POST(request: NextRequest) {
             },
           });
 
-          log.info('Reassigning order to previous user', {
+          log.info('Reassigning previously released order', {
             orderId: normalizedOrderId,
             assignmentId: assignment.id,
             userId: user.id,
@@ -518,19 +618,10 @@ export async function POST(request: NextRequest) {
 
         if (!statusUpdated) {
           skippedDueToStatusUpdate += 1;
-          if (candidate.reassignment && previousAssignmentState) {
+          if (rollbackData) {
             await prisma.orderAssignment.update({
               where: { id: assignment.id },
-              data: {
-                status: previousAssignmentState.status,
-                assignedAt: previousAssignmentState.assignedAt,
-                startedAt: previousAssignmentState.startedAt,
-                completedAt: previousAssignmentState.completedAt,
-                removedAt: previousAssignmentState.removedAt,
-                sallaStatus: previousAssignmentState.sallaStatus,
-                orderData: previousAssignmentState.orderData,
-                orderNumber: previousAssignmentState.orderNumber,
-              },
+              data: rollbackData,
             });
           } else {
             await prisma.orderAssignment.delete({ where: { id: assignment.id } });
@@ -595,3 +686,43 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+const isReleaseStatusValue = (value?: string | null) =>
+  Boolean(value && RELEASE_STATUS_IDS.has(value));
+
+const isReleaseStatusFromOrder = (order: any): boolean => {
+  const statusId = String(
+    order?.status?.id ??
+    order?.status_id ??
+    order?.statusId ??
+    ''
+  );
+  const subStatusId = String(
+    order?.status?.sub_status?.id ??
+    order?.sub_status?.id ??
+    order?.sub_status_id ??
+    ''
+  );
+  const statusName = String(
+    order?.status?.name ??
+    order?.status_name ??
+    order?.statusName ??
+    ''
+  ).trim();
+  const subStatusName = String(
+    order?.status?.sub_status?.name ??
+    order?.sub_status?.name ??
+    order?.sub_status_name ??
+    ''
+  ).trim();
+  const parentStatusId = String(order?.status?.parent?.id ?? '');
+  const parentStatusName = String(order?.status?.parent?.name ?? '').trim();
+
+  return (
+    isReleaseStatusValue(statusId) ||
+    isReleaseStatusValue(subStatusId) ||
+    isReleaseStatusValue(statusName) ||
+    isReleaseStatusValue(subStatusName) ||
+    isReleaseStatusValue(parentStatusId) ||
+    isReleaseStatusValue(parentStatusName)
+  );
+};
