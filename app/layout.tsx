@@ -3,6 +3,8 @@ import { Tajawal } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
 import PwaProvider from "@/components/PwaProvider";
+import { ToastProvider } from "@/components/ui/use-toast";
+import { Toaster } from "@/components/ui/toaster";
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -37,9 +39,12 @@ export default function RootLayout({
         <link rel="icon" href="/logo.png" />
       </head>
       <body className={`${tajawal.variable} antialiased`} suppressHydrationWarning>
-        <SessionProvider>
-          {children}
-        </SessionProvider>
+        <ToastProvider>
+          <SessionProvider>
+            {children}
+          </SessionProvider>
+          <Toaster />
+        </ToastProvider>
         <PwaProvider />
       </body>
     </html>

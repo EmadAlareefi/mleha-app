@@ -336,6 +336,7 @@ async function fetchOrderDetailWithItems(orderId: string, accessToken: string) {
       log.warn('Failed to fetch order items', { orderId, error: itemsError });
     }
 
+    await attachProductLocations(detail);
     return detail;
   } catch (error) {
     log.error('Unexpected error while fetching order detail', { orderId, error });
@@ -442,4 +443,123 @@ function getOrderTimestamp(order: any): number {
   }
 
   return 0;
+}
+
+export async function attachProductLocations(detail: any) {
+  if (!detail || typeof detail !== 'object') {
+    return detail;
+  }
+
+  const items = Array.isArray(detail.items) ? detail.items : [];
+  if (items.length === 0) {
+    return detail;
+  }
+
+  const skuSet = new Set<string>();
+  const productIdSet = new Set<string>();
+
+  const normalizeSku = (value: unknown): string | null => {
+    if (!value) return null;
+    const normalized = String(value).trim();
+    return normalized || null;
+  };
+
+  items.forEach((item: any) => {
+    const sku =
+      normalizeSku(item?.sku) ||
+      normalizeSku(item?.product?.sku) ||
+      normalizeSku(item?.variant?.sku) ||
+      null;
+    if (sku) {
+      skuSet.add(sku.toLowerCase());
+      item.normalizedSku = sku;
+    }
+
+    const productId =
+      normalizeSku(item?.product_id) ||
+      normalizeSku(item?.product?.id) ||
+      normalizeSku(item?.product?.product_id) ||
+      null;
+    if (productId) {
+      productIdSet.add(productId);
+      item.normalizedProductId = productId;
+    }
+  });
+
+  if (skuSet.size === 0 && productIdSet.size === 0) {
+    return detail;
+  }
+
+  const locations = await prisma.sallaProductLocation.findMany({
+    where: {
+      OR: [
+        skuSet.size > 0
+          ? {
+              sku: {
+                in: Array.from(skuSet),
+                mode: 'insensitive',
+              },
+            }
+          : undefined,
+        productIdSet.size > 0
+          ? {
+              productId: {
+                in: Array.from(productIdSet),
+              },
+            }
+          : undefined,
+      ].filter(Boolean) as Prisma.SallaProductLocationWhereInput[],
+    },
+    select: {
+      sku: true,
+      productId: true,
+      location: true,
+      notes: true,
+    },
+  });
+
+  const bySkuKey = new Map<string, typeof locations[number][]>();
+  const skuKeys: string[] = [];
+  locations
+    .filter((location) => location.sku)
+    .forEach((location) => {
+      const normalized = location.sku!.toLowerCase();
+      if (!bySkuKey.has(normalized)) {
+        bySkuKey.set(normalized, []);
+        skuKeys.push(normalized);
+      }
+      bySkuKey.get(normalized)!.push(location);
+    });
+  skuKeys.sort((a, b) => b.length - a.length);
+  const byProductId = new Map(
+    locations
+      .filter((location) => location.productId)
+      .map((location) => [location.productId!, location]),
+  );
+
+  items.forEach((item: any) => {
+    const skuKey = (item.normalizedSku as string | undefined)?.toLowerCase() || null;
+    const productIdKey = item.normalizedProductId as string | undefined;
+
+    let match: typeof locations[number] | undefined;
+    if (skuKey) {
+      match = bySkuKey.get(skuKey)?.[0];
+      if (!match) {
+        const prefix = skuKeys.find((key) => skuKey!.startsWith(key));
+        if (prefix) {
+          match = bySkuKey.get(prefix)?.[0];
+        }
+      }
+    }
+    if (!match && productIdKey) {
+      match = byProductId.get(productIdKey);
+    }
+
+    if (match) {
+      item.inventoryLocation = match.location;
+      item.inventoryNotes = match.notes || null;
+    }
+  });
+
+  return detail;
 }

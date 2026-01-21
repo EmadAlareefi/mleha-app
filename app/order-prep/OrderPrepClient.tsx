@@ -5,7 +5,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Loader2, Package, RefreshCcw, Printer } from 'lucide-react';
+import { Loader2, Package, RefreshCcw, Printer } from 'lucide-react';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { useToast } from '@/components/ui/use-toast';
 
 type AssignmentStatus = 'assigned' | 'preparing' | 'waiting' | 'completed';
 
@@ -31,7 +33,10 @@ interface LineItem {
   name: string | null;
   quantity: number;
   image: string | null;
-  price: string | null;
+  color: string | null;
+  size: string | null;
+  location: string | null;
+  locationNotes: string | null;
 }
 
 const assignmentStatusMeta: Record<
@@ -69,22 +74,23 @@ export default function OrderPrepClient() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [sallaStatusAction, setSallaStatusAction] = useState<string | null>(null);
   const autoStartedAssignments = useRef<Set<string>>(new Set());
+  const refreshedAssignments = useRef<Set<string>>(new Set());
+  const [confirmDialog, setConfirmDialog] = useState<{
+    type: 'complete' | 'under_review_a' | 'under_review_reservation' | 'under_review_inner';
+    assignment: Assignment;
+  } | null>(null);
+  const { toast } = useToast();
 
   const loadAssignments = useCallback(
     async (options: { silent?: boolean } = {}) => {
       if (!options.silent) {
         setLoading(true);
       }
-      setError(null);
-      setInfoMessage(null);
-
       try {
         const response = await fetch('/api/order-prep/orders', {
           cache: 'no-store',
@@ -96,26 +102,27 @@ export default function OrderPrepClient() {
         const assignmentsList = Array.isArray(data.assignments) ? data.assignments : [];
         setAssignments(assignmentsList.length > 0 ? [assignmentsList[0]] : []);
         if (data.autoAssigned) {
-          setInfoMessage('🎉 تم تعيين أقدم طلب جديد لك تلقائياً');
+          toast({ description: '🎉 تم تعيين أقدم طلب جديد لك تلقائياً' });
         }
         setLastUpdated(new Date().toISOString());
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
+        toast({
+          variant: 'destructive',
+          description: err instanceof Error ? err.message : 'حدث خطأ غير متوقع',
+        });
       } finally {
         setLoading(false);
       }
     },
-    []
+    [toast],
   );
 
   const requestNewOrder = useCallback(async () => {
     if (assignments.length > 0) {
-      setInfoMessage('⚠️ يرجى إنهاء الطلب الحالي قبل طلب طلب جديد');
+      toast({ description: '⚠️ يرجى إنهاء الطلب الحالي قبل طلب طلب جديد' });
       return;
     }
     setAssigning(true);
-    setError(null);
-    setInfoMessage(null);
     try {
       const response = await fetch('/api/order-prep/orders/assign', {
         method: 'POST',
@@ -125,78 +132,85 @@ export default function OrderPrepClient() {
         throw new Error(data.error || 'لا توجد طلبات جديدة متاحة');
       }
       setAssignments([data.assignment]);
-      setInfoMessage('✅ تم تعيين طلب جديد لك');
+      toast({ description: '✅ تم تعيين طلب جديد لك' });
       setLastUpdated(new Date().toISOString());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر الحصول على طلب جديد');
+      toast({
+        variant: 'destructive',
+        description: err instanceof Error ? err.message : 'تعذر الحصول على طلب جديد',
+      });
     } finally {
       setAssigning(false);
     }
-  }, [assignments.length]);
+  }, [assignments.length, toast]);
 
-  const updateStatus = useCallback(async (assignmentId: string, status: AssignmentStatus, options?: { skipSallaSync?: boolean; suppressError?: boolean }) => {
-    setPendingAction(`${assignmentId}_${status}`);
-    setError(null);
-    setInfoMessage(null);
-    try {
-      const response = await fetch(`/api/order-prep/orders/${assignmentId}/status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status,
-          skipSallaSync: Boolean(options?.skipSallaSync),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'فشل تحديث حالة الطلب');
-      }
-
-      setAssignments((prev) => {
-        if (status === 'completed') {
-          return prev.filter((assignment) => assignment.id !== assignmentId);
+  const updateStatus = useCallback(
+    async (assignmentId: string, status: AssignmentStatus, options?: { skipSallaSync?: boolean; suppressError?: boolean }) => {
+      setPendingAction(`${assignmentId}_${status}`);
+      try {
+        const response = await fetch(`/api/order-prep/orders/${assignmentId}/status`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            status,
+            skipSallaSync: Boolean(options?.skipSallaSync),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'فشل تحديث حالة الطلب');
         }
-        return prev.map((assignment) =>
-          assignment.id === assignmentId ? data.assignment : assignment
-        );
-      });
 
-      if (status === 'completed') {
-        setInfoMessage('🎉 تم إنهاء الطلب، يمكنك طلب طلب جديد الآن');
-      } else if (status === 'preparing') {
-        setInfoMessage('🔄 تم تحديث الطلب إلى جاري التجهيز');
-      } else if (status === 'waiting') {
-        setInfoMessage('⌛ تم وضع الطلب في قائمة الانتظار');
-      }
+        setAssignments((prev) => {
+          if (status === 'completed') {
+            return prev.filter((assignment) => assignment.id !== assignmentId);
+          }
+          return prev.map((assignment) =>
+            assignment.id === assignmentId ? data.assignment : assignment
+          );
+        });
 
-      if (status === 'completed') {
-        // حاول جلب طلب جديد بعد إكمال الحالي
-        void loadAssignments({ silent: true });
+        if (status === 'completed') {
+          toast({ description: '🎉 تم إنهاء الطلب، يمكنك طلب طلب جديد الآن' });
+        } else if (status === 'preparing') {
+          toast({ description: '🔄 تم تحديث الطلب إلى جاري التجهيز' });
+        } else if (status === 'waiting') {
+          toast({ description: '⌛ تم وضع الطلب في قائمة الانتظار' });
+        }
+
+        if (status === 'completed') {
+          void loadAssignments({ silent: true });
+        }
+      } catch (err) {
+        if (!options?.suppressError) {
+          toast({
+            variant: 'destructive',
+            description: err instanceof Error ? err.message : 'فشل تحديث حالة الطلب',
+          });
+        } else {
+          console.warn('Auto status update failed', err);
+        }
+      } finally {
+        setPendingAction(null);
       }
-    } catch (err) {
-      if (!options?.suppressError) {
-        setError(err instanceof Error ? err.message : 'فشل تحديث حالة الطلب');
-      } else {
-        console.warn('Auto status update failed', err);
-      }
-    } finally {
-      setPendingAction(null);
-    }
-  }, [loadAssignments]);
+    },
+    [loadAssignments, toast],
+  );
 
   const handlePrintOrderNumber = useCallback(
     async (assignment: Assignment) => {
       const reference = assignment.orderNumber || assignment.orderReference || assignment.orderId;
       if (!reference) {
-        setError('رقم الطلب غير متوفر للطباعة');
+        toast({
+          variant: 'destructive',
+          description: 'رقم الطلب غير متوفر للطباعة',
+        });
         return;
       }
 
       setPrintingOrderId(assignment.id);
-      setError(null);
-      setInfoMessage(null);
 
       try {
         const response = await fetch('/api/order-prep/print-order-number', {
@@ -214,25 +228,43 @@ export default function OrderPrepClient() {
           throw new Error(data.error || 'فشل إرسال رقم الطلب للطابعة');
         }
 
-        setInfoMessage(`تم إرسال رقم الطلب ${reference} للطابعة`);
+        toast({ description: `تم إرسال رقم الطلب ${reference} للطابعة` });
       } catch (err) {
         console.error('Print order number error:', err);
-        setError(
-          err instanceof Error ? err.message : 'تعذر إرسال رقم الطلب للطابعة'
-        );
+        toast({
+          variant: 'destructive',
+          description:
+            err instanceof Error ? err.message : 'تعذر إرسال رقم الطلب للطابعة',
+        });
       } finally {
         setPrintingOrderId(null);
       }
     },
-    [],
+    [toast],
   );
+
+  const refreshAssignmentItems = useCallback(async (assignmentId: string) => {
+    try {
+      const response = await fetch(`/api/order-prep/orders/${assignmentId}/refresh-items`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'تعذر تحديث بيانات الطلب من سلة');
+      }
+      if (data.assignment) {
+        setAssignments([data.assignment]);
+        setLastUpdated(new Date().toISOString());
+      }
+    } catch (err) {
+      console.error('Refresh order items error:', err);
+    }
+  }, []);
 
   const handleUpdateSallaStatus = useCallback(
     async (assignment: Assignment, target: 'under_review_a' | 'under_review_reservation' | 'under_review_inner') => {
       const actionKey = `${assignment.id}_${target}`;
       setSallaStatusAction(actionKey);
-      setError(null);
-      setInfoMessage(null);
 
       try {
         const response = await fetch(
@@ -250,18 +282,19 @@ export default function OrderPrepClient() {
         }
 
         setAssignments((prev) => prev.filter((item) => item.id !== assignment.id));
-        setInfoMessage('تم تحديث حالة الطلب في سلة وإعادة الطلب إلى قائمة الانتظار');
+        toast({ description: 'تم تحديث حالة الطلب في سلة وإعادة الطلب إلى قائمة الانتظار' });
         await loadAssignments({ silent: true });
       } catch (err) {
         console.error('Salla status update error:', err);
-        setError(
-          err instanceof Error ? err.message : 'تعذر تحديث حالة الطلب في سلة'
-        );
+        toast({
+          variant: 'destructive',
+          description: err instanceof Error ? err.message : 'تعذر تحديث حالة الطلب في سلة',
+        });
       } finally {
         setSallaStatusAction(null);
       }
     },
-    [loadAssignments],
+    [loadAssignments, toast],
   );
 
   useEffect(() => {
@@ -270,6 +303,15 @@ export default function OrderPrepClient() {
 
   const assignmentsCount = assignments.length;
   const activeAssignment = assignments[0] ?? null;
+  const isBusy =
+    loading || assigning || Boolean(pendingAction || sallaStatusAction || printingOrderId);
+
+  useEffect(() => {
+    if (activeAssignment && !refreshedAssignments.current.has(activeAssignment.id)) {
+      refreshedAssignments.current.add(activeAssignment.id);
+      void refreshAssignmentItems(activeAssignment.id);
+    }
+  }, [activeAssignment, refreshAssignmentItems]);
 
   useEffect(() => {
     if (activeAssignment && activeAssignment.status === 'assigned' && !autoStartedAssignments.current.has(activeAssignment.id)) {
@@ -289,6 +331,43 @@ export default function OrderPrepClient() {
     }
   }, [activeAssignment, updateStatus]);
 
+  const runConfirmedAction = useCallback(() => {
+    if (!confirmDialog) return;
+    const { type, assignment } = confirmDialog;
+    if (type === 'complete') {
+      void updateStatus(assignment.id, 'completed');
+    } else {
+      void handleUpdateSallaStatus(
+        assignment,
+        type as 'under_review_a' | 'under_review_reservation' | 'under_review_inner',
+      );
+    }
+    setConfirmDialog(null);
+  }, [confirmDialog, updateStatus, handleUpdateSallaStatus]);
+
+  const confirmConfig: Record<
+    'complete' | 'under_review_a' | 'under_review_reservation' | 'under_review_inner',
+    { message: string; confirmLabel: string; variant?: 'primary' | 'danger' }
+  > = {
+    complete: {
+      message: 'هل أنت متأكد من إنهاء الطلب الحالي؟ سيتم اعتباره مكتمل ولن تتمكن من التعديل عليه.',
+      confirmLabel: 'إنهاء الطلب',
+      variant: 'danger',
+    },
+    under_review_a: {
+      message: 'سيتم إعادة الطلب إلى حالة "تحت المراجعة". هل تريد المتابعة؟',
+      confirmLabel: 'تأكيد الإرجاع',
+    },
+    under_review_reservation: {
+      message: 'سيتم وضع الطلب في حالة "تحت المراجعة - حجز قطع". تأكيد العملية؟',
+      confirmLabel: 'تأكيد النقل',
+    },
+    under_review_inner: {
+      message: 'سيتم تحويل الطلب إلى "تحت المراجعة ا". هل أنت متأكد؟',
+      confirmLabel: 'تأكيد التحويل',
+    },
+  };
+
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -299,11 +378,12 @@ export default function OrderPrepClient() {
             يتم تعيين أقدم طلب جديد من سلة عند تسجيل الدخول أو بطلب المستخدم
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
           <Button
             variant="outline"
             onClick={() => loadAssignments()}
             disabled={loading}
+            className="w-full sm:w-auto"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 ml-2 animate-spin" />
@@ -312,7 +392,11 @@ export default function OrderPrepClient() {
             )}
             تحديث
           </Button>
-          <Button onClick={requestNewOrder} disabled={assigning || assignmentsCount > 0}>
+          <Button
+            onClick={requestNewOrder}
+            disabled={assigning || assignmentsCount > 0}
+            className="w-full sm:w-auto"
+          >
             {assigning ? (
               <Loader2 className="h-4 w-4 ml-2 animate-spin" />
             ) : (
@@ -337,23 +421,10 @@ export default function OrderPrepClient() {
         <Card className="p-4">
           <div className="text-sm text-gray-500">الحالة</div>
           <div className="text-lg font-semibold text-gray-900">
-            {infoMessage ? 'قيد التحديث' : 'جاهز'}
+            {isBusy ? 'قيد التحديث' : 'جاهز'}
           </div>
         </Card>
       </div>
-
-      {infoMessage && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {infoMessage}
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4" />
-          {error}
-        </div>
-      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -377,8 +448,21 @@ export default function OrderPrepClient() {
           printingOrderId={printingOrderId}
           onUpdateSallaStatus={handleUpdateSallaStatus}
           sallaStatusAction={sallaStatusAction}
+          onConfirmComplete={() => setConfirmDialog({ type: 'complete', assignment: activeAssignment })}
+          onConfirmSallaStatus={(target) => setConfirmDialog({ type: target, assignment: activeAssignment })}
         />
       )}
+      <ConfirmationDialog
+        open={Boolean(confirmDialog)}
+        title="تأكيد العملية"
+        message={confirmDialog ? confirmConfig[confirmDialog.type].message : ''}
+        confirmLabel={confirmDialog ? confirmConfig[confirmDialog.type].confirmLabel : 'تأكيد'}
+        confirmVariant={
+          confirmDialog ? confirmConfig[confirmDialog.type].variant ?? 'primary' : 'primary'
+        }
+        onConfirm={runConfirmedAction}
+        onCancel={() => setConfirmDialog(null)}
+      />
     </section>
   );
 }
@@ -391,6 +475,8 @@ function AssignmentCard({
   printingOrderId,
   onUpdateSallaStatus,
   sallaStatusAction,
+  onConfirmComplete,
+  onConfirmSallaStatus,
 }: {
   assignment: Assignment;
   pendingAction: string | null;
@@ -399,6 +485,8 @@ function AssignmentCard({
   printingOrderId: string | null;
   onUpdateSallaStatus: (assignment: Assignment, target: 'under_review_a' | 'under_review_reservation' | 'under_review_inner') => void;
   sallaStatusAction: string | null;
+  onConfirmComplete: () => void;
+  onConfirmSallaStatus: (target: 'under_review_a' | 'under_review_reservation' | 'under_review_inner') => void;
 }) {
   const items = getLineItems(assignment.orderData);
   const orderStatus = getOrderStatus(assignment.orderData);
@@ -463,14 +551,34 @@ function AssignmentCard({
                     />
                   )}
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-gray-900">
+                    <p className="text-base font-semibold text-gray-900">
                       {item.name || 'منتج بدون اسم'}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">{item.sku || 'بدون رمز'}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-600">
-                      <span>الكمية: {item.quantity || 1}</span>
-                      {item.price && <span>{item.price}</span>}
+                    <p className="text-sm font-semibold text-gray-800 mt-1">
+                      {item.sku || 'بدون رمز'}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                      <span className="font-semibold text-gray-900">
+                        الكمية: {item.quantity || 1}
+                      </span>
+                      {item.color && (
+                        <span className="inline-flex items-center gap-1 font-semibold text-gray-900">
+                          <span className="text-gray-500">اللون:</span>
+                          <span>{item.color}</span>
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1 font-semibold text-gray-900">
+                        <span className="text-gray-500">المقاس:</span>
+                        <span>{item.size || '-'}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-emerald-700">
+                        <span className="text-gray-500">موقع المخزون:</span>
+                        <span className="font-semibold">{item.location || '-'}</span>
+                      </span>
                     </div>
+                    {item.locationNotes && (
+                      <p className="text-xs text-gray-500 mt-1">{item.locationNotes}</p>
+                    )}
                   </div>
                 </div>
               ))
@@ -478,68 +586,75 @@ function AssignmentCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Button
-            variant="outline"
-            onClick={() => onPrintOrderNumber(assignment)}
-            disabled={printingOrderId === assignment.id}
-          >
-            {printingOrderId === assignment.id ? (
-              <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-            ) : (
-              <Printer className="h-4 w-4 ml-2" />
-            )}
-            طباعة رقم الطلب
-          </Button>
-          <Button
-            onClick={() => onStatusChange(assignment.id, 'completed')}
-            disabled={completedDisabled || pendingAction === actionKey('completed')}
-          >
-            {pendingAction === actionKey('completed') ? (
-              <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-            ) : (
-              <Package className="h-4 w-4 ml-2" />
-            )}
-            إنهاء الطلب
-          </Button>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            variant="outline"
-            onClick={() => onUpdateSallaStatus(assignment, 'under_review_a')}
-            disabled={sallaStatusAction === `${assignment.id}_under_review_a`}
-          >
-            {sallaStatusAction === `${assignment.id}_under_review_a` ? (
-              <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-            ) : (
-              <RefreshCcw className="h-4 w-4 ml-2" />
-            )}
-            تحديث سلة: تحت المراجعة
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => onUpdateSallaStatus(assignment, 'under_review_reservation')}
-            disabled={sallaStatusAction === `${assignment.id}_under_review_reservation`}
-          >
-            {sallaStatusAction === `${assignment.id}_under_review_reservation` ? (
-              <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-            ) : (
-              <RefreshCcw className="h-4 w-4 ml-2" />
-            )}
-            تحديث سلة: تحت المراجعة (حجز)
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => onUpdateSallaStatus(assignment, 'under_review_inner')}
-            disabled={sallaStatusAction === `${assignment.id}_under_review_inner`}
-          >
-            {sallaStatusAction === `${assignment.id}_under_review_inner` ? (
-              <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-            ) : (
-              <RefreshCcw className="h-4 w-4 ml-2" />
-            )}
-            تحديث سلة: تحت المراجعة ا
-          </Button>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => onPrintOrderNumber(assignment)}
+              disabled={printingOrderId === assignment.id}
+              className="w-full sm:w-auto"
+            >
+              {printingOrderId === assignment.id ? (
+                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+              ) : (
+                <Printer className="h-4 w-4 ml-2" />
+              )}
+              طباعة رقم الطلب
+            </Button>
+            <Button
+              onClick={onConfirmComplete}
+              disabled={completedDisabled || pendingAction === actionKey('completed')}
+              className="w-full sm:w-auto"
+            >
+              {pendingAction === actionKey('completed') ? (
+                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+              ) : (
+                <Package className="h-4 w-4 ml-2" />
+              )}
+              إنهاء الطلب
+            </Button>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => onConfirmSallaStatus('under_review_a')}
+              disabled={sallaStatusAction === `${assignment.id}_under_review_a`}
+              className="w-full sm:w-auto"
+            >
+              {sallaStatusAction === `${assignment.id}_under_review_a` ? (
+                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4 ml-2" />
+              )}
+              تحديث سلة: تحت المراجعة
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onConfirmSallaStatus('under_review_reservation')}
+              disabled={sallaStatusAction === `${assignment.id}_under_review_reservation`}
+              className="w-full sm:w-auto"
+            >
+              {sallaStatusAction === `${assignment.id}_under_review_reservation` ? (
+                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4 ml-2" />
+              )}
+              تحديث سلة: تحت المراجعة (حجز)
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onConfirmSallaStatus('under_review_inner')}
+              disabled={sallaStatusAction === `${assignment.id}_under_review_inner`}
+              className="w-full sm:w-auto"
+            >
+              {sallaStatusAction === `${assignment.id}_under_review_inner` ? (
+                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4 ml-2" />
+              )}
+              تحديث سلة: تحت المراجعة ا
+            </Button>
+          </div>
         </div>
       </div>
     </Card>
@@ -562,18 +677,155 @@ function getLineItems(order: any): LineItem[] {
       null;
     const sku = item?.sku || item?.product?.sku || null;
     const name = item?.name || item?.product?.name || null;
-    const price =
-      item?.amounts?.total?.amount && item?.amounts?.total?.currency
-        ? formatCurrency(item.amounts.total.amount, item.amounts.total.currency)
-        : null;
+    const color = extractAttributeValue(item, ['color', 'color_name', 'colour', 'اللون']);
+    const size = extractAttributeValue(item, ['size', 'size_name', 'المقاس', 'variant_size']);
+    const location = item?.inventoryLocation || item?.inventory_location || null;
+    const locationNotes = item?.inventoryNotes || item?.inventory_notes || null;
     return {
       sku,
       name,
       quantity: item?.quantity || 1,
       image,
-      price,
+      color,
+      size,
+      location,
+      locationNotes,
     };
   });
+}
+
+function extractAttributeValue(item: any, attributeNames: string[]): string | null {
+  const normalizedKeys = attributeNames.map((name) => name.toLowerCase());
+  const includesSize = normalizedKeys.some(
+    (key) => key.includes('size') || key.includes('مقاس'),
+  );
+  const includesColor = normalizedKeys.some(
+    (key) => key.includes('color') || key.includes('لون'),
+  );
+  const matchesKey = (key?: string | null) => {
+    if (!key) return false;
+    const normalized = key.toLowerCase();
+    return normalizedKeys.some(
+      (target) => normalized === target || normalized.includes(target),
+    );
+  };
+  const normalizeValue = (value: any): string | null => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (typeof value === 'number') {
+      return value.toString();
+    }
+    if (typeof value === 'object') {
+      return value?.name || value?.value || value?.label || null;
+    }
+    return null;
+  };
+
+  const directLookup = (source: any): string | null => {
+    if (!source || typeof source !== 'object') {
+      return null;
+    }
+    for (const key of Object.keys(source)) {
+      if (matchesKey(key)) {
+        const result = normalizeValue(source[key]);
+        if (result) {
+          return result;
+        }
+      }
+    }
+    return null;
+  };
+
+  const relatedFields = (source: any): string | null => {
+    if (!source || typeof source !== 'object') {
+      return null;
+    }
+    for (const key of Object.keys(source)) {
+      if (matchesKey(key)) {
+        const result = normalizeValue(source[key]);
+        if (result) return result;
+      }
+    }
+    return null;
+  };
+
+  const searchArray = (arr: any): string | null => {
+    if (!Array.isArray(arr)) {
+      return null;
+    }
+    for (const entry of arr) {
+      const key =
+        entry?.name ??
+        entry?.label ??
+        entry?.title ??
+        entry?.key ??
+        entry?.option ??
+        entry?.option_name ??
+        entry?.optionName ??
+        entry?.id ??
+        '';
+      if (matchesKey(key?.toString())) {
+        const result = normalizeValue(entry?.value ?? entry?.name ?? entry?.label);
+        if (result) {
+          return result;
+        }
+      }
+    }
+    return null;
+  };
+
+  const objectSources = [item, item?.product, item?.details, item?.variant];
+  for (const source of objectSources) {
+    const result = directLookup(source);
+    if (result) {
+      return result;
+    }
+  }
+
+  for (const source of objectSources) {
+    const result = relatedFields(source);
+    if (result) {
+      return result;
+    }
+  }
+
+  const arraySources = [
+    item?.options,
+    item?.attributes,
+    item?.variant?.options,
+    item?.variant?.attributes,
+    item?.variant?.values,
+    item?.product?.options,
+    item?.details?.options,
+  ];
+  for (const arr of arraySources) {
+    const result = searchArray(arr);
+    if (result) {
+      return result;
+    }
+  }
+
+  const variantName = item?.variant?.name || item?.variant?.value || item?.variant?.label || null;
+  if (variantName) {
+    const parts = variantName.split(/[\/\-|،]/).map((part: string) => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      if (includesColor) {
+        return parts[0];
+      }
+      if (includesSize) {
+        return parts[parts.length - 1];
+      }
+    } else if (parts.length === 1) {
+      if (includesColor || includesSize) {
+        return parts[0];
+      }
+    }
+  }
+  return null;
 }
 
 function getOrderStatus(order: any) {
