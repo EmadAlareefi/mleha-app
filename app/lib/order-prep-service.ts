@@ -245,7 +245,7 @@ function mapStatusToSalla(status: 'preparing' | 'waiting' | 'completed'): number
     case 'waiting':
       return STATUS_IDS.UNDER_REVIEW ?? null;
     case 'completed':
-      return STATUS_IDS.COMPLETED ?? null;
+      return STATUS_IDS.IN_PROGRESS ?? null;
     default:
       return null;
   }
