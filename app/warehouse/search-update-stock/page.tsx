@@ -48,6 +48,25 @@ type StockSearchResult = {
 
 type UpdateFeedback = { type: 'success' | 'error'; message: string };
 
+type StockUpdateMode = 'override' | 'increment';
+
+const stockModeOptions: Array<{
+  value: StockUpdateMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'override',
+    label: 'تحديث كلي (Override)',
+    description: 'يضبط مخزون سلة على العدد الفعلي بعد خصم الطلبات الجارية.',
+  },
+  {
+    value: 'increment',
+    label: 'زيادة تدريجية (Increment)',
+    description: 'يزيد مخزون سلة بمقدار الكمية المدخلة دون المساس بالمخزون الحالي.',
+  },
+];
+
 const inputClasses =
   'w-full rounded-2xl border border-slate-200/70 bg-white px-4 py-3 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
 
@@ -97,8 +116,10 @@ export default function SearchAndUpdateStockPage() {
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
   const [lastQuery, setLastQuery] = useState<string | null>(null);
   const [confirmingUpdate, setConfirmingUpdate] = useState(false);
+  const [stockMode, setStockMode] = useState<StockUpdateMode>('override');
 
   const activeResult = results[selectedIndex] ?? null;
+  const isIncrementMode = stockMode === 'increment';
 
   useEffect(() => {
     if (activeResult?.product.location) {
@@ -109,6 +130,11 @@ export default function SearchAndUpdateStockPage() {
     setCountInputs({});
     setUpdateFeedback(null);
   }, [activeResult?.product.id]);
+
+  useEffect(() => {
+    setCountInputs({});
+    setUpdateFeedback(null);
+  }, [stockMode]);
 
   const handleSearch = useCallback(
     async (event?: React.FormEvent) => {
@@ -191,6 +217,27 @@ export default function SearchAndUpdateStockPage() {
         return acc;
       }
       const counted = Math.max(0, Math.round(parsed));
+
+      if (stockMode === 'increment') {
+        if (counted === 0) {
+          acc[variant.id] = {
+            counted,
+            pending: variant.pendingQuantity,
+            derived: null,
+            delta: 0,
+          };
+          return acc;
+        }
+        const derived = variant.sallaStock + counted;
+        acc[variant.id] = {
+          counted,
+          pending: variant.pendingQuantity,
+          derived,
+          delta: counted,
+        };
+        return acc;
+      }
+
       const derived = Math.max(0, counted - variant.pendingQuantity);
       const delta = derived - variant.sallaStock;
       acc[variant.id] = {
@@ -201,7 +248,7 @@ export default function SearchAndUpdateStockPage() {
       };
       return acc;
     }, {});
-  }, [activeResult, countInputs]);
+  }, [activeResult, countInputs, stockMode]);
 
   const variantsNeedingUpdate = useMemo(() => {
     if (!activeResult) return 0;
@@ -279,7 +326,7 @@ export default function SearchAndUpdateStockPage() {
     }
 
     setUpdateLoading(true);
-    setOverlayMessage('جاري تحديث المخزون...');
+    setOverlayMessage(isIncrementMode ? 'جاري زيادة المخزون...' : 'جاري تحديث المخزون...');
     setUpdateFeedback(null);
 
     try {
@@ -321,9 +368,10 @@ export default function SearchAndUpdateStockPage() {
         }
       }
 
+      const successMessage = isIncrementMode ? 'تمت زيادة المخزون بنجاح.' : 'تم تحديث الكميات بنجاح.';
       setUpdateFeedback({
         type: 'success',
-        message: 'تم تحديث الكميات وموقع التخزين بنجاح.',
+        message: locationChanged ? `${successMessage} وتم حفظ موقع التخزين.` : successMessage,
       });
       setCountInputs({});
       await refreshActiveProduct();
@@ -336,7 +384,7 @@ export default function SearchAndUpdateStockPage() {
       setOverlayMessage(null);
       setUpdateLoading(false);
     }
-  }, [activeResult, derivedEntries, locationChanged, locationInput, refreshActiveProduct]);
+  }, [activeResult, derivedEntries, locationChanged, locationInput, refreshActiveProduct, isIncrementMode]);
 
   const handleUpdateRequest = useCallback(() => {
     if (!hasUpdateableData || updateLoading) {
@@ -401,6 +449,35 @@ export default function SearchAndUpdateStockPage() {
                 <ClipboardList className="h-4 w-4" />
                 إدارة المواقع
               </Link>
+            </div>
+            <div className="rounded-3xl border border-slate-100 bg-slate-50/60 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">اختيار نوع تعديل المخزون</p>
+                  <p className="text-xs text-slate-500">
+                    حدد ما إذا كنت ترغب بتحديث الكميات الفعلية أو زيادة المخزون قبل البحث.
+                  </p>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  {stockModeOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setStockMode(option.value)}
+                      aria-pressed={stockMode === option.value}
+                      className={cn(
+                        'flex-1 rounded-2xl border px-4 py-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 sm:flex-none',
+                        stockMode === option.value
+                          ? 'border-indigo-400 bg-white text-indigo-600 shadow-sm shadow-indigo-100'
+                          : 'border-transparent bg-transparent text-slate-500 hover:border-slate-200 hover:bg-white/50'
+                      )}
+                    >
+                      <p className="text-sm font-semibold">{option.label}</p>
+                      <p className="text-[11px] text-slate-400">{option.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             {searchError && (
               <div className="flex items-start gap-2 rounded-2xl border border-rose-100 bg-rose-50/80 px-4 py-3 text-sm text-rose-700">
@@ -514,7 +591,9 @@ export default function SearchAndUpdateStockPage() {
                           <ul className="mt-2 space-y-1 text-xs text-slate-500">
                             <li className="flex items-center gap-2">
                               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                              أكتب العدد الفعلي داخل الصندوق لكل متغير
+                              {isIncrementMode
+                                ? 'أدخل كمية الزيادة لكل متغير'
+                                : 'أكتب العدد الفعلي داخل الصندوق لكل متغير'}
                             </li>
                             <li className="flex items-center gap-2">
                               <Activity className="h-3.5 w-3.5 text-indigo-500" />
@@ -558,7 +637,9 @@ export default function SearchAndUpdateStockPage() {
                         المتغيرات ({activeResult.variations.length})
                       </p>
                       <p className="text-xs text-slate-400">
-                        أدخل العدد الفعلي لكل متغير ليتم احتسابه تلقائياً
+                        {isIncrementMode
+                          ? 'أدخل كمية الزيادة لكل متغير ليتم إرسالها كزيادة على المخزون الحالي.'
+                          : 'أدخل العدد الفعلي بعد الجرد ليتم احتساب المخزون المتاح في سلة.'}
                       </p>
                     </div>
                     <Button
@@ -599,7 +680,7 @@ export default function SearchAndUpdateStockPage() {
                           <div className="mt-4 grid gap-4 md:grid-cols-3">
                             <div>
                               <p className="text-xs font-semibold text-slate-500">
-                                الكمية الفعلية (المخزون)
+                                {isIncrementMode ? 'الكمية المراد إضافتها' : 'الكمية الفعلية (المخزون)'}
                               </p>
                               <input
                                 type="number"
@@ -609,7 +690,11 @@ export default function SearchAndUpdateStockPage() {
                                 onChange={(event) =>
                                   handleVariantInputChange(variant.id, event.target.value)
                                 }
-                                placeholder="أدخل العدد بعد الجرد"
+                                placeholder={
+                                  isIncrementMode
+                                    ? 'أدخل عدد القطع المراد إضافتها'
+                                    : 'أدخل العدد بعد الجرد'
+                                }
                                 className={inputClasses}
                               />
                             </div>
@@ -622,30 +707,41 @@ export default function SearchAndUpdateStockPage() {
                             </div>
                             <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
                               <p className="text-xs font-semibold text-indigo-600">
-                                الكمية التي سترسل إلى سلة
+                                {isIncrementMode
+                                  ? 'المخزون بعد تطبيق الزيادة'
+                                  : 'الكمية التي سترسل إلى سلة'}
                               </p>
                               {showDerived ? (
-                                <div className="mt-1 flex items-center gap-3">
-                                  <div className="text-2xl font-bold text-indigo-700">
-                                    {entry?.derived}
+                                <div className="mt-1 flex flex-col gap-1">
+                                  <div className="flex items-center gap-3">
+                                    <div className="text-2xl font-bold text-indigo-700">
+                                      {entry?.derived}
+                                    </div>
+                                    {delta !== 0 && (
+                                      <span
+                                        className={cn(
+                                          'rounded-full px-2 py-0.5 text-xs font-semibold',
+                                          delta > 0
+                                            ? 'bg-emerald-100 text-emerald-700'
+                                            : 'bg-rose-100 text-rose-700'
+                                        )}
+                                      >
+                                        {delta > 0 ? '+' : '-'}
+                                        {Math.abs(delta)}
+                                      </span>
+                                    )}
                                   </div>
-                                  {delta !== 0 && (
-                                    <span
-                                      className={cn(
-                                        'rounded-full px-2 py-0.5 text-xs font-semibold',
-                                        delta > 0
-                                          ? 'bg-emerald-100 text-emerald-700'
-                                          : 'bg-rose-100 text-rose-700'
-                                      )}
-                                    >
-                                      {delta > 0 ? '+' : '-'}
-                                      {Math.abs(delta)}
-                                    </span>
-                                  )}
+                                  <p className="text-[11px] text-slate-500">
+                                    {isIncrementMode
+                                      ? `زيادة متوقعة بمقدار ${entry?.counted ?? 0} قطعة على المخزون الحالي.`
+                                      : 'القيمة بعد خصم الطلبات الجارية من العدد الفعلي.'}
+                                  </p>
                                 </div>
                               ) : (
                                 <p className="mt-1 text-sm text-indigo-500">
-                                  أدخل العدد الفعلي لحساب الكمية الجديدة
+                                  {isIncrementMode
+                                    ? 'أدخل كمية الزيادة لعرض أثرها على المخزون.'
+                                    : 'أدخل العدد الفعلي لحساب الكمية الجديدة.'}
                                 </p>
                               )}
                             </div>
@@ -679,6 +775,12 @@ export default function SearchAndUpdateStockPage() {
                 {locationChanged && (
                   <p className="text-xs text-slate-400">سيتم أيضاً حفظ موقع التخزين الجديد.</p>
                 )}
+                <p className="text-xs text-slate-400">
+                  نمط التحديث الحالي:{' '}
+                  <span className="font-semibold text-slate-600">
+                    {isIncrementMode ? 'زيادة تدريجية (Increment)' : 'تحديث كلي (Override)'}
+                  </span>
+                </p>
               </div>
             </div>
             <Button
@@ -713,21 +815,25 @@ export default function SearchAndUpdateStockPage() {
             <p className="mt-3 text-sm text-slate-600">
               سيتم إرسال التغييرات التالية إلى سلة. يرجى التأكد من صحة البيانات قبل الإكمال.
             </p>
-            <div className="mt-4 space-y-2 rounded-2xl bg-slate-50/80 p-4 text-sm text-slate-600">
-              {variantsNeedingUpdate > 0 && (
-                <p>
-                  تعديل{' '}
-                  <span className="font-semibold text-indigo-600">{variantsNeedingUpdate}</span>{' '}
-                  متغير/متغيرات حسب العد الفعلي.
+              <div className="mt-4 space-y-2 rounded-2xl bg-slate-50/80 p-4 text-sm text-slate-600">
+                {variantsNeedingUpdate > 0 && (
+                  <p>
+                    تعديل{' '}
+                    <span className="font-semibold text-indigo-600">{variantsNeedingUpdate}</span>{' '}
+                    متغير/متغيرات حسب العد الفعلي.
+                  </p>
+                )}
+                {locationChanged && (
+                  <p>
+                    تحديث موقع التخزين إلى{' '}
+                    <span className="font-semibold text-slate-900">{locationInput.trim()}</span>.
+                  </p>
+                )}
+                <p className="text-xs text-slate-500">
+                  النمط المختار:{' '}
+                  {isIncrementMode ? 'زيادة المخزون تدريجياً (Increment).' : 'تحديث الكمية الفعلية (Override).'}
                 </p>
-              )}
-              {locationChanged && (
-                <p>
-                  تحديث موقع التخزين إلى{' '}
-                  <span className="font-semibold text-slate-900">{locationInput.trim()}</span>.
-                </p>
-              )}
-            </div>
+              </div>
             <p className="mt-3 text-xs text-slate-400">لا يمكن التراجع عن هذه العملية بعد الإرسال.</p>
             <div className="mt-6 flex flex-wrap justify-end gap-3">
               <Button
