@@ -5,6 +5,8 @@ import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
+const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
+
 /**
  * POST /api/salla/create-shipment
  * Creates a shipping policy for an order via Salla orders/actions API
@@ -15,42 +17,75 @@ export async function POST(request: NextRequest) {
     log.info('Create shipment request received');
 
     const body = await request.json();
-    const { assignmentId } = body;
+    const {
+      assignmentId,
+      orderId: providedOrderId,
+      orderNumber: providedOrderNumber,
+      merchantId: providedMerchantId,
+    } = body || {};
 
-    log.info('Request body parsed', { assignmentId });
+    log.info('Request body parsed', {
+      assignmentId,
+      providedOrderId,
+      providedOrderNumber,
+      providedMerchantId,
+    });
 
-    if (!assignmentId) {
-      log.warn('Missing assignmentId in request');
+    if (!assignmentId && !providedOrderId) {
+      log.warn('Missing identifiers in request');
       return NextResponse.json(
-        { error: 'معرف الطلب مطلوب' },
+        { error: 'يلزم تقديم معرف الطلب أو رقم الطلب' },
         { status: 400 }
       );
     }
 
-    // Get assignment with order data
-    log.info('Fetching assignment from database', { assignmentId });
-    const assignment = await prisma.orderAssignment.findUnique({
-      where: { id: assignmentId },
-    });
+    let assignment: Awaited<ReturnType<typeof prisma.orderAssignment.findUnique>> | null = null;
 
-    if (!assignment) {
-      log.warn('Assignment not found', { assignmentId });
+    if (assignmentId) {
+      log.info('Fetching assignment from database', { assignmentId });
+      assignment = await prisma.orderAssignment.findUnique({
+        where: { id: assignmentId },
+      });
+
+      if (!assignment) {
+        log.warn('Assignment not found, continuing with provided identifiers', {
+          assignmentId,
+          providedOrderId,
+        });
+      } else {
+        log.info('Assignment found', {
+          assignmentId,
+          orderId: assignment.orderId,
+          orderNumber: assignment.orderNumber,
+        });
+      }
+    }
+
+    const resolvedMerchantId = assignment?.merchantId || providedMerchantId || MERCHANT_ID;
+    const targetOrderIdValue =
+      assignment?.orderId ??
+      (typeof providedOrderId === 'number' || typeof providedOrderId === 'string'
+        ? String(providedOrderId)
+        : null);
+
+    if (!targetOrderIdValue) {
+      log.warn('Missing orderId after resolving data', { assignmentId, providedOrderId });
       return NextResponse.json(
-        { error: 'الطلب غير موجود' },
-        { status: 404 }
+        { error: 'لا يمكن تحديد الطلب المطلوب لإنشاء الشحنة' },
+        { status: 400 }
       );
     }
 
-    log.info('Assignment found', {
-      assignmentId,
-      orderId: assignment.orderId,
-      orderNumber: assignment.orderNumber
-    });
+    const targetOrderNumber =
+      assignment?.orderNumber ??
+      (typeof providedOrderNumber === 'number' || typeof providedOrderNumber === 'string'
+        ? String(providedOrderNumber)
+        : targetOrderIdValue);
 
     // Use Salla's orders/actions API to create shipping policy
     // Based on: https://docs.salla.dev/7549669e0
-    const parsedOrderId = parseInt(assignment.orderId, 10);
-    const normalizedOrderId = Number.isNaN(parsedOrderId) ? assignment.orderId : parsedOrderId;
+    const parsedOrderId = parseInt(targetOrderIdValue, 10);
+    const normalizedOrderId = Number.isNaN(parsedOrderId) ? targetOrderIdValue : parsedOrderId;
 
     const actionRequestData = {
       operations: [
@@ -65,15 +100,15 @@ export async function POST(request: NextRequest) {
     };
 
     log.info('Creating shipping policy via Salla orders/actions API', {
-      assignmentId,
-      orderId: assignment.orderId,
-      orderNumber: assignment.orderNumber,
+      assignmentId: assignment?.id ?? assignmentId ?? null,
+      orderId: targetOrderIdValue,
+      orderNumber: targetOrderNumber,
       requestData: actionRequestData,
     });
 
     // Call Salla API to create shipping policy
     const response = await sallaMakeRequest<any>(
-      assignment.merchantId,
+      resolvedMerchantId,
       '/orders/actions',
       {
         method: 'POST',
@@ -82,7 +117,7 @@ export async function POST(request: NextRequest) {
     );
 
     log.info('Salla API response received', {
-      orderId: assignment.orderId,
+      orderId: targetOrderIdValue,
       response: response,
     });
 
@@ -91,7 +126,7 @@ export async function POST(request: NextRequest) {
 
       log.error('Failed to create shipping policy', {
         assignmentId,
-        orderId: assignment.orderId,
+        orderId: targetOrderIdValue,
         error: errorMessage,
         response: response,
       });
@@ -112,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     if (!shipmentOperation) {
       log.error('No shipping policy operation found in response', {
-        orderId: assignment.orderId,
+        orderId: targetOrderIdValue,
         operations,
       });
 
@@ -125,27 +160,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (shipmentOperation.status !== 'success' && shipmentOperation.status !== 'in_progress') {
+    const operationStatus = String(shipmentOperation.status || '').toLowerCase();
+    const operationId = shipmentOperation.operation_id;
+    const shipmentStatus = operationStatus;
+    const operationMessage =
+      typeof shipmentOperation.message === 'string'
+        ? shipmentOperation.message
+        : typeof response?.message === 'string'
+          ? response.message
+          : undefined;
+
+    if (operationStatus !== 'success' && operationStatus !== 'in_progress') {
       log.error('Shipping policy creation failed', {
-        orderId: assignment.orderId,
+        orderId: targetOrderIdValue,
         operation: shipmentOperation,
       });
 
       return NextResponse.json(
         {
           success: false,
-          error: shipmentOperation.message || 'فشل إنشاء سياسة الشحن',
+          error: operationMessage || 'فشل إنشاء سياسة الشحن',
+          details: `status=${operationStatus || 'unknown'} | opId=${operationId ?? 'n/a'}`,
         },
         { status: 400 }
       );
     }
 
-    const operationId = shipmentOperation.operation_id;
-    const shipmentStatus = shipmentOperation.status;
-
-    log.info('Shipping policy created successfully', {
-      assignmentId,
-      orderId: assignment.orderId,
+    log.info('Shipping policy request accepted by Salla', {
+      assignmentId: assignment?.id ?? assignmentId ?? null,
+      orderId: targetOrderIdValue,
       operationId,
       shipmentStatus,
     });
@@ -153,22 +196,11 @@ export async function POST(request: NextRequest) {
     // Update the SallaOrder record
     await prisma.sallaOrder.updateMany({
       where: {
-        merchantId: assignment.merchantId,
-        orderId: assignment.orderId,
+        merchantId: resolvedMerchantId,
+        orderId: targetOrderIdValue,
       },
       data: {
         fulfillmentStatus: 'processing',
-      },
-    });
-
-    // Update the assignment status to 'shipped' instead of deleting it
-    // This allows the order to remain visible until user clicks "go to new order"
-    await prisma.orderAssignment.update({
-      where: { id: assignmentId },
-      data: {
-        status: 'shipped',
-        completedAt: new Date(),
-        notes: `تم إنشاء سياسة الشحن - معرف العملية: ${operationId}`,
       },
     });
 
@@ -179,17 +211,18 @@ export async function POST(request: NextRequest) {
     let labelPrinted = false;
     let labelUrl: string | null = null;
     let labelPrintedAt: string | null = null;
+    let shipment: Awaited<ReturnType<typeof prisma.sallaShipment.findUnique>> | null = null;
 
     try {
       // Wait 3 seconds for Salla webhook to fire and process
       await new Promise(resolve => setTimeout(resolve, 3000));
 
       // Check if shipment was created by Salla's webhook
-      const shipment = await prisma.sallaShipment.findUnique({
+      shipment = await prisma.sallaShipment.findUnique({
         where: {
           merchantId_orderId: {
-            merchantId: assignment.merchantId,
-            orderId: assignment.orderId,
+            merchantId: resolvedMerchantId,
+            orderId: targetOrderIdValue,
           },
         },
       });
@@ -197,7 +230,7 @@ export async function POST(request: NextRequest) {
       if (shipment) {
         const rawShipmentData = shipment.shipmentData as any;
         log.info('Found shipment info from Salla webhook', {
-          orderId: assignment.orderId,
+          orderId: targetOrderIdValue,
           trackingNumber: shipment.trackingNumber,
           courierName: shipment.courierName,
         });
@@ -209,15 +242,44 @@ export async function POST(request: NextRequest) {
         labelUrl = shipment.labelUrl || rawShipmentData?.label_url || rawShipmentData?.label?.url || null;
       } else {
         log.info('No shipment info yet - Salla webhook may still be processing', {
-          orderId: assignment.orderId,
+          orderId: targetOrderIdValue,
+          operationStatus,
         });
       }
     } catch (lookupError) {
       log.error('Error looking up shipment tracking', {
-        orderId: assignment.orderId,
+        orderId: targetOrderIdValue,
         error: lookupError,
       });
       // Continue with placeholder values
+    }
+
+    if (!shipment) {
+      const pending = operationStatus === 'in_progress';
+      const errorMessage = pending
+        ? 'تم إرسال الطلب إلى سلة لكنه ما زال قيد المعالجة، يرجى الانتظار ثم الضغط على "تحديث معلومات الطلب".'
+        : 'لم نستلم تأكيداً من سلة بأن الشحنة أُنشئت. تحقق من لوحة سلة أو حاول مرة أخرى.';
+      return NextResponse.json(
+        {
+          success: false,
+          error: errorMessage,
+          details: operationMessage || `opId=${operationId ?? 'n/a'}`,
+        },
+        { status: pending ? 202 : 409 }
+      );
+    }
+
+    if (assignment) {
+      // Update the assignment status to 'shipped' instead of deleting it
+      // This allows the order to remain visible until user clicks "go to new order"
+      await prisma.orderAssignment.update({
+        where: { id: assignment.id },
+        data: {
+          status: 'shipped',
+          completedAt: new Date(),
+          notes: `تم إنشاء سياسة الشحن - معرف العملية: ${operationId}`,
+        },
+      });
     }
 
     return NextResponse.json({

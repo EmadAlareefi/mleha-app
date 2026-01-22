@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -37,6 +37,17 @@ interface LineItem {
   size: string | null;
   location: string | null;
   locationNotes: string | null;
+  options: any[];
+}
+
+interface ProductLocation {
+  id: string;
+  sku: string;
+  location: string;
+  productName?: string | null;
+  notes?: string | null;
+  updatedBy?: string | null;
+  updatedAt: string;
 }
 
 const assignmentStatusMeta: Record<
@@ -69,6 +80,58 @@ const orderStatusColors = new Map<string, string>([
   ['delivered', 'bg-emerald-50 text-emerald-700 border-emerald-200'],
   ['canceled', 'bg-red-50 text-red-700 border-red-200'],
 ]);
+
+const getStringValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return String(value);
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.name === 'string') return obj.name;
+    if (typeof obj.label === 'string') return obj.label;
+    if (obj.value !== undefined) {
+      return getStringValue(obj.value);
+    }
+    return JSON.stringify(obj);
+  }
+  return '';
+};
+
+const normalizeSku = (value: unknown): string => {
+  const stringValue = getStringValue(value);
+  if (!stringValue) return '';
+  return stringValue.trim().toUpperCase();
+};
+
+const generateSkuVariants = (value: unknown): string[] => {
+  const normalized = normalizeSku(value);
+  if (!normalized) {
+    return [];
+  }
+
+  const variants = new Set<string>();
+  variants.add(normalized);
+
+  const segments = normalized.split(/[^A-Z0-9]+/).filter(Boolean);
+  segments.forEach((segment) => variants.add(segment));
+
+  const withoutTrailingLetters = normalized.replace(/[A-Z]+$/g, '');
+  if (withoutTrailingLetters && withoutTrailingLetters !== normalized) {
+    variants.add(withoutTrailingLetters);
+  }
+
+  const withoutTrailingDigits = normalized.replace(/\d+$/g, '');
+  if (withoutTrailingDigits && withoutTrailingDigits !== normalized) {
+    variants.add(withoutTrailingDigits);
+  }
+
+  return Array.from(variants).filter((sku) => sku.length >= 3);
+};
 
 export default function OrderPrepClient() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -488,7 +551,7 @@ function AssignmentCard({
   onConfirmComplete: () => void;
   onConfirmSallaStatus: (target: 'under_review_a' | 'under_review_reservation' | 'under_review_inner') => void;
 }) {
-  const items = getLineItems(assignment.orderData);
+  const items = useMemo(() => getLineItems(assignment.orderData), [assignment.orderData]);
   const orderStatus = getOrderStatus(assignment.orderData);
   const orderNumber = assignment.orderNumber || assignment.orderReference || assignment.orderId;
   const statusMeta = assignmentStatusMeta[assignment.status];
@@ -496,6 +559,104 @@ function AssignmentCard({
   const waitingDisabled = assignment.status === 'waiting';
   const completedDisabled = assignment.status === 'completed';
   const itemsCount = items.reduce<number>((sum, item) => sum + (item.quantity || 0), 0);
+  const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
+  const [loadingProductLocations, setLoadingProductLocations] = useState(false);
+  const [productLocationError, setProductLocationError] = useState<string | null>(null);
+
+  const currentSkus = useMemo(() => {
+    const variants = new Set<string>();
+    items.forEach((item) => {
+      generateSkuVariants(item?.sku).forEach((variant) => variants.add(variant));
+    });
+    return Array.from(variants);
+  }, [items]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (currentSkus.length === 0) {
+      setProductLocations({});
+      setProductLocationError(null);
+      setLoadingProductLocations(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const fetchLocations = async () => {
+      setLoadingProductLocations(true);
+      setProductLocationError(null);
+      try {
+        const response = await fetch('/api/order-prep/product-locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skus: currentSkus }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.error || 'تعذر تحميل مواقع المنتجات');
+        }
+        const map: Record<string, ProductLocation> = {};
+        (Array.isArray(data?.locations) ? data.locations : []).forEach((location: ProductLocation) => {
+          const normalizedSku = normalizeSku(location?.sku);
+          if (normalizedSku) {
+            map[normalizedSku] = location;
+          }
+        });
+        if (!cancelled) {
+          setProductLocations(map);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر تحميل مواقع المنتجات';
+        if (!cancelled) {
+          setProductLocations({});
+          setProductLocationError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingProductLocations(false);
+        }
+      }
+    };
+
+    fetchLocations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSkus]);
+
+  const getLocationForSku = useCallback(
+    (sku: unknown): ProductLocation | undefined => {
+      const normalizedSku = normalizeSku(sku);
+      if (!normalizedSku) {
+        return undefined;
+      }
+
+      const directMatch = productLocations[normalizedSku];
+      if (directMatch) {
+        return directMatch;
+      }
+
+      let bestMatch: ProductLocation | undefined;
+      let bestMatchLength = 0;
+
+      for (const location of Object.values(productLocations)) {
+        const locationSku = normalizeSku(location?.sku);
+        if (!locationSku) {
+          continue;
+        }
+        if (normalizedSku.includes(locationSku) || locationSku.includes(normalizedSku)) {
+          if (!bestMatch || locationSku.length > bestMatchLength) {
+            bestMatch = location;
+            bestMatchLength = locationSku.length;
+          }
+        }
+      }
+
+      return bestMatch;
+    },
+    [productLocations]
+  );
 
   return (
     <Card className="overflow-hidden border border-gray-200 shadow-sm">
@@ -530,6 +691,11 @@ function AssignmentCard({
             </span>
           </div>
           <div className="mt-3 space-y-3">
+            {productLocationError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {productLocationError}
+              </div>
+            )}
             {items.length === 0 ? (
               <div className="rounded-lg border border-dashed border-gray-200 px-4 py-5 text-center text-sm text-gray-500">
                 لا توجد بيانات للمنتجات داخل هذا الطلب حتى الآن.
@@ -550,34 +716,32 @@ function AssignmentCard({
                       className="w-full h-full rounded-md object-cover border border-gray-100 sm:w-16 sm:h-16"
                     />
                   )}
-                  <div className="flex-1">
-                    <p className="text-base font-semibold text-gray-900">
-                      {item.name || 'منتج بدون اسم'}
-                    </p>
-                    <p className="text-sm font-semibold text-gray-800 mt-1">
-                      {item.sku || 'بدون رمز'}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                      <span className="font-semibold text-gray-900">
-                        الكمية: {item.quantity || 1}
-                      </span>
-                      {item.color && (
-                        <span className="inline-flex items-center gap-1 font-semibold text-gray-900">
-                          <span className="text-gray-500">اللون:</span>
-                          <span>{item.color}</span>
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-1 font-semibold text-gray-900">
-                        <span className="text-gray-500">المقاس:</span>
-                        <span>{item.size || '-'}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-emerald-700">
-                        <span className="text-gray-500">موقع المخزون:</span>
-                        <span className="font-semibold">{item.location || '-'}</span>
-                      </span>
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <p className="text-base font-semibold text-gray-900">
+                        {item.name || 'منتج بدون اسم'}
+                      </p>
                     </div>
-                    {item.locationNotes && (
-                      <p className="text-xs text-gray-500 mt-1">{item.locationNotes}</p>
+                    <ProductMeta
+                      item={item}
+                      getLocationForSku={getLocationForSku}
+                      loadingProductLocations={loadingProductLocations}
+                    />
+                    {item.options && item.options.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-bold text-gray-700 mb-1">خيارات المنتج:</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {item.options.map((option: any, optionIdx: number) => (
+                            <span
+                              key={`${item.sku ?? 'item'}-option-${optionIdx}`}
+                              className="inline-flex items-center gap-2 rounded-lg bg-purple-50 px-3 py-1 text-xs font-medium text-purple-800 border border-purple-200"
+                            >
+                              <span className="font-semibold">{getStringValue(option?.name)}:</span>
+                              <span>{getStringValue(option?.value)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -681,6 +845,7 @@ function getLineItems(order: any): LineItem[] {
     const size = extractAttributeValue(item, ['size', 'size_name', 'المقاس', 'variant_size']);
     const location = item?.inventoryLocation || item?.inventory_location || null;
     const locationNotes = item?.inventoryNotes || item?.inventory_notes || null;
+    const options = collectItemOptions(item);
     return {
       sku,
       name,
@@ -690,8 +855,94 @@ function getLineItems(order: any): LineItem[] {
       size,
       location,
       locationNotes,
+      options,
     };
   });
+}
+
+function collectItemOptions(item: any): any[] {
+  const sources = [item?.options, item?.variant?.options, item?.product?.options, item?.details?.options];
+  for (const source of sources) {
+    if (Array.isArray(source) && source.length > 0) {
+      return source;
+    }
+  }
+  return [];
+}
+
+function ProductMeta({
+  item,
+  getLocationForSku,
+  loadingProductLocations,
+}: {
+  item: LineItem;
+  getLocationForSku: (sku: unknown) => ProductLocation | undefined;
+  loadingProductLocations: boolean;
+}) {
+  const normalizedSku = normalizeSku(item?.sku);
+  const skuDisplay = normalizedSku || getStringValue(item?.sku) || '';
+  const locationInfo = normalizedSku ? getLocationForSku(normalizedSku) : undefined;
+  const fallbackLocation = item.location ? getStringValue(item.location) : '';
+  const hasLocation = Boolean(locationInfo || fallbackLocation);
+  const locationUpdatedAt = locationInfo?.updatedAt
+    ? new Date(locationInfo.updatedAt).toLocaleString('ar-SA')
+    : null;
+  const locationNotes = locationInfo?.notes || item.locationNotes;
+  const locationLabel = hasLocation ? (locationInfo?.location || fallbackLocation) : 'غير مسجل';
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {skuDisplay && (
+          <div className="inline-flex items-center gap-2 bg-blue-50 border-2 border-blue-500 px-4 py-3 rounded-lg">
+            <span className="text-sm font-semibold text-blue-700">SKU:</span>
+            <span className="text-xl font-bold text-blue-900">{skuDisplay}</span>
+          </div>
+        )}
+        <div className="inline-flex items-center gap-2 bg-green-50 border-2 border-green-500 px-4 py-3 rounded-lg">
+          <span className="text-sm font-semibold text-green-700">الكمية:</span>
+          <span className="text-xl font-bold text-green-900">×{item.quantity}</span>
+        </div>
+        {(normalizedSku || hasLocation) && (
+          <div
+            className={`flex flex-col gap-1 rounded-lg border-2 px-4 py-3 ${hasLocation ? 'bg-amber-50 border-amber-500' : 'bg-gray-100 border-dashed border-gray-400'}`}
+          >
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-semibold ${hasLocation ? 'text-amber-800' : 'text-gray-600'}`}>
+                الموقع:
+              </span>
+              <span className={`text-base font-bold ${hasLocation ? 'text-amber-900' : 'text-gray-500'}`}>
+                {loadingProductLocations && !hasLocation ? 'جاري التحميل...' : locationLabel}
+              </span>
+            </div>
+            {locationInfo?.updatedBy && (
+              <span className="text-xs text-gray-500">
+                آخر تحديث بواسطة {locationInfo.updatedBy}
+                {locationUpdatedAt ? ` في ${locationUpdatedAt}` : ''}
+              </span>
+            )}
+            {locationNotes && (
+              <span className="text-xs text-gray-600">ملاحظات: {locationNotes}</span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+        {item.color && (
+          <span className="inline-flex items-center gap-1 font-semibold text-gray-900">
+            <span className="text-gray-500">اللون:</span>
+            <span>{item.color}</span>
+          </span>
+        )}
+        {item.size && (
+          <span className="inline-flex items-center gap-1 font-semibold text-gray-900">
+            <span className="text-gray-500">المقاس:</span>
+            <span>{item.size}</span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function extractAttributeValue(item: any, attributeNames: string[]): string | null {

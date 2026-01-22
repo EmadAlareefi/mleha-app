@@ -14,13 +14,27 @@ interface OrderUser {
   name: string;
 }
 
+interface OrderShipmentRecord {
+  id: string;
+  trackingNumber?: string | null;
+  courierName?: string | null;
+  status?: string | null;
+  labelUrl?: string | null;
+  labelPrinted?: boolean | null;
+  labelPrintedAt?: string | null;
+  printCount?: number | null;
+  updatedAt?: string | null;
+}
+
 interface OrderAssignment {
   id: string;
   orderId: string;
   orderNumber: string;
   orderData: any;
+  merchantId?: string | null;
   status: string;
   assignedAt: string;
+  shipment?: OrderShipmentRecord | null;
   notes?: string;
   isHighPriority?: boolean;
   highPriorityReason?: string | null;
@@ -32,6 +46,7 @@ interface OrderAssignment {
   giftFlagNotes?: string | null;
   giftFlagMarkedAt?: string | null;
   giftFlagMarkedBy?: string | null;
+  source?: string | null;
 }
 
 interface ProductLocation {
@@ -265,11 +280,32 @@ export default function OrderShippingPage() {
   const [shipmentInfo, setShipmentInfo] = useState<{
     trackingNumber: string;
     courierName: string;
-    labelPrinted?: boolean;
-    labelUrl?: string | null;
-    printedAt?: string | null;
+    labelPrinted: boolean;
+    printedAt: string | null;
+    labelUrl: string | null;
   } | null>(null);
   const [shipmentError, setShipmentError] = useState<string | null>(null);
+
+  const applyShipmentFromAssignment = useCallback(
+    (assignment: OrderAssignment | null, options: { resetWhenMissing?: boolean } = {}) => {
+      const shouldReset = options.resetWhenMissing ?? true;
+      if (!assignment?.shipment) {
+        if (shouldReset) {
+          setShipmentInfo(null);
+        }
+        return;
+      }
+      const shipment = assignment.shipment;
+      setShipmentInfo({
+        trackingNumber: shipment.trackingNumber || 'سيتم توفير رقم التتبع قريباً',
+        courierName: shipment.courierName || 'شركة الشحن المعتمدة',
+        labelPrinted: Boolean(shipment.labelPrinted),
+        printedAt: shipment.labelPrintedAt || null,
+        labelUrl: shipment.labelUrl || null,
+      });
+    },
+    [],
+  );
 
   const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
@@ -351,6 +387,9 @@ export default function OrderShippingPage() {
 
   const existingShipmentLabelUrl = useMemo(() => {
     if (!currentOrder) return null;
+    if (shipmentInfo?.labelUrl) {
+      return shipmentInfo.labelUrl;
+    }
     const labelFromOrderData = getLabelUrlFromOrderData(currentOrder.orderData);
     if (labelFromOrderData) {
       return labelFromOrderData;
@@ -360,7 +399,7 @@ export default function OrderShippingPage() {
       return labelFromNotes;
     }
     return null;
-  }, [currentOrder]);
+  }, [currentOrder, shipmentInfo]);
 
   const shouldShowManualPrintButton =
     Boolean(existingShipmentLabelUrl) && !shipmentInfo && currentOrder?.status !== 'shipped';
@@ -507,10 +546,11 @@ export default function OrderShippingPage() {
     try {
       const assignment = await fetchAssignmentByQuery(identifier);
       setCurrentOrder(assignment);
+      applyShipmentFromAssignment(assignment, { resetWhenMissing: false });
     } catch (error) {
       console.error('Failed to reload order', error);
     }
-  }, [currentOrder, fetchAssignmentByQuery, lastSearchTerm]);
+  }, [currentOrder, fetchAssignmentByQuery, lastSearchTerm, applyShipmentFromAssignment]);
 
   const handleSearch = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -519,6 +559,7 @@ export default function OrderShippingPage() {
     if (!searchQuery.trim()) {
       setSearchFeedback({ type: 'error', message: 'يرجى إدخال رقم الطلب أو بيانات البحث.' });
       setCurrentOrder(null);
+      applyShipmentFromAssignment(null);
       return;
     }
 
@@ -529,11 +570,13 @@ export default function OrderShippingPage() {
     try {
       const assignment = await fetchAssignmentByQuery(searchQuery.trim());
       setCurrentOrder(assignment);
+      applyShipmentFromAssignment(assignment);
       setLastSearchTerm(searchQuery.trim());
       setSearchFeedback({ type: 'success', message: `تم العثور على الطلب #${assignment.orderNumber}.` });
     } catch (error) {
       console.error('Order search failed', error);
       setCurrentOrder(null);
+      applyShipmentFromAssignment(null);
       const message = error instanceof Error ? error.message : 'تعذر العثور على الطلب.';
       setSearchFeedback({ type: 'error', message });
     } finally {
@@ -570,13 +613,21 @@ export default function OrderShippingPage() {
   const handleCreateShipment = async () => {
     if (!currentOrder) return;
 
+    const shouldIncludeAssignmentId =
+      !currentOrder.source || currentOrder.source === 'assignment';
+
     setCreatingShipment(true);
     setShipmentError(null);
     try {
       const response = await fetch('/api/salla/create-shipment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId: currentOrder.id }),
+        body: JSON.stringify({
+          assignmentId: shouldIncludeAssignmentId ? currentOrder.id : undefined,
+          orderId: currentOrder.orderId,
+          orderNumber: currentOrder.orderNumber,
+          merchantId: currentOrder.merchantId || null,
+        }),
       });
 
       const data = await parseJsonResponse(response, 'POST /api/salla/create-shipment');
@@ -619,12 +670,19 @@ export default function OrderShippingPage() {
   const handleSendShipmentToPrinter = async () => {
     if (!currentOrder) return;
 
+    const shouldIncludeAssignmentId =
+      !currentOrder.source || currentOrder.source === 'assignment';
+
     setPrintingShipmentLabel(true);
     try {
       const response = await fetch('/api/salla/shipments/print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId: currentOrder.id }),
+        body: JSON.stringify({
+          assignmentId: shouldIncludeAssignmentId ? currentOrder.id : undefined,
+          orderId: currentOrder.orderId,
+          orderNumber: currentOrder.orderNumber,
+        }),
       });
 
       const data = await parseJsonResponse(response, 'POST /api/salla/shipments/print');
@@ -1159,7 +1217,29 @@ export default function OrderShippingPage() {
               <div className="mt-8 md:mt-10 md:sticky md:bottom-0 md:z-40 md:-mx-6 md:px-6">
                 <div className="rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-white/80 md:rounded-none md:border-x-0 md:border-b-0 md:border-t md:shadow-[0_-12px_30px_rgba(15,23,42,0.12)] md:bg-white/95 md:p-5">
                   <div className="flex flex-col sm:flex-row gap-3">
-                    {shouldShowManualPrintButton ? (
+                    {canPrintShipmentLabel ? (
+                      <Button
+                        type="button"
+                        onClick={() =>
+                          openConfirmationDialog({
+                            title: shipmentInfo?.labelPrinted ? 'إعادة طباعة البوليصة' : 'تأكيد طباعة البوليصة',
+                            message: shipmentInfo?.labelPrinted
+                              ? 'سيتم إعادة إرسال البوليصة الحالية إلى الطابعة. تأكد أن الطابعة جاهزة قبل المتابعة.'
+                              : 'سيتم إرسال البوليصة للطابعة الآن.',
+                            confirmLabel: shipmentInfo?.labelPrinted ? 'نعم، أعد الطباعة' : 'نعم، اطبع الآن',
+                            onConfirm: handleSendShipmentToPrinter,
+                          })
+                        }
+                        disabled={printingShipmentLabel}
+                        className={`${ACTION_BUTTON_BASE} bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                      >
+                        {printingShipmentLabel
+                          ? 'جاري إرسال البوليصة...'
+                          : shipmentInfo?.labelPrinted
+                            ? 'إعادة طباعة البوليصة'
+                            : 'طباعة البوليصة'}
+                      </Button>
+                    ) : shouldShowManualPrintButton ? (
                       <div className="w-full">
                         <Button
                           type="button"
