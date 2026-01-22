@@ -2,6 +2,7 @@ import { Prisma, ReturnItem, ReturnRequest } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
+import { extractOrderDate } from '@/lib/returns/order-date';
 
 type AnyRecord = Record<string, any>;
 
@@ -153,6 +154,36 @@ function hasReturnShipmentArrived(request: ReturnRequest): boolean {
   return RETURN_RECEIVED_STATUSES.has(request.status);
 }
 
+async function hasReturnShipmentScanBeforeOrder(
+  request: ReturnRequest,
+  orderCreatedAt: Date | null | undefined
+): Promise<boolean> {
+  const trackingNumber = request.smsaTrackingNumber?.trim();
+  if (!trackingNumber) {
+    return false;
+  }
+
+  const shipment = await prisma.shipment.findFirst({
+    where: {
+      trackingNumber,
+      type: 'incoming',
+    },
+    orderBy: {
+      scannedAt: 'desc',
+    },
+  });
+
+  if (!shipment) {
+    return false;
+  }
+
+  if (!orderCreatedAt) {
+    return true;
+  }
+
+  return shipment.scannedAt.getTime() <= orderCreatedAt.getTime();
+}
+
 function areItemsFullyApproved(items: ReturnItem[]): boolean {
   if (!items || items.length === 0) {
     return false;
@@ -177,14 +208,18 @@ export async function linkExchangeOrderFromWebhook(
   const order = payloadOrder?.order ?? payloadOrder ?? {};
   const merchantId = deriveMerchantId(order, meta?.merchantId);
   const orderId = deriveOrderId(order, meta?.orderId ?? null);
+  const orderDateResult = extractOrderDate(order);
+  const orderCreatedAt = orderDateResult.date;
 
   if (!merchantId || !orderId) {
     return { handled: false, reason: 'missing_ids' };
   }
 
-  const couponCodes = extractAppliedCouponCodes(order);
+  const couponCodes = extractAppliedCouponCodes(order).filter((code) =>
+    code.startsWith('EX')
+  );
   if (couponCodes.length === 0) {
-    return { handled: false, reason: 'no_coupon' };
+    return { handled: false, reason: 'no_return_coupon' };
   }
 
   const returnRequest = await prisma.returnRequest.findFirst({
@@ -225,7 +260,12 @@ export async function linkExchangeOrderFromWebhook(
   }
 
   let holdApplied = false;
-  const requiresHold = !hasReturnShipmentArrived(returnRequest);
+  const hasWarehouseReceipt = await hasReturnShipmentScanBeforeOrder(
+    returnRequest,
+    orderCreatedAt
+  );
+  const hasArrivedByStatus = hasReturnShipmentArrived(returnRequest);
+  const requiresHold = !(hasWarehouseReceipt || hasArrivedByStatus);
   const holdOutdated = returnRequest.exchangeOrderId !== orderId;
 
   if (requiresHold && (holdOutdated || !returnRequest.exchangeOrderHoldActive)) {

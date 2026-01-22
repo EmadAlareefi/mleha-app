@@ -559,6 +559,7 @@ function AssignmentCard({
   const waitingDisabled = assignment.status === 'waiting';
   const completedDisabled = assignment.status === 'completed';
   const itemsCount = items.reduce<number>((sum, item) => sum + (item.quantity || 0), 0);
+  const orderTags = Array.isArray(assignment.orderData?.tags) ? assignment.orderData.tags : [];
   const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
@@ -683,6 +684,35 @@ function AssignmentCard({
       </div>
 
       <div className="px-6 py-5 space-y-5 bg-white">
+        {orderTags.length > 0 && (
+          <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <h3 className="text-sm font-bold text-blue-900">علامات الطلب (Tags)</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {orderTags.map((tag: any, idx: number) => {
+                const tagLabel =
+                  typeof tag === 'string' ? tag : getStringValue(tag?.name ?? tag?.value ?? tag);
+                return (
+                  <span
+                    key={`${assignment.id}-tag-${idx}`}
+                    className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-blue-600 text-white shadow-md border-2 border-blue-700"
+                  >
+                    🏷️ {tagLabel}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">المنتجات ({itemsCount})</h3>
