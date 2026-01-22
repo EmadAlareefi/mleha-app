@@ -680,7 +680,7 @@ export default function SallaProductsPage() {
             <CardContent className="p-0">
               <div className="overflow-x-auto rounded-3xl">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="hidden lg:table-header-group">
                     <TableRow className="bg-slate-50/80 text-slate-600">
                       <TableHead className="w-72 text-slate-600">المنتج</TableHead>
                       <TableHead className="text-slate-600">SKU</TableHead>
@@ -934,9 +934,199 @@ function ProductRow({
     }
   };
 
+  const renderQuantityRequestSection = () => (
+    <div className="space-y-3 text-sm">
+      <form onSubmit={handleRequestSubmit} className="space-y-2 rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
+        <p className="text-xs text-gray-500">أضف طلب كمية جديد</p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            placeholder="الكمية"
+            type="number"
+            min={1}
+            value={requestForm.requestedAmount}
+            onChange={(event) =>
+              setRequestForm((prev) => ({ ...prev, requestedAmount: event.target.value }))
+            }
+          />
+          <Input
+            placeholder="كمية المرتجع (اختياري)"
+            type="number"
+            min={1}
+            value={requestForm.requestedRefundAmount}
+            onChange={(event) =>
+              setRequestForm((prev) => ({
+                ...prev,
+                requestedRefundAmount: event.target.value,
+              }))
+            }
+          />
+        </div>
+        <div>
+          <Input
+            type="date"
+            value={requestForm.requestedFor}
+            onChange={(event) =>
+              setRequestForm((prev) => ({ ...prev, requestedFor: event.target.value }))
+            }
+          />
+        </div>
+        <Input
+          placeholder="ملاحظات (اختياري)"
+          value={requestForm.notes}
+          onChange={(event) => setRequestForm((prev) => ({ ...prev, notes: event.target.value }))}
+        />
+        <Button
+          type="submit"
+          className="flex w-full items-center justify-center gap-2 text-sm"
+          disabled={requestSubmitting}
+        >
+          {requestSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+          <Users className="h-4 w-4" />
+          <span>طلب كمية</span>
+        </Button>
+        {requestError && <p className="text-xs text-red-600">{requestError}</p>}
+      </form>
+
+      {requestsError && <p className="text-xs text-red-600">تعذر تحميل الطلبات: {requestsError}</p>}
+
+      {requestsLoading ? (
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          جاري تحميل الطلبات...
+        </div>
+      ) : requests.length === 0 ? (
+        <p className="text-xs text-slate-500">لا توجد طلبات مسجلة لهذا المنتج بعد.</p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[11px] text-slate-500">
+            تحديث حالة الطلبات يتم من خلال{' '}
+            <Link href="/salla/requests" className="text-indigo-600 hover:underline">
+              صفحة طلبات الكميات
+            </Link>
+            .
+          </p>
+          {requests.map((req) => (
+            <QuantityRequestCard key={req.id} request={req} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderVariationSection = () => (
+    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800">
+          المتغيرات ({formatNumber(variationList.length)})
+        </p>
+        {rowLoading && (
+          <span className="inline-flex items-center gap-2 text-xs text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            جاري تحميل المتغيرات...
+          </span>
+        )}
+      </div>
+      {variationMessage ? (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {variationMessage}
+        </div>
+      ) : variationList.length === 0 && !rowLoading ? (
+        <p className="mt-3 text-sm text-slate-500">لا توجد متغيرات مسجلة لهذا المنتج.</p>
+      ) : (
+        <>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {variationAdjustmentEntries.map(({ variation, entry, key }) => {
+              const quantity =
+                typeof variation.availableQuantity === 'number'
+                  ? variation.availableQuantity
+                  : variation.availableQuantity != null
+                    ? Number(variation.availableQuantity)
+                    : null;
+              const isEmpty = quantity == null || quantity <= 0;
+              const quantityLabel = formatNumber(quantity);
+              const subLabelClass = isEmpty ? 'text-white/80' : 'text-slate-500';
+              const modeButtons: Array<'increment' | 'decrement'> = ['increment', 'decrement'];
+              return (
+                <div
+                  key={key}
+                  className={`w-28 overflow-hidden rounded-lg border shadow-sm ${
+                    isEmpty
+                      ? 'border-red-300 bg-gradient-to-b from-red-500/90 to-red-600/90 text-white'
+                      : 'border-slate-200 bg-white/90'
+                  }`}
+                >
+                  <div
+                    className={`px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide ${
+                      isEmpty ? 'bg-red-600/80 text-white' : 'bg-white/70 text-slate-700'
+                    }`}
+                  >
+                    {variation.name || 'متغير'}
+                  </div>
+                  <div className="space-y-1.5 px-2 py-2 text-center">
+                    <div>
+                      <p className={`text-[10px] ${subLabelClass}`}>الكمية الحالية</p>
+                      <p className={`text-lg font-bold ${isEmpty ? 'text-white' : 'text-slate-900'}`}>
+                        {quantityLabel}
+                      </p>
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      value={entry.quantity}
+                      onChange={(event) => handleAdjustmentQuantityChange(key, event.target.value)}
+                      className="w-full rounded-md border border-slate-200 bg-white/80 px-2 py-1 text-[11px] text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      placeholder="0"
+                    />
+                    <div className="flex gap-1">
+                      {modeButtons.map((modeOption) => {
+                        const isActive = entry.mode === modeOption;
+                        return (
+                          <button
+                            key={modeOption}
+                            type="button"
+                            onClick={() => handleAdjustmentModeChange(key, modeOption)}
+                            className={`flex-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold transition ${
+                              isActive
+                                ? modeOption === 'increment'
+                                  ? 'border-emerald-500 bg-emerald-500 text-white'
+                                  : 'border-amber-500 bg-amber-500 text-white'
+                                : 'border-white/50 bg-white/40 text-slate-700 hover:bg-white/60'
+                            }`}
+                          >
+                            {modeOption === 'increment' ? 'زيادة' : 'تخفيض'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800"
+              onClick={handleSubmitAdjustments}
+              disabled={!hasPendingAdjustments || updateLoading}
+            >
+              {updateLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+              تحديث كميات المتغيرات
+            </Button>
+            {updateFeedback && (
+              <p className={`text-sm ${updateFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                {updateFeedback.message}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <Fragment>
-      <TableRow>
+      <TableRow className="hidden lg:table-row">
         <TableCell>
           <div className="flex items-center gap-3">
             {product.imageUrl ? (
@@ -947,13 +1137,13 @@ function ProductRow({
                 className="h-12 w-12 rounded-md border object-cover"
               />
             ) : (
-              <div className="h-12 w-12 rounded-md border bg-gray-100 flex items-center justify-center text-gray-500 text-sm">
+              <div className="flex h-12 w-12 items-center justify-center rounded-md border bg-gray-100 text-sm text-gray-500">
                 لا صورة
               </div>
             )}
             <div>
-              <p className="font-medium text-sm">{product.name}</p>
-              <p className="text-xs text-gray-500 mt-0.5">#{product.id}</p>
+              <p className="text-sm font-medium">{product.name}</p>
+              <p className="mt-0.5 text-xs text-gray-500">#{product.id}</p>
               {product.lastUpdatedAt && (
                 <p className="text-xs text-gray-400">آخر تحديث: {formatDate(product.lastUpdatedAt)}</p>
               )}
@@ -967,211 +1157,66 @@ function ProductRow({
           <p>{formatCurrency(product.priceAmount ?? null, product.currency)}</p>
         </TableCell>
         <TableCell>
-        <p className="font-semibold">{formatNumber(product.availableQuantity ?? null)}</p>
+          <p className="font-semibold">{formatNumber(product.availableQuantity ?? null)}</p>
         </TableCell>
         <TableCell>
-          <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-gray-700 bg-gray-100">
+          <span className="inline-flex items-center rounded-full border bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
             {product.status || 'غير محدد'}
           </span>
         </TableCell>
-        <TableCell>
-          <div className="space-y-3 text-sm">
-            <form onSubmit={handleRequestSubmit} className="space-y-2 rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
-              <p className="text-xs text-gray-500">أضف طلب كمية جديد</p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  placeholder="الكمية"
-                  type="number"
-                  min={1}
-                  value={requestForm.requestedAmount}
-                  onChange={(event) =>
-                    setRequestForm((prev) => ({ ...prev, requestedAmount: event.target.value }))
-                  }
-                />
-                <Input
-                  placeholder="كمية المرتجع (اختياري)"
-                  type="number"
-                  min={1}
-                  value={requestForm.requestedRefundAmount}
-                  onChange={(event) =>
-                    setRequestForm((prev) => ({
-                      ...prev,
-                      requestedRefundAmount: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <Input
-                  type="date"
-                  value={requestForm.requestedFor}
-                  onChange={(event) =>
-                    setRequestForm((prev) => ({ ...prev, requestedFor: event.target.value }))
-                  }
-                />
-              </div>
-              <Input
-                placeholder="ملاحظات (اختياري)"
-                value={requestForm.notes}
-                onChange={(event) => setRequestForm((prev) => ({ ...prev, notes: event.target.value }))}
-              />
-              <Button
-                type="submit"
-                className="w-full text-sm flex items-center justify-center gap-2"
-                disabled={requestSubmitting}
-              >
-                {requestSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                <Users className="h-4 w-4" />
-                <span>طلب كمية</span>
-              </Button>
-              {requestError && <p className="text-xs text-red-600">{requestError}</p>}
-            </form>
-
-            {requestsError && (
-              <p className="text-xs text-red-600">تعذر تحميل الطلبات: {requestsError}</p>
-            )}
-
-            {requestsLoading ? (
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                جاري تحميل الطلبات...
-              </div>
-            ) : requests.length === 0 ? (
-              <p className="text-xs text-slate-500">لا توجد طلبات مسجلة لهذا المنتج بعد.</p>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-[11px] text-slate-500">
-                  تحديث حالة الطلبات يتم من خلال{' '}
-                  <Link href="/salla/requests" className="text-indigo-600 hover:underline">
-                    صفحة طلبات الكميات
-                  </Link>
-                  .
-                </p>
-                {requests.map((req) => (
-                  <QuantityRequestCard key={req.id} request={req} />
-                ))}
-              </div>
-            )}
-          </div>
-        </TableCell>
+        <TableCell>{renderQuantityRequestSection()}</TableCell>
       </TableRow>
-      <TableRow className="bg-slate-50/60">
-        <TableCell colSpan={6}>
-          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-slate-800">
-                المتغيرات ({formatNumber(variationList.length)})
-              </p>
-              {rowLoading && (
-                <span className="inline-flex items-center gap-2 text-xs text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  جاري تحميل المتغيرات...
-                </span>
+      <TableRow className="hidden bg-slate-50/60 lg:table-row">
+        <TableCell colSpan={6}>{renderVariationSection()}</TableCell>
+      </TableRow>
+      <TableRow className="lg:hidden">
+        <TableCell colSpan={6} className="border-0 p-0 align-top">
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              {product.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={product.imageUrl}
+                  alt={product.name}
+                  className="h-14 w-14 rounded-xl border object-cover"
+                />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded-xl border bg-gray-100 text-sm text-gray-500">
+                  لا صورة
+                </div>
               )}
-            </div>
-            {variationMessage ? (
-              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                {variationMessage}
-              </div>
-            ) : variationList.length === 0 && !rowLoading ? (
-              <p className="mt-3 text-sm text-slate-500">لا توجد متغيرات مسجلة لهذا المنتج.</p>
-            ) : (
-              <>
-              <div className="mt-4 flex flex-wrap gap-3">
-                {variationAdjustmentEntries.map(({ variation, entry, key }) => {
-                  const quantity =
-                    typeof variation.availableQuantity === 'number'
-                      ? variation.availableQuantity
-                      : variation.availableQuantity != null
-                        ? Number(variation.availableQuantity)
-                        : null;
-                  const isEmpty = quantity == null || quantity <= 0;
-                  const quantityLabel = formatNumber(quantity);
-                  const subLabelClass = isEmpty ? 'text-white/80' : 'text-slate-500';
-                  const modeButtons: Array<'increment' | 'decrement'> = ['increment', 'decrement'];
-                  return (
-                    <div
-                      key={key}
-                      className={`w-28 overflow-hidden rounded-lg border shadow-sm ${
-                        isEmpty
-                          ? 'border-red-500 bg-red-500 text-white'
-                          : 'border-slate-200 bg-slate-900/5 text-slate-800'
-                      }`}
-                    >
-                      <div
-                        className={`px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide ${
-                          isEmpty ? 'bg-red-600/80 text-white' : 'bg-white/70 text-slate-700'
-                        }`}
-                      >
-                        {variation.name || 'متغير'}
-                      </div>
-                      <div className="px-2 py-2 text-center space-y-1.5">
-                        <div>
-                          <p className={`text-[10px] ${subLabelClass}`}>الكمية الحالية</p>
-                          <p
-                            className={`text-lg font-bold ${
-                              isEmpty ? 'text-white' : 'text-slate-900'
-                            }`}
-                          >
-                            {quantityLabel}
-                          </p>
-                        </div>
-                        <input
-                          type="number"
-                          min={0}
-                          value={entry.quantity}
-                          onChange={(event) => handleAdjustmentQuantityChange(key, event.target.value)}
-                          className="w-full rounded-md border border-slate-200 bg-white/80 px-2 py-1 text-[11px] text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                          placeholder="0"
-                        />
-                        <div className="flex gap-1">
-                          {modeButtons.map((modeOption) => {
-                            const isActive = entry.mode === modeOption;
-                            return (
-                              <button
-                                key={modeOption}
-                                type="button"
-                                onClick={() => handleAdjustmentModeChange(key, modeOption)}
-                                className={`flex-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold transition ${
-                                  isActive
-                                    ? modeOption === 'increment'
-                                      ? 'border-emerald-500 bg-emerald-500 text-white'
-                                      : 'border-amber-500 bg-amber-500 text-white'
-                                    : 'border-white/50 bg-white/40 text-slate-700 hover:bg-white/60'
-                                }`}
-                              >
-                                {modeOption === 'increment' ? 'زيادة' : 'تخفيض'}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <Button
-                  type="button"
-                  className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800"
-                  onClick={handleSubmitAdjustments}
-                  disabled={!hasPendingAdjustments || updateLoading}
-                >
-                  {updateLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-                  تحديث كميات المتغيرات
-                </Button>
-                {updateFeedback && (
-                  <p
-                    className={`text-sm ${
-                      updateFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'
-                    }`}
-                  >
-                    {updateFeedback.message}
-                  </p>
+              <div>
+                <p className="text-base font-semibold text-slate-900">{product.name}</p>
+                <p className="text-xs text-gray-500">#{product.id}</p>
+                {product.lastUpdatedAt && (
+                  <p className="text-xs text-gray-400">آخر تحديث: {formatDate(product.lastUpdatedAt)}</p>
                 )}
               </div>
-              </>
-            )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <p className="text-xs text-slate-500">SKU</p>
+                <p className="font-medium text-slate-900">{product.sku || '—'}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <p className="text-xs text-slate-500">السعر</p>
+                <p className="font-medium text-slate-900">
+                  {formatCurrency(product.priceAmount ?? null, product.currency)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <p className="text-xs text-slate-500">المتوفر</p>
+                <p className="font-semibold text-slate-900">
+                  {formatNumber(product.availableQuantity ?? null)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <p className="text-xs text-slate-500">الحالة</p>
+                <p className="font-medium text-slate-900">{product.status || 'غير محدد'}</p>
+              </div>
+            </div>
+            {renderQuantityRequestSection()}
+            {renderVariationSection()}
           </div>
         </TableCell>
       </TableRow>
