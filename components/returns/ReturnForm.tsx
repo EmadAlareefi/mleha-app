@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
@@ -106,6 +106,34 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const shippingTotal = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
   const appliedReturnFee = getEffectiveReturnFee(returnFee, shippingTotal);
+  const getNumericValue = (value: unknown): number => {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : 0;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  };
+  const getItemDiscountAmount = (item?: OrderItem) =>
+    item ? getNumericValue(item.amounts?.total_discount?.amount) : 0;
+  const calculateItemPrice = (item?: OrderItem) => {
+    if (!item) return 0;
+    const priceWithoutTax = getNumericValue(item.amounts?.price_without_tax?.amount);
+    const taxAmount = getNumericValue(item.amounts?.tax?.amount?.amount);
+    const discountAmount = getItemDiscountAmount(item);
+    return priceWithoutTax + taxAmount - discountAmount;
+  };
+  const discountedItemIds = useMemo(() => {
+    const ids = new Set<number>();
+    order.items?.forEach((item) => {
+      if (getItemDiscountAmount(item) > 0) {
+        ids.add(item.id);
+      }
+    });
+    return ids;
+  }, [order]);
 
   // Load return fee setting on mount
   useEffect(() => {
@@ -170,6 +198,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   }, [order, merchantId]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
+    if (discountedItemIds.has(itemId)) {
+      return;
+    }
     const newSelectedItems = new Map(selectedItems);
     const currentQuantity = selectedItems.get(itemId) || 0;
 
@@ -205,11 +236,18 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       return;
     }
 
+    for (const itemId of selectedItems.keys()) {
+      if (discountedItemIds.has(itemId)) {
+        setError('لا يمكن إرجاع المنتجات المخفضة. يرجى اختيار منتج آخر.');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
       const items = Array.from(selectedItems.entries()).map(([itemId, quantity]) => {
-        const orderItem = order.items?.find((item: any) => item.id === itemId);
+        const orderItem = order.items?.find((item) => item.id === itemId);
         if (!orderItem) throw new Error('Item not found');
 
         // Safely extract product ID with fallbacks
@@ -217,10 +255,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         const variantId = orderItem.variant?.id;
 
         // Calculate price: (price without tax + tax) - discount
-        const priceWithoutTax = orderItem.amounts?.price_without_tax?.amount ?? 0;
-        const taxAmount = orderItem.amounts?.tax?.amount?.amount ?? 0;
-        const discountAmount = orderItem.amounts?.total_discount?.amount ?? 0;
-        const price = priceWithoutTax + taxAmount - discountAmount;
+        const price = calculateItemPrice(orderItem);
 
         return {
           productId: String(productId),
@@ -328,10 +363,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         <p className="text-sm text-gray-600 mb-4">انقر على المنتج لتحديده. انقر مرة أخرى لزيادة الكمية أو إلغاء التحديد.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {order.items && order.items.length > 0 ? (
-            order.items.map((item: any, index: number) => {
+            order.items.map((item: OrderItem, index: number) => {
               const selectedQuantity = selectedItems.get(item.id) || 0;
               const isSelected = selectedQuantity > 0;
               const maxQuantity = item.quantity || 1;
+              const discountAmount = getItemDiscountAmount(item);
+              const isDiscounted = discountAmount > 0;
 
               // Debug: log the full structure on first render
               if (index === 0 && typeof window !== 'undefined') {
@@ -342,10 +379,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               }
 
               // Calculate price: (price without tax + tax) - discount
-              const priceWithoutTax = item.amounts?.price_without_tax?.amount ?? 0;
-              const taxAmount = item.amounts?.tax?.amount?.amount ?? 0;
-              const discountAmount = item.amounts?.total_discount?.amount ?? 0;
-              const itemPrice = priceWithoutTax + taxAmount - discountAmount;
+              const itemPrice = calculateItemPrice(item);
 
               // Get product ID for category lookup
               const productId = String(item.product?.id ?? item.id);
@@ -356,8 +390,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                   key={`item-${item.id}-${index}`}
                   type="button"
                   onClick={() => handleItemClick(item.id, maxQuantity)}
+                  disabled={isDiscounted}
                   className={`relative flex items-start gap-4 p-4 border-2 rounded-lg text-right transition-all hover:shadow-md ${
-                    isSelected
+                    isDiscounted
+                      ? 'border-gray-200 bg-gray-100 opacity-60 cursor-not-allowed'
+                      : isSelected
                       ? 'border-blue-600 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
@@ -398,6 +435,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     <p className="text-sm text-gray-600 mb-2">
                       السعر: {Number(itemPrice).toFixed(2)} {item.currency || order.amounts?.total?.currency || 'SAR'}
                     </p>
+                    {isDiscounted && (
+                      <p className="text-xs text-red-600 font-medium">
+                        هذا المنتج مخفض ولا يمكن إرجاعه
+                      </p>
+                    )}
                     <p className="text-xs text-gray-500">
                       الكمية المتوفرة: {maxQuantity}
                     </p>
@@ -425,13 +467,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
           <div className="space-y-3">
             {(() => {
               const itemsTotal = Array.from(selectedItems.entries()).reduce((sum, [itemId, quantity]) => {
-                const item = order.items?.find((i: any) => i.id === itemId);
+                const item = order.items?.find((i) => i.id === itemId);
                 if (!item) return sum;
 
-                const priceWithoutTax = item.amounts?.price_without_tax?.amount ?? 0;
-                const taxAmount = item.amounts?.tax?.amount?.amount ?? 0;
-                const discountAmount = item.amounts?.total_discount?.amount ?? 0;
-                const itemPrice = priceWithoutTax + taxAmount - discountAmount;
+                const itemPrice = calculateItemPrice(item);
 
                 return sum + (itemPrice * quantity);
               }, 0);
