@@ -6,6 +6,7 @@ import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
+const SALLA_CUSTOMER_MARKUP = 0.15; // compensate for Salla automatically adding 15% to the customer
 
 /**
  * POST /api/returns/create-coupon
@@ -73,6 +74,21 @@ export async function POST(request: NextRequest) {
     }
 
     const sanitizedAmount = Number(couponAmount.toFixed(2));
+    const discountedAmount = Number(
+      (sanitizedAmount * (1 - SALLA_CUSTOMER_MARKUP)).toFixed(2)
+    );
+
+    if (!Number.isFinite(discountedAmount) || discountedAmount <= 0) {
+      log.error('Discounted coupon amount is invalid', {
+        returnRequestId,
+        sanitizedAmount,
+        discountedAmount,
+      });
+      return NextResponse.json(
+        { error: 'قيمة الاستبدال بعد الحسم غير صالحة. يرجى مراجعة الطلب.' },
+        { status: 400 }
+      );
+    }
 
     // Generate coupon code
     const couponCode = generateCouponCode('EXCHANGE');
@@ -89,14 +105,15 @@ export async function POST(request: NextRequest) {
     log.info('Creating coupon for exchange', {
       returnRequestId,
       couponCode,
-      amount: sanitizedAmount,
+      amountBeforeDiscount: sanitizedAmount,
+      amountAfterDiscount: discountedAmount,
     });
 
     const result = await createSallaCoupon(returnRequest.merchantId, {
       code: couponCode,
       type: 'fixed',
-      amount: sanitizedAmount,
-      free_shipping: false,
+      amount: discountedAmount,
+      free_shipping: true,
       exclude_sale_products: false,
       expiry_date: expiryDate.toISOString(),
       usage_limit: 1,
@@ -127,6 +144,8 @@ export async function POST(request: NextRequest) {
       returnRequestId,
       couponCode: result.coupon.code,
       couponId: result.coupon.id,
+      amountBeforeDiscount: sanitizedAmount,
+      amountSentToSalla: discountedAmount,
     });
 
     const notification = await notifyExchangeCoupon({
@@ -134,7 +153,7 @@ export async function POST(request: NextRequest) {
       customerPhone: returnRequest.customerPhone,
       orderNumber: returnRequest.orderNumber,
       couponCode: result.coupon.code,
-      amount: sanitizedAmount,
+      amount: discountedAmount,
       expiryDate,
     });
 

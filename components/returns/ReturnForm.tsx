@@ -94,6 +94,7 @@ const RETURN_REASONS = [
   { value: 'changed_mind', label: 'تغيير في الرأي' },
   { value: 'other', label: 'أخرى' },
 ];
+const SALE_CATEGORY_NAME = 'التخفيضات';
 
 export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess }: ReturnFormProps) {
   const [type, setType] = useState<'return' | 'exchange'>('return');
@@ -134,6 +135,17 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     });
     return ids;
   }, [order]);
+  const saleCategoryItemIds = useMemo(() => {
+    const ids = new Set<number>();
+    order.items?.forEach((item) => {
+      const productId = String(item.product?.id ?? item.id);
+      const categoryName = itemCategories[productId];
+      if (categoryName?.trim() === SALE_CATEGORY_NAME) {
+        ids.add(item.id);
+      }
+    });
+    return ids;
+  }, [order, itemCategories]);
 
   // Load return fee setting on mount
   useEffect(() => {
@@ -198,7 +210,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   }, [order, merchantId]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
-    if (discountedItemIds.has(itemId)) {
+    if (type === 'return' && (discountedItemIds.has(itemId) || saleCategoryItemIds.has(itemId))) {
       return;
     }
     const newSelectedItems = new Map(selectedItems);
@@ -236,10 +248,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       return;
     }
 
-    for (const itemId of selectedItems.keys()) {
-      if (discountedItemIds.has(itemId)) {
-        setError('لا يمكن إرجاع المنتجات المخفضة. يرجى اختيار منتج آخر.');
-        return;
+    if (type === 'return') {
+      for (const itemId of selectedItems.keys()) {
+        if (discountedItemIds.has(itemId) || saleCategoryItemIds.has(itemId)) {
+          setError('لا يمكن إرجاع المنتجات المخفضة أو ضمن فئة التخفيضات. يمكنك فقط طلب استبدال لها.');
+          return;
+        }
       }
     }
 
@@ -369,6 +383,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const maxQuantity = item.quantity || 1;
               const discountAmount = getItemDiscountAmount(item);
               const isDiscounted = discountAmount > 0;
+              const productId = String(item.product?.id ?? item.id);
+              const category = itemCategories[productId];
+              const isSaleCategory = category?.trim() === SALE_CATEGORY_NAME || saleCategoryItemIds.has(item.id);
+              const isNonReturnable = isDiscounted || isSaleCategory;
+              const isReturnBlocked = type === 'return' && isNonReturnable;
 
               // Debug: log the full structure on first render
               if (index === 0 && typeof window !== 'undefined') {
@@ -381,18 +400,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               // Calculate price: (price without tax + tax) - discount
               const itemPrice = calculateItemPrice(item);
 
-              // Get product ID for category lookup
-              const productId = String(item.product?.id ?? item.id);
-              const category = itemCategories[productId];
-
               return (
                 <button
                   key={`item-${item.id}-${index}`}
                   type="button"
                   onClick={() => handleItemClick(item.id, maxQuantity)}
-                  disabled={isDiscounted}
+                  disabled={isReturnBlocked}
                   className={`relative flex items-start gap-4 p-4 border-2 rounded-lg text-right transition-all hover:shadow-md ${
-                    isDiscounted
+                    isReturnBlocked
                       ? 'border-gray-200 bg-gray-100 opacity-60 cursor-not-allowed'
                       : isSelected
                       ? 'border-blue-600 bg-blue-50'
@@ -437,7 +452,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     </p>
                     {isDiscounted && (
                       <p className="text-xs text-red-600 font-medium">
-                        هذا المنتج مخفض ولا يمكن إرجاعه
+                        هذا المنتج مخفض ولا يمكن إرجاعه ويمكن فقط استبداله
+                      </p>
+                    )}
+                    {isSaleCategory && (
+                      <p className="text-xs text-red-600 font-medium">
+                        هذا المنتج ضمن فئة التخفيضات ولا يمكن إرجاعه ويمكن فقط استبداله
                       </p>
                     )}
                     <p className="text-xs text-gray-500">
