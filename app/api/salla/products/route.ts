@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-import { getSallaProductBySku, listSallaProducts } from '@/app/lib/salla-api';
+import {
+  getSallaProductBySku,
+  listSallaProducts,
+  rankProductsBySku,
+  searchSallaProductsBySku,
+} from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 
@@ -61,12 +66,31 @@ export async function GET(request: NextRequest) {
           merchantId: resolved.merchantId,
         });
       }
+
+      const fallbackProducts = await searchSallaProductsBySku(resolved.merchantId, sku, {
+        status,
+        perPage,
+      });
+      const normalizedFallback = rankProductsBySku(fallbackProducts, sku);
+      const fallbackPagination = {
+        count: normalizedFallback.length,
+        total: normalizedFallback.length,
+        perPage,
+        currentPage: normalizedFallback.length > 0 ? 1 : 0,
+        totalPages: normalizedFallback.length > 0 ? 1 : 0,
+      };
+
+      return NextResponse.json({
+        success: true,
+        products: normalizedFallback,
+        pagination: fallbackPagination,
+        merchantId: resolved.merchantId,
+      });
     }
 
     const { products, pagination } = await listSallaProducts(resolved.merchantId, {
       page,
       perPage,
-      sku,
       status,
     });
 

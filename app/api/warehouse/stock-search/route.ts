@@ -8,7 +8,7 @@ import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import {
   getSallaProductBySku,
   getSallaProductVariations,
-  listSallaProducts,
+  searchSallaProductsBySku,
   type SallaProductSummary,
   type SallaProductVariation,
 } from '@/app/lib/salla-api';
@@ -25,6 +25,7 @@ const ALLOWED_SERVICES: ServiceKey[] = [
   'search-update-stock',
 ];
 const MAX_PRODUCTS = 5;
+const FALLBACK_FETCH_SIZE = 50;
 
 type PendingAssignment = {
   status: string;
@@ -89,12 +90,10 @@ export async function POST(request: NextRequest) {
     if (primaryProduct) {
       products = [primaryProduct];
     } else {
-      const fallback = await listSallaProducts(resolved.merchantId, {
-        sku: skuInput,
-        perPage: MAX_PRODUCTS,
-        page: 1,
+      products = await searchSallaProductsBySku(resolved.merchantId, skuInput, {
+        perPage: FALLBACK_FETCH_SIZE,
+        maxResults: MAX_PRODUCTS,
       });
-      products = fallback.products;
     }
 
     if (!products.length) {

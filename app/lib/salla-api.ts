@@ -862,3 +862,178 @@ export async function getSallaProductBySku(
 
   return normalizeProduct(response.data);
 }
+
+export function normalizeSkuValue(value?: string | null): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim().toUpperCase();
+}
+
+function simplifySku(value: string): string {
+  return value.replace(/[^A-Z0-9]/g, '');
+}
+
+function tokenizeSku(value: string): string[] {
+  return value
+    .split(/[^A-Z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+export function getSkuMatchScore(product: SallaProductSummary, skuQuery: string): number {
+  const normalizedQuery = normalizeSkuValue(skuQuery);
+  const simplifiedQuery = normalizedQuery ? simplifySku(normalizedQuery) : '';
+  if (!normalizedQuery && !simplifiedQuery) {
+    return 0;
+  }
+
+  const queryTokens = tokenizeSku(normalizedQuery);
+  const queryTokenSet = new Set(queryTokens);
+  let score = 0;
+
+  const evaluateCandidate = (candidate: string | null | undefined, weight = 0) => {
+    const normalizedCandidate = normalizeSkuValue(candidate);
+    if (!normalizedCandidate) {
+      return;
+    }
+
+    const simplifiedCandidate = simplifySku(normalizedCandidate);
+    if (normalizedCandidate === normalizedQuery) {
+      score = Math.max(score, 100 + weight);
+      return;
+    }
+
+    if (simplifiedQuery && simplifiedCandidate && simplifiedCandidate === simplifiedQuery) {
+      score = Math.max(score, 92 + weight);
+    }
+
+    if (normalizedQuery && normalizedCandidate) {
+      if (
+        normalizedCandidate.startsWith(normalizedQuery) ||
+        normalizedQuery.startsWith(normalizedCandidate)
+      ) {
+        score = Math.max(score, 80 + weight);
+      } else if (
+        normalizedCandidate.includes(normalizedQuery) ||
+        normalizedQuery.includes(normalizedCandidate)
+      ) {
+        score = Math.max(score, 70 + weight);
+      }
+    }
+
+    if (simplifiedQuery && simplifiedCandidate) {
+      if (
+        simplifiedCandidate.startsWith(simplifiedQuery) ||
+        simplifiedQuery.startsWith(simplifiedCandidate) ||
+        simplifiedCandidate.includes(simplifiedQuery) ||
+        simplifiedQuery.includes(simplifiedCandidate)
+      ) {
+        score = Math.max(score, 60 + weight);
+      }
+    }
+
+    if (queryTokenSet.size > 0) {
+      const candidateTokens = tokenizeSku(normalizedCandidate);
+      if (candidateTokens.some((token) => queryTokenSet.has(token))) {
+        score = Math.max(score, 50 + weight);
+      }
+    }
+  };
+
+  evaluateCandidate(product?.sku, 10);
+
+  if (Array.isArray(product?.variations)) {
+    for (const variation of product.variations) {
+      evaluateCandidate(variation?.sku, 5);
+    }
+  }
+
+  return score;
+}
+
+export function rankProductsBySku(
+  products: SallaProductSummary[],
+  skuQuery: string
+): SallaProductSummary[] {
+  if (!products || products.length === 0) {
+    return [];
+  }
+
+  const ranked = products
+    .map((product) => ({
+      product,
+      score: getSkuMatchScore(product, skuQuery),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.product.name.localeCompare(b.product.name);
+    });
+
+  return ranked.map((entry) => entry.product);
+}
+
+const DEFAULT_SKU_SEARCH_MAX_PAGES = 10;
+const DEFAULT_SKU_MATCH_LIMIT = 100;
+
+export async function searchSallaProductsBySku(
+  merchantId: string,
+  skuQuery: string,
+  options?: {
+    status?: string;
+    perPage?: number;
+    maxPages?: number;
+    maxResults?: number;
+  }
+): Promise<SallaProductSummary[]> {
+  const trimmedQuery = skuQuery?.trim();
+  if (!trimmedQuery) {
+    return [];
+  }
+
+  const perPage = Math.min(Math.max(options?.perPage ?? 100, 1), 100);
+  const maxPages = Math.max(options?.maxPages ?? DEFAULT_SKU_SEARCH_MAX_PAGES, 1);
+  const requestedMax = options?.maxResults ?? perPage;
+  const maxResults = Math.max(Math.min(requestedMax, DEFAULT_SKU_MATCH_LIMIT), 1);
+
+  const matches: Array<{ product: SallaProductSummary; score: number }> = [];
+  const seenIds = new Set<number>();
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const { products, pagination } = await listSallaProducts(merchantId, {
+      page,
+      perPage,
+      sku: trimmedQuery,
+      status: options?.status,
+    });
+
+    for (const product of products) {
+      if (seenIds.has(product.id)) {
+        continue;
+      }
+      seenIds.add(product.id);
+      const score = getSkuMatchScore(product, trimmedQuery);
+      if (score > 0) {
+        matches.push({ product, score });
+      }
+    }
+
+    const totalPages = pagination?.totalPages ?? page;
+    if (matches.length >= maxResults || page >= totalPages) {
+      break;
+    }
+  }
+
+  return matches
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.product.name.localeCompare(b.product.name);
+    })
+    .slice(0, maxResults)
+    .map((entry) => entry.product);
+}

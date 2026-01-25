@@ -134,14 +134,47 @@ export default function SallaProductsPage() {
       setError(null);
 
       try {
+        if (sku) {
+          const encodedSku = encodeURIComponent(sku);
+          const response = await fetch(`/api/salla/products/sku/${encodedSku}`, {
+            cache: 'no-store',
+          });
+          const data = await response.json();
+
+          if (!response.ok || !data.success) {
+            throw new Error(data?.error || 'تعذر العثور على المنتج في سلة بالرمز المحدد');
+          }
+
+          const product: SallaProductSummary | undefined = data.product;
+          const normalizedFilter = statusValue ? statusValue.toLowerCase() : '';
+          const normalizedProductStatus =
+            typeof product?.status === 'string' ? product.status.toLowerCase() : '';
+          const matchesStatus =
+            !normalizedFilter || normalizedProductStatus === normalizedFilter;
+
+          const productsList: SallaProductSummary[] = product && matchesStatus ? [product] : [];
+
+          if (product && !matchesStatus) {
+            setError('تم العثور على المنتج، لكنه لا يطابق حالة التصفية المحددة.');
+          }
+
+          const paginationMeta =
+            productsList.length > 0
+              ? { count: 1, total: 1, perPage: 1, currentPage: 1, totalPages: 1 }
+              : { count: 0, total: 0, perPage: 1, currentPage: 0, totalPages: 0 };
+
+          setProducts(productsList);
+          setPagination(paginationMeta);
+          setMerchantId(typeof data.merchantId === 'string' ? data.merchantId : null);
+          setLastUpdated(new Date().toISOString());
+          return;
+        }
+
         const params = new URLSearchParams({
           page: page.toString(),
           perPage: PAGE_SIZE.toString(),
         });
 
-        if (sku) {
-          params.set('sku', sku);
-        }
         if (statusValue) {
           params.set('status', statusValue);
         }
