@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -96,7 +96,7 @@ function formatNumber(value: number | null | undefined) {
 
 export default function SallaProductsPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [products, setProducts] = useState<SallaProductSummary[]>([]);
   const [pagination, setPagination] = useState<SallaPaginationMeta | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -117,11 +117,6 @@ export default function SallaProductsPage() {
   const [merchantId, setMerchantId] = useState<string | null>(null);
   const variationsRequestId = useRef(0);
 
-  const currentUserName = useMemo(() => {
-    const user = session?.user as any;
-    return user?.name || user?.username || 'مستخدم';
-  }, [session]);
-
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
@@ -134,42 +129,6 @@ export default function SallaProductsPage() {
       setError(null);
 
       try {
-        if (sku) {
-          const encodedSku = encodeURIComponent(sku);
-          const response = await fetch(`/api/salla/products/sku/${encodedSku}`, {
-            cache: 'no-store',
-          });
-          const data = await response.json();
-
-          if (!response.ok || !data.success) {
-            throw new Error(data?.error || 'تعذر العثور على المنتج في سلة بالرمز المحدد');
-          }
-
-          const product: SallaProductSummary | undefined = data.product;
-          const normalizedFilter = statusValue ? statusValue.toLowerCase() : '';
-          const normalizedProductStatus =
-            typeof product?.status === 'string' ? product.status.toLowerCase() : '';
-          const matchesStatus =
-            !normalizedFilter || normalizedProductStatus === normalizedFilter;
-
-          const productsList: SallaProductSummary[] = product && matchesStatus ? [product] : [];
-
-          if (product && !matchesStatus) {
-            setError('تم العثور على المنتج، لكنه لا يطابق حالة التصفية المحددة.');
-          }
-
-          const paginationMeta =
-            productsList.length > 0
-              ? { count: 1, total: 1, perPage: 1, currentPage: 1, totalPages: 1 }
-              : { count: 0, total: 0, perPage: 1, currentPage: 0, totalPages: 0 };
-
-          setProducts(productsList);
-          setPagination(paginationMeta);
-          setMerchantId(typeof data.merchantId === 'string' ? data.merchantId : null);
-          setLastUpdated(new Date().toISOString());
-          return;
-        }
-
         const params = new URLSearchParams({
           page: page.toString(),
           perPage: PAGE_SIZE.toString(),
@@ -177,6 +136,10 @@ export default function SallaProductsPage() {
 
         if (statusValue) {
           params.set('status', statusValue);
+        }
+
+        if (sku) {
+          params.set('sku', sku);
         }
 
         const response = await fetch(`/api/salla/products?${params.toString()}`, {

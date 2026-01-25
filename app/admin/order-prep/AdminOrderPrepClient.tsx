@@ -74,6 +74,11 @@ interface LiveSallaOrder {
   assignedUserId: string | null;
   assignedUserName: string | null;
   assignmentStatus: string | null;
+  isHighPriority?: boolean;
+  priorityId?: string | null;
+  priorityReason?: string | null;
+  priorityNotes?: string | null;
+  priorityCreatedAt?: string | null;
 }
 
 interface LiveOrdersSummary {
@@ -161,6 +166,7 @@ export default function AdminOrderPrepPage() {
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [reassignUserId, setReassignUserId] = useState<string>('');
   const [showReassignModal, setShowReassignModal] = useState(false);
+  const [priorityUpdatingId, setPriorityUpdatingId] = useState<string | null>(null);
   const currentStats = stats?.active ?? null;
   const currentUserStats = currentStats?.byUser ?? [];
 
@@ -285,23 +291,56 @@ export default function AdminOrderPrepPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, isAdmin, refreshAll]);
 
-  const handleSelectOrder = (orderId: string) => {
-    const newSelected = new Set(selectedOrders);
-    if (newSelected.has(orderId)) {
-      newSelected.delete(orderId);
-    } else {
-      newSelected.add(orderId);
-    }
-    setSelectedOrders(newSelected);
-  };
-
-  const handleSelectAll = () => {
-    if (selectedOrders.size === assignments.length) {
-      setSelectedOrders(new Set());
-    } else {
-      setSelectedOrders(new Set(assignments.map(a => a.id)));
-    }
-  };
+  const handleTogglePriority = useCallback(
+    async (order: LiveSallaOrder) => {
+      const identifier = order.id || order.orderNumber;
+      if (!identifier || !order.id) {
+        alert('لا يمكن تحديد رقم الطلب لإدارة الأولوية.');
+        return;
+      }
+      if (order.assignmentState !== 'new') {
+        alert('يمكن تمييز الطلبات غير المعينة فقط كأولوية.');
+        return;
+      }
+      setPriorityUpdatingId(identifier);
+      try {
+        if (order.isHighPriority) {
+          const query = order.priorityId
+            ? `id=${encodeURIComponent(order.priorityId)}`
+            : `orderId=${encodeURIComponent(order.id)}`;
+          const response = await fetch(`/api/admin/order-assignments/high-priority?${query}`, {
+            method: 'DELETE',
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data?.error) {
+            throw new Error(data?.error || 'فشل إزالة الطلب من قائمة الأولوية');
+          }
+        } else {
+          const response = await fetch('/api/admin/order-assignments/high-priority', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: order.id,
+              orderNumber: order.orderNumber || order.id,
+              customerName: order.customerName,
+              reason: 'تم تحديده من لوحة إدارة التحضير',
+              notes: order.statusLabel ? `الحالة الحالية: ${order.statusLabel}` : undefined,
+            }),
+          });
+          const data = await response.json();
+          if (!response.ok || data?.error) {
+            throw new Error(data?.error || 'فشل حفظ الطلب في قائمة الأولوية');
+          }
+        }
+        await loadLiveOrders();
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'حدث خطأ أثناء تحديث حالة الأولوية');
+      } finally {
+        setPriorityUpdatingId(null);
+      }
+    },
+    [loadLiveOrders],
+  );
 
   const handleReassign = async () => {
     if (!reassignUserId || selectedOrders.size === 0) {
@@ -452,54 +491,6 @@ export default function AdminOrderPrepPage() {
     });
   };
 
-  const getStatusLabel = (status: string, sallaStatus: string | null) => {
-    if (sallaStatus === '1065456688') return 'تحت المراجعة';
-    if (sallaStatus === '1576217163') return 'تحت المراجعة حجز قطع';
-    if (sallaStatus === '165947469') return 'تم الشحن';
-
-    const statusMap: Record<string, string> = {
-      'pending': 'معلق',
-      'in_progress': 'جاري التجهيز',
-      'preparing': 'قيد التحضير',
-      'prepared': 'جاهز',
-      'completed': 'مكتمل',
-      'shipped': 'تم الشحن',
-      'under_review': 'تحت المراجعة',
-      'under_review_reservation': 'تحت المراجعة حجز قطع',
-    };
-    return statusMap[status] || status;
-  };
-
-  const getStatusColor = (status: string, sallaStatus: string | null) => {
-    if (sallaStatus === '1065456688') return 'bg-orange-100 text-orange-800 border-orange-300';
-    if (sallaStatus === '1576217163') return 'bg-purple-100 text-purple-800 border-purple-300';
-    if (sallaStatus === '165947469') return 'bg-green-100 text-green-800 border-green-300';
-
-    const colorMap: Record<string, string> = {
-      'pending': 'bg-yellow-100 text-yellow-800 border-yellow-300',
-      'in_progress': 'bg-blue-100 text-blue-800 border-blue-300',
-      'preparing': 'bg-blue-100 text-blue-800 border-blue-300',
-      'prepared': 'bg-green-100 text-green-800 border-green-300',
-      'completed': 'bg-green-100 text-green-800 border-green-300',
-      'shipped': 'bg-green-100 text-green-800 border-green-300',
-      'under_review': 'bg-orange-100 text-orange-800 border-orange-300',
-      'under_review_reservation': 'bg-purple-100 text-purple-800 border-purple-300',
-    };
-    return colorMap[status] || 'bg-gray-100 text-gray-800 border-gray-300';
-  };
-
-  const getPaymentLabel = (orderData: any) => {
-    const payment =
-      orderData?.payment_method ||
-      orderData?.paymentMethod ||
-      orderData?.payment?.method ||
-      orderData?.payment?.method_name ||
-      orderData?.payment?.methodName ||
-      orderData?.payment?.title ||
-      null;
-    return payment ? String(payment).toUpperCase() : '—';
-  };
-
   const formatAmount = (amount: number | null) => {
     if (typeof amount === 'number' && !Number.isNaN(amount)) {
       return `${amount.toFixed(2)} ر.س`;
@@ -530,6 +521,7 @@ export default function AdminOrderPrepPage() {
   const liveOrdersTimestamp = liveOrders?.fetchedAt ? new Date(liveOrders.fetchedAt) : null;
   const liveTotals = liveOrders?.totals || { new: 0, assigned: 0 };
   const lastUpdatedLabel = lastUpdated ? formatDate(lastUpdated.toISOString()) : null;
+  const isRefreshing = dashboardLoading || assignmentsLoading || liveOrdersLoading;
 
   if (status === 'loading') {
     return (
@@ -584,8 +576,8 @@ export default function AdminOrderPrepPage() {
                 >
                   {autoRefresh ? 'التحديث التلقائي مفعّل' : 'تشغيل التحديث التلقائي'}
                 </Button>
-                <Button onClick={() => refreshAll()} disabled={dashboardLoading}>
-                  {dashboardLoading ? 'جاري التحديث...' : 'تحديث الآن'}
+                <Button onClick={() => refreshAll()} disabled={isRefreshing}>
+                  {isRefreshing ? 'جاري التحديث...' : 'تحديث الآن'}
                 </Button>
               </div>
             </div>
@@ -602,6 +594,15 @@ export default function AdminOrderPrepPage() {
               <p className="text-sm text-gray-500">الطلبات المرتبطة حالياً</p>
               <p className="text-3xl font-bold text-gray-900">{liveOrdersTotal}</p>
               <p className="text-xs text-gray-400 mt-1">عدد الطلبات التي تم تعيينها ويتم العمل عليها الآن</p>
+              <p className="text-xs text-gray-500 mt-2">
+                بانتظار التعيين: <span className="font-semibold">{liveTotals.new}</span> • مرتبطة بالمستخدمين:{' '}
+                <span className="font-semibold">{liveTotals.assigned}</span>
+              </p>
+              {liveOrdersTimestamp && (
+                <p className="text-[11px] text-gray-400 mt-1">
+                  تم الجلب من سلة في {formatDate(liveOrdersTimestamp.toISOString())}
+                </p>
+              )}
             </Card>
           </div>
 
@@ -621,53 +622,101 @@ export default function AdminOrderPrepPage() {
                         {liveOrdersLoading ? 'جاري التحديث...' : 'لا يوجد طلبات في هذه الحالة'}
                       </p>
                     ) : (
-                      column.orders.map((order) => (
-                        <div
-                          key={order.id || order.orderNumber}
-                          className={`rounded-2xl border ${column.pillAccentClass} bg-white shadow-sm p-3`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-gray-900 truncate">
-                                #{order.orderNumber || order.id}
-                              </p>
-                              <p className="text-xs text-gray-500 truncate">
-                                {order.customerName || order.paymentMethod || '—'}
-                              </p>
+                      column.orders.map((order) => {
+                        const priorityIdentifier = order.id || order.orderNumber || '';
+                        const isPriorityUpdating = priorityUpdatingId === priorityIdentifier;
+                        const priorityDisabled = order.assignmentState !== 'new';
+                        const priorityLabel = order.isHighPriority ? 'أولوية فعّالة' : 'أولوية';
+                        const cardPriorityClasses = order.isHighPriority
+                          ? 'border-amber-300 bg-amber-50/70'
+                          : `${column.pillAccentClass} bg-white`;
+
+                        return (
+                          <div
+                            key={order.id || order.orderNumber}
+                            className={`rounded-2xl border shadow-sm p-3 ${cardPriorityClasses}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-900 truncate">
+                                  #{order.orderNumber || order.id}
+                                </p>
+                                <p className="text-xs text-gray-500 truncate">
+                                  {order.customerName || order.paymentMethod || '—'}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <span
+                                  className={`inline-flex items-center px-2 py-1 rounded-full border text-[11px] font-semibold ${LIVE_STATE_STYLES[order.assignmentState]?.className}`}
+                                >
+                                  {LIVE_STATE_STYLES[order.assignmentState]?.label}
+                                </span>
+                                <label
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${
+                                    order.isHighPriority
+                                      ? 'border-amber-300 bg-white/60 text-amber-700'
+                                      : 'border-gray-200 text-gray-600'
+                                  } ${priorityDisabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-amber-50'}`}
+                                  title={
+                                    priorityDisabled
+                                      ? 'يمكن تمييز الطلبات غير المعينة فقط كأولوية'
+                                      : 'حدد الطلب لدفعه إلى مقدمة طابور التحضير'
+                                  }
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                                    checked={Boolean(order.isHighPriority)}
+                                    disabled={priorityDisabled || isPriorityUpdating}
+                                    onChange={() => handleTogglePriority(order)}
+                                  />
+                                  <span>
+                                    {isPriorityUpdating ? 'جارٍ التحديث...' : priorityLabel}
+                                  </span>
+                                </label>
+                              </div>
                             </div>
-                            <span
-                              className={`inline-flex items-center px-2 py-1 rounded-full border text-[11px] font-semibold ${LIVE_STATE_STYLES[order.assignmentState]?.className}`}
-                            >
-                              {LIVE_STATE_STYLES[order.assignmentState]?.label}
-                            </span>
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
-                            <span>الدفع: {order.paymentMethod || '—'}</span>
-                            <span>المبلغ: {formatAmount(order.totalAmount)}</span>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
-                            {order.assignedUserName ? (
-                              <span className="inline-flex items-center gap-1">
-                                مرتبط بـ {order.assignedUserName}
-                                {order.assignmentId && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-5 w-5 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                                    aria-label={`إزالة المستخدم من الطلب #${order.orderNumber || order.id}`}
-                                    onClick={() => handleRemoveSingleAssignment(order.assignmentId as string, order.orderNumber)}
-                                  >
-                                    ×
-                                  </Button>
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
+                              <span>الدفع: {order.paymentMethod || '—'}</span>
+                              <span>المبلغ: {formatAmount(order.totalAmount)}</span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
+                              {order.assignedUserName ? (
+                                <span className="inline-flex items-center gap-1">
+                                  مرتبط بـ {order.assignedUserName}
+                                  {order.assignmentId && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-5 w-5 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                                      aria-label={`إزالة المستخدم من الطلب #${order.orderNumber || order.id}`}
+                                      onClick={() => handleRemoveSingleAssignment(order.assignmentId as string, order.orderNumber)}
+                                    >
+                                      ×
+                                    </Button>
+                                  )}
+                                </span>
+                              ) : (
+                                <span>غير مرتبط بأي مستخدم</span>
+                              )}
+                              <span>{order.createdAt ? formatDate(order.createdAt) : '—'}</span>
+                            </div>
+                            {order.isHighPriority && (
+                              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                                <p className="font-semibold">⚡ طلب مميز</p>
+                                <p>
+                                  {order.priorityReason || 'سيتم دفع الطلب في أول قائمة التحضير.'}
+                                </p>
+                                {order.priorityCreatedAt && (
+                                  <p className="text-amber-600/80">
+                                    تم التفعيل في {formatDate(order.priorityCreatedAt)}
+                                  </p>
                                 )}
-                              </span>
-                            ) : (
-                              <span>غير مرتبط بأي مستخدم</span>
+                              </div>
                             )}
-                            <span>{order.createdAt ? formatDate(order.createdAt) : '—'}</span>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
               </Card>

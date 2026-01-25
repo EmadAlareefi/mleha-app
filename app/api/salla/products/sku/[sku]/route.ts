@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-import { getSallaProductBySku } from '@/app/lib/salla-api';
+import { getSallaProductBySku, searchSallaProductsBySku } from '@/app/lib/salla-api';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { log } from '@/app/lib/logger';
 
@@ -48,13 +48,26 @@ export async function GET(
       );
     }
 
-    const product = await getSallaProductBySku(resolved.merchantId, sku);
+    const product = await getSallaProductBySku(resolved.merchantId, sku).catch(() => null);
 
     if (!product) {
-      return NextResponse.json(
-        { error: `لا يوجد منتج في سلة بهذا الرمز (${sku})` },
-        { status: 404 }
-      );
+      const fallbackMatches = await searchSallaProductsBySku(resolved.merchantId, sku, {
+        perPage: 50,
+        maxResults: 5,
+      });
+      if (fallbackMatches.length === 0) {
+        return NextResponse.json(
+          { error: `لا يوجد منتج في سلة بهذا الرمز (${sku})` },
+          { status: 404 }
+        );
+      }
+      const bestMatch = fallbackMatches[0];
+      return NextResponse.json({
+        success: true,
+        product: bestMatch,
+        merchantId: resolved.merchantId,
+        fallbackMatches,
+      });
     }
 
     return NextResponse.json({

@@ -411,7 +411,7 @@ export async function GET(request: NextRequest) {
       : DEFAULT_LIMIT;
 
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
-    const { primaryStatus, relatedStatuses } = getNewOrderStatusFilters(statuses);
+    const { primaryStatus } = getNewOrderStatusFilters(statuses);
     const statusLookups = buildStatusLookups(statuses);
     const statusFilters = TARGET_NEW_ORDER_STATUS_IDS;
 
@@ -534,11 +534,25 @@ export async function GET(request: NextRequest) {
           })
         : [];
 
+    const priorityRecords =
+      orderIds.length > 0
+        ? await prisma.highPriorityOrder.findMany({
+            where: {
+              merchantId: MERCHANT_ID,
+              orderId: { in: orderIds },
+            },
+          })
+        : [];
+
     const prepAssignmentByOrder = new Map<string, (typeof prepAssignments)[number]>();
     prepAssignments.forEach((assignment) => {
       if (!prepAssignmentByOrder.has(assignment.orderId)) {
         prepAssignmentByOrder.set(assignment.orderId, assignment);
       }
+    });
+    const priorityByOrder = new Map<string, (typeof priorityRecords)[number]>();
+    priorityRecords.forEach((record) => {
+      priorityByOrder.set(record.orderId, record);
     });
 
     const serializedOrders = normalizedOrders.map(({ order, statusFilter }) => {
@@ -586,6 +600,7 @@ export async function GET(request: NextRequest) {
         fallbackPrepAssignment?.userName ||
         null;
       const assignedUserId = assignment?.userId || fallbackPrepAssignment?.userId || null;
+      const priorityRecord = orderId ? priorityByOrder.get(orderId) : undefined;
 
       return {
         id: orderId,
@@ -607,6 +622,14 @@ export async function GET(request: NextRequest) {
         assignedUserId,
         assignedUserName,
         assignmentStatus: assignment?.status || null,
+        isHighPriority: Boolean(priorityRecord),
+        priorityId: priorityRecord?.id || null,
+        priorityReason: priorityRecord?.reason || null,
+        priorityNotes: priorityRecord?.notes || null,
+        priorityCreatedAt:
+          priorityRecord && priorityRecord.createdAt
+            ? priorityRecord.createdAt.toISOString()
+            : null,
       };
     });
 
