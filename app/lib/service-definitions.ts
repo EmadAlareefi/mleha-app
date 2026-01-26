@@ -51,7 +51,7 @@ const serviceDefinitionsData = [
     color: 'from-slate-500 to-slate-600',
     defaultRoles: ['admin'],
     grantsRoles: [],
-    assignable: false,
+    assignable: true,
   },
   {
     key: 'warehouse',

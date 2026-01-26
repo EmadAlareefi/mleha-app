@@ -6,7 +6,7 @@ import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
-const SALLA_CUSTOMER_MARKUP = 0.15; // compensate for Salla automatically adding 15% to the customer
+const SALLA_CUSTOMER_MARKUP = 0.15; // Salla adds 15% to coupon value, so we compensate by dividing
 
 /**
  * POST /api/returns/create-coupon
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
 
     const sanitizedAmount = Number(couponAmount.toFixed(2));
     const discountedAmount = Number(
-      (sanitizedAmount * (1 - SALLA_CUSTOMER_MARKUP)).toFixed(2)
+      (sanitizedAmount / (1 + SALLA_CUSTOMER_MARKUP)).toFixed(2)
     );
 
     if (!Number.isFinite(discountedAmount) || discountedAmount <= 0) {
