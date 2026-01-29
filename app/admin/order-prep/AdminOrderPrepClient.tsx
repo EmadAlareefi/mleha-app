@@ -410,12 +410,24 @@ export default function AdminOrderPrepPage() {
     }
   };
 
-  const performAssignmentsRemoval = async (assignmentIds: string[]) => {
+  const performAssignmentsRemoval = async (options: { assignmentIds?: string[]; orderIds?: string[] }) => {
+    const assignmentIds = Array.isArray(options.assignmentIds)
+      ? options.assignmentIds.filter((value) => Boolean(value))
+      : [];
+    const orderIds = Array.isArray(options.orderIds)
+      ? options.orderIds.filter((value) => Boolean(value))
+      : [];
+
+    if (assignmentIds.length === 0 && orderIds.length === 0) {
+      alert('لا يوجد طلبات صالحة لإزالة الارتباط.');
+      return false;
+    }
+
     try {
       const response = await fetch('/api/admin/order-assignments/remove', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentIds }),
+        body: JSON.stringify({ assignmentIds, orderIds }),
       });
 
       const data = await response.json();
@@ -447,7 +459,7 @@ export default function AdminOrderPrepPage() {
 
     if (!confirmed) return;
 
-    const success = await performAssignmentsRemoval(Array.from(selectedOrders));
+    const success = await performAssignmentsRemoval({ assignmentIds: Array.from(selectedOrders) });
     if (success) {
       setSelectedOrders(new Set());
     }
@@ -471,14 +483,36 @@ export default function AdminOrderPrepPage() {
 
     if (!confirmed) return;
 
-    await performAssignmentsRemoval(activeAssignments.map((assignment) => assignment.id));
+    await performAssignmentsRemoval({ assignmentIds: activeAssignments.map((assignment) => assignment.id) });
   };
 
-  const handleRemoveSingleAssignment = async (assignmentId: string, orderNumber?: string | null) => {
-    const confirmed = confirm(`هل ترغب في إزالة الطلب ${orderNumber ? `#${orderNumber}` : ''} من المستخدم الحالي؟`);
+  const handleRemoveSingleAssignment = async ({
+    assignmentId,
+    orderId,
+    orderNumber,
+  }: {
+    assignmentId?: string | null;
+    orderId?: string | null;
+    orderNumber?: string | null;
+  }) => {
+    const trimmedAssignmentId = assignmentId?.trim();
+    const trimmedOrderId = orderId?.trim();
+    if (!trimmedAssignmentId && !trimmedOrderId) {
+      alert('تعذر تحديد الطلب لإزالة الارتباط.');
+      return;
+    }
+
+    const confirmed = confirm(
+      `هل ترغب في إزالة الطلب ${
+        orderNumber ? `#${orderNumber}` : trimmedOrderId ? `#${trimmedOrderId}` : ''
+      } من المستخدم الحالي؟`,
+    );
     if (!confirmed) return;
 
-    await performAssignmentsRemoval([assignmentId]);
+    await performAssignmentsRemoval({
+      assignmentIds: trimmedAssignmentId ? [trimmedAssignmentId] : undefined,
+      orderIds: trimmedOrderId ? [trimmedOrderId] : undefined,
+    });
   };
 
   const formatDate = (dateString: string) => {
@@ -630,6 +664,9 @@ export default function AdminOrderPrepPage() {
                         const cardPriorityClasses = order.isHighPriority
                           ? 'border-amber-300 bg-amber-50/70'
                           : `${column.pillAccentClass} bg-white`;
+                        const canRemoveAssignmentLink =
+                          Boolean(order.assignmentId) ||
+                          (order.assignmentState === 'assigned' && Boolean(order.id));
 
                         return (
                           <div
@@ -684,13 +721,19 @@ export default function AdminOrderPrepPage() {
                               {order.assignedUserName ? (
                                 <span className="inline-flex items-center gap-1">
                                   مرتبط بـ {order.assignedUserName}
-                                  {order.assignmentId && (
+                                  {canRemoveAssignmentLink && (
                                     <Button
                                       variant="ghost"
                                       size="icon"
                                       className="h-5 w-5 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
                                       aria-label={`إزالة المستخدم من الطلب #${order.orderNumber || order.id}`}
-                                      onClick={() => handleRemoveSingleAssignment(order.assignmentId as string, order.orderNumber)}
+                                      onClick={() =>
+                                        handleRemoveSingleAssignment({
+                                          assignmentId: order.assignmentId,
+                                          orderId: order.id,
+                                          orderNumber: order.orderNumber,
+                                        })
+                                      }
                                     >
                                       ×
                                     </Button>

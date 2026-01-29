@@ -43,6 +43,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['orders'],
   },
   {
+    key: 'order-monitor',
+    title: 'مراقبة العمليات',
+    description: 'رصد من قام بتحضير الطلب ومتابعة من شحنه مع آخر تحديث',
+    icon: '🛰️',
+    href: '/order-monitor',
+    color: 'from-indigo-500 to-purple-600',
+    defaultRoles: ['admin', 'orders'],
+    grantsRoles: ['orders'],
+  },
+  {
     key: 'admin-order-prep',
     title: 'إدارة طلبات التحضير',
     description: 'لوحة تحكم المسؤول لإدارة ومتابعة طلبات التحضير',

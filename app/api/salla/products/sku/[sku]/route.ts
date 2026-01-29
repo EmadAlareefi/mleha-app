@@ -9,7 +9,7 @@ export const runtime = 'nodejs';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { sku?: string } }
+  { params }: { params: Promise<{ sku: string }> }
 ) {
   const session = await getServerSession(authOptions);
 
@@ -32,7 +32,8 @@ export async function GET(
       );
     }
 
-    const rawSku = params?.sku ?? '';
+    const { sku: skuParam } = await params;
+    const rawSku = skuParam ?? '';
     let decodedSku = rawSku;
     try {
       decodedSku = decodeURIComponent(rawSku);

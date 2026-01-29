@@ -10,6 +10,9 @@ interface OrderItem {
   id: number;
   name?: string;
   sku?: string;
+  thumbnail?: string;
+  currency?: string;
+  images?: { image?: string }[];
   product?: {
     id: number;
     name: string;

@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -49,6 +49,12 @@ interface ProductLocation {
   updatedBy?: string | null;
   updatedAt: string;
 }
+
+type SallaStatusTarget = 'under_review_a' | 'under_review_reservation' | 'under_review_inner';
+type ConfirmDialogType = 'complete' | SallaStatusTarget;
+
+const isNoteEnabledTarget = (target: ConfirmDialogType): target is SallaStatusTarget =>
+  target === 'under_review_a' || target === 'under_review_reservation';
 
 const assignmentStatusMeta: Record<
   AssignmentStatus,
@@ -141,12 +147,14 @@ export default function OrderPrepClient() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [sallaStatusAction, setSallaStatusAction] = useState<string | null>(null);
+  const [dialogNote, setDialogNote] = useState('');
   const autoStartedAssignments = useRef<Set<string>>(new Set());
   const refreshedAssignments = useRef<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
-    type: 'complete' | 'under_review_a' | 'under_review_reservation' | 'under_review_inner';
+    type: ConfirmDialogType;
     assignment: Assignment;
   } | null>(null);
+  const noteInputId = useId();
   const { toast } = useToast();
 
   const loadAssignments = useCallback(
@@ -325,17 +333,21 @@ export default function OrderPrepClient() {
   }, []);
 
   const handleUpdateSallaStatus = useCallback(
-    async (assignment: Assignment, target: 'under_review_a' | 'under_review_reservation' | 'under_review_inner') => {
+    async (assignment: Assignment, target: SallaStatusTarget, note?: string) => {
       const actionKey = `${assignment.id}_${target}`;
       setSallaStatusAction(actionKey);
 
       try {
+        const trimmedNote = typeof note === 'string' ? note.trim() : '';
         const response = await fetch(
           `/api/order-prep/orders/${assignment.id}/salla-status`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target }),
+            body: JSON.stringify({
+              target,
+              note: trimmedNote ? trimmedNote : undefined,
+            }),
           },
         );
         const data = await response.json();
@@ -359,6 +371,11 @@ export default function OrderPrepClient() {
     },
     [loadAssignments, toast],
   );
+
+  const closeConfirmDialog = useCallback(() => {
+    setConfirmDialog(null);
+    setDialogNote('');
+  }, [setConfirmDialog, setDialogNote]);
 
   useEffect(() => {
     void loadAssignments();
@@ -399,17 +416,16 @@ export default function OrderPrepClient() {
     const { type, assignment } = confirmDialog;
     if (type === 'complete') {
       void updateStatus(assignment.id, 'completed');
-    } else {
-      void handleUpdateSallaStatus(
-        assignment,
-        type as 'under_review_a' | 'under_review_reservation' | 'under_review_inner',
-      );
+      closeConfirmDialog();
+      return;
     }
-    setConfirmDialog(null);
-  }, [confirmDialog, updateStatus, handleUpdateSallaStatus]);
+    const trimmedNote = isNoteEnabledTarget(type) && dialogNote.trim() ? dialogNote.trim() : undefined;
+    void handleUpdateSallaStatus(assignment, type, trimmedNote);
+    closeConfirmDialog();
+  }, [confirmDialog, dialogNote, closeConfirmDialog, handleUpdateSallaStatus, updateStatus]);
 
   const confirmConfig: Record<
-    'complete' | 'under_review_a' | 'under_review_reservation' | 'under_review_inner',
+    ConfirmDialogType,
     { message: string; confirmLabel: string; variant?: 'primary' | 'danger' }
   > = {
     complete: {
@@ -430,6 +446,25 @@ export default function OrderPrepClient() {
       confirmLabel: 'تأكيد التحويل',
     },
   };
+
+  const shouldShowNoteField = Boolean(confirmDialog && isNoteEnabledTarget(confirmDialog.type));
+
+  const noteField = shouldShowNoteField ? (
+    <div className="mt-4">
+      <label htmlFor={noteInputId} className="block text-sm font-medium text-gray-700">
+        ملاحظة لسلة (اختياري)
+      </label>
+      <textarea
+        id={noteInputId}
+        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500"
+        rows={3}
+        placeholder="يمكنك كتابة سبب التحويل أو تفاصيل إضافية هنا"
+        value={dialogNote}
+        onChange={(event) => setDialogNote(event.target.value)}
+      />
+      <p className="mt-1 text-xs text-gray-500">سيتم إنشاء إدخال في سجل الطلب في سلة عند إضافة هذه الملاحظة.</p>
+    </div>
+  ) : null;
 
   return (
     <section className="space-y-6">
@@ -511,8 +546,14 @@ export default function OrderPrepClient() {
           printingOrderId={printingOrderId}
           onUpdateSallaStatus={handleUpdateSallaStatus}
           sallaStatusAction={sallaStatusAction}
-          onConfirmComplete={() => setConfirmDialog({ type: 'complete', assignment: activeAssignment })}
-          onConfirmSallaStatus={(target) => setConfirmDialog({ type: target, assignment: activeAssignment })}
+          onConfirmComplete={() => {
+            setDialogNote('');
+            setConfirmDialog({ type: 'complete', assignment: activeAssignment });
+          }}
+          onConfirmSallaStatus={(target) => {
+            setDialogNote('');
+            setConfirmDialog({ type: target, assignment: activeAssignment });
+          }}
         />
       )}
       <ConfirmationDialog
@@ -524,7 +565,8 @@ export default function OrderPrepClient() {
           confirmDialog ? confirmConfig[confirmDialog.type].variant ?? 'primary' : 'primary'
         }
         onConfirm={runConfirmedAction}
-        onCancel={() => setConfirmDialog(null)}
+        onCancel={closeConfirmDialog}
+        content={noteField}
       />
     </section>
   );
@@ -546,10 +588,10 @@ function AssignmentCard({
   onStatusChange: (assignmentId: string, status: AssignmentStatus) => void;
   onPrintOrderNumber: (assignment: Assignment) => void;
   printingOrderId: string | null;
-  onUpdateSallaStatus: (assignment: Assignment, target: 'under_review_a' | 'under_review_reservation' | 'under_review_inner') => void;
+  onUpdateSallaStatus: (assignment: Assignment, target: SallaStatusTarget) => void;
   sallaStatusAction: string | null;
   onConfirmComplete: () => void;
-  onConfirmSallaStatus: (target: 'under_review_a' | 'under_review_reservation' | 'under_review_inner') => void;
+  onConfirmSallaStatus: (target: SallaStatusTarget) => void;
 }) {
   const items = useMemo(() => getLineItems(assignment.orderData), [assignment.orderData]);
   const orderStatus = getOrderStatus(assignment.orderData);

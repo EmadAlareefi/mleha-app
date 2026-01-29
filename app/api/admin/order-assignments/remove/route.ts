@@ -10,36 +10,68 @@ const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
  * POST /api/admin/order-assignments/remove
  * Remove existing order assignments so they can be reassigned later.
  */
+const sanitizeIdentifiers = (values: unknown[]): string[] =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => {
+          if (value === null || value === undefined) return '';
+          if (typeof value === 'string') return value.trim();
+          return String(value).trim();
+        })
+        .filter((value) => value.length > 0),
+    ),
+  );
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { assignmentIds } = body || {};
+    const assignmentIdsInput = Array.isArray(body?.assignmentIds) ? body.assignmentIds : [];
+    const orderIdsInput = Array.isArray(body?.orderIds) ? body.orderIds : [];
+    const assignmentIds = sanitizeIdentifiers(assignmentIdsInput);
+    const orderIds = sanitizeIdentifiers(orderIdsInput);
 
-    if (!assignmentIds || !Array.isArray(assignmentIds) || assignmentIds.length === 0) {
+    if (assignmentIds.length === 0 && orderIds.length === 0) {
       return NextResponse.json(
-        { error: 'معرفات الطلبات مطلوبة' },
+        { error: 'معرفات الطلبات أو أرقام الطلبات مطلوبة' },
         { status: 400 },
       );
     }
 
-    const assignments = await prisma.orderAssignment.findMany({
-      where: { id: { in: assignmentIds } },
-      select: {
-        id: true,
-        orderId: true,
-        orderNumber: true,
-        status: true,
-        userId: true,
-        merchantId: true,
-      },
-    });
-
-    if (assignments.length === 0) {
-      return NextResponse.json(
-        { error: 'لم يتم العثور على الطلبات المحددة' },
-        { status: 404 },
-      );
+    const assignmentFilters = [];
+    if (assignmentIds.length > 0) {
+      assignmentFilters.push({ id: { in: assignmentIds } });
     }
+    if (orderIds.length > 0) {
+      assignmentFilters.push({ orderId: { in: orderIds } });
+    }
+
+    const assignmentWhere =
+      assignmentFilters.length > 1
+        ? { OR: assignmentFilters }
+        : assignmentFilters[0] || undefined;
+
+    const assignments = assignmentWhere
+      ? await prisma.orderAssignment.findMany({
+          where: assignmentWhere,
+          select: {
+            id: true,
+            orderId: true,
+            orderNumber: true,
+            status: true,
+            userId: true,
+            merchantId: true,
+          },
+        })
+      : [];
+
+    const targetOrderIds = new Set<string>();
+    orderIds.forEach((orderId) => targetOrderIds.add(orderId));
+    assignments.forEach((assignment) => {
+      if (assignment.orderId) {
+        targetOrderIds.add(assignment.orderId);
+      }
+    });
 
     const removableAssignments = assignments.filter((assignment) => {
       if (!assignment.status) return true;
@@ -47,12 +79,29 @@ export async function POST(request: NextRequest) {
       return !NON_REMOVABLE_STATUS_SET.has(normalizedStatus);
     });
 
-    const targetOrderIds = assignments.map((assignment) => assignment.orderId);
-    const prepAssignments = targetOrderIds.length
+    const removableIds = removableAssignments.map((assignment) => assignment.id);
+    const blockedOrderIds = new Set(
+      assignments
+        .filter((assignment) => assignment.orderId && !removableIds.includes(assignment.id))
+        .map((assignment) => assignment.orderId as string),
+    );
+
+    const orderIdsForPrepRemoval = Array.from(targetOrderIds).filter(
+      (orderId) => !blockedOrderIds.has(orderId),
+    );
+
+    if (assignments.length === 0 && orderIdsForPrepRemoval.length === 0) {
+      return NextResponse.json(
+        { error: 'لم يتم العثور على الطلبات المحددة' },
+        { status: 404 },
+      );
+    }
+
+    const prepAssignments = targetOrderIds.size
       ? await prisma.orderPrepAssignment.findMany({
           where: {
             merchantId: MERCHANT_ID,
-            orderId: { in: targetOrderIds },
+            orderId: { in: orderIdsForPrepRemoval },
           },
           select: {
             id: true,
@@ -61,22 +110,27 @@ export async function POST(request: NextRequest) {
           },
         })
       : [];
-    const prepAssignmentIds = prepAssignments.map((assignment) => assignment.id);
 
-    if (removableAssignments.length === 0 && prepAssignmentIds.length === 0) {
+    if (assignments.length === 0 && prepAssignments.length === 0) {
+      return NextResponse.json(
+        { error: 'لم يتم العثور على الطلبات المحددة' },
+        { status: 404 },
+      );
+    }
+
+    let removedOrderAssignments = 0;
+    let removedPrepAssignments = 0;
+
+    if (removableAssignments.length === 0 && prepAssignments.length === 0) {
+      const skipped = assignments.map((assignment) => assignment.orderNumber || assignment.orderId);
       return NextResponse.json(
         {
           error: 'لا يمكن إزالة هذه الطلبات لأنها ليست قيد العمل',
-          skippedOrders: assignments.map((assignment) => assignment.orderNumber),
+          skippedOrders: skipped.length > 0 ? skipped : undefined,
         },
         { status: 400 },
       );
     }
-
-    const removableIds = removableAssignments.map((assignment) => assignment.id);
-
-    let removedOrderAssignments = 0;
-    let removedPrepAssignments = 0;
 
     if (removableIds.length > 0) {
       const removeResult = await prisma.orderAssignment.deleteMany({
@@ -89,6 +143,7 @@ export async function POST(request: NextRequest) {
       removedOrderAssignments = removeResult.count;
     }
 
+    const prepAssignmentIds = prepAssignments.map((assignment) => assignment.id);
     if (prepAssignmentIds.length > 0) {
       const prepRemoveResult = await prisma.orderPrepAssignment.deleteMany({
         where: {
@@ -103,12 +158,25 @@ export async function POST(request: NextRequest) {
     const removableIdSet = new Set(removableIds);
     const skippedOrders = assignments
       .filter((assignment) => !removableIdSet.has(assignment.id))
-      .map((assignment) => assignment.orderNumber);
+      .map((assignment) => assignment.orderNumber || assignment.orderId);
+
+    const removedAssignmentOrderIds = new Set(
+      removableAssignments
+        .map((assignment) => assignment.orderId)
+        .filter((orderId): orderId is string => Boolean(orderId)),
+    );
+    const removedPrepOrderIds = new Set(prepAssignments.map((assignment) => assignment.orderId));
+    orderIds.forEach((orderId) => {
+      if (!removedAssignmentOrderIds.has(orderId) && !removedPrepOrderIds.has(orderId)) {
+        skippedOrders.push(orderId);
+      }
+    });
 
     log.info('Removed admin order assignments', {
       assignmentIds: removableIds,
       count: removedOrderAssignments,
       prepAssignmentsRemoved: removedPrepAssignments,
+      ordersRequested: orderIds,
       skippedOrders,
     });
 

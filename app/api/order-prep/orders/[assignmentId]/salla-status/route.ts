@@ -3,8 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { prisma } from '@/lib/prisma';
-import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
-import { serializeAssignment } from '@/app/lib/order-prep-service';
+import { createSallaOrderHistoryEntry, updateSallaOrderStatus } from '@/app/lib/salla-order-status';
 import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
@@ -48,6 +47,10 @@ export async function POST(
   try {
     const body = await request.json().catch(() => ({}));
     const target = body?.target as TargetKey | undefined;
+    const note =
+      typeof body?.note === 'string'
+        ? body.note.trim().slice(0, 500)
+        : '';
 
     if (!target || !(target in TARGET_STATUSES)) {
       return NextResponse.json({ error: 'حالة سلة غير مدعومة' }, { status: 400 });
@@ -75,6 +78,25 @@ export async function POST(
         { error: result.error || 'تعذر تحديث حالة الطلب في سلة' },
         { status: 502 }
       );
+    }
+
+    if (note) {
+      const actorName =
+        (typeof user.name === 'string' && user.name.trim()) ||
+        (typeof user.email === 'string' && user.email.trim()) ||
+        'عضو فريق التجهيز';
+      const historyComment = `تم تحويل الطلب إلى "${statusConfig.label}" بواسطة ${actorName}.\nالملاحظة: ${note}`;
+      const historyResult = await createSallaOrderHistoryEntry(
+        MERCHANT_ID,
+        assignment.orderId,
+        historyComment,
+      );
+      if (!historyResult.success) {
+        return NextResponse.json(
+          { error: historyResult.error || 'تعذر حفظ الملاحظة في سجل الطلب في سلة' },
+          { status: 502 },
+        );
+      }
     }
 
     await prisma.orderPrepAssignment.delete({

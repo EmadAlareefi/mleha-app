@@ -98,3 +98,61 @@ export async function updateSallaOrderStatus(
     };
   }
 }
+
+export async function createSallaOrderHistoryEntry(
+  merchantId: string,
+  orderId: string,
+  comment: string
+): Promise<{ success: boolean; error?: string }> {
+  const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
+  if (!merchantId || !orderId || !trimmedComment) {
+    return { success: false, error: 'missing_history_comment' };
+  }
+
+  try {
+    const accessToken = await getSallaAccessToken(merchantId);
+    if (!accessToken) {
+      log.warn('Cannot add Salla history entry without access token', { merchantId, orderId });
+      return { success: false, error: 'missing_token' };
+    }
+
+    const url = `${SALLA_API_BASE}/orders/${orderId}/history`;
+    const payload = {
+      comment: trimmedComment,
+      notify_customer: false,
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      log.warn('Failed to add Salla order history entry', {
+        merchantId,
+        orderId,
+        responseStatus: response.status,
+        errorText,
+      });
+      return { success: false, error: errorText || `history_${response.status}` };
+    }
+
+    log.info('Salla order history entry created', { merchantId, orderId });
+    return { success: true };
+  } catch (error) {
+    log.error('Error creating Salla order history entry', {
+      merchantId,
+      orderId,
+      error,
+    });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'unknown_error',
+    };
+  }
+}
