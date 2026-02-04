@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/salla-statuses';
 import { fetchSallaWithRetry } from '@/app/lib/fetch-with-retry';
 import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const DEFAULT_LIMIT = 60;
@@ -399,9 +400,8 @@ export async function GET(request: NextRequest) {
     const user = session.user as any;
     const roles = user?.roles || [];
     const role = user?.role;
-    const serviceKeys: string[] = user?.serviceKeys || [];
     const isAdmin = roles.includes('admin') || role === 'admin';
-    const hasAdminOrderPrepAccess = serviceKeys.includes('admin-order-prep');
+    const hasAdminOrderPrepAccess = hasServiceAccess(session, 'admin-order-prep');
 
     if (!isAdmin && !hasAdminOrderPrepAccess) {
       return NextResponse.json({ error: 'لا تملك صلاحية الوصول' }, { status: 403 });
