@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { sallaMakeRequest } from './salla-oauth';
 import { log } from './logger';
+import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 
 type AnyRecord = Record<string, any>;
 
@@ -413,9 +414,12 @@ async function syncOrdersForMerchant(
     where: { affiliateName: { not: null } },
     select: { affiliateName: true, affiliateCommission: true },
   });
-  const affiliateMap = new Map<string, Prisma.Decimal>(
-    affiliates.map(u => [u.affiliateName!, u.affiliateCommission ?? new Prisma.Decimal(10)])
-  );
+  const affiliateMap = new Map<string, Prisma.Decimal>();
+  for (const affiliate of affiliates) {
+    const normalized = normalizeAffiliateName(affiliate.affiliateName);
+    if (!normalized) continue;
+    affiliateMap.set(normalized, affiliate.affiliateCommission ?? new Prisma.Decimal(10));
+  }
 
   while (true) {
     const response = await fetchOrdersPage(merchantId, page, perPage, {
@@ -457,10 +461,12 @@ async function syncOrdersForMerchant(
         const dates = extractDates(order);
         const statusInfo = deriveStatusInfo(order);
         const campaign = extractCampaign(order);
+        const sanitizedCampaignName = sanitizeAffiliateName(campaign.name);
+        const normalizedCampaignName = normalizeAffiliateName(campaign.name);
 
         let affiliateCommission = new Prisma.Decimal(10.0);
-        if (campaign.name && affiliateMap.has(campaign.name)) {
-          affiliateCommission = affiliateMap.get(campaign.name)!;
+        if (normalizedCampaignName && affiliateMap.has(normalizedCampaignName)) {
+          affiliateCommission = affiliateMap.get(normalizedCampaignName)!;
         }
 
         await prisma.sallaOrder.upsert({
@@ -504,7 +510,7 @@ async function syncOrdersForMerchant(
             updatedAtRemote: dates.updated ?? undefined,
             campaignSource: campaign.source ?? undefined,
             campaignMedium: campaign.medium ?? undefined,
-            campaignName: campaign.name ?? undefined,
+            campaignName: sanitizedCampaignName ?? undefined,
             affiliateCommission: affiliateCommission,
             rawOrder: order,
           },
@@ -540,7 +546,7 @@ async function syncOrdersForMerchant(
             updatedAtRemote: dates.updated ?? undefined,
             campaignSource: campaign.source ?? undefined,
             campaignMedium: campaign.medium ?? undefined,
-            campaignName: campaign.name ?? undefined,
+            campaignName: sanitizedCampaignName ?? undefined,
             affiliateCommission: affiliateCommission,
             rawOrder: order,
           },

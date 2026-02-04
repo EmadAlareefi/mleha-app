@@ -4,6 +4,7 @@ import { log } from '@/app/lib/logger';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { Prisma } from '@prisma/client';
+import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 
 export const runtime = 'nodejs';
 
@@ -21,7 +22,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const affiliateName = (session.user as any)?.affiliateName;
+    const affiliateNameRaw = (session.user as any)?.affiliateName;
+    const affiliateName = normalizeAffiliateName(affiliateNameRaw);
     if (!affiliateName) {
       return NextResponse.json(
         { error: 'No affiliate linked to this account' },
@@ -34,7 +36,10 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate');
 
     const where: Prisma.SallaOrderWhereInput = {
-      campaignName: affiliateName,
+      campaignName: {
+        equals: affiliateName,
+        mode: 'insensitive',
+      },
     };
 
     if (startDate || endDate) {
@@ -143,7 +148,7 @@ export async function GET(request: NextRequest) {
       },
       statusStats,
       recentOrders,
-      affiliateName,
+      affiliateName: sanitizeAffiliateName(affiliateNameRaw),
     });
 
   } catch (error) {

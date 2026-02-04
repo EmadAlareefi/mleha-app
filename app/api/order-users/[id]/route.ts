@@ -15,6 +15,7 @@ import {
   derivePrimaryRole,
 } from '@/app/lib/user-services';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { sanitizeAffiliateName } from '@/lib/affiliate';
 
 export const runtime = 'nodejs';
 
@@ -172,12 +173,17 @@ export async function PUT(
       }
     }
 
-    if (affiliateName && affiliateName !== (userRecord as any).affiliateName) {
-       // We need to fetch current affiliateName first if not in userRecord select
-       // But userRecord only selected username. Let's rely on a separate query or update the select above.
-       // Actually, easier to just try/catch unique constraint violation or do a check.
-       const existingAffiliate = await prisma.orderUser.findUnique({
-        where: { affiliateName },
+    const sanitizedAffiliateName = sanitizeAffiliateName(affiliateName);
+    const currentAffiliateName = sanitizeAffiliateName(userRecord.affiliateName);
+
+    if (sanitizedAffiliateName && sanitizedAffiliateName !== currentAffiliateName) {
+      const existingAffiliate = await prisma.orderUser.findFirst({
+        where: {
+          affiliateName: {
+            equals: sanitizedAffiliateName,
+            mode: 'insensitive',
+          },
+        },
       });
       if (existingAffiliate && existingAffiliate.id !== id) {
         return NextResponse.json(
@@ -279,7 +285,7 @@ export async function PUT(
       name,
       email,
       phone,
-      affiliateName: affiliateName || null,
+        affiliateName: sanitizedAffiliateName,
       isActive,
       employmentStartDate: parsedStartDate,
       employmentEndDate: parsedEndDate,

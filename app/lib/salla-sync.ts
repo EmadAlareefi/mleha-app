@@ -16,6 +16,7 @@ import {
   deriveStatusInfo,
   extractCampaign,
 } from '@/app/lib/salla-orders';
+import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   success: boolean;
@@ -57,11 +58,18 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   const dates = extractDates(order);
   const { slug: statusSlug, name: statusName } = deriveStatusInfo(order);
   const campaign = extractCampaign(order);
+  const sanitizedCampaignName = sanitizeAffiliateName(campaign.name);
+  const normalizedCampaignName = normalizeAffiliateName(campaign.name);
 
   let affiliateCommission = new Prisma.Decimal(10.0);
-  if (campaign.name) {
-    const affiliateUser = await prisma.orderUser.findUnique({
-      where: { affiliateName: campaign.name },
+  if (normalizedCampaignName) {
+    const affiliateUser = await prisma.orderUser.findFirst({
+      where: {
+        affiliateName: {
+          equals: normalizedCampaignName,
+          mode: 'insensitive',
+        },
+      },
       select: { affiliateCommission: true },
     });
     if (affiliateUser?.affiliateCommission) {
@@ -110,7 +118,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       updatedAtRemote: dates.updated ?? undefined,
       campaignSource: campaign.source ?? undefined,
       campaignMedium: campaign.medium ?? undefined,
-      campaignName: campaign.name ?? undefined,
+      campaignName: sanitizedCampaignName ?? undefined,
       affiliateCommission: affiliateCommission,
       rawOrder: order,
     },
@@ -146,7 +154,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       updatedAtRemote: dates.updated ?? undefined,
       campaignSource: campaign.source ?? undefined,
       campaignMedium: campaign.medium ?? undefined,
-      campaignName: campaign.name ?? undefined,
+      campaignName: sanitizedCampaignName ?? undefined,
       affiliateCommission: affiliateCommission,
       rawOrder: order,
     },

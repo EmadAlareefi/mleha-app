@@ -15,6 +15,7 @@ import {
   derivePrimaryRole,
 } from '@/app/lib/user-services';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { sanitizeAffiliateName } from '@/lib/affiliate';
 
 export const runtime = 'nodejs';
 
@@ -256,9 +257,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (affiliateName) {
-      const existingAffiliate = await prisma.orderUser.findUnique({
-        where: { affiliateName },
+    const sanitizedAffiliateName = sanitizeAffiliateName(affiliateName);
+
+    if (sanitizedAffiliateName) {
+      const existingAffiliate = await prisma.orderUser.findFirst({
+        where: {
+          affiliateName: {
+            equals: sanitizedAffiliateName,
+            mode: 'insensitive',
+          },
+        },
       });
       if (existingAffiliate) {
         return NextResponse.json(
@@ -368,7 +376,7 @@ export async function POST(request: NextRequest) {
         salaryAmount: parsedSalaryAmount,
         salaryCurrency: normalizedSalaryCurrency,
         role: primaryRole,
-        affiliateName: affiliateName || null,
+        affiliateName: sanitizedAffiliateName,
         affiliateCommission: parsedCommission,
         orderType: 'all',
         specificStatus: null,
