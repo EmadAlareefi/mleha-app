@@ -293,8 +293,11 @@ export default function AdminOrderPrepPage() {
   const loadLiveOrders = useCallback(async () => {
     setLiveOrdersLoading(true);
     try {
-      const response = await fetch('/api/admin/order-assignments/new-orders?limit=60');
+      const response = await fetch('/api/admin/order-assignments/new-orders?limit=60', {
+        cache: 'no-store',
+      });
       const rawBody = await response.text();
+      const contentType = response.headers.get('content-type') || '';
 
       if (!response.ok) {
         console.warn('Failed to load live Salla orders', { status: response.status, bodySnippet: rawBody.slice(0, 200) });
@@ -303,6 +306,17 @@ export default function AdminOrderPrepPage() {
       }
 
       if (!rawBody) {
+        setLiveOrders(null);
+        return;
+      }
+
+      const isJsonResponse = contentType.includes('application/json');
+      if (!isJsonResponse) {
+        console.error('Live Salla orders responded with non-JSON payload', {
+          contentType,
+          bodySnippet: rawBody.slice(0, 200),
+        });
+        setError('تعذر قراءة الطلبات الجديدة من سلة، يرجى المحاولة لاحقاً.');
         setLiveOrders(null);
         return;
       }
