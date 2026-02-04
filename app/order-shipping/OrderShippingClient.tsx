@@ -7,6 +7,8 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { getShippingCompanyName } from '@/app/lib/shipping-company';
+import { Select } from '@/components/ui/select';
 
 interface OrderUser {
   id: string;
@@ -57,6 +59,13 @@ interface ProductLocation {
   notes?: string | null;
   updatedBy?: string | null;
   updatedAt: string;
+}
+
+interface DeliveryAgentOption {
+  id: string;
+  name: string;
+  username: string;
+  phone?: string | null;
 }
 
 interface ConfirmationState {
@@ -285,6 +294,13 @@ export default function OrderShippingPage() {
     labelUrl: string | null;
   } | null>(null);
   const [shipmentError, setShipmentError] = useState<string | null>(null);
+  const [localShipmentDialogOpen, setLocalShipmentDialogOpen] = useState(false);
+  const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgentOption[]>([]);
+  const [loadingDeliveryAgents, setLoadingDeliveryAgents] = useState(false);
+  const [deliveryAgentsError, setDeliveryAgentsError] = useState<string | null>(null);
+  const [selectedDeliveryAgentId, setSelectedDeliveryAgentId] = useState('');
+  const [creatingLocalShipment, setCreatingLocalShipment] = useState(false);
+  const [localShipmentDialogError, setLocalShipmentDialogError] = useState<string | null>(null);
 
   const applyShipmentFromAssignment = useCallback(
     (assignment: OrderAssignment | null, options: { resetWhenMissing?: boolean } = {}) => {
@@ -336,6 +352,83 @@ export default function OrderShippingPage() {
       });
     }
   }, [session, isOrdersUser]);
+
+  const fetchDeliveryAgents = useCallback(async () => {
+    try {
+      setLoadingDeliveryAgents(true);
+      setDeliveryAgentsError(null);
+      const response = await fetch('/api/delivery-agents');
+      const data = await parseJsonResponse<{
+        success?: boolean;
+        deliveryAgents?: DeliveryAgentOption[];
+        error?: string;
+      }>(response, 'GET /api/delivery-agents');
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data?.error || 'تعذر تحميل قائمة المناديب');
+      }
+
+      setDeliveryAgents(Array.isArray(data.deliveryAgents) ? data.deliveryAgents : []);
+    } catch (error) {
+      console.error('Failed to load delivery agents', error);
+      setDeliveryAgents([]);
+      setDeliveryAgentsError(error instanceof Error ? error.message : 'تعذر تحميل قائمة المناديب');
+    } finally {
+      setLoadingDeliveryAgents(false);
+    }
+  }, []);
+
+  const resolvedMerchantId = useMemo(() => {
+    if (!currentOrder) {
+      return '';
+    }
+    if (currentOrder.merchantId) {
+      return currentOrder.merchantId;
+    }
+    const data = currentOrder.orderData || {};
+    const candidateFields = [
+      (data as any)?.merchant_id,
+      (data as any)?.merchantId,
+      (data as any)?.merchant?.id,
+      (data as any)?.merchant?.merchant_id,
+    ];
+    for (const candidate of candidateFields) {
+      const value = getStringValue(candidate).trim();
+      if (value) {
+        return value;
+      }
+    }
+    return '';
+  }, [currentOrder]);
+
+  const resolvedShippingCompanyName = useMemo(() => {
+    const normalize = (value: unknown): string | null => {
+      if (typeof value !== 'string') {
+        return null;
+      }
+      const trimmed = value.trim();
+      return trimmed || null;
+    };
+
+    const fromShipmentState = normalize(shipmentInfo?.courierName);
+    if (fromShipmentState) {
+      return fromShipmentState;
+    }
+
+    const fromAssignmentShipment = normalize(currentOrder?.shipment?.courierName);
+    if (fromAssignmentShipment) {
+      return fromAssignmentShipment;
+    }
+
+    if (currentOrder?.orderData) {
+      const derived = getShippingCompanyName(currentOrder.orderData);
+      if (derived) {
+        return derived;
+      }
+    }
+
+    return null;
+  }, [currentOrder, shipmentInfo]);
 
   const currentOrderSkus = useMemo(() => {
     if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
@@ -407,6 +500,8 @@ export default function OrderShippingPage() {
   const canPrintShipmentLabel =
     Boolean(currentOrder && (currentOrder.status === 'shipped' || shipmentInfo));
 
+  const canCreateLocalShipment = Boolean(currentOrder && resolvedMerchantId && currentOrder.orderNumber);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -472,6 +567,16 @@ export default function OrderShippingPage() {
     setShipmentInfo(null);
     setShipmentError(null);
   }, [currentOrder?.id]);
+
+  useEffect(() => {
+    if (!localShipmentDialogOpen) {
+      return;
+    }
+    if (deliveryAgents.length > 0 || loadingDeliveryAgents) {
+      return;
+    }
+    fetchDeliveryAgents();
+  }, [localShipmentDialogOpen, deliveryAgents.length, loadingDeliveryAgents, fetchDeliveryAgents]);
 
   const locationSummary = useMemo(() => {
     if (
@@ -711,6 +816,103 @@ export default function OrderShippingPage() {
       setPrintingShipmentLabel(false);
     }
   };
+ 
+  const handleOpenLocalShipmentDialog = () => {
+    if (!currentOrder) {
+      return;
+    }
+    if (!resolvedMerchantId) {
+      alert('لا يمكن إنشاء شحنة محلية لهذا الطلب لعدم توفر معرف التاجر.');
+      return;
+    }
+    setSelectedDeliveryAgentId('');
+    setLocalShipmentDialogError(null);
+    setLocalShipmentDialogOpen(true);
+    if (deliveryAgents.length === 0 && !loadingDeliveryAgents) {
+      fetchDeliveryAgents();
+    }
+  };
+
+  const handleCloseLocalShipmentDialog = () => {
+    if (creatingLocalShipment) {
+      return;
+    }
+    setLocalShipmentDialogOpen(false);
+    setLocalShipmentDialogError(null);
+    setSelectedDeliveryAgentId('');
+  };
+
+  const handleCreateLocalShipment = async () => {
+    if (!currentOrder || !resolvedMerchantId) {
+      setLocalShipmentDialogError('لا يمكن تحديد الطلب أو التاجر لإنشاء شحنة محلية.');
+      return;
+    }
+    if (!selectedDeliveryAgentId) {
+      setLocalShipmentDialogError('يرجى اختيار المندوب المسؤول عن التوصيل.');
+      return;
+    }
+
+    try {
+      setCreatingLocalShipment(true);
+      setLocalShipmentDialogError(null);
+
+      const createResponse = await fetch('/api/local-shipping/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchantId: resolvedMerchantId,
+          orderNumber: currentOrder.orderNumber,
+          generatedBy: user?.username || user?.name || 'order-shipping',
+        }),
+      });
+
+      const createData = await parseJsonResponse<{
+        success?: boolean;
+        shipment?: { id: string; trackingNumber: string };
+        error?: string;
+        reused?: boolean;
+      }>(createResponse, 'POST /api/local-shipping/create');
+
+      if (!createResponse.ok || createData.success === false || !createData.shipment) {
+        throw new Error(createData?.error || 'تعذر إنشاء الشحنة المحلية');
+      }
+
+      const assignmentResponse = await fetch('/api/shipment-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shipmentId: createData.shipment.id,
+          deliveryAgentId: selectedDeliveryAgentId,
+        }),
+      });
+
+      const assignmentData = await parseJsonResponse<{
+        success?: boolean;
+        error?: string;
+      }>(assignmentResponse, 'POST /api/shipment-assignments');
+
+      if (!assignmentResponse.ok || assignmentData.success === false) {
+        throw new Error(assignmentData?.error || 'تم إنشاء الشحنة ولكن فشل تعيينها للمندوب');
+      }
+
+      const agent = deliveryAgents.find((item) => item.id === selectedDeliveryAgentId);
+      const agentDisplayName = agent?.name || agent?.username || 'المندوب المختار';
+      setLocalShipmentDialogOpen(false);
+      setSelectedDeliveryAgentId('');
+      alert(
+        createData.reused
+          ? `تم العثور على شحنة محلية سابقة (${createData.shipment.trackingNumber}) وتم تأكيد تعيينها إلى ${agentDisplayName}.`
+          : `تم إنشاء شحنة محلية (${createData.shipment.trackingNumber}) وتعيينها إلى ${agentDisplayName}.`
+      );
+    } catch (error) {
+      console.error('Local shipment creation failed', error);
+      setLocalShipmentDialogError(
+        error instanceof Error ? error.message : 'حدث خطأ أثناء إنشاء الشحنة المحلية'
+      );
+    } finally {
+      setCreatingLocalShipment(false);
+    }
+  };
 
   if (status === 'loading') {
     return (
@@ -797,7 +999,7 @@ export default function OrderShippingPage() {
                 </svg>
                 <p className="text-xl text-gray-600 mb-2">ابحث عن طلب لبدء إنشاء الشحنة</p>
                 <p className="text-sm text-gray-500 mb-4">
-                  أدخل رقم الطلب أو بيانات البحث واضغط على زر "بحث" لعرض معلومات الطلب وإرسال الشحنات.
+                  أدخل رقم الطلب أو بيانات البحث واضغط على زر &quot;بحث&quot; لعرض معلومات الطلب وإرسال الشحنات.
                 </p>
               </div>
             </Card>
@@ -916,6 +1118,12 @@ export default function OrderShippingPage() {
                             currentOrder.orderData?.shipping_amount ||
                             currentOrder.orderData?.shipping?.price
                           )} ريال
+                        </span>
+                      </p>
+                      <p>
+                        شركة الشحن:
+                        <span className="font-semibold text-gray-900 mr-2">
+                          {resolvedShippingCompanyName || 'غير محددة'}
                         </span>
                       </p>
                       <p>تاريخ الطلب: {new Date(currentOrder.assignedAt).toLocaleString('ar-SA')}</p>
@@ -1174,7 +1382,7 @@ export default function OrderShippingPage() {
                     )}
                     {!shipmentInfo?.labelPrinted && (
                       <p className="text-sm text-amber-700 mt-2 font-medium">
-                        لم يتم إرسال البوليصة للطابعة بعد. اضغط زر "طباعة البوليصة" لإرسالها إلى PrintNode.
+                        لم يتم إرسال البوليصة للطابعة بعد. اضغط زر &quot;طباعة البوليصة&quot; لإرسالها إلى PrintNode.
                       </p>
                     )}
                     <p className="text-sm text-green-700 mt-2 font-medium">
@@ -1286,6 +1494,14 @@ export default function OrderShippingPage() {
                     )}
                     <Button
                       type="button"
+                      onClick={handleOpenLocalShipmentDialog}
+                      disabled={!canCreateLocalShipment || creatingLocalShipment}
+                      className={`${ACTION_BUTTON_BASE} bg-amber-500 hover:bg-amber-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                    >
+                      إنشاء شحنة محلية
+                    </Button>
+                    <Button
+                      type="button"
                       variant="outline"
                       onClick={() => reloadCurrentOrder()}
                       className={`${ACTION_BUTTON_BASE}`}
@@ -1308,6 +1524,72 @@ export default function OrderShippingPage() {
         confirmVariant={confirmationDialog?.confirmVariant}
         onConfirm={handleConfirmDialog}
         onCancel={handleCancelDialog}
+      />
+      <ConfirmationDialog
+        open={localShipmentDialogOpen}
+        title="إنشاء شحنة محلية"
+        message="سيتم إنشاء ملصق شحن محلي للطلب الحالي وتعيينه للمندوب المحدد."
+        confirmLabel={creatingLocalShipment ? 'جاري الإنشاء...' : 'إنشاء وتعيين'}
+        cancelLabel="إلغاء"
+        confirmDisabled={
+          creatingLocalShipment ||
+          !selectedDeliveryAgentId ||
+          Boolean(deliveryAgentsError) ||
+          loadingDeliveryAgents
+        }
+        onConfirm={handleCreateLocalShipment}
+        onCancel={handleCloseLocalShipmentDialog}
+        content={
+          <div className="mt-4 space-y-4 text-right">
+            {loadingDeliveryAgents && deliveryAgents.length === 0 ? (
+              <p className="text-sm text-gray-600">جاري تحميل قائمة المناديب...</p>
+            ) : deliveryAgentsError ? (
+              <div className="space-y-3">
+                <p className="text-sm text-red-600">{deliveryAgentsError}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={fetchDeliveryAgents}
+                  disabled={loadingDeliveryAgents}
+                  className="w-full"
+                >
+                  {loadingDeliveryAgents ? 'جاري إعادة المحاولة...' : 'إعادة تحميل القائمة'}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <label
+                  htmlFor="localShipmentDeliveryAgent"
+                  className="block text-sm font-semibold text-gray-700"
+                >
+                  اختر المندوب المسؤول
+                </label>
+                <Select
+                  id="localShipmentDeliveryAgent"
+                  value={selectedDeliveryAgentId}
+                  onChange={(event) => {
+                    setSelectedDeliveryAgentId(event.target.value);
+                    setLocalShipmentDialogError(null);
+                  }}
+                  disabled={loadingDeliveryAgents || deliveryAgents.length === 0}
+                >
+                  <option value="">اختر المندوب</option>
+                  {deliveryAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name} ({agent.username})
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-gray-500">
+                  سيتم مشاركة رقم الطلب وبيانات العميل مع المندوب لتسهيل التوصيل.
+                </p>
+              </>
+            )}
+            {localShipmentDialogError && (
+              <p className="text-sm text-red-600">{localShipmentDialogError}</p>
+            )}
+          </div>
+        }
       />
     </div>
   );

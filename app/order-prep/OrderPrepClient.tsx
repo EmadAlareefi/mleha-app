@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { Loader2, Package, RefreshCcw, Printer } from 'lucide-react';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
+import { getShippingCompanyName } from '@/app/lib/shipping-company';
 
 type AssignmentStatus = 'assigned' | 'preparing' | 'waiting' | 'completed';
 
@@ -602,6 +603,10 @@ function AssignmentCard({
   const completedDisabled = assignment.status === 'completed';
   const itemsCount = items.reduce<number>((sum, item) => sum + (item.quantity || 0), 0);
   const orderTags = Array.isArray(assignment.orderData?.tags) ? assignment.orderData.tags : [];
+  const shippingCompanyName = useMemo(
+    () => getShippingCompanyName(assignment.orderData),
+    [assignment.orderData],
+  );
   const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
@@ -707,6 +712,12 @@ function AssignmentCard({
         <div className="space-y-1">
           <p className="text-xs text-gray-400">رقم الطلب</p>
           <h2 className="text-lg font-semibold text-gray-900">#{orderNumber}</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            شركة الشحن:{' '}
+            <span className="font-semibold text-gray-900">
+              {shippingCompanyName || 'غير محددة'}
+            </span>
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <span className={cn('rounded-full px-3 py-1 text-xs font-semibold', statusMeta.className)}>

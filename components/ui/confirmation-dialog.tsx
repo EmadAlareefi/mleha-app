@@ -15,6 +15,7 @@ interface ConfirmationDialogProps {
   onConfirm: () => void;
   onCancel: () => void;
   content?: ReactNode;
+  confirmDisabled?: boolean;
 }
 
 export function ConfirmationDialog({
@@ -27,6 +28,7 @@ export function ConfirmationDialog({
   onConfirm,
   onCancel,
   content,
+  confirmDisabled = false,
 }: ConfirmationDialogProps) {
   if (!open) {
     return null;
@@ -52,7 +54,12 @@ export function ConfirmationDialog({
             <Button variant="outline" onClick={onCancel} className="min-w-28">
               {cancelLabel}
             </Button>
-            <Button variant={confirmButtonVariant} onClick={onConfirm} className="min-w-28">
+            <Button
+              variant={confirmButtonVariant}
+              onClick={onConfirm}
+              className="min-w-28"
+              disabled={confirmDisabled}
+            >
               {confirmLabel}
             </Button>
           </div>

@@ -14,6 +14,17 @@ import {
   STATUS_COLORS,
   INSPECTION_BADGE_STYLES,
 } from '@/app/lib/returns/status';
+import {
+  Ban,
+  CircleCheck,
+  ClipboardList,
+  PackageCheck,
+  RefreshCcw,
+  ShieldCheck,
+  Truck,
+  XCircle,
+  type LucideIcon,
+} from 'lucide-react';
 
 interface ReturnItem {
   id: string;
@@ -69,6 +80,64 @@ const formatPrice = (value: number | string) => {
   }
   return '0.00';
 };
+
+type StatusFilterOption = {
+  value: string;
+  label: string;
+  description?: string;
+  icon: LucideIcon;
+};
+
+const STATUS_FILTERS: StatusFilterOption[] = [
+  {
+    value: '',
+    label: 'الكل',
+    description: 'عرض جميع الطلبات',
+    icon: ClipboardList,
+  },
+  {
+    value: 'pending_review',
+    label: 'قيد المراجعة',
+    description: 'بانتظار المراجعة',
+    icon: RefreshCcw,
+  },
+  {
+    value: 'approved',
+    label: 'مقبول',
+    description: 'تمت الموافقة',
+    icon: ShieldCheck,
+  },
+  {
+    value: 'rejected',
+    label: 'مرفوض',
+    description: 'تم رفض الطلب',
+    icon: XCircle,
+  },
+  {
+    value: 'shipped',
+    label: 'تم الشحن',
+    description: 'تم إرساله للعميل',
+    icon: Truck,
+  },
+  {
+    value: 'delivered',
+    label: 'تم التسليم',
+    description: 'تم تسليم الطلب',
+    icon: PackageCheck,
+  },
+  {
+    value: 'completed',
+    label: 'مكتمل',
+    description: 'جميع الإجراءات تمت',
+    icon: CircleCheck,
+  },
+  {
+    value: 'cancelled',
+    label: 'ملغي',
+    description: 'تم إلغاء الطلب',
+    icon: Ban,
+  },
+];
 
 export default function ReturnsManagementPage() {
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
@@ -387,26 +456,54 @@ export default function ReturnsManagementPage() {
             </div>
 
             {/* Status Filter */}
-            <div>
-              <label className="block text-sm font-medium mb-2">الحالة</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-4 py-2 border rounded-lg"
-                disabled={viewMode === 'completed'}
+            <div className="md:col-span-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium">الحالة</label>
+                {viewMode === 'completed' && (
+                  <span className="text-xs text-gray-500">
+                    عرض الطلبات المكتملة يوقف تصفية الحالات النشطة
+                  </span>
+                )}
+              </div>
+              <div
+                className={`grid grid-cols-2 lg:grid-cols-4 gap-3 ${
+                  viewMode === 'completed' ? 'opacity-60 pointer-events-none' : ''
+                }`}
               >
-                <option value="">الكل</option>
-                <option value="pending_review">قيد المراجعة</option>
-                <option value="approved">مقبول</option>
-                <option value="rejected">مرفوض</option>
-                <option value="shipped">تم الشحن</option>
-                <option value="delivered">تم التسليم</option>
-                <option value="completed">مكتمل</option>
-                <option value="cancelled">ملغي</option>
-              </select>
+                {STATUS_FILTERS.map((option) => {
+                  const Icon = option.icon;
+                  const isActive = statusFilter === option.value;
+                  return (
+                    <button
+                      key={option.value || 'all'}
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter(option.value);
+                        setPage(1);
+                      }}
+                      className={`flex items-start gap-3 rounded-2xl border p-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                        isActive
+                          ? 'border-blue-500 bg-blue-50 text-blue-900 shadow-sm'
+                          : 'border-gray-200 hover:border-blue-300 text-gray-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${
+                          isActive ? 'bg-white text-blue-600' : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        <Icon className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-semibold">{option.label}</p>
+                        {option.description && (
+                          <p className="text-xs text-gray-500">{option.description}</p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </Card>

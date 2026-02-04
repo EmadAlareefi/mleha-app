@@ -136,7 +136,7 @@ const getOrderItemProductId = (item?: OrderItem | null): string | null => {
     return fromProduct;
   }
 
-  const itemRecord = item as Record<string, unknown>;
+  const itemRecord = item as unknown as Record<string, unknown>;
   for (const key of PRODUCT_ID_PROPERTY_KEYS) {
     const normalized = normalizeProductIdentifier(itemRecord[key]);
     if (normalized) {
