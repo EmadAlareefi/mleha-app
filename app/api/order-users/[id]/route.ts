@@ -285,7 +285,7 @@ export async function PUT(
       name,
       email,
       phone,
-        affiliateName: sanitizedAffiliateName,
+      affiliateName: sanitizedAffiliateName,
       isActive,
       employmentStartDate: parsedStartDate,
       employmentEndDate: parsedEndDate,
