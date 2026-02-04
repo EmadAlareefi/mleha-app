@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import AppNavbar from '@/components/AppNavbar';
 import {
-  Calendar,
   CreditCard,
   LoaderCircle,
   Package,
@@ -26,7 +25,7 @@ interface StatusStat {
   slug: string | null;
   name: string | null;
   count: number;
-  totalAmount?: number;
+  netAmount?: number;
   commissionEarned?: number; // New field
   percentage: number;
 }
@@ -38,10 +37,14 @@ interface Order {
   statusSlug: string | null;
   statusName: string | null;
   totalAmount: number;
+  shippingAmount: number;
+  netAmount: number;
   currency: string | null;
   placedAt: string | null;
   campaignName: string | null;
   affiliateCommission: number | null; // New field
+  commissionAmount: number;
+  isDelivered: boolean;
 }
 
 const STATUS_BADGE_MAP: Record<string, string> = {
@@ -69,19 +72,7 @@ export default function AffiliateStatsPage() {
     }
   }, [status, router]);
 
-  useEffect(() => {
-    if (session?.user) {
-      const user = session.user as any;
-      if (!user.affiliateName) {
-        setError('لا يوجد حساب مسوق مرتبط بهذا المستخدم');
-        setLoading(false);
-        return;
-      }
-      fetchStats();
-    }
-  }, [session, startDate, endDate]);
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -105,7 +96,19 @@ export default function AffiliateStatsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate]);
+
+  useEffect(() => {
+    if (session?.user) {
+      const user = session.user as any;
+      if (!user.affiliateName) {
+        setError('لا يوجد حساب مسوق مرتبط بهذا المستخدم');
+        setLoading(false);
+        return;
+      }
+      fetchStats();
+    }
+  }, [session, fetchStats]);
 
   const formatCurrency = (amount: number | null | undefined, currency: string = 'SAR') => {
     if (amount === null || amount === undefined) return '-'; // Display a dash for undefined amounts
@@ -196,7 +199,7 @@ export default function AffiliateStatsPage() {
               <CreditCard className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">إجمالي المبيعات</p>
+              <p className="text-sm text-gray-600">إجمالي المبيعات الصافية</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.totalSales || 0)}</h3>
             </div>
           </Card>
@@ -205,7 +208,7 @@ export default function AffiliateStatsPage() {
               <TrendingUp className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">متوسط قيمة الطلب</p>
+              <p className="text-sm text-gray-600">متوسط قيمة الطلب الصافي</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.averageOrderValue || 0)}</h3>
             </div>
           </Card>
@@ -235,20 +238,20 @@ export default function AffiliateStatsPage() {
                 const percentageLabel = Number.isFinite(stat.percentage) ? stat.percentage.toFixed(1) : '0.0';
                 return (
                   <div key={stat.slug || index} className="flex items-center justify-between rounded-xl border bg-white/70 p-4">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{stat.name || stat.slug || 'غير معروف'}</p>
-                      <p className="text-xs text-gray-500">
-                        {stat.count} طلب - {percentageLabel}%
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500">المبيعات</p>
-                      <p className="text-sm font-semibold text-gray-900">{formatCurrency(stat.totalAmount || 0)}</p>
-                      <p className="text-xs text-purple-600 mt-1">
-                        {formatCurrency(stat.commissionEarned || 0)} عمولة
-                      </p>
-                    </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{stat.name || stat.slug || 'غير معروف'}</p>
+                    <p className="text-xs text-gray-500">
+                      {stat.count} طلب - {percentageLabel}%
+                    </p>
                   </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">المبيعات الصافية</p>
+                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(stat.netAmount || 0)}</p>
+                    <p className="text-xs text-purple-600 mt-1">
+                      {formatCurrency(stat.commissionEarned || 0)} عمولة
+                    </p>
+                  </div>
+                </div>
                 );
               })}
               {statusStats.length === 0 && <p className="text-gray-500 text-sm">لا توجد بيانات</p>}
@@ -264,14 +267,14 @@ export default function AffiliateStatsPage() {
                   <tr>
                     <th className="px-4 py-3">رقم الطلب</th>
                     <th className="px-4 py-3">التاريخ</th>
-                    <th className="px-4 py-3">المبلغ</th>
+                    <th className="px-4 py-3">المبلغ الصافي</th>
                     <th className="px-4 py-3">العمولة</th>
                     <th className="px-4 py-3">الحالة</th>
                   </tr>
                 </thead>
                 <tbody>
                   {recentOrders.map((order) => {
-                    const commission = order.totalAmount * ((order.affiliateCommission ?? 10) / 100);
+                    const commission = order.commissionAmount ?? 0;
                     return (
                       <tr key={order.id} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-3 font-medium text-gray-900">
@@ -281,10 +284,16 @@ export default function AffiliateStatsPage() {
                           {order.placedAt ? new Date(order.placedAt).toLocaleDateString('ar-SA') : '-'}
                         </td>
                         <td className="px-4 py-3 font-medium text-gray-900">
-                          {formatCurrency(order.totalAmount, order.currency || 'SAR')}
+                          {formatCurrency(order.netAmount, order.currency || 'SAR')}
                         </td>
                         <td className="px-4 py-3 text-purple-600 font-medium">
-                          {formatCurrency(commission, order.currency || 'SAR')} ({order.affiliateCommission ?? 10}%)
+                          {order.isDelivered ? (
+                            <>
+                              {formatCurrency(commission, order.currency || 'SAR')} ({order.affiliateCommission ?? 10}%)
+                            </>
+                          ) : (
+                            <span className="text-gray-500">بانتظار التوصيل</span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(order.statusSlug)}`}>

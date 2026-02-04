@@ -7,6 +7,35 @@ import { Prisma } from '@prisma/client';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 
 export const runtime = 'nodejs';
+const TAX_RATE = 0.15;
+
+function decimalToNumber(value: Prisma.Decimal | number | null | undefined): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value === 'number') {
+    return value;
+  }
+  return Number(value);
+}
+
+function calculateNetAmount(totalAmount: Prisma.Decimal | number | null, shippingAmount: Prisma.Decimal | number | null): number {
+  const total = decimalToNumber(totalAmount);
+  const shipping = decimalToNumber(shippingAmount);
+  const taxableBase = Math.max(total - shipping, 0);
+  const tax = taxableBase * TAX_RATE;
+  const netAmount = Math.max(taxableBase - tax, 0);
+  return netAmount;
+}
+
+function isDelivered(statusSlug: string | null | undefined, statusName: string | null | undefined): boolean {
+  const normalizedSlug = statusSlug?.toLowerCase();
+  if (normalizedSlug === 'delivered') {
+    return true;
+  }
+  const normalizedName = statusName?.trim();
+  return normalizedName === 'تم التوصيل';
+}
 
 /**
  * GET /api/affiliate-stats
@@ -55,6 +84,7 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           totalAmount: true,
+          shippingAmount: true,
           affiliateCommission: true,
           statusSlug: true,
           statusName: true,
@@ -74,6 +104,7 @@ export async function GET(request: NextRequest) {
           currency: true,
           placedAt: true,
           campaignName: true,
+          shippingAmount: true,
           affiliateCommission: true,
         }
       }),
@@ -85,36 +116,42 @@ export async function GET(request: NextRequest) {
       slug: string | null;
       name: string | null;
       count: number;
-      totalAmount: number;
+      netAmount: number;
       commissionEarned: number;
     };
 
     const statusAccumulator = new Map<string, StatusAccumulator>();
     let totalSales = 0;
     let totalCommissionEarned = 0;
+    let commissionEligibleCount = 0;
 
     for (const order of ordersForStats) {
-      const amount = Number(order.totalAmount ?? 0);
+      const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
+      totalSales += netAmount;
+
       const commissionRate =
         order.affiliateCommission === null || order.affiliateCommission === undefined
           ? 10
           : Number(order.affiliateCommission);
-      const commissionEarned = amount * (commissionRate / 100);
+      const eligibleForCommission = isDelivered(order.statusSlug, order.statusName);
+      const commissionEarned = eligibleForCommission ? netAmount * (commissionRate / 100) : 0;
 
-      totalSales += amount;
-      totalCommissionEarned += commissionEarned;
+      if (eligibleForCommission) {
+        totalCommissionEarned += commissionEarned;
+        commissionEligibleCount += 1;
+      }
 
-      const key = order.statusSlug ?? 'unknown';
+      const key = order.statusSlug ?? order.statusName ?? 'unknown';
       const current = statusAccumulator.get(key) ?? {
         slug: order.statusSlug,
         name: order.statusName || order.statusSlug || 'Unknown',
         count: 0,
-        totalAmount: 0,
+        netAmount: 0,
         commissionEarned: 0,
       };
 
       current.count += 1;
-      current.totalAmount += amount;
+      current.netAmount += netAmount;
       current.commissionEarned += commissionEarned;
       statusAccumulator.set(key, current);
     }
@@ -127,15 +164,30 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.count - a.count);
 
     // Get recent orders (last 10)
-    const recentOrders = recentOrdersRaw.map(order => ({
-      ...order,
-      placedAt: order.placedAt?.toISOString(),
-      totalAmount: Number(order.totalAmount ?? 0),
-      affiliateCommission:
+    const recentOrders = recentOrdersRaw.map(order => {
+      const totalAmount = decimalToNumber(order.totalAmount);
+      const shippingAmount = decimalToNumber(order.shippingAmount);
+      const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
+      const commissionRate =
         order.affiliateCommission === null || order.affiliateCommission === undefined
-          ? null
-          : Number(order.affiliateCommission),
-    }));
+          ? 10
+          : Number(order.affiliateCommission);
+      const eligibleForCommission = isDelivered(order.statusSlug, order.statusName);
+      const commissionAmount = eligibleForCommission ? netAmount * (commissionRate / 100) : 0;
+      return {
+        ...order,
+        placedAt: order.placedAt?.toISOString(),
+        totalAmount,
+        shippingAmount,
+        netAmount,
+        isDelivered: eligibleForCommission,
+        commissionAmount,
+        affiliateCommission:
+          order.affiliateCommission === null || order.affiliateCommission === undefined
+            ? null
+            : commissionRate,
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -144,7 +196,7 @@ export async function GET(request: NextRequest) {
         totalSales: totalSales,
         averageOrderValue: totalCount > 0 ? totalSales / totalCount : 0,
         totalCommissionEarned: totalCommissionEarned,
-        averageCommissionPerOrder: totalCount > 0 ? totalCommissionEarned / totalCount : 0,
+        averageCommissionPerOrder: commissionEligibleCount > 0 ? totalCommissionEarned / commissionEligibleCount : 0,
       },
       statusStats,
       recentOrders,
