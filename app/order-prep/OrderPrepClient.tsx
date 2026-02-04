@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Loader2, Package, RefreshCcw, Printer } from 'lucide-react';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { getShippingCompanyName } from '@/app/lib/shipping-company';
+import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
 
 type AssignmentStatus = 'assigned' | 'preparing' | 'waiting' | 'completed';
 
@@ -607,6 +607,16 @@ function AssignmentCard({
     () => getShippingCompanyName(assignment.orderData),
     [assignment.orderData],
   );
+  const shippingAddress = useMemo(
+    () => getShippingAddressSummary(assignment.orderData),
+    [assignment.orderData],
+  );
+  const shippingAddressLabel =
+    shippingAddress.addressLine || shippingAddress.locationLabel || null;
+  const shippingLocationHint =
+    shippingAddress.addressLine && shippingAddress.locationLabel
+      ? shippingAddress.locationLabel
+      : null;
   const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
@@ -718,6 +728,15 @@ function AssignmentCard({
               {shippingCompanyName || 'غير محددة'}
             </span>
           </p>
+          <p className="text-sm text-gray-600">
+            عنوان الشحن:{' '}
+            <span className="font-semibold text-gray-900">
+              {shippingAddressLabel || 'غير متوفر'}
+            </span>
+          </p>
+          {shippingLocationHint && (
+            <p className="text-xs text-gray-500">📍 {shippingLocationHint}</p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <span className={cn('rounded-full px-3 py-1 text-xs font-semibold', statusMeta.className)}>

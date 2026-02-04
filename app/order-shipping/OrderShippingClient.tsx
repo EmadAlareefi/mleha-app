@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { getShippingCompanyName } from '@/app/lib/shipping-company';
+import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
 import { Select } from '@/components/ui/select';
 
 interface OrderUser {
@@ -429,6 +429,20 @@ export default function OrderShippingPage() {
 
     return null;
   }, [currentOrder, shipmentInfo]);
+
+  const shippingAddressSummary = useMemo(() => {
+    if (!currentOrder?.orderData) {
+      return null;
+    }
+    return getShippingAddressSummary(currentOrder.orderData);
+  }, [currentOrder]);
+
+  const resolvedShippingAddressLabel =
+    shippingAddressSummary?.addressLine || shippingAddressSummary?.locationLabel || null;
+  const resolvedShippingLocationHint =
+    shippingAddressSummary?.addressLine && shippingAddressSummary?.locationLabel
+      ? shippingAddressSummary.locationLabel
+      : null;
 
   const currentOrderSkus = useMemo(() => {
     if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
@@ -1126,6 +1140,15 @@ export default function OrderShippingPage() {
                           {resolvedShippingCompanyName || 'غير محددة'}
                         </span>
                       </p>
+                      <p>
+                        عنوان الشحن:
+                        <span className="font-semibold text-gray-900 mr-2">
+                          {resolvedShippingAddressLabel || 'غير متوفر'}
+                        </span>
+                      </p>
+                      {resolvedShippingLocationHint && (
+                        <p className="text-xs text-gray-500">📍 {resolvedShippingLocationHint}</p>
+                      )}
                       <p>تاريخ الطلب: {new Date(currentOrder.assignedAt).toLocaleString('ar-SA')}</p>
                     </div>
                   </div>
