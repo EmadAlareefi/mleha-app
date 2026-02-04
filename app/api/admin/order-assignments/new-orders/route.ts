@@ -396,11 +396,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
     }
 
-    const roles = (session.user as any)?.roles || [];
-    const role = (session.user as any)?.role;
+    const user = session.user as any;
+    const roles = user?.roles || [];
+    const role = user?.role;
+    const serviceKeys: string[] = user?.serviceKeys || [];
     const isAdmin = roles.includes('admin') || role === 'admin';
+    const hasAdminOrderPrepAccess = serviceKeys.includes('admin-order-prep');
 
-    if (!isAdmin) {
+    if (!isAdmin && !hasAdminOrderPrepAccess) {
       return NextResponse.json({ error: 'لا تملك صلاحية الوصول' }, { status: 403 });
     }
 
