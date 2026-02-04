@@ -12,7 +12,7 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, status, adminNotes, reviewedBy } = body;
+    const { id, status, adminNotes, reviewedBy, type } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -39,7 +39,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    log.info('Updating return request', { id, status });
+    const validTypes = ['return', 'exchange'];
+
+    if (type && !validTypes.includes(type)) {
+      return NextResponse.json(
+        { error: 'نوع الطلب غير صالح' },
+        { status: 400 }
+      );
+    }
+
+    log.info('Updating return request', { id, status, type });
 
     // Prepare update data
     const updateData: any = {
@@ -59,6 +68,10 @@ export async function POST(request: NextRequest) {
       updateData.reviewedAt = new Date();
     }
 
+    if (type) {
+      updateData.type = type;
+    }
+
     const returnRequest = await prisma.returnRequest.update({
       where: { id },
       data: updateData,
@@ -71,7 +84,7 @@ export async function POST(request: NextRequest) {
       await maybeReleaseExchangeOrderHold(returnRequest.id);
     }
 
-    log.info('Return request updated successfully', { id, status });
+    log.info('Return request updated successfully', { id, status, type: returnRequest.type });
 
     return NextResponse.json({
       success: true,

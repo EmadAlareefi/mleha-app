@@ -258,6 +258,29 @@ export default function ReturnsManagementPage() {
     }
   };
 
+  const updateRequestType = async (requestId: string, newType: 'return' | 'exchange') => {
+    try {
+      const response = await fetch('/api/returns/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: requestId,
+          type: newType,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'فشل تحديث النوع');
+      }
+
+      loadReturnRequests();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'حدث خطأ');
+    }
+  };
+
   const autoUpdateStatus = async (requestId: string, newStatus: string) => {
     try {
       const response = await fetch('/api/returns/update', {
@@ -643,6 +666,16 @@ export default function ReturnsManagementPage() {
 
                       {/* Actions */}
                       <div className="space-y-2">
+                        <select
+                          value={request.type}
+                          onChange={(e) => updateRequestType(request.id, e.target.value as 'return' | 'exchange')}
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                          aria-label="نوع طلب الإرجاع"
+                        >
+                          <option value="return">طلب إرجاع</option>
+                          <option value="exchange">طلب استبدال</option>
+                        </select>
+
                         <select
                           value={request.status}
                           onChange={(e) => updateStatus(request.id, e.target.value)}
