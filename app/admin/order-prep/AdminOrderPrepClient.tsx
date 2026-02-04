@@ -294,14 +294,31 @@ export default function AdminOrderPrepPage() {
     setLiveOrdersLoading(true);
     try {
       const response = await fetch('/api/admin/order-assignments/new-orders?limit=60');
+      const rawBody = await response.text();
+
       if (!response.ok) {
-        const text = await response.text();
-        console.warn('Failed to load live Salla orders', { status: response.status, text });
+        console.warn('Failed to load live Salla orders', { status: response.status, bodySnippet: rawBody.slice(0, 200) });
         setLiveOrders(null);
         return;
       }
 
-      const data = await response.json();
+      if (!rawBody) {
+        setLiveOrders(null);
+        return;
+      }
+
+      let data: LiveOrdersSummary | null = null;
+      try {
+        data = JSON.parse(rawBody);
+      } catch (parseError) {
+        console.error('Live Salla orders returned invalid JSON', parseError, {
+          bodySnippet: rawBody.slice(0, 200),
+        });
+        setError('تعذر قراءة الطلبات الجديدة من سلة، يرجى المحاولة لاحقاً.');
+        setLiveOrders(null);
+        return;
+      }
+
       if (data?.orders) {
         setLiveOrders({
           fetchedAt: data.fetchedAt,
@@ -320,7 +337,7 @@ export default function AdminOrderPrepPage() {
     } finally {
       setLiveOrdersLoading(false);
     }
-  }, []);
+  }, [setError]);
 
   const refreshAll = useCallback(
     async (options?: { silent?: boolean }) => {
