@@ -187,15 +187,6 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     const discountAmount = getItemDiscountAmount(item);
     return priceWithoutTax + taxAmount - discountAmount;
   };
-  const discountedItemIds = useMemo(() => {
-    const ids = new Set<number>();
-    order.items?.forEach((item) => {
-      if (getItemDiscountAmount(item) > 0) {
-        ids.add(item.id);
-      }
-    });
-    return ids;
-  }, [order]);
   const saleCategoryItemIds = useMemo(() => {
     const ids = new Set<number>();
     order.items?.forEach((item) => {
@@ -282,7 +273,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   }, [order, merchantId]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
-    if (type === 'return' && (discountedItemIds.has(itemId) || saleCategoryItemIds.has(itemId))) {
+    if (type === 'return' && saleCategoryItemIds.has(itemId)) {
       return;
     }
     const newSelectedItems = new Map(selectedItems);
@@ -322,8 +313,8 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
     if (type === 'return') {
       for (const itemId of selectedItems.keys()) {
-        if (discountedItemIds.has(itemId) || saleCategoryItemIds.has(itemId)) {
-          setError('لا يمكن إرجاع المنتجات المخفضة أو ضمن فئة التخفيضات. يمكنك فقط طلب استبدال لها.');
+        if (saleCategoryItemIds.has(itemId)) {
+          setError('لا يمكن إرجاع المنتجات ضمن فئة التخفيضات. يمكنك فقط طلب استبدال لها.');
           return;
         }
       }
@@ -453,13 +444,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const selectedQuantity = selectedItems.get(item.id) || 0;
               const isSelected = selectedQuantity > 0;
               const maxQuantity = item.quantity || 1;
-              const discountAmount = getItemDiscountAmount(item);
-              const isDiscounted = discountAmount > 0;
               const productIdForCategory = getOrderItemProductId(item);
               const category = productIdForCategory ? itemCategories[productIdForCategory] : undefined;
               const isSaleCategory = category?.trim() === SALE_CATEGORY_NAME || saleCategoryItemIds.has(item.id);
-              const isNonReturnable = isDiscounted || isSaleCategory;
-              const isReturnBlocked = type === 'return' && isNonReturnable;
+              const isReturnBlocked = type === 'return' && isSaleCategory;
 
               // Debug: log the full structure on first render
               if (index === 0 && typeof window !== 'undefined') {
@@ -522,11 +510,6 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     <p className="text-sm text-gray-600 mb-2">
                       السعر: {Number(itemPrice).toFixed(2)} {item.currency || order.amounts?.total?.currency || 'SAR'}
                     </p>
-                    {isDiscounted && (
-                      <p className="text-xs text-red-600 font-medium">
-                        هذا المنتج مخفض ولا يمكن إرجاعه ويمكن فقط استبداله
-                      </p>
-                    )}
                     {isSaleCategory && (
                       <p className="text-xs text-red-600 font-medium">
                         هذا المنتج ضمن فئة التخفيضات ولا يمكن إرجاعه ويمكن فقط استبداله
