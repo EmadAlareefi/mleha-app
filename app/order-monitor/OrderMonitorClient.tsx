@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AlertTriangle, Clock3, Loader2, RefreshCcw, Search, Truck, UserCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { useToast } from '@/components/ui/use-toast';
 
 interface MonitorRecord {
   merchantId: string | null;
@@ -137,6 +139,23 @@ export default function OrderMonitorClient() {
   const [searchDraft, setSearchDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [violationDialog, setViolationDialog] = useState<{
+    open: boolean;
+    userId: string | null;
+    userName: string | null;
+  }>({
+    open: false,
+    userId: null,
+    userName: null,
+  });
+  const [violationForm, setViolationForm] = useState({
+    title: '',
+    description: '',
+    points: '-5',
+  });
+  const [violationError, setViolationError] = useState<string | null>(null);
+  const [violationSubmitting, setViolationSubmitting] = useState(false);
+  const { toast } = useToast();
 
   const fetchRecords = useCallback(
     async (options?: { query?: string; days?: string; silent?: boolean }) => {
@@ -220,6 +239,101 @@ export default function OrderMonitorClient() {
   }, [meta?.lastRefreshedAt]);
 
   const hasRecords = records.length > 0;
+
+  const openViolationDialog = useCallback((userId: string, userName?: string | null) => {
+    setViolationDialog({
+      open: true,
+      userId,
+      userName: userName || null,
+    });
+    setViolationForm({
+      title: '',
+      description: '',
+      points: '-5',
+    });
+    setViolationError(null);
+  }, []);
+
+  const closeViolationDialog = useCallback(() => {
+    setViolationDialog({
+      open: false,
+      userId: null,
+      userName: null,
+    });
+    setViolationError(null);
+  }, []);
+
+  const handleViolationSubmit = useCallback(async () => {
+    if (!violationDialog.userId) {
+      setViolationError('لا يمكن تحديد المستخدم المطلوب');
+      return;
+    }
+
+    const title = violationForm.title.trim();
+    if (!title) {
+      setViolationError('يرجى إدخال عنوان للمخالفة');
+      return;
+    }
+
+    const description = violationForm.description.trim();
+    const numericPoints = Number(violationForm.points || '-5');
+    const points = Number.isFinite(numericPoints) ? Math.round(numericPoints) : -5;
+
+    setViolationSubmitting(true);
+    setViolationError(null);
+    try {
+      const response = await fetch('/api/user-recognition', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: violationDialog.userId,
+          kind: 'PENALTY',
+          title,
+          description: description || undefined,
+          points,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'تعذر إنشاء المخالفة');
+      }
+      toast({
+        description: `تم تسجيل مخالفة لـ ${violationDialog.userName || 'المستخدم'}`,
+      });
+      closeViolationDialog();
+    } catch (err) {
+      setViolationError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
+    } finally {
+      setViolationSubmitting(false);
+    }
+  }, [closeViolationDialog, toast, violationDialog.userId, violationDialog.userName, violationForm.description, violationForm.points, violationForm.title]);
+
+  const renderUserWithActions = useCallback(
+    (userId: string | null, userName: string | null) => {
+      if (!userName) {
+        return <span className="text-slate-400">غير محدد</span>;
+      }
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-slate-900">{userName}</span>
+          {userId && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => openViolationDialog(userId, userName)}
+              className="rounded-full border-amber-200 bg-amber-50 px-3 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+            >
+              إضافة مخالفة
+            </Button>
+          )}
+        </div>
+      );
+    },
+    [openViolationDialog],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -389,9 +503,7 @@ export default function OrderMonitorClient() {
                     <dl className="space-y-2 text-sm text-slate-600">
                       <div className="flex items-center justify-between">
                         <dt>المسؤول</dt>
-                        <dd className="font-semibold text-slate-900">
-                          {record.preparedByName || 'غير محدد'}
-                        </dd>
+                        <dd>{renderUserWithActions(record.preparedById, record.preparedByName)}</dd>
                       </div>
                       <div className="flex items-center justify-between">
                         <dt>وقت التعيين</dt>
@@ -426,9 +538,7 @@ export default function OrderMonitorClient() {
                     <dl className="space-y-2 text-sm text-slate-600">
                       <div className="flex items-center justify-between">
                         <dt>مسؤول الشحن</dt>
-                        <dd className="font-semibold text-slate-900">
-                          {record.shippedByName || 'غير محدد'}
-                        </dd>
+                        <dd>{renderUserWithActions(record.shippedById, record.shippedByName)}</dd>
                       </div>
                       <div className="flex items-center justify-between">
                         <dt>وقت طباعة البوليصة</dt>
@@ -467,6 +577,78 @@ export default function OrderMonitorClient() {
           })}
         </div>
       </main>
+      <ConfirmationDialog
+        open={violationDialog.open}
+        title="تسجيل مخالفة"
+        message={
+          violationDialog.userName
+            ? `سيتم إنشاء مخالفة للمستخدم ${violationDialog.userName}`
+            : 'يرجى إدخال تفاصيل المخالفة'
+        }
+        onCancel={closeViolationDialog}
+        onConfirm={handleViolationSubmit}
+        confirmVariant="danger"
+        confirmLabel={violationSubmitting ? 'جاري الحفظ...' : 'حفظ المخالفة'}
+        confirmDisabled={
+          violationSubmitting || !violationDialog.userId || !violationForm.title.trim()
+        }
+        content={
+          <div className="mt-4 space-y-3">
+            {violationError && (
+              <p className="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-600">
+                {violationError}
+              </p>
+            )}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600" htmlFor="violation-title">
+                عنوان المخالفة
+              </label>
+              <Input
+                id="violation-title"
+                value={violationForm.title}
+                onChange={(event) =>
+                  setViolationForm((prev) => ({ ...prev, title: event.target.value }))
+                }
+                className="rounded-2xl"
+                placeholder="مثال: تأخير في تحضير الطلب"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600" htmlFor="violation-points">
+                النقاط
+              </label>
+              <Input
+                id="violation-points"
+                type="number"
+                inputMode="numeric"
+                value={violationForm.points}
+                onChange={(event) =>
+                  setViolationForm((prev) => ({ ...prev, points: event.target.value }))
+                }
+                className="rounded-2xl"
+              />
+            </div>
+            <div className="space-y-1">
+              <label
+                className="text-xs font-semibold text-slate-600"
+                htmlFor="violation-description"
+              >
+                تفاصيل إضافية
+              </label>
+              <textarea
+                id="violation-description"
+                rows={4}
+                value={violationForm.description}
+                onChange={(event) =>
+                  setViolationForm((prev) => ({ ...prev, description: event.target.value }))
+                }
+                className="w-full rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                placeholder="أضف تفاصيل يمكن للإداري مراجعتها"
+              />
+            </div>
+          </div>
+        }
+      />
     </div>
   );
 }
