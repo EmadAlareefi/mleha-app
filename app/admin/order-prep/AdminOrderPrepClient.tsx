@@ -214,9 +214,7 @@ const ORDER_CUSTOMER_PHONE_PATHS: string[][] = [
 
 export default function AdminOrderPrepPage() {
   const { data: session, status } = useSession();
-  const role = (session?.user as any)?.role;
-  const roles = ((session?.user as any)?.roles || [role]) as string[];
-  const isAdmin = roles.includes('admin');
+  const isAuthenticated = status === 'authenticated';
 
   const [assignments, setAssignments] = useState<OrderAssignment[]>([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
@@ -343,14 +341,15 @@ export default function AdminOrderPrepPage() {
   );
 
   useEffect(() => {
-    if (isAdmin) {
-      loadUsers();
-      refreshAll();
+    if (!isAuthenticated) {
+      return;
     }
-  }, [isAdmin, loadUsers, refreshAll]);
+    loadUsers();
+    refreshAll();
+  }, [isAuthenticated, loadUsers, refreshAll]);
 
   useEffect(() => {
-    if (!isAdmin || !autoRefresh) {
+    if (!isAuthenticated || !autoRefresh) {
       return;
     }
 
@@ -359,7 +358,7 @@ export default function AdminOrderPrepPage() {
     }, 20000);
 
     return () => clearInterval(interval);
-  }, [autoRefresh, isAdmin, refreshAll]);
+  }, [autoRefresh, isAuthenticated, refreshAll]);
 
   const handleTogglePriority = useCallback(
     async (order: LiveSallaOrder) => {
@@ -691,7 +690,7 @@ export default function AdminOrderPrepPage() {
     );
   }
 
-  if (!session || !isAdmin) {
+  if (!session) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md p-8 text-center">
