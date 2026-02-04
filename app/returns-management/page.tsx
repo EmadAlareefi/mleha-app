@@ -86,9 +86,17 @@ type StatusFilterOption = {
   label: string;
   description?: string;
   icon: LucideIcon;
+  accent?: 'green';
 };
 
 const STATUS_FILTERS: StatusFilterOption[] = [
+  {
+    value: 'delivered',
+    label: 'تم التسليم',
+    description: 'تركيز على الطلبات المسلَّمة',
+    icon: PackageCheck,
+    accent: 'green',
+  },
   {
     value: '',
     label: 'الكل',
@@ -118,12 +126,6 @@ const STATUS_FILTERS: StatusFilterOption[] = [
     label: 'تم الشحن',
     description: 'تم إرساله للعميل',
     icon: Truck,
-  },
-  {
-    value: 'delivered',
-    label: 'تم التسليم',
-    description: 'تم تسليم الطلب',
-    icon: PackageCheck,
   },
   {
     value: 'completed',
@@ -496,6 +498,21 @@ export default function ReturnsManagementPage() {
                 {STATUS_FILTERS.map((option) => {
                   const Icon = option.icon;
                   const isActive = statusFilter === option.value;
+                  const isGreen = option.accent === 'green';
+                  const cardClasses = isGreen
+                    ? isActive
+                      ? 'border-green-500 bg-green-100 text-green-900 shadow-sm'
+                      : 'border-green-200 bg-green-50 text-green-800 hover:border-green-400'
+                    : isActive
+                      ? 'border-blue-500 bg-blue-50 text-blue-900 shadow-sm'
+                      : 'border-gray-200 hover:border-blue-300 text-gray-700';
+                  const iconWrapperClasses = isGreen
+                    ? isActive
+                      ? 'bg-white text-green-600'
+                      : 'bg-green-100 text-green-700'
+                    : isActive
+                      ? 'bg-white text-blue-600'
+                      : 'bg-gray-100 text-gray-600';
                   return (
                     <button
                       key={option.value || 'all'}
@@ -504,16 +521,10 @@ export default function ReturnsManagementPage() {
                         setStatusFilter(option.value);
                         setPage(1);
                       }}
-                      className={`flex items-start gap-3 rounded-2xl border p-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
-                        isActive
-                          ? 'border-blue-500 bg-blue-50 text-blue-900 shadow-sm'
-                          : 'border-gray-200 hover:border-blue-300 text-gray-700'
-                      }`}
+                      className={`flex items-start gap-3 rounded-2xl border p-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${cardClasses}`}
                     >
                       <span
-                        className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${
-                          isActive ? 'bg-white text-blue-600' : 'bg-gray-100 text-gray-600'
-                        }`}
+                        className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${iconWrapperClasses}`}
                       >
                         <Icon className="h-5 w-5" aria-hidden="true" />
                       </span>

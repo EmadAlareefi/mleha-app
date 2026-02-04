@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import AppNavbar from '@/components/AppNavbar';
 
 interface OrderUser {
@@ -146,6 +147,71 @@ const NEW_ORDER_STATUS_COLUMNS = [
 
 const NON_REMOVABLE_ASSIGNMENT_STATUSES = new Set(['completed', 'removed', 'released']);
 
+const extractValueFromOrderData = (data: any, fieldPaths: string[][]): string | null => {
+  if (!data) {
+    return null;
+  }
+
+  for (const path of fieldPaths) {
+    let current: any = data;
+    let valid = true;
+
+    for (const key of path) {
+      if (current === null || current === undefined) {
+        valid = false;
+        break;
+      }
+
+      if (typeof current !== 'object') {
+        valid = false;
+        break;
+      }
+
+      current = (current as Record<string, unknown>)[key];
+    }
+
+    if (!valid || current === null || current === undefined) {
+      continue;
+    }
+
+    if (typeof current === 'string') {
+      const trimmed = current.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+      continue;
+    }
+
+    if (typeof current === 'number' || typeof current === 'boolean') {
+      return String(current);
+    }
+  }
+
+  return null;
+};
+
+const ORDER_CUSTOMER_NAME_PATHS: string[][] = [
+  ['customer', 'name'],
+  ['customer', 'nickname'],
+  ['customer', 'username'],
+  ['customer', 'full_name'],
+  ['customer', 'display_name'],
+  ['customer_name'],
+  ['customerName'],
+];
+
+const ORDER_CUSTOMER_PHONE_PATHS: string[][] = [
+  ['customer', 'mobile'],
+  ['customer', 'phone'],
+  ['customer', 'mobileNumber'],
+  ['customer', 'mobile_number'],
+  ['customer', 'contact'],
+  ['shipping_address', 'mobile'],
+  ['shipping_address', 'phone'],
+  ['billing_address', 'mobile'],
+  ['billing_address', 'phone'],
+];
+
 export default function AdminOrderPrepPage() {
   const { data: session, status } = useSession();
   const role = (session?.user as any)?.role;
@@ -167,6 +233,10 @@ export default function AdminOrderPrepPage() {
   const [reassignUserId, setReassignUserId] = useState<string>('');
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [priorityUpdatingId, setPriorityUpdatingId] = useState<string | null>(null);
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderSearchLoading, setOrderSearchLoading] = useState(false);
+  const [orderSearchResult, setOrderSearchResult] = useState<OrderAssignment | null>(null);
+  const [orderSearchError, setOrderSearchError] = useState<string | null>(null);
   const currentStats = stats?.active ?? null;
   const currentUserStats = currentStats?.byUser ?? [];
 
@@ -515,6 +585,44 @@ export default function AdminOrderPrepPage() {
     });
   };
 
+  const handleOrderSearch = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const trimmedQuery = orderSearchQuery.trim();
+
+      if (!trimmedQuery) {
+        setOrderSearchError('يرجى إدخال رقم الطلب أو بيانات البحث الخاصة بالعميل');
+        setOrderSearchResult(null);
+        return;
+      }
+
+      setOrderSearchLoading(true);
+      setOrderSearchError(null);
+
+      try {
+        const response = await fetch(`/api/order-assignments/search?query=${encodeURIComponent(trimmedQuery)}`, {
+          cache: 'no-store',
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data?.assignment) {
+          throw new Error(data?.error || 'تعذر العثور على الطلب');
+        }
+
+        setOrderSearchResult(data.assignment as OrderAssignment);
+      } catch (searchError) {
+        console.error('Order lookup failed:', searchError);
+        const message =
+          searchError instanceof Error ? searchError.message : 'حدث خطأ أثناء البحث عن الطلب';
+        setOrderSearchError(message);
+        setOrderSearchResult(null);
+      } finally {
+        setOrderSearchLoading(false);
+      }
+    },
+    [orderSearchQuery],
+  );
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('ar-SA', {
       year: 'numeric',
@@ -556,6 +664,24 @@ export default function AdminOrderPrepPage() {
   const liveTotals = liveOrders?.totals || { new: 0, assigned: 0 };
   const lastUpdatedLabel = lastUpdated ? formatDate(lastUpdated.toISOString()) : null;
   const isRefreshing = dashboardLoading || assignmentsLoading || liveOrdersLoading;
+  const searchedCustomerName = useMemo(() => {
+    if (!orderSearchResult?.orderData) {
+      return null;
+    }
+    return extractValueFromOrderData(orderSearchResult.orderData, ORDER_CUSTOMER_NAME_PATHS);
+  }, [orderSearchResult]);
+  const searchedCustomerPhone = useMemo(() => {
+    if (!orderSearchResult?.orderData) {
+      return null;
+    }
+    return extractValueFromOrderData(orderSearchResult.orderData, ORDER_CUSTOMER_PHONE_PATHS);
+  }, [orderSearchResult]);
+  const searchedItemsCount = useMemo(() => {
+    if (!orderSearchResult?.orderData?.items || !Array.isArray(orderSearchResult.orderData.items)) {
+      return null;
+    }
+    return orderSearchResult.orderData.items.length;
+  }, [orderSearchResult]);
 
   if (status === 'loading') {
     return (
@@ -570,7 +696,6 @@ export default function AdminOrderPrepPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md p-8 text-center">
           <h1 className="text-2xl font-bold mb-4">إدارة طلبات التحضير</h1>
-          <p className="text-gray-600 mb-6">يجب تسجيل الدخول كمسؤول للوصول إلى هذه الصفحة</p>
           <Button onClick={() => window.location.href = '/login'} className="w-full">
             تسجيل الدخول
           </Button>
@@ -615,6 +740,98 @@ export default function AdminOrderPrepPage() {
                 </Button>
               </div>
             </div>
+          </Card>
+
+          <Card className="p-6 space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">بحث عن عميل عبر رقم الطلب</h3>
+              <p className="text-sm text-gray-500">
+                أدخل رقم الطلب أو المرجع لمعرفة حالة التعيين والعميل المرتبط به فوراً
+              </p>
+            </div>
+            <form className="flex flex-col gap-3 md:flex-row" onSubmit={handleOrderSearch}>
+              <Input
+                value={orderSearchQuery}
+                onChange={(event) => setOrderSearchQuery(event.target.value)}
+                placeholder="مثال: 123456 أو 9665XXXXXX"
+                disabled={orderSearchLoading}
+                className="flex-1"
+                autoComplete="off"
+                inputMode="search"
+              />
+              <Button type="submit" disabled={orderSearchLoading}>
+                {orderSearchLoading ? 'جاري البحث...' : 'بحث'}
+              </Button>
+            </form>
+            {orderSearchError && (
+              <p className="text-sm text-rose-600">{orderSearchError}</p>
+            )}
+            {orderSearchResult && (
+              <div className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500">رقم الطلب</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      #{orderSearchResult.orderNumber || orderSearchResult.orderId}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      معرّف التعيين: {orderSearchResult.id}
+                    </p>
+                  </div>
+                  <div className="text-sm text-gray-700 text-right">
+                    <p className="text-xs text-gray-500">المسؤول الحالي</p>
+                    <p className="font-semibold">
+                      {orderSearchResult.assignedUserName || 'غير معين'}
+                    </p>
+                    {orderSearchResult.assignedAt && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        منذ {formatDate(orderSearchResult.assignedAt)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-4 text-sm text-gray-800 md:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <p className="text-xs text-gray-500">اسم العميل</p>
+                    <p className="font-medium">{searchedCustomerName || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">رقم العميل</p>
+                    <p className="font-medium">{searchedCustomerPhone || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">عدد المنتجات</p>
+                    <p className="font-medium">{searchedItemsCount ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">حالة التحضير</p>
+                    <p className="font-medium">{orderSearchResult.status || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">حالة سلة</p>
+                    <p className="font-medium">{orderSearchResult.sallaStatus || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">آخر نشاط</p>
+                    <p className="font-medium">
+                      {orderSearchResult.completedAt
+                        ? `أُنجز في ${formatDate(orderSearchResult.completedAt)}`
+                        : orderSearchResult.startedAt
+                          ? `بدأ في ${formatDate(orderSearchResult.startedAt)}`
+                          : orderSearchResult.assignedAt
+                            ? formatDate(orderSearchResult.assignedAt)
+                            : '—'}
+                    </p>
+                  </div>
+                </div>
+                {orderSearchResult.notes && (
+                  <div className="mt-4 rounded-xl bg-emerald-50/70 px-3 py-2 text-sm text-gray-700">
+                    <p className="text-xs text-gray-500 mb-1">ملاحظات</p>
+                    <p>{orderSearchResult.notes}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           {error && (
