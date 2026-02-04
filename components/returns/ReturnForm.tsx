@@ -8,13 +8,17 @@ import { getShippingTotal } from '@/lib/returns/shipping';
 
 interface OrderItem {
   id: number;
+  product_id?: number | string;
+  productId?: number | string;
   name?: string;
   sku?: string;
   thumbnail?: string;
   currency?: string;
   images?: { image?: string }[];
   product?: {
-    id: number;
+    id?: number | string;
+    product_id?: number | string;
+    productId?: number | string;
     name: string;
     sku?: string;
     price: number;
@@ -98,6 +102,60 @@ const RETURN_REASONS = [
   { value: 'other', label: 'أخرى' },
 ];
 const SALE_CATEGORY_NAME = 'التخفيضات';
+const PRODUCT_OBJECT_ID_KEYS = ['id', 'product_id', 'productId', 'productID'] as const;
+const PRODUCT_ID_PROPERTY_KEYS = ['product_id', 'productId', 'productID'] as const;
+
+const normalizeProductIdentifier = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const str = String(value).trim();
+  return str || null;
+};
+
+const extractProductIdFromObject = (source?: Record<string, unknown> | null): string | null => {
+  if (!source) {
+    return null;
+  }
+  for (const key of PRODUCT_OBJECT_ID_KEYS) {
+    const normalized = normalizeProductIdentifier(source[key]);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+};
+
+const getOrderItemProductId = (item?: OrderItem | null): string | null => {
+  if (!item) {
+    return null;
+  }
+
+  const fromProduct = extractProductIdFromObject(item.product as Record<string, unknown> | undefined);
+  if (fromProduct) {
+    return fromProduct;
+  }
+
+  const itemRecord = item as Record<string, unknown>;
+  for (const key of PRODUCT_ID_PROPERTY_KEYS) {
+    const normalized = normalizeProductIdentifier(itemRecord[key]);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+};
+
+const getOrderItemProductIdWithFallback = (item: OrderItem, fallback?: number | string): string => {
+  const resolved = getOrderItemProductId(item);
+  if (resolved) {
+    return resolved;
+  }
+
+  const fallbackValue = normalizeProductIdentifier(fallback ?? item.id);
+  return fallbackValue ?? String(item.id);
+};
 
 export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess }: ReturnFormProps) {
   const [type, setType] = useState<'return' | 'exchange'>('return');
@@ -141,7 +199,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const saleCategoryItemIds = useMemo(() => {
     const ids = new Set<number>();
     order.items?.forEach((item) => {
-      const productId = String(item.product?.id ?? item.id);
+      const productId = getOrderItemProductId(item);
+      if (!productId) {
+        return;
+      }
       const categoryName = itemCategories[productId];
       if (categoryName?.trim() === SALE_CATEGORY_NAME) {
         ids.add(item.id);
@@ -174,18 +235,26 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   // Fetch categories for all items
   useEffect(() => {
     const fetchCategories = async () => {
-      if (!order.items || order.items.length === 0) return;
+      if (!order.items || order.items.length === 0) {
+        setItemCategories({});
+        return;
+      }
 
       const categories: Record<string, string> = {};
       const productIds = new Set<string>();
 
       // Get unique product IDs
-      order.items.forEach((item: any) => {
-        const productId = item.product?.id ?? item.id;
+      order.items.forEach((item: OrderItem) => {
+        const productId = getOrderItemProductId(item);
         if (productId) {
-          productIds.add(String(productId));
+          productIds.add(productId);
         }
       });
+
+      if (productIds.size === 0) {
+        setItemCategories({});
+        return;
+      }
 
       // Fetch categories for all products
       await Promise.all(
@@ -268,14 +337,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         if (!orderItem) throw new Error('Item not found');
 
         // Safely extract product ID with fallbacks
-        const productId = orderItem.product?.id ?? orderItem.id ?? itemId;
+        const productId = getOrderItemProductIdWithFallback(orderItem, itemId);
         const variantId = orderItem.variant?.id;
 
         // Calculate price: (price without tax + tax) - discount
         const price = calculateItemPrice(orderItem);
 
         return {
-          productId: String(productId),
+          productId,
           productName: orderItem.name || orderItem.product?.name || 'منتج',
           productSku: orderItem.sku || orderItem.product?.sku,
           variantId: variantId ? String(variantId) : undefined,
@@ -386,8 +455,8 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const maxQuantity = item.quantity || 1;
               const discountAmount = getItemDiscountAmount(item);
               const isDiscounted = discountAmount > 0;
-              const productId = String(item.product?.id ?? item.id);
-              const category = itemCategories[productId];
+              const productIdForCategory = getOrderItemProductId(item);
+              const category = productIdForCategory ? itemCategories[productIdForCategory] : undefined;
               const isSaleCategory = category?.trim() === SALE_CATEGORY_NAME || saleCategoryItemIds.has(item.id);
               const isNonReturnable = isDiscounted || isSaleCategory;
               const isReturnBlocked = type === 'return' && isNonReturnable;
