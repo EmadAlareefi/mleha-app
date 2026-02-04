@@ -147,6 +147,20 @@ const NEW_ORDER_STATUS_COLUMNS = [
 
 const NON_REMOVABLE_ASSIGNMENT_STATUSES = new Set(['completed', 'removed', 'released']);
 
+const parseJsonSafely = <T>(rawBody: string, context: string): T | null => {
+  if (!rawBody) {
+    return null;
+  }
+  try {
+    return JSON.parse(rawBody) as T;
+  } catch (error) {
+    console.error(`${context} returned invalid JSON`, error, {
+      bodySnippet: rawBody.slice(0, 200),
+    });
+    return null;
+  }
+};
+
 const extractValueFromOrderData = (data: any, fieldPaths: string[][]): string | null => {
   if (!data) {
     return null;
@@ -263,24 +277,43 @@ export default function AdminOrderPrepPage() {
         fetch(`/api/admin/order-assignments/stats?${params}`),
       ]);
 
-      const assignmentsData = await assignmentsRes.json();
-      const statsData = await statsRes.json();
+      const assignmentsBody = await assignmentsRes.text();
+      const statsBody = await statsRes.text();
 
-      if (assignmentsData.success) {
-        setAssignments(assignmentsData.assignments);
-      } else {
+      if (!assignmentsRes.ok) {
+        console.warn('Failed to load assignments list', {
+          status: assignmentsRes.status,
+          bodySnippet: assignmentsBody.slice(0, 200),
+        });
         setAssignments([]);
-        setError(assignmentsData.error || 'تعذر تحميل الطلبات');
-      }
-
-      if (statsData.success) {
-        setStats(statsData.stats);
+        setError('فشل تحميل الطلبات النشطة من الخادم.');
       } else {
-        setStats(null);
+        const assignmentsData = parseJsonSafely<{ success?: boolean; assignments?: OrderAssignment[]; error?: string }>(
+          assignmentsBody,
+          'Admin assignments list',
+        );
+        if (assignmentsData?.success && Array.isArray(assignmentsData.assignments)) {
+          setAssignments(assignmentsData.assignments);
+          setError(null);
+        } else {
+          setAssignments([]);
+          setError(assignmentsData?.error || 'تعذر تحميل الطلبات');
+        }
       }
 
-      if (assignmentsData.success) {
-        setError(null);
+      if (!statsRes.ok) {
+        console.warn('Failed to load order stats', {
+          status: statsRes.status,
+          bodySnippet: statsBody.slice(0, 200),
+        });
+        setStats(null);
+      } else {
+        const statsData = parseJsonSafely<{ success?: boolean; stats?: Stats }>(statsBody, 'Admin assignments stats');
+        if (statsData?.success && statsData.stats) {
+          setStats(statsData.stats);
+        } else {
+          setStats(null);
+        }
       }
     } catch (loadError) {
       console.error('Failed to load assignments data:', loadError);
@@ -351,7 +384,7 @@ export default function AdminOrderPrepPage() {
     } finally {
       setLiveOrdersLoading(false);
     }
-  }, [setError]);
+  }, []);
 
   const refreshAll = useCallback(
     async (options?: { silent?: boolean }) => {
