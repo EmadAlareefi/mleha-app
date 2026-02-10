@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
+import { getItemAttributes } from '@/lib/returns/item-attributes';
 
 interface OrderItem {
   id: number;
@@ -448,6 +449,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const category = productIdForCategory ? itemCategories[productIdForCategory] : undefined;
               const isSaleCategory = category?.trim() === SALE_CATEGORY_NAME || saleCategoryItemIds.has(item.id);
               const isReturnBlocked = type === 'return' && isSaleCategory;
+              const { color, size } = getItemAttributes(item);
 
               // Debug: log the full structure on first render
               if (index === 0 && typeof window !== 'undefined') {
@@ -503,6 +505,22 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     )}
                     {item.sku && (
                       <p className="text-xs text-gray-500 mb-1">SKU: {item.sku}</p>
+                    )}
+                    {(color || size) && (
+                      <div className="flex flex-wrap gap-2 mb-2 text-xs text-gray-600">
+                        {color && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-3 py-1 text-purple-800">
+                            <span className="text-gray-500">اللون:</span>
+                            <span className="font-medium text-gray-900">{color}</span>
+                          </span>
+                        )}
+                        {size && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-emerald-800">
+                            <span className="text-gray-500">المقاس:</span>
+                            <span className="font-medium text-gray-900">{size}</span>
+                          </span>
+                        )}
+                      </div>
                     )}
                     {item.variant?.name && (
                       <p className="text-sm text-gray-600 mb-1">{item.variant.name}</p>

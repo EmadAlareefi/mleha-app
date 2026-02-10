@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ErrorDialog } from '@/components/ui/error-dialog';
 import ReturnForm from '@/components/returns/ReturnForm';
 import SuccessScreen from '@/components/returns/SuccessScreen';
+import { getItemAttributes } from '@/lib/returns/item-attributes';
 
 // Configuration - Replace with your actual merchant info
 const MERCHANT_CONFIG = {
@@ -652,22 +652,47 @@ export default function ReturnsPage() {
                     <div className="border-t pt-4 mt-4">
                       <h4 className="font-medium mb-2">المنتجات:</h4>
                       <div className="space-y-3">
-                        {returnReq.items.map((item: any) => (
-                          <div key={item.id} className="bg-gray-50 p-3 rounded-lg">
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="font-medium">{item.productName}</span>
-                              <span className="text-gray-600 text-sm">الكمية: {item.quantity}</span>
-                            </div>
-                            {itemCategories[item.productId] && (
-                              <div className="flex items-center gap-2 mt-2">
-                                <span className="text-xs text-gray-500">التصنيف:</span>
-                                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-md">
-                                  {itemCategories[item.productId]}
-                                </span>
+                        {returnReq.items.map((item: any) => {
+                          const { color, size } = getItemAttributes(item);
+                          return (
+                            <div key={item.id} className="bg-gray-50 p-3 rounded-lg">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="font-medium">{item.productName}</span>
+                                <span className="text-gray-600 text-sm">الكمية: {item.quantity}</span>
                               </div>
-                            )}
-                          </div>
-                        ))}
+                              {item.productSku && (
+                                <p className="text-xs text-gray-500 mb-1">SKU: {item.productSku}</p>
+                              )}
+                              {(color || size) && (
+                                <div className="flex flex-wrap gap-2 mt-1 mb-1 text-xs text-gray-600">
+                                  {color && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-3 py-1 text-purple-800">
+                                      <span className="text-gray-500">اللون:</span>
+                                      <span className="font-medium text-gray-900">{color}</span>
+                                    </span>
+                                  )}
+                                  {size && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-emerald-800">
+                                      <span className="text-gray-500">المقاس:</span>
+                                      <span className="font-medium text-gray-900">{size}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {item.variantName && !color && !size && (
+                                <p className="text-xs text-gray-500 mb-1">{item.variantName}</p>
+                              )}
+                              {itemCategories[item.productId] && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <span className="text-xs text-gray-500">التصنيف:</span>
+                                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-md">
+                                    {itemCategories[item.productId]}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
