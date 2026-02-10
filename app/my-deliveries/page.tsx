@@ -81,10 +81,17 @@ export default function MyDeliveriesPage() {
       return response.json();
     }
     const fallbackText = await response.text();
+    const unauthorized =
+      response.status === 401 ||
+      response.status === 403 ||
+      fallbackText.toLowerCase().includes('<!doctype html') ||
+      fallbackText.toLowerCase().includes('__next_data__');
     throw new Error(
-      response.ok
-        ? 'استجابة غير متوقعة من الخادم، يرجى إعادة المحاولة لاحقاً.'
-        : fallbackText || 'تعذر التواصل مع الخادم'
+      unauthorized
+        ? 'انتهت صلاحية الجلسة أو تم تسجيل خروجك. يرجى تسجيل الدخول مرة أخرى.'
+        : response.ok
+          ? 'استجابة غير متوقعة من الخادم، يرجى إعادة المحاولة لاحقاً.'
+          : fallbackText || 'تعذر التواصل مع الخادم'
     );
   };
 
