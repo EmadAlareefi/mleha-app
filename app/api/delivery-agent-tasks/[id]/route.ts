@@ -50,6 +50,8 @@ export async function PATCH(
     }
 
     const user = session.user as any;
+    const serviceKeys = Array.isArray(user.serviceKeys) ? user.serviceKeys : [];
+    const hasManagementAccess = serviceKeys.includes('delivery-agent-tasks');
     const { id } = await params;
     const body = await request.json();
 
@@ -62,18 +64,19 @@ export async function PATCH(
     }
 
     const isDeliveryAgent = user.roles?.includes('delivery_agent');
-    const isAssignedAgent = isDeliveryAgent && task.deliveryAgentId === user.id;
+    const restrictsToOwnTasks = isDeliveryAgent && !hasManagementAccess;
+    const isAssignedAgent = task.deliveryAgentId === user.id;
     const isWarehouseAdmin = user.roles?.includes('warehouse') || user.role === 'admin';
     const isCreator = Boolean(task.createdById && task.createdById === user.id);
 
-    if (isDeliveryAgent && !isAssignedAgent) {
+    if (restrictsToOwnTasks && !isAssignedAgent) {
       return NextResponse.json(
         { error: 'ليس لديك صلاحية لتحديث هذه المهمة' },
         { status: 403 }
       );
     }
 
-    if (!isDeliveryAgent && !isWarehouseAdmin && !isCreator) {
+    if (!isAssignedAgent && !hasManagementAccess && !isWarehouseAdmin && !isCreator) {
       return NextResponse.json(
         { error: 'ليس لديك صلاحية لتحديث المهام' },
         { status: 403 }
@@ -104,7 +107,7 @@ export async function PATCH(
       updateData.completionNotes = body.completionNotes?.toString().trim() || null;
     }
 
-    const canEditDetails = !isDeliveryAgent || isWarehouseAdmin || isCreator;
+    const canEditDetails = !restrictsToOwnTasks || isWarehouseAdmin || isCreator;
 
     if (canEditDetails) {
       if (body.title !== undefined) {

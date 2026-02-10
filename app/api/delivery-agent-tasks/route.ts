@@ -47,6 +47,8 @@ export async function GET(request: NextRequest) {
     }
 
     const user = session.user as any;
+    const serviceKeys = Array.isArray(user.serviceKeys) ? user.serviceKeys : [];
+    const hasManagementAccess = serviceKeys.includes('delivery-agent-tasks');
     const params = request.nextUrl.searchParams;
     const deliveryAgentId = params.get('deliveryAgentId');
     const statusParam = params.get('status');
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest) {
     const where: any = {};
     const isDeliveryAgent = user.roles?.includes('delivery_agent');
 
-    if (isDeliveryAgent) {
+    if (isDeliveryAgent && !hasManagementAccess) {
       where.deliveryAgentId = user.id;
     } else if (deliveryAgentId) {
       where.deliveryAgentId = deliveryAgentId;

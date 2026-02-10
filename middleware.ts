@@ -57,7 +57,14 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ],
   ['order-invoice-search', [/^\/order-invoice-search(\/.*)?$/]],
   ['cod-tracker', [/^\/cod-tracker(\/.*)?$/]],
-  ['my-deliveries', [/^\/my-deliveries(\/.*)?$/]],
+  [
+    'my-deliveries',
+    [
+      /^\/my-deliveries(\/.*)?$/,
+      /^\/api\/shipment-assignments(\/.*)?$/,
+      /^\/api\/delivery-agent-tasks(\/.*)?$/,
+    ],
+  ],
   ['returns-management', [/^\/returns-management(\/.*)?$/, /^\/cancel-shipment(\/.*)?$/]],
   ['returns-inspection', [/^\/returns-inspection(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   ['returns-priority', [/^\/returns-priority(\/.*)?$/]],
