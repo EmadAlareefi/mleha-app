@@ -56,14 +56,16 @@ export async function GET(request: NextRequest) {
     const limitParam = params.get('limit');
     const limit = limitParam ? Math.min(Number(limitParam) || 50, 200) : 100;
 
-    const where: any = {};
+    const baseWhere: any = {};
     const isDeliveryAgent = user.roles?.includes('delivery_agent');
 
     if (isDeliveryAgent && !hasManagementAccess) {
-      where.deliveryAgentId = user.id;
+      baseWhere.deliveryAgentId = user.id;
     } else if (deliveryAgentId) {
-      where.deliveryAgentId = deliveryAgentId;
+      baseWhere.deliveryAgentId = deliveryAgentId;
     }
+
+    const tasksWhere: any = { ...baseWhere };
 
     if (statusParam) {
       const statuses = statusParam
@@ -71,16 +73,16 @@ export async function GET(request: NextRequest) {
         .map((s) => s.trim())
         .filter(Boolean);
       if (statuses.length === 1) {
-        where.status = statuses[0];
+        tasksWhere.status = statuses[0];
       } else if (statuses.length > 1) {
-        where.status = { in: statuses };
+        tasksWhere.status = { in: statuses };
       }
     } else if (!includeCompleted) {
-      where.status = { in: ['pending', 'in_progress'] };
+      tasksWhere.status = { in: ['pending', 'in_progress'] };
     }
 
     const tasks = await prisma.deliveryAgentTask.findMany({
-      where,
+      where: tasksWhere,
       include: TASK_INCLUDE,
       orderBy: [
         { status: 'asc' },
@@ -90,13 +92,20 @@ export async function GET(request: NextRequest) {
       take: limit,
     });
 
-    const summary = tasks.reduce(
-      (acc, task) => {
-        acc.total += 1;
-        if (task.status === 'pending') acc.pending += 1;
-        if (task.status === 'in_progress') acc.inProgress += 1;
-        if (task.status === 'completed') acc.completed += 1;
-        if (task.status === 'cancelled') acc.cancelled += 1;
+    const summaryCounts = await prisma.deliveryAgentTask.groupBy({
+      where: baseWhere,
+      by: ['status'],
+      _count: { _all: true },
+    });
+
+    const summary = summaryCounts.reduce(
+      (acc, record) => {
+        const count = record._count._all;
+        acc.total += count;
+        if (record.status === 'pending') acc.pending += count;
+        if (record.status === 'in_progress') acc.inProgress += count;
+        if (record.status === 'completed') acc.completed += count;
+        if (record.status === 'cancelled') acc.cancelled += count;
         return acc;
       },
       { total: 0, pending: 0, inProgress: 0, completed: 0, cancelled: 0 }

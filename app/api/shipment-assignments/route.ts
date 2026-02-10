@@ -61,9 +61,84 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const trackingNumbers = assignments
+      .map((assignment) => assignment.shipment?.trackingNumber)
+      .filter((trackingNumber): trackingNumber is string => Boolean(trackingNumber));
+
+    const orderNumbers = assignments
+      .map((assignment) => assignment.shipment?.orderNumber)
+      .filter((orderNumber): orderNumber is string => Boolean(orderNumber));
+
+    const scanRecords =
+      trackingNumbers.length > 0
+        ? await prisma.shipment.findMany({
+            where: {
+              trackingNumber: { in: trackingNumbers },
+            },
+            select: {
+              trackingNumber: true,
+              type: true,
+              scannedAt: true,
+            },
+            orderBy: {
+              scannedAt: 'desc',
+            },
+          })
+        : [];
+
+    const exchangeRequests =
+      orderNumbers.length > 0
+        ? await prisma.returnRequest.findMany({
+            where: {
+              type: 'exchange',
+              exchangeOrderNumber: { in: orderNumbers },
+            },
+            select: {
+              id: true,
+              status: true,
+              orderNumber: true,
+              exchangeOrderNumber: true,
+            },
+          })
+        : [];
+
+    const directionMap = new Map<string, string>();
+    for (const record of scanRecords) {
+      if (!directionMap.has(record.trackingNumber)) {
+        directionMap.set(record.trackingNumber, record.type);
+      }
+    }
+
+    const exchangeMap = new Map<string, (typeof exchangeRequests)[number]>();
+    for (const request of exchangeRequests) {
+      if (request.exchangeOrderNumber) {
+        exchangeMap.set(request.exchangeOrderNumber, request);
+      }
+    }
+
+    const enrichedAssignments = assignments.map((assignment) => {
+      const trackingNumber = assignment.shipment?.trackingNumber;
+      const orderNumber = assignment.shipment?.orderNumber;
+      const direction = trackingNumber ? directionMap.get(trackingNumber) : null;
+      const exchangeRequest = orderNumber ? exchangeMap.get(orderNumber) : null;
+
+      return {
+        ...assignment,
+        shipmentDirection: direction === 'incoming' ? 'incoming' : 'outgoing',
+        exchangeRequest: exchangeRequest
+          ? {
+              id: exchangeRequest.id,
+              status: exchangeRequest.status,
+              orderNumber: exchangeRequest.orderNumber,
+              exchangeOrderNumber: exchangeRequest.exchangeOrderNumber,
+            }
+          : null,
+      };
+    });
+
     return NextResponse.json({
       success: true,
-      assignments,
+      assignments: enrichedAssignments,
     });
   } catch (error) {
     log.error('Error fetching shipment assignments', {

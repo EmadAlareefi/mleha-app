@@ -27,6 +27,13 @@ interface CODCollection {
   status: string;
 }
 
+interface ExchangeRequestInfo {
+  id: string;
+  status: string;
+  orderNumber?: string | null;
+  exchangeOrderNumber?: string | null;
+}
+
 interface Assignment {
   id: string;
   status: string;
@@ -35,6 +42,8 @@ interface Assignment {
   deliveredAt?: string;
   notes?: string;
   shipment: LocalShipment & { codCollection?: CODCollection };
+  shipmentDirection?: 'incoming' | 'outgoing';
+  exchangeRequest?: ExchangeRequestInfo | null;
 }
 
 interface DeliveryAgentTask {
@@ -74,6 +83,8 @@ export default function MyDeliveriesPage() {
   const [tasksError, setTasksError] = useState('');
   const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
   const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null);
+  const [tasksTab, setTasksTab] = useState<'active' | 'completed'>('active');
+  const [assignmentsTab, setAssignmentsTab] = useState<'active' | 'completed'>('active');
 
   const parseJsonResponse = async (response: Response) => {
     const contentType = response.headers.get('content-type') || '';
@@ -298,12 +309,74 @@ export default function MyDeliveriesPage() {
     );
   };
 
+  const getShipmentTypeBadge = (direction?: 'incoming' | 'outgoing') => {
+    if (!direction) return null;
+    const statusMap: Record<'incoming' | 'outgoing', { label: string; className: string }> = {
+      outgoing: { label: 'شحنة تسليم', className: 'bg-indigo-100 text-indigo-800' },
+      incoming: { label: 'شحنة مرتجعة', className: 'bg-teal-100 text-teal-800' },
+    };
+
+    const typeInfo = statusMap[direction];
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${typeInfo.className}`}>
+        {typeInfo.label}
+      </span>
+    );
+  };
+
+  const getExchangeStatusLabel = (status: string) => {
+    const statusMap: Record<string, string> = {
+      pending_review: 'بانتظار المراجعة',
+      approved: 'تمت الموافقة',
+      rejected: 'مرفوض',
+      shipped: 'تم شحن المرتجع',
+      delivered: 'تم استلام المرتجع',
+      completed: 'تم الإنهاء',
+      cancelled: 'ملغي',
+    };
+
+    return statusMap[status] || status;
+  };
+
+  const renderExchangeReminder = (request?: ExchangeRequestInfo | null) => {
+    if (!request) return null;
+
+    return (
+      <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="font-semibold">تنبيه استبدال</p>
+        <p className="text-amber-800">
+          هذه الشحنة مرتبطة بطلب استبدال. استلم المنتج البديل من المستودع قبل التوجه للعميل واستعد
+          لاستلام المنتج المرتجع عند التسليم.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-4 text-xs text-amber-900">
+          <div>
+            <span className="text-amber-700">معرف طلب الاستبدال:</span>{' '}
+            <span className="font-mono font-semibold">{request.id}</span>
+          </div>
+          {request.orderNumber && (
+            <div>
+              <span className="text-amber-700">طلب العميل الأصلي:</span>{' '}
+              <span className="font-mono font-semibold">{request.orderNumber}</span>
+            </div>
+          )}
+          <div>
+            <span className="text-amber-700">حالة الطلب:</span>{' '}
+            <span className="font-semibold">{getExchangeStatusLabel(request.status)}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const activeAssignments = assignments.filter(
     (a) => !['delivered', 'failed', 'cancelled'].includes(a.status)
   );
   const completedAssignments = assignments.filter((a) =>
     ['delivered', 'failed', 'cancelled'].includes(a.status)
   );
+  const activeAgentTasks = agentTasks.filter((task) => task.status !== 'completed');
+  const completedAgentTasks = agentTasks.filter((task) => task.status === 'completed');
+  const visibleTasks = tasksTab === 'active' ? activeAgentTasks : completedAgentTasks;
 
   const stats = {
     total: assignments.length,
@@ -378,17 +451,34 @@ export default function MyDeliveriesPage() {
             </Button>
           </div>
 
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              variant={tasksTab === 'active' ? 'default' : 'outline'}
+              onClick={() => setTasksTab('active')}
+            >
+              المهام الحالية
+            </Button>
+            <Button
+              variant={tasksTab === 'completed' ? 'default' : 'outline'}
+              onClick={() => setTasksTab('completed')}
+            >
+              المهام المكتملة
+            </Button>
+          </div>
+
           {tasksError && <p className="text-sm text-red-600 mb-3">{tasksError}</p>}
 
           {tasksLoading ? (
             <p className="text-center text-gray-500 py-4">جاري تحميل المهام...</p>
-          ) : agentTasks.length === 0 ? (
+          ) : visibleTasks.length === 0 ? (
             <p className="text-center text-gray-500 py-6">
-              لا توجد مهام حالياً، ستظهر هنا الطلبات عند إرسالها لك.
+              {tasksTab === 'active'
+                ? 'لا توجد مهام حالياً، ستظهر هنا الطلبات عند إرسالها لك.'
+                : 'لا توجد مهام مكتملة بعد.'}
             </p>
           ) : (
             <div className="space-y-4">
-              {agentTasks.map((task) => (
+              {visibleTasks.map((task) => (
                 <div key={task.id} className="rounded-lg border p-4 bg-white">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between mb-2">
                     <div>
@@ -499,175 +589,218 @@ export default function MyDeliveriesPage() {
           )}
         </Card>
 
-        {/* Active Deliveries */}
-        <Card className="p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">الشحنات النشطة</h2>
-          {activeAssignments.length === 0 ? (
-            <p className="text-center text-gray-500 py-6">لا توجد شحنات نشطة</p>
-          ) : (
-            <div className="space-y-4">
-              {activeAssignments.map((assignment) => (
-                <div
-                  key={assignment.id}
-                  className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex flex-wrap justify-between items-start gap-4 mb-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold">#{assignment.shipment.orderNumber}</span>
-                        {getStatusBadge(assignment.status)}
-                        {assignment.shipment.isCOD && (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                            COD
+        <div className="space-y-4 mb-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">شحناتي</h2>
+              <p className="text-sm text-gray-500">استعرض الشحنات الحالية أو نتائجك المكتملة</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={assignmentsTab === 'active' ? 'default' : 'outline'}
+                onClick={() => setAssignmentsTab('active')}
+              >
+                الشحنات النشطة
+              </Button>
+              <Button
+                variant={assignmentsTab === 'completed' ? 'default' : 'outline'}
+                onClick={() => setAssignmentsTab('completed')}
+              >
+                الشحنات المكتملة
+              </Button>
+            </div>
+          </div>
+
+          {assignmentsTab === 'active' ? (
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">الشحنات النشطة</h3>
+              {activeAssignments.length === 0 ? (
+                <p className="text-center text-gray-500 py-6">لا توجد شحنات نشطة</p>
+              ) : (
+                <div className="space-y-4">
+                  {activeAssignments.map((assignment) => (
+                    <div
+                      key={assignment.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex flex-wrap justify-between items-start gap-4 mb-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className="font-semibold">#{assignment.shipment.orderNumber}</span>
+                            {getStatusBadge(assignment.status)}
+                            {getShipmentTypeBadge(assignment.shipmentDirection)}
+                            {assignment.exchangeRequest && (
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                طلب استبدال
+                              </span>
+                            )}
+                            {assignment.shipment.isCOD && (
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                COD
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            رقم التتبع:{' '}
+                            <span className="font-mono">{assignment.shipment.trackingNumber}</span>
+                          </div>
+                        </div>
+                        <div className="text-left">
+                          <div className="font-semibold text-lg">
+                            {formatCurrency(assignment.shipment.orderTotal)}
+                          </div>
+                          {assignment.shipment.isCOD && assignment.shipment.codCollection && (
+                            <div className="text-xs text-gray-600">
+                              {getCODStatusBadge(assignment.shipment.codCollection.status)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 text-sm">
+                        <div>
+                          <span className="text-gray-600">العميل:</span>{' '}
+                          <span className="font-medium">{assignment.shipment.customerName}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">الهاتف:</span>{' '}
+                          <span className="font-medium" dir="ltr">
+                            {assignment.shipment.customerPhone}
                           </span>
-                        )}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">المدينة:</span>{' '}
+                          <span className="font-medium">{assignment.shipment.shippingCity}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">تاريخ التعيين:</span>{' '}
+                          <span className="font-medium">{formatDate(assignment.assignedAt)}</span>
+                        </div>
                       </div>
-                      <div className="text-sm text-gray-600">
-                        رقم التتبع: <span className="font-mono">{assignment.shipment.trackingNumber}</span>
+
+                      <div className="mb-3 text-sm">
+                        <span className="text-gray-600">العنوان:</span>{' '}
+                        <span className="font-medium">{assignment.shipment.shippingAddress}</span>
                       </div>
-                    </div>
-                    <div className="text-left">
-                      <div className="font-semibold text-lg">
-                        {formatCurrency(assignment.shipment.orderTotal)}
-                      </div>
-                      {assignment.shipment.isCOD && assignment.shipment.codCollection && (
-                        <div className="text-xs text-gray-600">
-                          {getCODStatusBadge(assignment.shipment.codCollection.status)}
+
+                      {renderExchangeReminder(assignment.exchangeRequest)}
+
+                      {assignment.notes && (
+                        <div className="mb-3 text-sm bg-blue-50 p-2 rounded">
+                          <span className="text-gray-600">ملاحظات:</span> <span>{assignment.notes}</span>
                         </div>
                       )}
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 text-sm">
-                    <div>
-                      <span className="text-gray-600">العميل:</span>{' '}
-                      <span className="font-medium">{assignment.shipment.customerName}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">الهاتف:</span>{' '}
-                      <span className="font-medium" dir="ltr">{assignment.shipment.customerPhone}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">المدينة:</span>{' '}
-                      <span className="font-medium">{assignment.shipment.shippingCity}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">تاريخ التعيين:</span>{' '}
-                      <span className="font-medium">{formatDate(assignment.assignedAt)}</span>
-                    </div>
-                  </div>
-
-                  <div className="mb-3 text-sm">
-                    <span className="text-gray-600">العنوان:</span>{' '}
-                    <span className="font-medium">{assignment.shipment.shippingAddress}</span>
-                  </div>
-
-                  {assignment.notes && (
-                    <div className="mb-3 text-sm bg-blue-50 p-2 rounded">
-                      <span className="text-gray-600">ملاحظات:</span>{' '}
-                      <span>{assignment.notes}</span>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    {assignment.status === 'assigned' && (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setSelectedAssignment(assignment);
-                          setNewStatus('picked_up');
-                        }}
-                      >
-                        تم الاستلام
-                      </Button>
-                    )}
-                    {(assignment.status === 'assigned' || assignment.status === 'picked_up') && (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setSelectedAssignment(assignment);
-                          setNewStatus('in_transit');
-                        }}
-                      >
-                        قيد التوصيل
-                      </Button>
-                    )}
-                    {['assigned', 'picked_up', 'in_transit'].includes(assignment.status) && (
-                      <Button
-                        size="sm"
-                        variant="default"
-                        onClick={() => {
-                          setSelectedAssignment(assignment);
-                          setNewStatus('delivered');
-                        }}
-                      >
-                        تم التوصيل
-                      </Button>
-                    )}
-                    {['assigned', 'picked_up', 'in_transit'].includes(assignment.status) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedAssignment(assignment);
-                          setNewStatus('failed');
-                        }}
-                      >
-                        فشل التوصيل
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        {/* Completed Deliveries */}
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">الشحنات المكتملة</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-right bg-gray-100">
-                  <th className="px-3 py-2">رقم الطلب</th>
-                  <th className="px-3 py-2">العميل</th>
-                  <th className="px-3 py-2">المدينة</th>
-                  <th className="px-3 py-2">المبلغ</th>
-                  <th className="px-3 py-2">الحالة</th>
-                  <th className="px-3 py-2">تاريخ الإنجاز</th>
-                </tr>
-              </thead>
-              <tbody>
-                {completedAssignments.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center text-gray-500 py-6">
-                      لا توجد شحنات مكتملة
-                    </td>
-                  </tr>
-                ) : (
-                  completedAssignments.map((assignment) => (
-                    <tr key={assignment.id} className="border-b">
-                      <td className="px-3 py-2 font-mono">{assignment.shipment.orderNumber}</td>
-                      <td className="px-3 py-2">{assignment.shipment.customerName}</td>
-                      <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
-                      <td className="px-3 py-2 font-semibold">
-                        {formatCurrency(assignment.shipment.orderTotal)}
-                        {assignment.shipment.isCOD && (
-                          <span className="text-xs text-orange-600 ml-1">(COD)</span>
+                      <div className="flex flex-wrap gap-2">
+                        {assignment.status === 'assigned' && (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setSelectedAssignment(assignment);
+                              setNewStatus('picked_up');
+                            }}
+                          >
+                            تم الاستلام
+                          </Button>
                         )}
-                      </td>
-                      <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
-                      <td className="px-3 py-2 text-xs">
-                        {formatDate(assignment.deliveredAt || assignment.assignedAt)}
-                      </td>
+                        {(assignment.status === 'assigned' || assignment.status === 'picked_up') && (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setSelectedAssignment(assignment);
+                              setNewStatus('in_transit');
+                            }}
+                          >
+                            قيد التوصيل
+                          </Button>
+                        )}
+                        {['assigned', 'picked_up', 'in_transit'].includes(assignment.status) && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => {
+                              setSelectedAssignment(assignment);
+                              setNewStatus('delivered');
+                            }}
+                          >
+                            تم التوصيل
+                          </Button>
+                        )}
+                        {['assigned', 'picked_up', 'in_transit'].includes(assignment.status) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedAssignment(assignment);
+                              setNewStatus('failed');
+                            }}
+                          >
+                            فشل التوصيل
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ) : (
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">الشحنات المكتملة</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-right bg-gray-100">
+                      <th className="px-3 py-2">رقم الطلب</th>
+                      <th className="px-3 py-2">العميل</th>
+                      <th className="px-3 py-2">المدينة</th>
+                      <th className="px-3 py-2">المبلغ</th>
+                      <th className="px-3 py-2">الحالة</th>
+                      <th className="px-3 py-2">تاريخ الإنجاز</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                  </thead>
+                  <tbody>
+                    {completedAssignments.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center text-gray-500 py-6">
+                          لا توجد شحنات مكتملة
+                        </td>
+                      </tr>
+                    ) : (
+                      completedAssignments.map((assignment) => (
+                        <tr key={assignment.id} className="border-b">
+                          <td className="px-3 py-2">
+                            <div className="font-mono font-semibold">{assignment.shipment.orderNumber}</div>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {getShipmentTypeBadge(assignment.shipmentDirection)}
+                              {assignment.exchangeRequest && (
+                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                  طلب استبدال
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">{assignment.shipment.customerName}</td>
+                          <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
+                          <td className="px-3 py-2 font-semibold">
+                            {formatCurrency(assignment.shipment.orderTotal)}
+                            {assignment.shipment.isCOD && (
+                              <span className="text-xs text-orange-600 ml-1">(COD)</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
+                          <td className="px-3 py-2 text-xs">
+                            {formatDate(assignment.deliveredAt || assignment.assignedAt)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
 
         {/* Update Status Modal */}
         {selectedAssignment && (
