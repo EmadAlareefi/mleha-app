@@ -75,6 +75,19 @@ export default function MyDeliveriesPage() {
   const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
   const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null);
 
+  const parseJsonResponse = async (response: Response) => {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return response.json();
+    }
+    const fallbackText = await response.text();
+    throw new Error(
+      response.ok
+        ? 'استجابة غير متوقعة من الخادم، يرجى إعادة المحاولة لاحقاً.'
+        : fallbackText || 'تعذر التواصل مع الخادم'
+    );
+  };
+
   useEffect(() => {
     fetchAssignments();
     fetchAgentTasks();
@@ -87,12 +100,12 @@ export default function MyDeliveriesPage() {
       setError('');
 
       const response = await fetch('/api/shipment-assignments');
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error('فشل في تحميل الشحنات');
+        throw new Error(data?.error || 'فشل في تحميل الشحنات');
       }
 
-      const data = await response.json();
       setAssignments(data.assignments || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل الشحنات');
@@ -107,10 +120,10 @@ export default function MyDeliveriesPage() {
       setTasksError('');
 
       const response = await fetch('/api/delivery-agent-tasks');
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(data.error || 'فشل في تحميل المهام');
+        throw new Error(data?.error || 'فشل في تحميل المهام');
       }
 
       setAgentTasks(data.tasks || []);
@@ -139,11 +152,10 @@ export default function MyDeliveriesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(data.error || 'فشل في تحديث المهمة');
+        throw new Error(data?.error || 'فشل في تحديث المهمة');
       }
 
       toast({
