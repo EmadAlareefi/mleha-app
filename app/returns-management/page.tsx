@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -52,6 +52,7 @@ interface ReturnRequest {
   customerPhone: string;
   customerEmail: string;
   smsaTrackingNumber?: string;
+  smsaAwbNumber?: string;
   totalRefundAmount?: number | string | null;
   returnFee?: number;
   couponCode?: string;
@@ -67,11 +68,110 @@ interface ReturnRequest {
   } | null;
 }
 
+type TrackingHistoryEntry = {
+  code: string | null;
+  description: string | null;
+  city: string | null;
+  timestamp: string | null;
+  timezone: string | null;
+  receivedBy: string | null;
+};
+
+type TrackingStatus = TrackingHistoryEntry & {
+  delivered: boolean;
+  history: TrackingHistoryEntry[];
+};
+
+type TrackingResponsePayload = {
+  statuses?: Record<string, TrackingStatus | null>;
+};
+
+const MAJOR_SMSA_STATUSES: {
+  label: string;
+  codes?: string[];
+  keywords?: string[];
+}[] = [
+  {
+    label: 'تم التسليم',
+    codes: ['DL'],
+    keywords: ['delivered', 'تم التسليم'],
+  },
+  {
+    label: 'خارج للتسليم',
+    codes: ['OD', 'WC', 'CC'],
+    keywords: ['out for delivery', 'with courier'],
+  },
+  {
+    label: 'قيد النقل',
+    codes: ['IT', 'IN', 'AR', 'MA', 'TR', 'DP', 'DE'],
+    keywords: ['in transit', 'transit', 'arrived', 'departed', 'معالجة'],
+  },
+  {
+    label: 'بانتظار الاستلام',
+    codes: ['PU', 'PP', 'PA'],
+    keywords: ['pickup', 'awaiting'],
+  },
+  {
+    label: 'مرتجع للمرسل',
+    codes: ['RT', 'RC'],
+    keywords: ['return'],
+  },
+  {
+    label: 'ملغي',
+    codes: ['CX', 'CCL'],
+    keywords: ['cancel'],
+  },
+];
+
 const gregorianDateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
   day: '2-digit',
   month: 'long',
   year: 'numeric',
 });
+
+const trackingTimestampFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+const formatTrackingTimestamp = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return trackingTimestampFormatter.format(date);
+};
+
+const resolveMajorSmsaStatus = (tracking: TrackingStatus | null): string | null => {
+  if (!tracking) {
+    return null;
+  }
+  const code = tracking.code?.trim().toUpperCase();
+  const description = tracking.description?.trim().toLowerCase() || '';
+
+  const match = MAJOR_SMSA_STATUSES.find((status) => {
+    const codeMatch = code && status.codes?.some((candidate) => candidate === code);
+    const keywordMatch =
+      description &&
+      status.keywords?.some((keyword) => description.includes(keyword.toLowerCase()));
+    return Boolean(codeMatch || keywordMatch);
+  });
+
+  if (match) {
+    return match.label;
+  }
+
+  if (tracking.delivered) {
+    return 'تم التسليم';
+  }
+
+  return tracking.description || null;
+};
 
 const formatPrice = (value: number | string) => {
   const amount = typeof value === 'number' ? value : Number(value);
@@ -146,6 +246,9 @@ export default function ReturnsManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [autoCompleting, setAutoCompleting] = useState(false);
+  const [trackingStatuses, setTrackingStatuses] = useState<Record<string, TrackingStatus | null>>({});
+  const [trackingStatusesLoading, setTrackingStatusesLoading] = useState(false);
+  const trackingFetchId = useRef(0);
 
   // Filters
   const [typeFilter, setTypeFilter] = useState<'all' | 'return' | 'exchange'>('all');
@@ -170,6 +273,65 @@ export default function ReturnsManagementPage() {
   useEffect(() => {
     loadReturnRequests();
   }, [typeFilter, statusFilter, searchQuery, page, viewMode]);
+
+  const fetchTrackingStatuses = async (requests: ReturnRequest[]) => {
+    const pendingTrackingNumbers = Array.from(
+      new Set(
+        requests
+          .filter((req) => req.status !== 'completed')
+          .flatMap((req) => {
+            const identifiers: string[] = [];
+            const trackingNumber = req.smsaTrackingNumber?.trim();
+            const awbNumber = req.smsaAwbNumber?.trim();
+            if (trackingNumber) identifiers.push(trackingNumber);
+            if (awbNumber) identifiers.push(awbNumber);
+            return identifiers;
+          })
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+
+    trackingFetchId.current += 1;
+    const fetchId = trackingFetchId.current;
+
+    if (pendingTrackingNumbers.length === 0) {
+      setTrackingStatuses({});
+      setTrackingStatusesLoading(false);
+      return;
+    }
+
+    setTrackingStatuses({});
+    setTrackingStatusesLoading(true);
+
+    try {
+      const response = await fetch('/api/returns/tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackingNumbers: pendingTrackingNumbers }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load SMSA statuses');
+      }
+
+      const data: TrackingResponsePayload = await response.json();
+
+      if (trackingFetchId.current !== fetchId) {
+        return;
+      }
+
+      setTrackingStatuses(data.statuses || {});
+    } catch (err) {
+      console.error('Failed to fetch SMSA tracking statuses', err);
+      if (trackingFetchId.current === fetchId) {
+        setTrackingStatuses({});
+      }
+    } finally {
+      if (trackingFetchId.current === fetchId) {
+        setTrackingStatusesLoading(false);
+      }
+    }
+  };
 
   const loadReturnRequests = async () => {
     setLoading(true);
@@ -209,6 +371,7 @@ export default function ReturnsManagementPage() {
       checkAndAutoCompleteFromSalla(data.data);
       setTotal(data.pagination.total);
       setTotalPages(data.pagination.totalPages);
+      fetchTrackingStatuses(data.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
     } finally {
@@ -566,6 +729,18 @@ export default function ReturnsManagementPage() {
               {returnRequests.map((request) => {
                 const inspectionSummary = summarizeItemConditions(request.items);
                 const sallaStatus = request.sallaStatus;
+                const trackingNumber = request.smsaTrackingNumber?.trim() || '';
+                const awbNumber = request.smsaAwbNumber?.trim() || '';
+                const displayTrackingNumber = trackingNumber || awbNumber;
+                const trackingLookupKey = awbNumber || trackingNumber;
+                const hasTrackingLookup = (key?: string) =>
+                  key ? Object.prototype.hasOwnProperty.call(trackingStatuses, key) : false;
+                const trackingInfo =
+                  (awbNumber && hasTrackingLookup(awbNumber) ? trackingStatuses[awbNumber] : null) ||
+                  (trackingNumber && hasTrackingLookup(trackingNumber) ? trackingStatuses[trackingNumber] : null);
+                const formattedTrackingTimestamp =
+                  trackingInfo?.timestamp ? formatTrackingTimestamp(trackingInfo.timestamp) : null;
+                const majorTrackingLabel = resolveMajorSmsaStatus(trackingInfo);
                 return (
                   <Card key={request.id} className="p-6 hover:shadow-lg transition-shadow">
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -602,8 +777,30 @@ export default function ReturnsManagementPage() {
                         <div className="text-sm text-gray-600 space-y-1">
                           <p><strong>العميل:</strong> {request.customerName}</p>
                           <p><strong>الهاتف:</strong> {request.customerPhone}</p>
-                          {request.smsaTrackingNumber && (
-                            <p><strong>رقم التتبع:</strong> {request.smsaTrackingNumber}</p>
+                          {displayTrackingNumber && (
+                            <div>
+                              <p><strong>رقم التتبع:</strong> {displayTrackingNumber}</p>
+                              {(hasTrackingLookup(awbNumber) || hasTrackingLookup(trackingNumber)) && (
+                                <p className="text-xs text-indigo-700 mt-1">
+                                  <strong>حالة سمسا:</strong>{' '}
+                                  {trackingInfo ? (
+                                    <>
+                                      {majorTrackingLabel ||
+                                        trackingInfo.description ||
+                                        trackingInfo.code ||
+                                        '—'}
+                                      {trackingInfo.city ? ` • ${trackingInfo.city}` : ''}
+                                      {formattedTrackingTimestamp ? ` • ${formattedTrackingTimestamp}` : ''}
+                                    </>
+                                  ) : (
+                                    'لا يوجد تحديث متاح حالياً'
+                                  )}
+                                </p>
+                              )}
+                              {!(hasTrackingLookup(awbNumber) || hasTrackingLookup(trackingNumber)) && trackingStatusesLoading && (
+                                <p className="text-xs text-gray-500 mt-1">جاري تحديث حالة سمسا...</p>
+                              )}
+                            </div>
                           )}
                           <p>
                             <strong>التاريخ:</strong> {gregorianDateFormatter.format(new Date(request.createdAt))}

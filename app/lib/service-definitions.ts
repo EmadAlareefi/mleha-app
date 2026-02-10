@@ -124,6 +124,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['warehouse'],
   },
   {
+    key: 'delivery-agent-tasks',
+    title: 'طلبات المناديب',
+    description: 'إنشاء طلبات خاصة للمناديب ومتابعتها',
+    icon: '🧾',
+    href: '/delivery-agent-tasks',
+    color: 'from-slate-500 to-slate-600',
+    defaultRoles: ['admin', 'warehouse', 'orders', 'store_manager'],
+    grantsRoles: [],
+  },
+  {
     key: 'order-invoice-search',
     title: 'البحث عن الطلبات',
     description: 'البحث عن الطلبات وطباعة الفواتير التجارية',

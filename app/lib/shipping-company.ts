@@ -282,6 +282,8 @@ export const getShippingAddressSummary = (orderData: unknown): ShippingAddressSu
   const nestedOrder = asRecord(root.order);
   const rootDelivery = asRecord(root.delivery);
   const rootShipping = asRecord(root.shipping);
+  const nestedShipping = asRecord(nestedOrder?.shipping);
+  const nestedDelivery = asRecord(nestedOrder?.delivery);
 
   const candidateSources = [
     root.shipping_address,
@@ -306,11 +308,11 @@ export const getShippingAddressSummary = (orderData: unknown): ShippingAddressSu
     root.billingAddress,
     nestedOrder?.shipping_address,
     nestedOrder?.shippingAddress,
-    nestedOrder?.shipping?.address,
-    nestedOrder?.shipping?.shipping_address,
-    nestedOrder?.shipping?.receiver,
-    nestedOrder?.delivery?.address,
-    nestedOrder?.delivery?.receiver,
+    nestedShipping?.address,
+    nestedShipping?.shipping_address,
+    nestedShipping?.receiver,
+    nestedDelivery?.address,
+    nestedDelivery?.receiver,
     nestedOrder?.customer,
     nestedOrder?.customer_address,
     nestedOrder?.customerAddress,

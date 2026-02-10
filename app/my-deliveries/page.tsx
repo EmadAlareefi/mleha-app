@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/use-toast';
 
 interface LocalShipment {
   id: string;
@@ -36,8 +37,30 @@ interface Assignment {
   shipment: LocalShipment & { codCollection?: CODCollection };
 }
 
+interface DeliveryAgentTask {
+  id: string;
+  title: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  requestType: string;
+  requestedItem?: string | null;
+  quantity?: number | null;
+  priority?: string | null;
+  details?: string | null;
+  dueDate?: string | null;
+  completionNotes?: string | null;
+  createdAt: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    username: string;
+  } | null;
+  createdByName?: string | null;
+  createdByUsername?: string | null;
+}
+
 export default function MyDeliveriesPage() {
   const { data: session } = useSession();
+  const { toast } = useToast();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -46,9 +69,16 @@ export default function MyDeliveriesPage() {
   const [newStatus, setNewStatus] = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [failureReason, setFailureReason] = useState('');
+  const [agentTasks, setAgentTasks] = useState<DeliveryAgentTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksError, setTasksError] = useState('');
+  const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
+  const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAssignments();
+    fetchAgentTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchAssignments = async () => {
@@ -68,6 +98,72 @@ export default function MyDeliveriesPage() {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل الشحنات');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAgentTasks = async () => {
+    try {
+      setTasksLoading(true);
+      setTasksError('');
+
+      const response = await fetch('/api/delivery-agent-tasks');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'فشل في تحميل المهام');
+      }
+
+      setAgentTasks(data.tasks || []);
+    } catch (err) {
+      setTasksError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل المهام');
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const handleTaskNotesChange = (taskId: string, value: string) => {
+    setTaskNotes((prev) => ({ ...prev, [taskId]: value }));
+  };
+
+  const handleTaskStatusUpdate = async (taskId: string, status: DeliveryAgentTask['status']) => {
+    try {
+      setTaskUpdatingId(taskId);
+      const payload: Record<string, unknown> = { status };
+
+      if (status === 'completed') {
+        payload.completionNotes = taskNotes[taskId]?.trim() || undefined;
+      }
+
+      const response = await fetch(`/api/delivery-agent-tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'فشل في تحديث المهمة');
+      }
+
+      toast({
+        title: 'تم تحديث المهمة',
+        description: 'تم تعديل حالة المهمة الخاصة بنجاح',
+      });
+
+      if (status === 'completed') {
+        setTaskNotes((prev) => ({ ...prev, [taskId]: '' }));
+      }
+
+      await fetchAgentTasks();
+    } catch (err) {
+      toast({
+        title: 'تعذر تحديث المهمة',
+        description: err instanceof Error ? err.message : 'حدث خطأ غير متوقع',
+        variant: 'destructive',
+      });
+    } finally {
+      setTaskUpdatingId(null);
     }
   };
 
@@ -166,6 +262,23 @@ export default function MyDeliveriesPage() {
     );
   };
 
+  const getTaskStatusBadge = (status: DeliveryAgentTask['status']) => {
+    const statusMap: Record<DeliveryAgentTask['status'], { label: string; className: string }> = {
+      pending: { label: 'بانتظار التنفيذ', className: 'bg-slate-100 text-slate-800' },
+      in_progress: { label: 'قيد التنفيذ', className: 'bg-amber-100 text-amber-800' },
+      completed: { label: 'تم التنفيذ', className: 'bg-green-100 text-green-800' },
+      cancelled: { label: 'ملغي', className: 'bg-gray-100 text-gray-700' },
+    };
+
+    const statusInfo = statusMap[status];
+
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
+        {statusInfo.label}
+      </span>
+    );
+  };
+
   const activeAssignments = assignments.filter(
     (a) => !['delivered', 'failed', 'cancelled'].includes(a.status)
   );
@@ -231,6 +344,141 @@ export default function MyDeliveriesPage() {
             <div className="text-sm text-gray-600">مبالغ COD</div>
           </Card>
         </div>
+
+        {/* Custom delivery tasks */}
+        <Card className="p-6 mb-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">مهامي الخاصة</h2>
+              <p className="text-sm text-gray-500">
+                هذه الطلبات أرسلها الفريق لك لتنفيذ مشتريات أو مهام خارج الشحنات الأساسية
+              </p>
+            </div>
+            <Button variant="outline" onClick={fetchAgentTasks} disabled={tasksLoading}>
+              تحديث قائمة المهام
+            </Button>
+          </div>
+
+          {tasksError && <p className="text-sm text-red-600 mb-3">{tasksError}</p>}
+
+          {tasksLoading ? (
+            <p className="text-center text-gray-500 py-4">جاري تحميل المهام...</p>
+          ) : agentTasks.length === 0 ? (
+            <p className="text-center text-gray-500 py-6">
+              لا توجد مهام حالياً، ستظهر هنا الطلبات عند إرسالها لك.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {agentTasks.map((task) => (
+                <div key={task.id} className="rounded-lg border p-4 bg-white">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between mb-2">
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">{task.title}</p>
+                      <p className="text-sm text-gray-500">
+                        من:{' '}
+                        <span className="font-medium">
+                          {task.createdBy?.name || task.createdByName || task.createdByUsername || 'مستخدم النظام'}
+                        </span>
+                      </p>
+                    </div>
+                    {getTaskStatusBadge(task.status)}
+                  </div>
+
+                  {task.requestedItem && (
+                    <p className="text-sm text-gray-600">
+                      المطلوب:{' '}
+                      <span className="font-medium">
+                        {task.requestedItem}
+                        {task.quantity ? ` (العدد: ${task.quantity})` : ''}
+                      </span>
+                    </p>
+                  )}
+
+                  {task.details && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      التفاصيل: <span className="font-medium">{task.details}</span>
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-600 mt-3">
+                    <div>
+                      <span className="text-gray-500">نوع الطلب:</span>{' '}
+                      <span className="font-medium">
+                        {task.requestType === 'purchase'
+                          ? 'شراء عاجل'
+                          : task.requestType === 'pickup'
+                            ? 'استلام شحنة'
+                            : task.requestType === 'support'
+                              ? 'مساندة'
+                              : 'مهمة متنوعة'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">الأولوية:</span>{' '}
+                      <span className="font-medium">
+                        {task.priority === 'high'
+                          ? 'عالية'
+                          : task.priority === 'low'
+                            ? 'منخفضة'
+                            : 'متوسطة'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">الاستحقاق:</span>{' '}
+                      <span className="font-medium">
+                        {task.dueDate
+                          ? new Date(task.dueDate).toLocaleString('ar-SA', {
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : 'غير محدد'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {task.status !== 'completed' && task.status !== 'cancelled' && (
+                    <div className="mt-4 space-y-3">
+                      <textarea
+                        className="w-full rounded-md border border-input px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        rows={2}
+                        placeholder="ملاحظات الشراء أو وصف ما تم (اختياري)"
+                        value={taskNotes[task.id] ?? ''}
+                        onChange={(event) => handleTaskNotesChange(task.id, event.target.value)}
+                      />
+                      <div className="flex flex-wrap gap-3">
+                        {task.status === 'pending' && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleTaskStatusUpdate(task.id, 'in_progress')}
+                            disabled={taskUpdatingId === task.id}
+                          >
+                            بدء المهمة
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => handleTaskStatusUpdate(task.id, 'completed')}
+                          disabled={taskUpdatingId === task.id}
+                        >
+                          تم التنفيذ
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {task.status === 'completed' && task.completionNotes && (
+                    <p className="mt-3 text-sm text-emerald-600">
+                      ملاحظات التنفيذ: {task.completionNotes}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
 
         {/* Active Deliveries */}
         <Card className="p-6 mb-6">

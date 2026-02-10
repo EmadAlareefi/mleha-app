@@ -463,6 +463,7 @@ model LocalShipment {
   // Relations
   assignment    ShipmentAssignment?
   codCollection CODCollection?
+  tasks         DeliveryAgentTask[] @relation("LocalShipmentTasks")
 
   @@index([merchantId])
   @@index([orderId])
@@ -522,6 +523,8 @@ model OrderUser {
   printerLink          OrderUserPrinterLink?
   servicePermissions   UserServicePermission[]
   recognitions         UserRecognition[]
+  deliveryTasks        DeliveryAgentTask[] @relation("DeliveryAgentTasks")
+  createdDeliveryTasks DeliveryAgentTask[] @relation("CreatedDeliveryAgentTasks")
 
   @@index([username])
   @@index([isActive])
@@ -868,4 +871,37 @@ model CODCollection {
   @@index([collectedBy])
   @@index([depositedBy])
   @@index([reconciledBy])
+}
+
+model DeliveryAgentTask {
+  id             String        @id @default(cuid())
+  deliveryAgentId String
+  deliveryAgent  OrderUser     @relation("DeliveryAgentTasks", fields: [deliveryAgentId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   OrderUser? @relation("CreatedDeliveryAgentTasks", fields: [createdById], references: [id], onDelete: SetNull)
+  createdByName     String?
+  createdByUsername String?
+
+  title         String
+  requestType   String   @default("purchase")
+  requestedItem String?
+  quantity      Int?
+  details       String?  @db.Text
+  status        String   @default("pending") // pending, in_progress, completed, cancelled
+  priority      String?  // low, normal, high
+  dueDate       DateTime?
+  completedAt   DateTime?
+  completionNotes String? @db.Text
+
+  relatedShipmentId String?
+  relatedShipment   LocalShipment? @relation("LocalShipmentTasks", fields: [relatedShipmentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([deliveryAgentId])
+  @@index([createdById])
+  @@index([status])
+  @@index([dueDate])
 }

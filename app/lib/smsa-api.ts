@@ -534,3 +534,88 @@ export async function trackB2CShipment(awbNumber: string): Promise<any> {
     return null;
   }
 }
+
+export interface SMSATrackingScan {
+  ScanType?: string;
+  ScanDescription?: string;
+  ScanDateTime?: string;
+  ScanTimeZone?: string;
+  City?: string;
+  ReceivedBy?: string;
+}
+
+export interface SMSATrackingRecord {
+  AWB?: string;
+  awb?: string;
+  Reference?: string;
+  Scans?: SMSATrackingScan[];
+  isDelivered?: boolean;
+  RecipientName?: string;
+  OriginCity?: string;
+  OriginCountry?: string;
+  DesinationCity?: string;
+  DesinationCountry?: string;
+  [key: string]: unknown;
+}
+
+const SMSA_TRACK_BULK_CHUNK_SIZE = 20;
+
+export async function trackBulkShipments(awbNumbers: string[]): Promise<SMSATrackingRecord[]> {
+  if (!SMSA_API_KEY) {
+    log.error('SMSA credentials not configured');
+    return [];
+  }
+
+  const normalized = Array.from(
+    new Set(
+      awbNumbers
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value): value is string => value.length > 0)
+    )
+  );
+
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  const results: SMSATrackingRecord[] = [];
+
+  for (let i = 0; i < normalized.length; i += SMSA_TRACK_BULK_CHUNK_SIZE) {
+    const chunk = normalized.slice(i, i + SMSA_TRACK_BULK_CHUNK_SIZE);
+
+    try {
+      const response = await fetch(buildSmsaUrl('/track/bulk'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          apikey: SMSA_API_KEY,
+        },
+        body: JSON.stringify(chunk),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        log.error('SMSA bulk tracking request failed', {
+          status: response.status,
+          chunkSize: chunk.length,
+          error: errorText,
+        });
+        continue;
+      }
+
+      const payload = await response.json();
+      const entries = Array.isArray(payload) ? payload : payload ? [payload] : [];
+
+      for (const record of entries) {
+        if (record && typeof record === 'object') {
+          results.push(record as SMSATrackingRecord);
+        }
+      }
+    } catch (error) {
+      log.error('Error performing SMSA bulk tracking request', { error, chunkSize: chunk.length });
+    }
+  }
+
+  return results;
+}

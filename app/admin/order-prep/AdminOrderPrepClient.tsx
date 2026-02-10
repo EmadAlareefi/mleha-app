@@ -147,7 +147,7 @@ const NEW_ORDER_STATUS_COLUMNS = [
 
 const NON_REMOVABLE_ASSIGNMENT_STATUSES = new Set(['completed', 'removed', 'released']);
 
-const parseJsonSafely = <T>(rawBody: string, context: string): T | null => {
+const parseJsonSafely = <T,>(rawBody: string, context: string): T | null => {
   if (!rawBody) {
     return null;
   }
