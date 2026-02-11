@@ -19,7 +19,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { orderId, orderNumber, merchantId, forceInternational, shippingCountry } = body || {};
+    const {
+      orderId,
+      orderNumber,
+      merchantId,
+      forceInternational,
+      shippingCountry,
+      allowDomestic = true,
+    } = body || {};
 
     if (!orderId && !orderNumber) {
       return NextResponse.json(
@@ -36,6 +43,7 @@ export async function POST(request: NextRequest) {
       source: 'admin-invoice-search',
       forceInternational: Boolean(forceInternational),
       fallbackCountry: shippingCountry,
+      allowDomestic,
     });
 
     if (!result.isInternational) {

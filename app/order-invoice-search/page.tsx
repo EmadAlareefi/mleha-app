@@ -215,8 +215,8 @@ export default function OrderInvoiceSearchPage() {
   });
 
   const handlePrintCommercialInvoice = () => {
-    if (!isCommercialInvoiceAvailable) {
-      alert('الفاتورة التجارية متاحة فقط للطلبات الدولية.');
+    if (!order) {
+      alert('يرجى البحث عن طلب قبل محاولة الطباعة.');
       return;
     }
 
@@ -293,11 +293,7 @@ export default function OrderInvoiceSearchPage() {
 
   const handlePrintInvoiceViaPrintNode = async () => {
     if (!order) {
-      return;
-    }
-
-    if (!isCommercialInvoiceAvailable) {
-      alert('الفاتورة التجارية متاحة فقط للطلبات الدولية.');
+      alert('يرجى البحث عن طلب قبل محاولة الطباعة.');
       return;
     }
 
@@ -312,6 +308,7 @@ export default function OrderInvoiceSearchPage() {
           merchantId: order.merchantId,
           forceInternational: isCommercialInvoiceAvailable,
           shippingCountry,
+          allowDomestic: true,
         }),
       });
 
@@ -509,7 +506,7 @@ export default function OrderInvoiceSearchPage() {
   const shippingTypeColor = isInternationalOrder
     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
     : 'bg-blue-100 text-blue-800 border-blue-300';
-  const canPrintCommercialInvoice = isCommercialInvoiceAvailable;
+  const canPrintCommercialInvoice = Boolean(order);
 
   const orderCreatedAt = order?.orderData?.created_at ? formatDate(order.orderData.created_at) : '';
   const orderUpdatedAt = order?.orderData?.updated_at ? formatDate(order.orderData.updated_at) : '';
@@ -1035,12 +1032,12 @@ export default function OrderInvoiceSearchPage() {
                   <div>
                     <h3 className="text-lg font-bold">الفاتورة التجارية</h3>
                     <p className="text-sm text-gray-600 mt-1">
-                      طباعة الفاتورة التجارية (Commercial Invoice) للشحنات الدولية، كما في صفحة تحضير الطلبات
+                      طباعة الفاتورة التجارية (Commercial Invoice) أصبحت متاحة لكل الطلبات بغض النظر عن الدولة أو المدينة.
                     </p>
-                    <p className={`text-sm mt-2 ${isCommercialInvoiceAvailable ? 'text-emerald-700' : 'text-gray-600'}`}>
+                    <p className={`text-sm mt-2 ${isCommercialInvoiceAvailable ? 'text-emerald-700' : 'text-gray-700'}`}>
                       {isCommercialInvoiceAvailable
-                        ? `هذه الشحنة دولية (${shippingCountry || 'غير محددة'}) ويمكن طباعة الفاتورة`
-                        : 'الفاتورة التجارية متاحة فقط للطلبات الدولية ولا يمكن طباعتها لهذا الطلب'}
+                        ? `تم التعرف على هذه الشحنة كدولية (${shippingCountry || 'غير محددة'}) وسيتم تطبيق قيم الفاتورة الدولية تلقائياً`
+                        : 'لم يتم التعرف على الشحنة كدولية، لكن يمكنك طباعة الفاتورة الإلكترونية لأي دولة أو مدينة متى ما احتجت.'}
                     </p>
                   </div>
                   <div className="flex flex-col gap-3 w-full md:w-auto">
@@ -1070,7 +1067,7 @@ export default function OrderInvoiceSearchPage() {
       </div>
 
       {/* Hidden Commercial Invoice for Printing */}
-      {order && isCommercialInvoiceAvailable && (
+      {order && (
         <div
           aria-hidden="true"
           style={{

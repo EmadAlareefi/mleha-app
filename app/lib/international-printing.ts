@@ -32,6 +32,7 @@ interface PrintInvoiceParams {
   source?: string;
   forceInternational?: boolean;
   fallbackCountry?: string | null;
+  allowDomestic?: boolean;
 }
 
 interface PrintInvoiceResult {
@@ -55,6 +56,7 @@ export async function printCommercialInvoiceIfInternational(params: PrintInvoice
     source = 'system',
     forceInternational,
     fallbackCountry,
+    allowDomestic,
   } = params;
 
   if (!orderId && !orderNumber) {
@@ -140,10 +142,19 @@ export async function printCommercialInvoiceIfInternational(params: PrintInvoice
     const shouldForceInternational =
       Boolean(forceInternational) ||
       Boolean(normalizedFallbackCountry && !isSaudiCountry(normalizedFallbackCountry));
+    const shouldAllowDomestic = Boolean(allowDomestic);
+    const hasOverride = shouldForceInternational || shouldAllowDomestic;
 
-    if (shouldForceInternational) {
+    if (hasOverride) {
       isInternational = true;
-      country = normalizedFallbackCountry || country || 'International';
+      country = country || normalizedFallbackCountry || (shouldAllowDomestic ? 'Domestic' : 'International');
+      if (shouldAllowDomestic) {
+        log.info('Domestic override enabled for commercial invoice print', {
+          orderId: orderRecord.orderId,
+          orderNumber: orderRecord.orderNumber,
+          source,
+        });
+      }
     }
 
     if (!isInternational) {

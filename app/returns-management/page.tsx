@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -259,6 +259,31 @@ export default function ReturnsManagementPage() {
   // Pagination
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+
+  const paginationRange = useMemo<(number | 'left-ellipsis' | 'right-ellipsis')[]>(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    const range: (number | 'left-ellipsis' | 'right-ellipsis')[] = [1];
+    const start = Math.max(2, page - 1);
+    const end = Math.min(totalPages - 1, page + 1);
+
+    if (start > 2) {
+      range.push('left-ellipsis');
+    }
+
+    for (let current = start; current <= end; current += 1) {
+      range.push(current);
+    }
+
+    if (end < totalPages - 1) {
+      range.push('right-ellipsis');
+    }
+
+    range.push(totalPages);
+    return range;
+  }, [page, totalPages]);
   const [total, setTotal] = useState(0);
   useEffect(() => {
     setPage(1);
@@ -924,7 +949,7 @@ export default function ReturnsManagementPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="mt-8 flex justify-center gap-2">
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
                 <Button
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
@@ -936,10 +961,23 @@ export default function ReturnsManagementPage() {
                     <span className="text-xs text-muted-foreground">صفحة {page - 1}</span>
                   )}
                 </Button>
-                <div className="flex items-center gap-2 px-4">
-                  <span className="text-sm">
-                    صفحة {page} من {totalPages}
-                  </span>
+                <div className="flex items-center gap-2 px-2">
+                  {paginationRange.map((entry, index) =>
+                    typeof entry === 'number' ? (
+                      <Button
+                        key={`page-${entry}`}
+                        variant={entry === page ? 'default' : 'outline'}
+                        onClick={() => setPage(entry)}
+                        aria-current={entry === page ? 'page' : undefined}
+                      >
+                        {entry}
+                      </Button>
+                    ) : (
+                      <span key={`ellipsis-${entry}-${index}`} className="px-1 text-sm text-muted-foreground">
+                        ...
+                      </span>
+                    ),
+                  )}
                 </div>
                 <Button
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
