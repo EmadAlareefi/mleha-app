@@ -23,6 +23,10 @@ const TARGET_STATUSES = {
     id: 1882207425,
     label: 'تحت المراجعة ا',
   },
+  under_review_x4: {
+    id: 2046404155,
+    label: 'غير متوفر (ارجاع مبلغ)',
+  },
 } as const;
 
 type TargetKey = keyof typeof TARGET_STATUSES;

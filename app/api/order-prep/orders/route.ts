@@ -9,7 +9,14 @@ import { getSallaAccessToken } from '@/app/lib/salla-oauth';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
-const NEW_ORDER_STATUS_IDS = new Set(['449146439', '1065456688', '1576217163', '1882207425', '566146469']);
+const NEW_ORDER_STATUS_IDS = new Set([
+  '449146439',
+  '1065456688',
+  '1576217163',
+  '1882207425',
+  '2046404155',
+  '566146469',
+]);
 const NEW_ORDER_STATUS_SLUGS = new Set(['under_review']);
 
 export const runtime = 'nodejs';

@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
     }
 
-    if (!hasServiceAccess(session, ['order-prep'])) {
+    if (!hasServiceAccess(session, ['order-prep', 'order-shipping'])) {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
     }
 

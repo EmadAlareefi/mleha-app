@@ -3,6 +3,10 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import {
+  ensureTaskWalletCredit,
+  removeTaskWalletCredit,
+} from '@/app/lib/delivery-agent-wallet';
 
 export const runtime = 'nodejs';
 
@@ -187,6 +191,19 @@ export async function PATCH(
       data: updateData,
       include: TASK_INCLUDE,
     });
+
+    const previousStatus = task.status;
+    if (previousStatus !== 'completed' && updatedTask.status === 'completed') {
+      await ensureTaskWalletCredit({
+        taskId: task.id,
+        deliveryAgentId: task.deliveryAgentId,
+        title: updatedTask.title,
+        createdById: user.id,
+        createdByName: user.name || user.username,
+      });
+    } else if (previousStatus === 'completed' && updatedTask.status !== 'completed') {
+      await removeTaskWalletCredit(task.id);
+    }
 
     log.info('Delivery agent task updated', {
       taskId: id,

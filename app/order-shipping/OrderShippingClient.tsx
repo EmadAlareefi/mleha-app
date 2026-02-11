@@ -82,6 +82,7 @@ interface SearchFeedback {
 }
 
 const ACTION_BUTTON_BASE = 'w-full py-3 text-sm sm:py-4 sm:text-base';
+const UNDER_REVIEW_X4_STATUS_ID = '2046404155';
 
 const parseJsonResponse = async <T = any>(response: Response, context: string): Promise<T> => {
   const contentType = response.headers.get('content-type') || '';
@@ -286,6 +287,7 @@ export default function OrderShippingPage() {
   const [refreshingItems, setRefreshingItems] = useState(false);
   const [creatingShipment, setCreatingShipment] = useState(false);
   const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
+  const [returningOrder, setReturningOrder] = useState(false);
   const [shipmentInfo, setShipmentInfo] = useState<{
     trackingNumber: string;
     courierName: string;
@@ -515,6 +517,9 @@ export default function OrderShippingPage() {
     Boolean(currentOrder && (currentOrder.status === 'shipped' || shipmentInfo));
 
   const canCreateLocalShipment = Boolean(currentOrder && resolvedMerchantId && currentOrder.orderNumber);
+  const canReturnOrderToReview = Boolean(
+    currentOrder && (!currentOrder.source || currentOrder.source === 'assignment')
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -828,6 +833,53 @@ export default function OrderShippingPage() {
       alert('فشل إرسال البوليصة للطابعة');
     } finally {
       setPrintingShipmentLabel(false);
+    }
+  };
+
+  const handleReturnOrderToUnderReview = async () => {
+    if (!currentOrder) return;
+
+    const shouldIncludeAssignmentId =
+      !currentOrder.source || currentOrder.source === 'assignment';
+
+    if (!shouldIncludeAssignmentId) {
+      alert('لا يمكن تحديث حالة هذا الطلب لأنه غير مرتبط بتعيين داخلي.');
+      return;
+    }
+
+    setReturningOrder(true);
+    try {
+      const response = await fetch('/api/order-assignments/release', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentId: currentOrder.id,
+          targetStatusId: UNDER_REVIEW_X4_STATUS_ID,
+        }),
+      });
+
+      const data = await parseJsonResponse(response, 'POST /api/order-assignments/release');
+
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'تعذر تحديث حالة الطلب في سلة');
+      }
+
+      alert(
+        data.message ||
+          'تم تحويل الطلب إلى حالة "غير متوفر (ارجاع مبلغ)" وإعادته إلى قائمة الطلبات قيد المراجعة.',
+      );
+      setCurrentOrder(null);
+      setShipmentInfo(null);
+      setShipmentError(null);
+      setSearchFeedback({
+        type: 'success',
+        message: 'تمت إعادة الطلب لحالة المراجعة.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر تحديث حالة الطلب في سلة';
+      alert(message);
+    } finally {
+      setReturningOrder(false);
     }
   };
  
@@ -1530,6 +1582,24 @@ export default function OrderShippingPage() {
                       className={`${ACTION_BUTTON_BASE}`}
                     >
                       تحديث معلومات الطلب
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        openConfirmationDialog({
+                          title: 'تأكيد إعادة الطلب',
+                          message:
+                            'سيتم تغيير حالة الطلب إلى "غير متوفر (ارجاع مبلغ)" في سلة وإعادته للمتابعة. هل تريد المتابعة؟',
+                          confirmLabel: 'تأكيد الإرجاع',
+                          confirmVariant: 'danger',
+                          onConfirm: handleReturnOrderToUnderReview,
+                        })
+                      }
+                      disabled={!canReturnOrderToReview || returningOrder}
+                      className={`${ACTION_BUTTON_BASE} border-rose-200 text-rose-900 hover:bg-rose-50 disabled:bg-gray-200 disabled:text-gray-500`}
+                    >
+                      {returningOrder ? 'جاري التحديث...' : 'غير متوفر (ارجاع مبلغ)'}
                     </Button>
                   </div>
                 </div>

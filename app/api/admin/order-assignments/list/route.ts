@@ -55,7 +55,9 @@ export async function GET(request: NextRequest) {
         not: null,
       };
     } else if (statusFilter === 'under_review') {
-      whereConditions.sallaStatus = '1065456688'; // تحت المراجعة
+      whereConditions.sallaStatus = {
+        in: ['1065456688', '1882207425', '2046404155'],
+      }; // تحت المراجعة
     } else if (statusFilter === 'reservation') {
       whereConditions.sallaStatus = '1576217163'; // تحت المراجعة حجز قطع
     }

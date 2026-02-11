@@ -3,6 +3,10 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import {
+  ensureShipmentWalletCredit,
+  removeShipmentWalletCredit,
+} from '@/app/lib/delivery-agent-wallet';
 
 export const runtime = 'nodejs';
 
@@ -149,6 +153,25 @@ export async function PATCH(
           cancellationReason: status === 'cancelled' ? cancellationReason : undefined,
         },
       });
+    }
+
+    const previousStatus = assignment.status;
+    if (previousStatus !== 'delivered' && updatedAssignment.status === 'delivered') {
+      await ensureShipmentWalletCredit({
+        shipmentId: assignment.shipmentId,
+        deliveryAgentId: assignment.deliveryAgentId,
+        assignmentId,
+        orderNumber: updatedAssignment.shipment?.orderNumber,
+        trackingNumber: updatedAssignment.shipment?.trackingNumber,
+        createdById: user.id,
+        createdByName: user.name || user.username,
+      });
+    } else if (
+      previousStatus === 'delivered' &&
+      status &&
+      status !== 'delivered'
+    ) {
+      await removeShipmentWalletCredit(assignment.shipmentId);
     }
 
     log.info('Shipment assignment updated', {

@@ -334,6 +334,8 @@ export default function OrderInvoiceSearchPage() {
     // Check Salla status IDs
     if (sallaStatus === '1065456688') return 'تحت المراجعة';
     if (sallaStatus === '1576217163') return 'تحت المراجعة حجز قطع';
+    if (sallaStatus === '1882207425') return 'تحت المراجعة ا';
+    if (sallaStatus === '2046404155') return 'غير متوفر (ارجاع مبلغ)';
     if (sallaStatus === '165947469') return 'تم الشحن';
 
     // Fallback to local status
@@ -354,6 +356,8 @@ export default function OrderInvoiceSearchPage() {
     // Check Salla status IDs
     if (sallaStatus === '1065456688') return 'bg-orange-100 text-orange-800 border-orange-300';
     if (sallaStatus === '1576217163') return 'bg-purple-100 text-purple-800 border-purple-300';
+    if (sallaStatus === '1882207425') return 'bg-blue-100 text-blue-800 border-blue-300';
+    if (sallaStatus === '2046404155') return 'bg-rose-100 text-rose-900 border-rose-300';
     if (sallaStatus === '165947469') return 'bg-green-100 text-green-800 border-green-300';
 
     const colorMap: Record<string, string> = {

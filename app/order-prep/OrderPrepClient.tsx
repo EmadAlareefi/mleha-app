@@ -51,7 +51,11 @@ interface ProductLocation {
   updatedAt: string;
 }
 
-type SallaStatusTarget = 'under_review_a' | 'under_review_reservation' | 'under_review_inner';
+type SallaStatusTarget =
+  | 'under_review_a'
+  | 'under_review_reservation'
+  | 'under_review_inner'
+  | 'under_review_x4';
 type ConfirmDialogType = 'complete' | SallaStatusTarget;
 
 const isNoteEnabledTarget = (target: ConfirmDialogType): target is SallaStatusTarget =>
@@ -445,6 +449,12 @@ export default function OrderPrepClient() {
     under_review_inner: {
       message: 'سيتم تحويل الطلب إلى "تحت المراجعة ا". هل أنت متأكد؟',
       confirmLabel: 'تأكيد التحويل',
+    },
+    under_review_x4: {
+      message:
+        'سيتم تغيير حالة الطلب إلى "غير متوفر (ارجاع مبلغ)" وإعادته إلى التنسيق مع خدمة العملاء. هل تريد المتابعة؟',
+      confirmLabel: 'تأكيد التحديث',
+      variant: 'danger',
     },
   };
 
@@ -919,6 +929,19 @@ function AssignmentCard({
                 <RefreshCcw className="h-4 w-4 ml-2" />
               )}
               تحديث سلة: تحت المراجعة ا
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onConfirmSallaStatus('under_review_x4')}
+              disabled={sallaStatusAction === `${assignment.id}_under_review_x4`}
+              className="w-full sm:w-auto border-rose-200 text-rose-900"
+            >
+              {sallaStatusAction === `${assignment.id}_under_review_x4` ? (
+                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4 ml-2" />
+              )}
+              غير متوفر (ارجاع مبلغ)
             </Button>
           </div>
         </div>

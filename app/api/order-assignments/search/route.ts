@@ -13,13 +13,24 @@ import type { ServiceKey } from '@/app/lib/service-definitions';
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
 const respondWithAssignment = async (payload: any, shipment: any) => {
-  const giftFlag = await getGiftFlagForOrder(payload.merchantId, payload.orderId);
+  const [giftFlag, priorityRecord] = await Promise.all([
+    getGiftFlagForOrder(payload.merchantId, payload.orderId),
+    getPriorityRecordForOrder(payload.merchantId, payload.orderId),
+  ]);
+
   return NextResponse.json({
     success: true,
     assignment: {
       ...payload,
       shipment,
       giftFlag: serializeGiftFlag(giftFlag),
+      isHighPriority: Boolean(priorityRecord),
+      priorityId: priorityRecord?.id || null,
+      priorityReason: priorityRecord?.reason || null,
+      priorityNotes: priorityRecord?.notes || null,
+      priorityCreatedAt: priorityRecord?.createdAt
+        ? priorityRecord.createdAt.toISOString()
+        : null,
     },
   });
 };
@@ -37,6 +48,27 @@ const getGiftFlagForOrder = async (
     : MERCHANT_ID;
 
   return prisma.orderGiftFlag.findUnique({
+    where: {
+      merchantId_orderId: {
+        merchantId: resolvedMerchantId,
+        orderId,
+      },
+    },
+  });
+};
+
+const getPriorityRecordForOrder = async (
+  merchantId: string | null | undefined,
+  orderId?: string | null,
+) => {
+  if (!orderId) {
+    return null;
+  }
+
+  const resolvedMerchantId =
+    merchantId && merchantId.trim().length > 0 ? merchantId : MERCHANT_ID;
+
+  return prisma.highPriorityOrder.findUnique({
     where: {
       merchantId_orderId: {
         merchantId: resolvedMerchantId,
@@ -293,6 +325,7 @@ export async function GET(request: NextRequest) {
           : (record.finishedAt ? record.finishedAt.toISOString() : null),
         notes: record.notes,
         source: type,
+        assignmentState: 'assigned',
       };
     };
 
@@ -445,6 +478,7 @@ function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
     notes: undefined,
     source: 'salla',
     merchantId: record.merchantId,
+    assignmentState: 'new',
   };
 }
 
@@ -467,6 +501,7 @@ function buildAssignmentFromRemoteOrder(order: RemoteSallaOrder) {
     notes: undefined,
     source: 'salla',
     merchantId: (order as any)?.merchant_id || MERCHANT_ID,
+    assignmentState: 'new',
   };
 }
 

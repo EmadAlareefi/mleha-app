@@ -67,6 +67,39 @@ interface DeliveryAgentTask {
   createdByUsername?: string | null;
 }
 
+type WalletTransactionType =
+  | 'SHIPMENT_COMPLETED'
+  | 'TASK_COMPLETED'
+  | 'PAYOUT'
+  | 'ADJUSTMENT';
+
+interface WalletTransaction {
+  id: string;
+  type: WalletTransactionType;
+  amount: number;
+  notes?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+interface WalletStatsSnapshot {
+  count: number;
+  total: number;
+}
+
+interface DeliveryAgentWalletInfo {
+  balance: number;
+  stats: {
+    shipments: WalletStatsSnapshot;
+    tasks: WalletStatsSnapshot;
+    payouts: WalletStatsSnapshot;
+    adjustments: WalletStatsSnapshot;
+    totalEarned: number;
+    totalPaid: number;
+  };
+  recentTransactions: WalletTransaction[];
+}
+
 export default function MyDeliveriesPage() {
   const { data: session } = useSession();
   const { toast } = useToast();
@@ -85,6 +118,9 @@ export default function MyDeliveriesPage() {
   const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null);
   const [tasksTab, setTasksTab] = useState<'active' | 'completed'>('active');
   const [assignmentsTab, setAssignmentsTab] = useState<'active' | 'completed'>('active');
+  const [walletInfo, setWalletInfo] = useState<DeliveryAgentWalletInfo | null>(null);
+  const [walletLoading, setWalletLoading] = useState(true);
+  const [walletError, setWalletError] = useState('');
 
   const parseJsonResponse = async (response: Response) => {
     const contentType = response.headers.get('content-type') || '';
@@ -109,6 +145,7 @@ export default function MyDeliveriesPage() {
   useEffect(() => {
     fetchAssignments();
     fetchAgentTasks();
+    fetchWalletInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -152,6 +189,28 @@ export default function MyDeliveriesPage() {
     }
   };
 
+  const fetchWalletInfo = async () => {
+    try {
+      setWalletLoading(true);
+      setWalletError('');
+
+      const response = await fetch(
+        '/api/delivery-agent-wallets?deliveryAgentId=me&includeTransactions=true'
+      );
+      const data = await parseJsonResponse(response);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'فشل في تحميل المحفظة');
+      }
+
+      setWalletInfo(data.wallet || null);
+    } catch (err) {
+      setWalletError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل المحفظة');
+    } finally {
+      setWalletLoading(false);
+    }
+  };
+
   const handleTaskNotesChange = (taskId: string, value: string) => {
     setTaskNotes((prev) => ({ ...prev, [taskId]: value }));
   };
@@ -186,6 +245,7 @@ export default function MyDeliveriesPage() {
       }
 
       await fetchAgentTasks();
+      await fetchWalletInfo();
     } catch (err) {
       toast({
         title: 'تعذر تحديث المهمة',
@@ -236,6 +296,7 @@ export default function MyDeliveriesPage() {
 
       // Refresh data
       await fetchAssignments();
+      await fetchWalletInfo();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحديث الحالة');
     } finally {
@@ -254,6 +315,21 @@ export default function MyDeliveriesPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+
+  const getWalletTransactionLabel = (transaction: WalletTransaction) => {
+    const labelMap: Record<WalletTransactionType, string> = {
+      SHIPMENT_COMPLETED: 'شحنة مكتملة',
+      TASK_COMPLETED: 'مهمة مكتملة',
+      PAYOUT: 'دفعة من الإدارة',
+      ADJUSTMENT: 'تعديل محفظة',
+    };
+
+    if (transaction.notes) {
+      return transaction.notes;
+    }
+
+    return labelMap[transaction.type] || 'عملية محفظة';
+  };
 
   const getStatusBadge = (status: string) => {
     const statusMap: Record<string, { label: string; className: string }> = {
@@ -387,6 +463,7 @@ export default function MyDeliveriesPage() {
       .filter((a) => a.shipment.isCOD && a.shipment.codCollection)
       .reduce((sum, a) => sum + Number(a.shipment.codCollection!.collectionAmount), 0),
   };
+  const recentWalletTransactions = walletInfo?.recentTransactions?.slice(0, 5) ?? [];
 
   if (loading) {
     return (
@@ -436,6 +513,94 @@ export default function MyDeliveriesPage() {
             <div className="text-sm text-gray-600">مبالغ COD</div>
           </Card>
         </div>
+
+        {/* Wallet summary */}
+        <Card className="p-6 mb-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+            <div className="flex-1">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">رصيدي الحالي</p>
+                  <p className="text-3xl font-bold text-emerald-600">
+                    {walletInfo ? formatCurrency(walletInfo.balance) : walletLoading ? '...' : formatCurrency(0)}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={fetchWalletInfo} disabled={walletLoading}>
+                  تحديث المحفظة
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 text-sm text-gray-600">
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-gray-500">الشحنات المكتملة</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {walletInfo?.stats.shipments.count ?? 0}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {formatCurrency(walletInfo?.stats.shipments.total ?? 0)}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-gray-500">المهام المكتملة</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {walletInfo?.stats.tasks.count ?? 0}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {formatCurrency(walletInfo?.stats.tasks.total ?? 0)}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-gray-500">إجمالي مكافآتي</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrency(walletInfo?.stats.totalEarned ?? 0)}
+                  </p>
+                  <p className="text-xs text-gray-500">شحنات ومهام مكتملة</p>
+                </div>
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-gray-500">ما تم سداده</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrency(walletInfo?.stats.totalPaid ?? 0)}
+                  </p>
+                  <p className="text-xs text-gray-500">دفعات خصمتها الإدارة</p>
+                </div>
+              </div>
+              {walletError && (
+                <p className="mt-3 text-sm text-red-600">{walletError}</p>
+              )}
+            </div>
+            <div className="lg:w-1/2">
+              <p className="text-sm font-medium text-gray-700 mb-2">آخر الحركات</p>
+              {walletLoading ? (
+                <p className="text-sm text-gray-500">جاري تحميل حركات المحفظة...</p>
+              ) : recentWalletTransactions.length === 0 ? (
+                <p className="text-sm text-gray-500">لا توجد حركات حديثة بعد.</p>
+              ) : (
+                <div className="rounded-xl border bg-white divide-y divide-gray-100">
+                  {recentWalletTransactions.map((transaction) => (
+                    <div
+                      key={transaction.id}
+                      className="flex items-center justify-between gap-3 px-4 py-3"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {getWalletTransactionLabel(transaction)}
+                        </p>
+                        <p className="text-xs text-gray-500">{formatDate(transaction.createdAt)}</p>
+                      </div>
+                      <span
+                        className={`text-sm font-semibold ${
+                          transaction.amount >= 0 ? 'text-emerald-600' : 'text-red-600'
+                        }`}
+                      >
+                        {transaction.amount >= 0 ? '+' : '-'}{' '}
+                        {formatCurrency(Math.abs(transaction.amount))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
 
         {/* Custom delivery tasks */}
         <Card className="p-6 mb-6">

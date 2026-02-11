@@ -18,7 +18,7 @@ export const MAIN_STATUSES = {
   // Deleted status
   DELETED: {
     id: 2131959877,
-    slug: null,
+    slug: 'deleted',
     name: 'محذوف',
     nameEn: 'Deleted',
     icon: 'sicon-folder-cancel',
@@ -131,8 +131,8 @@ export const SUB_STATUSES = {
   UNDER_REVIEW: {
     id: 1065456688,
     slug: 'under_review',
-    name: 'تحت المراجعة',
-    nameEn: 'Under Review',
+    name: 'تحت المراجعة R',
+    nameEn: 'Under Review R',
     icon: 'sicon-help',
     type: 'custom',
     parentId: 449146439,
@@ -145,6 +145,30 @@ export const SUB_STATUSES = {
     slug: 'under_review',
     name: 'تحت المراجعة حجز قطع',
     nameEn: 'Under Review - Parts Reservation',
+    icon: 'sicon-store',
+    type: 'custom',
+    parentId: 449146439,
+    parentName: 'طلب جديد',
+    originalId: 566146469
+  },
+
+  UNDER_REVIEW_A: {
+    id: 1882207425,
+    slug: 'under_review',
+    name: 'تحت المراجعة ا',
+    nameEn: 'Under Review A',
+    icon: 'sicon-store',
+    type: 'custom',
+    parentId: 449146439,
+    parentName: 'طلب جديد',
+    originalId: 566146469
+  },
+
+  UNDER_REVIEW_X4: {
+    id: 2046404155,
+    slug: 'under_review',
+    name: 'X4',
+    nameEn: 'Under Review X4',
     icon: 'sicon-store',
     type: 'custom',
     parentId: 449146439,
@@ -227,8 +251,10 @@ export const ORIGINAL_SALLA_STATUSES = {
 
 export const STATUS_HIERARCHY = {
   'طلب جديد (under_review)': [
-    'تحت المراجعة',
-    'تحت المراجعة حجز قطع'
+    'تحت المراجعة R',
+    'تحت المراجعة حجز قطع',
+    'تحت المراجعة ا',
+    'X4'
   ],
   'تم التنفيذ (completed)': [
     'جاري التوصيل',
@@ -326,6 +352,7 @@ export function hasSubStatuses(statusId: number): boolean {
 
 export const STATUS_IDS = {
   // Main statuses
+  DELETED: 2131959877,
   PAYMENT_PENDING: 1224232774,
   NEW_ORDER: 449146439,
   IN_PROGRESS: 1956875584,
@@ -338,6 +365,8 @@ export const STATUS_IDS = {
   // Sub-statuses
   UNDER_REVIEW: 1065456688,
   UNDER_REVIEW_RESERVATION: 1576217163,
+  UNDER_REVIEW_A: 1882207425,
+  UNDER_REVIEW_X4: 2046404155,
   DELIVERING: 1647503939,
   DELIVERED: 1008666956,
   SHIPPED: 165947469,
@@ -345,6 +374,7 @@ export const STATUS_IDS = {
 } as const;
 
 export const STATUS_SLUGS = {
+  DELETED: 'deleted',
   PAYMENT_PENDING: 'payment_pending',
   UNDER_REVIEW: 'under_review',
   IN_PROGRESS: 'in_progress',

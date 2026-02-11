@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,6 +21,7 @@ import type { ServiceKey } from '@/app/lib/service-definitions';
 import {
   AlertTriangle,
   PackageCheck,
+  Printer,
   RefreshCcw,
   ShieldCheck,
   UserPlus,
@@ -55,6 +56,58 @@ interface OrderUser {
     assignments: number;
   };
   warehouses?: WarehouseOption[];
+  printerLink?: PrinterLinkInfo | null;
+}
+
+interface PrinterLinkInfo {
+  printerId: number;
+  printerName?: string | null;
+  computerId?: number | null;
+  computerName?: string | null;
+  paperName?: string | null;
+}
+
+interface PrinterProfileConfig {
+  id: string;
+  printerId: number;
+  label: string;
+  location?: string | null;
+  paperName?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PrintNodeInventoryPrinter {
+  id: number;
+  name: string;
+  description?: string;
+  state?: string;
+  default?: {
+    paper?: string;
+    paperName?: string;
+  };
+  computer?: {
+    id?: number;
+    name?: string;
+    hostname?: string;
+    state?: string;
+    description?: string;
+  };
+}
+
+interface PrinterOption {
+  id: number;
+  label: string;
+  description?: string;
+  paperName?: string;
+  location?: string | null;
+  notes?: string | null;
+  source: 'profile' | 'printnode';
+  state?: string;
+  computerId?: number;
+  computerName?: string;
+  printerName?: string;
 }
 
 const ASSIGNABLE_SERVICES = getAssignableServices();
@@ -113,6 +166,21 @@ export default function OrderUsersManagementPage() {
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseOption[]>([]);
   const [warehousesLoading, setWarehousesLoading] = useState(true);
   const [warehousesError, setWarehousesError] = useState<string | null>(null);
+  const [printerInventory, setPrinterInventory] = useState({
+    printers: [] as PrintNodeInventoryPrinter[],
+    profiles: [] as PrinterProfileConfig[],
+    loading: false,
+    loaded: false,
+    error: null as string | null,
+  });
+  const [printerDialog, setPrinterDialog] = useState({
+    open: false,
+    user: null as OrderUser | null,
+    selectedPrinterId: null as number | null,
+    saving: false,
+    unlinking: false,
+    error: null as string | null,
+  });
 
   // Form state
   const [formData, setFormData] = useState({
@@ -198,6 +266,234 @@ export default function OrderUsersManagementPage() {
       setWarehousesLoading(false);
     }
   };
+
+  const loadPrinterInventory = useCallback(
+    async (force = false) => {
+      let shouldFetch = force;
+      setPrinterInventory((prev) => {
+        if (!force && (prev.loaded || prev.loading)) {
+          shouldFetch = false;
+          return prev;
+        }
+        shouldFetch = true;
+        return { ...prev, loading: true, error: null };
+      });
+
+      if (!shouldFetch) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/printers');
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'تعذر تحميل بيانات الطابعات');
+        }
+
+        setPrinterInventory({
+          printers: Array.isArray(data.printers) ? data.printers : [],
+          profiles: Array.isArray(data.profiles) ? data.profiles : [],
+          loading: false,
+          loaded: true,
+          error: null,
+        });
+      } catch (error) {
+        setPrinterInventory((prev) => ({
+          ...prev,
+          loading: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'حدث خطأ أثناء تحميل بيانات الطابعات',
+        }));
+      }
+    },
+    []
+  );
+
+  const ensurePrinterInventory = useCallback(() => {
+    loadPrinterInventory(false);
+  }, [loadPrinterInventory]);
+
+  const refreshPrinterInventory = useCallback(() => {
+    loadPrinterInventory(true);
+  }, [loadPrinterInventory]);
+
+  const printerOptions = useMemo(() => {
+    const options: PrinterOption[] = [];
+    const mapped = new Set<number>();
+    const printersById = new Map(printerInventory.printers.map((printer) => [printer.id, printer]));
+
+    printerInventory.profiles.forEach((profile) => {
+      const printer = printersById.get(profile.printerId);
+      options.push({
+        id: profile.printerId,
+        label: profile.label,
+        description:
+          profile.location || printer?.computer?.name || printer?.computer?.hostname || undefined,
+        paperName: profile.paperName || printer?.default?.paperName || printer?.default?.paper,
+        location: profile.location,
+        notes: profile.notes || undefined,
+        source: 'profile',
+        state: printer?.state,
+        computerId: printer?.computer?.id,
+        computerName: printer?.computer?.name || printer?.computer?.hostname,
+        printerName: profile.label || printer?.name,
+      });
+      mapped.add(profile.printerId);
+    });
+
+    printerInventory.printers.forEach((printer) => {
+      if (mapped.has(printer.id)) {
+        return;
+      }
+      options.push({
+        id: printer.id,
+        label: printer.name,
+        description: printer.description || printer.computer?.name || printer.computer?.hostname,
+        paperName: printer.default?.paperName || printer.default?.paper,
+        source: 'printnode',
+        state: printer.state,
+        computerId: printer.computer?.id,
+        computerName: printer.computer?.name || printer.computer?.hostname,
+        printerName: printer.name,
+      });
+    });
+
+    return options.sort((a, b) => a.label.localeCompare(b.label, 'ar')); // Arabic locale keeps original order readable
+  }, [printerInventory]);
+
+  const getPrinterMeta = useCallback(
+    (printerId: number) => {
+      const option = printerOptions.find((printer) => printer.id === printerId);
+      if (!option) {
+        return null;
+      }
+      return {
+        printerName: option.printerName || option.label,
+        paperName: option.paperName,
+        computerId: option.computerId,
+        computerName: option.computerName,
+      };
+    },
+    [printerOptions]
+  );
+
+  const openPrinterDialog = useCallback(
+    (user: OrderUser) => {
+      setPrinterDialog({
+        open: true,
+        user,
+        selectedPrinterId: user.printerLink?.printerId ?? null,
+        saving: false,
+        unlinking: false,
+        error: null,
+      });
+      ensurePrinterInventory();
+    },
+    [ensurePrinterInventory]
+  );
+
+  const closePrinterDialog = useCallback(() => {
+    setPrinterDialog({
+      open: false,
+      user: null,
+      selectedPrinterId: null,
+      saving: false,
+      unlinking: false,
+      error: null,
+    });
+  }, []);
+
+  const updateUserPrinterLink = useCallback((userId: string, link: PrinterLinkInfo | null) => {
+    setUsers((prev) =>
+      prev.map((user) => (user.id === userId ? { ...user, printerLink: link } : user))
+    );
+  }, []);
+
+  const handlePrinterSelection = useCallback((printerId: number) => {
+    setPrinterDialog((prev) => ({ ...prev, selectedPrinterId: printerId, error: null }));
+  }, []);
+
+  const handleSavePrinterLink = useCallback(async () => {
+    if (!printerDialog.user || printerDialog.selectedPrinterId === null) {
+      setPrinterDialog((prev) => ({
+        ...prev,
+        error: 'يرجى اختيار طابعة قبل الحفظ',
+      }));
+      return;
+    }
+
+    const printerMeta = getPrinterMeta(printerDialog.selectedPrinterId);
+    setPrinterDialog((prev) => ({ ...prev, saving: true, error: null }));
+
+    try {
+      const response = await fetch('/api/order-prep/printer-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: printerDialog.user.id,
+          printerId: printerDialog.selectedPrinterId,
+          printerName: printerMeta?.printerName,
+          paperName: printerMeta?.paperName,
+          computerId: printerMeta?.computerId,
+          computerName: printerMeta?.computerName,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'فشل حفظ ربط الطابعة');
+      }
+
+      updateUserPrinterLink(printerDialog.user.id, {
+        printerId: data.link?.printerId ?? printerDialog.selectedPrinterId,
+        printerName: data.link?.printerName ?? printerMeta?.printerName ?? null,
+        computerId: data.link?.computerId ?? printerMeta?.computerId ?? null,
+        computerName: data.link?.computerName ?? printerMeta?.computerName ?? null,
+        paperName: data.link?.paperName ?? printerMeta?.paperName ?? null,
+      });
+
+      alert('تم تحديث الطابعة بنجاح للمستخدم المحدد');
+      closePrinterDialog();
+    } catch (error) {
+      setPrinterDialog((prev) => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'فشل حفظ ربط الطابعة',
+      }));
+    } finally {
+      setPrinterDialog((prev) => ({ ...prev, saving: false }));
+    }
+  }, [closePrinterDialog, getPrinterMeta, printerDialog, updateUserPrinterLink]);
+
+  const handleUnlinkPrinter = useCallback(async () => {
+    if (!printerDialog.user) {
+      return;
+    }
+
+    setPrinterDialog((prev) => ({ ...prev, unlinking: true, error: null }));
+
+    try {
+      const response = await fetch(`/api/order-prep/printer-links?userId=${printerDialog.user.id}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'فشل إزالة الربط');
+      }
+
+      updateUserPrinterLink(printerDialog.user.id, null);
+      alert('تم إزالة ربط الطابعة');
+      closePrinterDialog();
+    } catch (error) {
+      setPrinterDialog((prev) => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'تعذر إزالة الربط',
+      }));
+    } finally {
+      setPrinterDialog((prev) => ({ ...prev, unlinking: false }));
+    }
+  }, [closePrinterDialog, printerDialog.user, updateUserPrinterLink]);
 
   const selectedServiceRoles = useMemo(
     () => getRolesFromServiceKeys(formData.serviceKeys),
@@ -433,10 +729,11 @@ export default function OrderUsersManagementPage() {
   }, [users]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 pb-16">
-      <AppNavbar title="إدارة مستخدمي الطلبات" subtitle="إنشاء وإدارة حسابات الموظفين" />
+    <>
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 pb-16">
+        <AppNavbar title="إدارة مستخدمي الطلبات" subtitle="إنشاء وإدارة حسابات الموظفين" />
 
-      <div className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 text-slate-900">
+        <div className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 text-slate-900">
         <section className="mb-10 grid gap-6 lg:grid-cols-[minmax(0,1.9fr),minmax(0,1.1fr)]">
           <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-900 via-indigo-700 to-slate-900 p-8 text-white shadow-2xl shadow-indigo-900/40">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#ffffff22,transparent_60%)]" />
@@ -1028,6 +1325,45 @@ export default function OrderUsersManagementPage() {
                                     </p>
                                   </div>
                                 )}
+                                <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm">
+                                  <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                      <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                        <Printer className="h-4 w-4 text-indigo-500" />
+                                        طابعة الشحن
+                                      </p>
+                                      {user.printerLink ? (
+                                        <div className="mt-1 space-y-1 text-xs text-slate-600">
+                                          <p className="font-medium text-slate-800">
+                                            {user.printerLink.printerName || `معرف ${user.printerLink.printerId}`}
+                                          </p>
+                                          {user.printerLink.computerName && (
+                                            <p className="text-slate-500">
+                                              على: {user.printerLink.computerName}
+                                            </p>
+                                          )}
+                                          {user.printerLink.paperName && (
+                                            <p className="text-slate-500">
+                                              الورق: {user.printerLink.paperName}
+                                            </p>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="mt-1 text-xs text-slate-500">
+                                          لم يتم ربط طابعة لهذا المستخدم بعد.
+                                        </p>
+                                      )}
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      onClick={() => openPrinterDialog(user)}
+                                      className="rounded-2xl border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                                    >
+                                      {user.printerLink ? 'تحديث الطابعة' : 'ربط طابعة'}
+                                    </Button>
+                                  </div>
+                                </div>
                                 {!hasOrdersRole && !hasWarehouseRole && !hasAccountantRole && (
                                   <p className="text-slate-500">
                                     {serviceBadges.length > 0
@@ -1075,7 +1411,159 @@ export default function OrderUsersManagementPage() {
             )}
           </>
         )}
+        </div>
       </div>
-    </div>
+
+      {printerDialog.open && printerDialog.user && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
+          <div className="absolute inset-0 bg-slate-900/70" aria-hidden="true" />
+          <div className="relative z-10 w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl shadow-slate-900/30">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">ربط الطابعة للمستخدم</p>
+                <p className="text-2xl font-semibold text-slate-900">{printerDialog.user.name}</p>
+                <p className="text-sm text-slate-500">@{printerDialog.user.username}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={refreshPrinterInventory}
+                  disabled={printerInventory.loading}
+                  className="rounded-2xl border-slate-200"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  تحديث القائمة
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={closePrinterDialog}
+                  disabled={printerDialog.saving || printerDialog.unlinking}
+                  className="rounded-2xl text-slate-600 hover:text-slate-900"
+                >
+                  إغلاق
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {printerInventory.error && (
+                <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
+                  <p className="font-semibold">تعذر تحميل بيانات الطابعات</p>
+                  <p>{printerInventory.error}</p>
+                </div>
+              )}
+
+              {printerInventory.loading ? (
+                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-slate-500">
+                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-500" />
+                  <p>جاري تحميل قائمة الطابعات...</p>
+                </div>
+              ) : (
+                <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
+                  {printerOptions.length === 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-6 text-center text-sm text-slate-500">
+                      لا توجد طابعات متاحة حالياً. تأكد من اتصال PrintNode ثم حاول مرة أخرى.
+                    </div>
+                  )}
+                  {printerOptions.map((option) => {
+                    const isSelected = printerDialog.selectedPrinterId === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => handlePrinterSelection(option.id)}
+                        className={`w-full rounded-2xl border px-4 py-3 text-right transition hover:shadow-lg ${
+                          isSelected
+                            ? 'border-indigo-400 bg-indigo-50'
+                            : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-base font-semibold text-slate-900">{option.label}</p>
+                            {option.description && (
+                              <p className="text-xs text-slate-500">{option.description}</p>
+                            )}
+                            {option.paperName && (
+                              <p className="text-xs text-slate-500">الورق: {option.paperName}</p>
+                            )}
+                            {option.notes && (
+                              <p className="text-xs text-slate-500">ملاحظات: {option.notes}</p>
+                            )}
+                          </div>
+                          <div className="text-left">
+                            <span
+                              className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                option.source === 'profile'
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {option.source === 'profile' ? 'تكوين مخصص' : 'PrintNode'}
+                            </span>
+                            {option.state && (
+                              <p
+                                className={`mt-1 text-xs font-semibold ${
+                                  option.state === 'online'
+                                    ? 'text-emerald-600'
+                                    : option.state === 'disconnected'
+                                      ? 'text-rose-600'
+                                      : 'text-slate-500'
+                                }`}
+                              >
+                                الحالة: {option.state}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {printerDialog.error && (
+                <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
+                  {printerDialog.error}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  onClick={handleSavePrinterLink}
+                  disabled={printerDialog.saving || printerDialog.selectedPrinterId === null}
+                  className="rounded-2xl px-6 py-5"
+                >
+                  {printerDialog.saving ? 'جاري الحفظ...' : 'حفظ ربط الطابعة'}
+                </Button>
+                {printerDialog.user.printerLink && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleUnlinkPrinter}
+                    disabled={printerDialog.unlinking}
+                    className="rounded-2xl border-rose-200 px-6 py-5 text-rose-600 hover:bg-rose-50"
+                  >
+                    {printerDialog.unlinking ? 'جاري الإزالة...' : 'إزالة الربط الحالي'}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={closePrinterDialog}
+                  disabled={printerDialog.saving || printerDialog.unlinking}
+                  className="rounded-2xl px-6 py-5 text-slate-600 hover:text-slate-900"
+                >
+                  إلغاء
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

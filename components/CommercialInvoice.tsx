@@ -1,4 +1,5 @@
 import React from 'react';
+import { applyCommercialInvoiceDeclaredValue } from '@/lib/commercial-invoice-valuation';
 
 interface CommercialInvoiceProps {
   orderData: any;
@@ -66,6 +67,9 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
     const subtotal = getNumberValue(amounts.sub_total?.amount);
     const shipping = getNumberValue(amounts.shipping_cost?.amount);
     const total = getNumberValue(amounts.total?.amount);
+    const declaredSubtotal = applyCommercialInvoiceDeclaredValue(subtotal);
+    const declaredShipping = applyCommercialInvoiceDeclaredValue(shipping);
+    const declaredTotal = applyCommercialInvoiceDeclaredValue(total);
     const currency = getStringValue(amounts.total?.currency) || 'SAR';
 
     const currentDate = new Date().toLocaleDateString('en-GB');
@@ -142,6 +146,8 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
                 const quantity = getNumberValue(item.quantity);
                 const unitPrice = getNumberValue(item.amounts?.price_without_tax?.amount || item.amounts?.price?.amount);
                 const itemTotal = getNumberValue(item.amounts?.total_without_tax?.amount || item.amounts?.total?.amount);
+                const declaredUnitPrice = applyCommercialInvoiceDeclaredValue(unitPrice);
+                const declaredItemTotal = applyCommercialInvoiceDeclaredValue(itemTotal);
                 const itemCurrency = getStringValue(item.amounts?.price_without_tax?.currency || item.amounts?.price?.currency) || currency;
 
                 // Translate Arabic product names to English
@@ -177,9 +183,9 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
                     <td className="border border-black p-2">{description}</td>
                     <td className="border border-black p-2 text-center">{quantity}</td>
                     <td className="border border-black p-2 text-center">PCS</td>
-                    <td className="border border-black p-2 text-right">{unitPrice.toFixed(2)}</td>
+                    <td className="border border-black p-2 text-right">{declaredUnitPrice.toFixed(2)}</td>
                     <td className="border border-black p-2 text-center">{itemCurrency}</td>
-                    <td className="border border-black p-2 text-right">{itemTotal.toFixed(2)}</td>
+                    <td className="border border-black p-2 text-right">{declaredItemTotal.toFixed(2)}</td>
                   </tr>
                 );
               })}
@@ -192,14 +198,14 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
           <div className="w-1/2">
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div className="text-right font-bold">Subtotal:</div>
-              <div className="text-right border-b border-gray-400">{subtotal.toFixed(2)} {currency}</div>
+              <div className="text-right border-b border-gray-400">{declaredSubtotal.toFixed(2)} {currency}</div>
 
               <div className="text-right font-bold">Shipping:</div>
-              <div className="text-right border-b border-gray-400">{shipping.toFixed(2)} {currency}</div>
+              <div className="text-right border-b border-gray-400">{declaredShipping.toFixed(2)} {currency}</div>
 
               <div className="text-right font-bold text-lg pt-2">TOTAL:</div>
               <div className="text-right font-bold text-lg pt-2 border-t-2 border-black">
-                {total.toFixed(2)} {currency}
+                {declaredTotal.toFixed(2)} {currency}
               </div>
             </div>
           </div>

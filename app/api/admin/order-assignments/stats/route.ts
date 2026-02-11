@@ -4,6 +4,10 @@ import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
+const UNDER_REVIEW_STATUS_IDS = new Set(['1065456688', '1882207425', '2046404155']);
+const RESERVATION_STATUS_IDS = new Set(['1576217163']);
+const SHIPPED_STATUS_ID = '165947469';
+
 /**
  * GET /api/admin/order-assignments/stats
  * Get statistics for order assignments
@@ -99,13 +103,13 @@ export async function GET() {
         if (assignment.completedAt) {
           summary.completed++;
         }
-        if (assignment.sallaStatus === '1065456688') {
+        if (assignment.sallaStatus && UNDER_REVIEW_STATUS_IDS.has(assignment.sallaStatus)) {
           summary.underReview++;
         }
-        if (assignment.sallaStatus === '1576217163') {
+        if (assignment.sallaStatus && RESERVATION_STATUS_IDS.has(assignment.sallaStatus)) {
           summary.reservation++;
         }
-        if (assignment.sallaStatus === '165947469') {
+        if (assignment.sallaStatus === SHIPPED_STATUS_ID) {
           summary.shipped++;
         }
 
@@ -132,10 +136,10 @@ export async function GET() {
         if (assignment.completedAt) {
           userStats.completed++;
         }
-        if (assignment.sallaStatus === '1065456688') {
+        if (assignment.sallaStatus && UNDER_REVIEW_STATUS_IDS.has(assignment.sallaStatus)) {
           userStats.underReview++;
         }
-        if (assignment.sallaStatus === '1576217163') {
+        if (assignment.sallaStatus && RESERVATION_STATUS_IDS.has(assignment.sallaStatus)) {
           userStats.reservation++;
         }
       });

@@ -11,6 +11,7 @@ import {
   Home,
   IdCard,
   LogOut,
+  Printer,
   Search,
   Sparkles,
   Users,
@@ -106,6 +107,13 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
             label: 'إدارة المستخدمين',
             href: '/order-users-management',
             icon: Users,
+            iconOnly: true,
+          },
+          {
+            key: 'printer-settings',
+            label: 'إعدادات الطابعات',
+            href: '/printer-settings',
+            icon: Printer,
             iconOnly: true,
           },
         ]

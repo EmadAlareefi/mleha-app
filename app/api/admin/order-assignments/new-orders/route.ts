@@ -20,6 +20,7 @@ const TARGET_NEW_ORDER_STATUS_IDS = [
   '1065456688', // تحت المراجعة ع
   '1576217163', // تحت المراجعة حجز قطع
   '1882207425', // تحت المراجعة ا
+  '2046404155', // غير متوفر (ارجاع مبلغ)
 ];
 
 const TARGET_STATUS_FALLBACK_NAMES: Record<string, string> = {
@@ -27,6 +28,7 @@ const TARGET_STATUS_FALLBACK_NAMES: Record<string, string> = {
   '1065456688': 'تحت المراجعة ع',
   '1576217163': 'تحت المراجعة حجز قطع',
   '1882207425': 'تحت المراجعة ا',
+  '2046404155': 'غير متوفر (ارجاع مبلغ)',
 };
 
 type AssignmentWithUser = Awaited<ReturnType<typeof prisma.orderAssignment.findMany>>[number] & {

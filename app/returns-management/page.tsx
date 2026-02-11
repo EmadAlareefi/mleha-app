@@ -929,8 +929,12 @@ export default function ReturnsManagementPage() {
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
                   variant="outline"
+                  className="flex flex-col items-center leading-tight"
                 >
-                  السابق
+                  <span>السابق</span>
+                  {page > 1 && (
+                    <span className="text-xs text-muted-foreground">صفحة {page - 1}</span>
+                  )}
                 </Button>
                 <div className="flex items-center gap-2 px-4">
                   <span className="text-sm">
@@ -941,8 +945,12 @@ export default function ReturnsManagementPage() {
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
                   variant="outline"
+                  className="flex flex-col items-center leading-tight"
                 >
-                  التالي
+                  <span>التالي</span>
+                  {page < totalPages && (
+                    <span className="text-xs text-muted-foreground">صفحة {page + 1}</span>
+                  )}
                 </Button>
               </div>
             )}

@@ -7,7 +7,7 @@ import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses
 export const runtime = 'nodejs';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
-const RELEASE_STATUS_IDS = new Set(['1065456688', '1576217163']);
+const RELEASE_STATUS_IDS = new Set(['1065456688', '1576217163', '1882207425', '2046404155']);
 
 /**
  * POST /api/order-assignments/auto-assign

@@ -26,6 +26,12 @@ interface OrderAssignment {
   completedAt: string | null;
   orderData: any;
   notes?: string;
+  assignmentState?: AssignmentState;
+  isHighPriority?: boolean;
+  priorityId?: string | null;
+  priorityReason?: string | null;
+  priorityNotes?: string | null;
+  priorityCreatedAt?: string | null;
 }
 
 interface StatsByUser {
@@ -54,6 +60,16 @@ interface Stats {
 }
 
 type AssignmentState = 'new' | 'assigned';
+
+type PriorityToggleOrder = {
+  id: string | null | undefined;
+  orderNumber: string | null | undefined;
+  assignmentState?: AssignmentState;
+  isHighPriority?: boolean;
+  priorityId?: string | null;
+  customerName?: string | null;
+  statusLabel?: string | null;
+};
 
 interface LiveSallaOrder {
   id: string | null;
@@ -142,6 +158,12 @@ const NEW_ORDER_STATUS_COLUMNS = [
     fallbackName: 'تحت المراجعة ا',
     description: 'مراجعة متقدمة من الفريق',
     pillAccentClass: 'border-blue-200',
+  },
+  {
+    id: '2046404155',
+    fallbackName: 'غير متوفر (ارجاع مبلغ)',
+    description: 'حالات استرداد بسبب عدم توفر المنتج',
+    pillAccentClass: 'border-rose-200',
   },
 ] as const;
 
@@ -425,22 +447,38 @@ export default function AdminOrderPrepPage() {
   }, [autoRefresh, isAuthenticated, refreshAll]);
 
   const handleTogglePriority = useCallback(
-    async (order: LiveSallaOrder) => {
-      const identifier = order.id || order.orderNumber;
-      if (!identifier || !order.id) {
+    async (order: PriorityToggleOrder) => {
+      const orderId = order.id;
+      const identifier = orderId || order.orderNumber;
+      if (!identifier || !orderId) {
         alert('لا يمكن تحديد رقم الطلب لإدارة الأولوية.');
         return;
       }
-      if (order.assignmentState !== 'new') {
+      const assignmentState = order.assignmentState || 'assigned';
+      if (assignmentState !== 'new') {
         alert('يمكن تمييز الطلبات غير المعينة فقط كأولوية.');
         return;
       }
+
+      const shouldUpdateSearchResult = (candidate: OrderAssignment | null) => {
+        if (!candidate) {
+          return false;
+        }
+        const candidateKeys = [
+          candidate.orderId,
+          candidate.orderNumber,
+          candidate.id,
+        ].filter(Boolean);
+        const targetKeys = [orderId, order.orderNumber].filter(Boolean);
+        return candidateKeys.some((value) => targetKeys.includes(value));
+      };
+
       setPriorityUpdatingId(identifier);
       try {
         if (order.isHighPriority) {
           const query = order.priorityId
             ? `id=${encodeURIComponent(order.priorityId)}`
-            : `orderId=${encodeURIComponent(order.id)}`;
+            : `orderId=${encodeURIComponent(orderId)}`;
           const response = await fetch(`/api/admin/order-assignments/high-priority?${query}`, {
             method: 'DELETE',
           });
@@ -448,13 +486,26 @@ export default function AdminOrderPrepPage() {
           if (!response.ok || data?.error) {
             throw new Error(data?.error || 'فشل إزالة الطلب من قائمة الأولوية');
           }
+          setOrderSearchResult((previous) => {
+            if (!previous || !shouldUpdateSearchResult(previous)) {
+              return previous;
+            }
+            return {
+              ...previous,
+              isHighPriority: false,
+              priorityId: null,
+              priorityReason: null,
+              priorityNotes: null,
+              priorityCreatedAt: null,
+            };
+          });
         } else {
           const response = await fetch('/api/admin/order-assignments/high-priority', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              orderId: order.id,
-              orderNumber: order.orderNumber || order.id,
+              orderId: orderId,
+              orderNumber: order.orderNumber || orderId,
               customerName: order.customerName,
               reason: 'تم تحديده من لوحة إدارة التحضير',
               notes: order.statusLabel ? `الحالة الحالية: ${order.statusLabel}` : undefined,
@@ -464,6 +515,19 @@ export default function AdminOrderPrepPage() {
           if (!response.ok || data?.error) {
             throw new Error(data?.error || 'فشل حفظ الطلب في قائمة الأولوية');
           }
+          setOrderSearchResult((previous) => {
+            if (!previous || !shouldUpdateSearchResult(previous)) {
+              return previous;
+            }
+            return {
+              ...previous,
+              isHighPriority: true,
+              priorityId: data.priority?.id || previous.priorityId || null,
+              priorityReason: data.priority?.reason || previous.priorityReason || null,
+              priorityNotes: data.priority?.notes || previous.priorityNotes || null,
+              priorityCreatedAt: data.priority?.createdAt || previous.priorityCreatedAt || null,
+            };
+          });
         }
         await loadLiveOrders();
       } catch (error) {
@@ -745,6 +809,26 @@ export default function AdminOrderPrepPage() {
     }
     return orderSearchResult.orderData.items.length;
   }, [orderSearchResult]);
+  const searchPriorityMeta = useMemo(() => {
+    if (!orderSearchResult) {
+      return null;
+    }
+    const identifier =
+      orderSearchResult.orderId ||
+      orderSearchResult.orderNumber ||
+      orderSearchResult.id ||
+      null;
+    const assignmentState = orderSearchResult.assignmentState || 'assigned';
+    return {
+      identifier,
+      assignmentState,
+      disabled: assignmentState !== 'new',
+      label: orderSearchResult.isHighPriority ? 'أولوية فعّالة' : 'أولوية',
+    };
+  }, [orderSearchResult]);
+  const isSearchPriorityUpdating =
+    Boolean(searchPriorityMeta?.identifier) &&
+    searchPriorityMeta?.identifier === priorityUpdatingId;
 
   if (status === 'loading') {
     return (
@@ -887,6 +971,55 @@ export default function AdminOrderPrepPage() {
                     </p>
                   </div>
                 </div>
+                {searchPriorityMeta && (
+                  <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/70 p-3 text-sm text-amber-900">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-semibold">أولوية التحضير</p>
+                        <p className="text-[12px] text-amber-800">
+                          {searchPriorityMeta.disabled
+                            ? 'يمكن تمييز الطلبات غير المعينة فقط كأولوية'
+                            : 'حدد الطلب لدفعه إلى مقدمة طابور التحضير'}
+                        </p>
+                      </div>
+                      <label
+                        className={`inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/70 px-3 py-1.5 text-[13px] font-medium text-amber-800 shadow-sm transition
+                          ${searchPriorityMeta.disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-amber-100'}
+                        `}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                          checked={Boolean(orderSearchResult.isHighPriority)}
+                          disabled={searchPriorityMeta.disabled || isSearchPriorityUpdating}
+                          onChange={() =>
+                            handleTogglePriority({
+                              id: orderSearchResult.orderId,
+                              orderNumber: orderSearchResult.orderNumber,
+                              assignmentState: orderSearchResult.assignmentState,
+                              isHighPriority: orderSearchResult.isHighPriority,
+                              priorityId: orderSearchResult.priorityId,
+                              customerName: searchedCustomerName || undefined,
+                              statusLabel: orderSearchResult.status,
+                            })
+                          }
+                        />
+                        <span>{isSearchPriorityUpdating ? 'جارٍ التحديث...' : searchPriorityMeta.label}</span>
+                      </label>
+                    </div>
+                    {orderSearchResult.isHighPriority && (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-[12px] text-amber-800">
+                        <p className="font-semibold">⚡ طلب مميز</p>
+                        <p>{orderSearchResult.priorityReason || 'سيتم دفع الطلب في أول قائمة التحضير.'}</p>
+                        {orderSearchResult.priorityCreatedAt && (
+                          <p className="text-amber-600/80">
+                            تم التفعيل في {formatDate(orderSearchResult.priorityCreatedAt)}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {orderSearchResult.notes && (
                   <div className="mt-4 rounded-xl bg-emerald-50/70 px-3 py-2 text-sm text-gray-700">
                     <p className="text-xs text-gray-500 mb-1">ملاحظات</p>

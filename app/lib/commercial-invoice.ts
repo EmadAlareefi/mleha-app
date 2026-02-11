@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { applyCommercialInvoiceDeclaredValue } from '@/lib/commercial-invoice-valuation';
 
 const SAUDI_CODES = ['SA', 'SAU', 'SAUDI ARABIA', 'السعودية', 'المملكة العربية السعودية'];
 const SHIPPER_INFO = [
@@ -179,6 +180,9 @@ export async function generateCommercialInvoicePdf(orderData: any, orderNumber: 
   const subtotal = getNumberValue(amounts.sub_total?.amount);
   const shipping = getNumberValue(amounts.shipping_cost?.amount);
   const total = getNumberValue(amounts.total?.amount);
+  const declaredSubtotal = applyCommercialInvoiceDeclaredValue(subtotal);
+  const declaredShipping = applyCommercialInvoiceDeclaredValue(shipping);
+  const declaredTotal = applyCommercialInvoiceDeclaredValue(total);
   const currency = getStringValue(amounts.total?.currency) || 'SAR';
   const currentDate = new Date().toLocaleDateString('en-GB');
 
@@ -290,6 +294,8 @@ export async function generateCommercialInvoicePdf(orderData: any, orderNumber: 
       const quantity = getNumberValue(item.quantity);
       const unitPrice = getNumberValue(item.amounts?.price_without_tax?.amount || item.amounts?.price?.amount);
       const itemTotal = getNumberValue(item.amounts?.total_without_tax?.amount || item.amounts?.total?.amount);
+      const declaredUnitPrice = applyCommercialInvoiceDeclaredValue(unitPrice);
+      const declaredItemTotal = applyCommercialInvoiceDeclaredValue(itemTotal);
       const itemCurrency = getStringValue(
         item.amounts?.price_without_tax?.currency || item.amounts?.price?.currency || currency
       ) || currency;
@@ -314,9 +320,9 @@ export async function generateCommercialInvoicePdf(orderData: any, orderNumber: 
           description,
           quantity ? String(quantity) : '0',
           'PCS',
-          unitPrice ? unitPrice.toFixed(2) : '0.00',
+          declaredUnitPrice ? declaredUnitPrice.toFixed(2) : '0.00',
           itemCurrency,
-          itemTotal ? itemTotal.toFixed(2) : '0.00',
+          declaredItemTotal ? declaredItemTotal.toFixed(2) : '0.00',
         ]),
         { size: 9 }
       );
@@ -324,9 +330,9 @@ export async function generateCommercialInvoicePdf(orderData: any, orderNumber: 
   }
 
   moveToNextLine(18);
-  drawText(`Subtotal: ${subtotal.toFixed(2)} ${currency}`, { bold: true });
-  drawText(`Shipping: ${shipping.toFixed(2)} ${currency}`, { bold: true });
-  drawText(`TOTAL: ${total.toFixed(2)} ${currency}`, { bold: true, size: 12 });
+  drawText(`Subtotal: ${declaredSubtotal.toFixed(2)} ${currency}`, { bold: true });
+  drawText(`Shipping: ${declaredShipping.toFixed(2)} ${currency}`, { bold: true });
+  drawText(`TOTAL: ${declaredTotal.toFixed(2)} ${currency}`, { bold: true, size: 12 });
 
   moveToNextLine(20);
   drawText('I declare that the information contained in this invoice is true and correct.', { size: 10 });

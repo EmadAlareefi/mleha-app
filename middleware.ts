@@ -38,7 +38,10 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     [/^\/admin\/order-prep(\/.*)?$/, /^\/api\/admin\/order-assignments(\/.*)?$/],
   ],
   ['warehouse', [/^\/warehouse(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
-  ['local-shipping', [/^\/local-shipping(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
+  [
+    'local-shipping',
+    [/^\/local-shipping(\/.*)?$/, /^\/api\/local-shipping(\/.*)?$/, /^\/api\/shipments(\/.*)?$/],
+  ],
   ['warehouse-locations', [/^\/warehouse-locations(\/.*)?$/]],
   [
     'search-update-stock',
@@ -54,6 +57,10 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   [
     'delivery-agent-tasks',
     [/^\/delivery-agent-tasks(\/.*)?$/, /^\/api\/delivery-agent-tasks(\/.*)?$/, /^\/api\/delivery-agents(\/.*)?$/],
+  ],
+  [
+    'delivery-agent-wallets',
+    [/^\/delivery-agent-wallets(\/.*)?$/, /^\/api\/delivery-agent-wallets(\/.*)?$/],
   ],
   ['order-invoice-search', [/^\/order-invoice-search(\/.*)?$/]],
   ['cod-tracker', [/^\/cod-tracker(\/.*)?$/]],

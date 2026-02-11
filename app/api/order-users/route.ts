@@ -155,6 +155,15 @@ export async function GET() {
           serviceKey: true,
         },
       },
+      printerLink: {
+        select: {
+          printerId: true,
+          printerName: true,
+          computerId: true,
+          computerName: true,
+          paperName: true,
+        },
+      },
     };
 
     if (warehousesAvailable) {
@@ -176,7 +185,7 @@ export async function GET() {
       success: true,
       warehousesSupported: warehousesAvailable,
       users: users.map((user: any) => {
-        const { warehouseAssignments, assignments, servicePermissions, ...rest } = user;
+        const { warehouseAssignments, assignments, servicePermissions, printerLink, ...rest } = user;
 
         const resolvedServiceKeys = (servicePermissions || []).map(
           (permission: any) => permission.serviceKey as ServiceKey
@@ -193,6 +202,15 @@ export async function GET() {
           warehouses: warehousesAvailable
             ? serializeWarehouses(warehouseAssignments)
             : [],
+          printerLink: printerLink
+            ? {
+                printerId: printerLink.printerId,
+                printerName: printerLink.printerName,
+                computerId: printerLink.computerId,
+                computerName: printerLink.computerName,
+                paperName: printerLink.paperName,
+              }
+            : null,
         };
       }),
     });

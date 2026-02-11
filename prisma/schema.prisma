@@ -525,6 +525,8 @@ model OrderUser {
   recognitions         UserRecognition[]
   deliveryTasks        DeliveryAgentTask[] @relation("DeliveryAgentTasks")
   createdDeliveryTasks DeliveryAgentTask[] @relation("CreatedDeliveryAgentTasks")
+  walletTransactions   DeliveryAgentWalletTransaction[] @relation("AgentWalletTransactions")
+  walletTransactionsCreated DeliveryAgentWalletTransaction[] @relation("WalletTransactionsCreated")
 
   @@index([username])
   @@index([isActive])
@@ -561,6 +563,17 @@ model OrderUserPrinterLink {
   updatedAt     DateTime @updatedAt
 
   user OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PrinterProfile {
+  id         String   @id @default(cuid())
+  printerId  Int      @unique
+  label      String
+  location   String?
+  paperName  String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 // New table for multiple role support
@@ -904,4 +917,33 @@ model DeliveryAgentTask {
   @@index([createdById])
   @@index([status])
   @@index([dueDate])
+}
+
+enum DeliveryAgentWalletTransactionType {
+  SHIPMENT_COMPLETED
+  TASK_COMPLETED
+  PAYOUT
+  ADJUSTMENT
+}
+
+model DeliveryAgentWalletTransaction {
+  id              String                              @id @default(cuid())
+  deliveryAgentId String
+  deliveryAgent   OrderUser                           @relation("AgentWalletTransactions", fields: [deliveryAgentId], references: [id], onDelete: Cascade)
+
+  type        DeliveryAgentWalletTransactionType
+  amount      Decimal                                 @db.Decimal(10, 2)
+  referenceId String?
+  referenceType String?
+  notes       String?                                 @db.Text
+  metadata    Json?
+
+  createdAt    DateTime  @default(now())
+  createdById  String?
+  createdByName String?
+  createdBy     OrderUser? @relation("WalletTransactionsCreated", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([referenceType, referenceId])
+  @@index([deliveryAgentId])
+  @@index([type])
 }
