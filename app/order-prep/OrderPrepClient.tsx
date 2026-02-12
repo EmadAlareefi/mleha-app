@@ -990,15 +990,25 @@ const isLikelyLineItem = (value: unknown): boolean => {
     return false;
   }
   const object = value as Record<string, unknown>;
-  return (
-    typeof object.name === 'string' ||
+  const hasName = typeof object.name === 'string' || typeof object.title === 'string';
+  const hasSku =
     typeof object.sku === 'string' ||
-    typeof object.quantity === 'number' ||
+    typeof (object.product as Record<string, unknown> | undefined)?.sku === 'string' ||
+    typeof object.code === 'string';
+  const rawQuantity = object.quantity ?? (object.qty as unknown);
+  const quantity =
+    typeof rawQuantity === 'number'
+      ? rawQuantity
+      : typeof rawQuantity === 'string'
+        ? Number.parseFloat(rawQuantity)
+        : null;
+  const hasQuantity = typeof quantity === 'number' && Number.isFinite(quantity) && quantity > 0;
+  const hasProduct =
     isPlainObject(object.product) ||
     isPlainObject(object.variant) ||
     Array.isArray(object.options) ||
-    Array.isArray(object.images)
-  );
+    Array.isArray(object.images);
+  return (hasQuantity && (hasName || hasSku || hasProduct)) || (hasName && hasSku);
 };
 
 function resolveItemArray(source: unknown, depth = 0): any[] {
@@ -1075,20 +1085,20 @@ function resolveItemArray(source: unknown, depth = 0): any[] {
     }
   }
 
-  const values = Object.values(container);
-  if (values.length > 0) {
-    const flattened: any[] = [];
-    values.forEach((value) => {
-      if (Array.isArray(value) && value.length > 0) {
-        flattened.push(...value);
-      } else if (isPlainObject(value)) {
-        flattened.push(value);
-      }
-    });
-    const itemCandidates = flattened.filter(isLikelyLineItem);
-    if (itemCandidates.length > 0) {
-      return itemCandidates;
+  const flattened: any[] = [];
+  Object.values(container).forEach((value) => {
+    if (Array.isArray(value) && value.length > 0) {
+      value.forEach((entry) => {
+        if (isLikelyLineItem(entry)) {
+          flattened.push(entry);
+        }
+      });
+    } else if (isPlainObject(value) && isLikelyLineItem(value)) {
+      flattened.push(value);
     }
+  });
+  if (flattened.length > 0) {
+    return flattened;
   }
 
   return [];
