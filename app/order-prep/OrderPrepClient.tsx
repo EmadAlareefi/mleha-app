@@ -982,8 +982,27 @@ function AssignmentCard({
   );
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isLikelyLineItem = (value: unknown): boolean => {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  const object = value as Record<string, unknown>;
+  return (
+    typeof object.name === 'string' ||
+    typeof object.sku === 'string' ||
+    typeof object.quantity === 'number' ||
+    isPlainObject(object.product) ||
+    isPlainObject(object.variant) ||
+    Array.isArray(object.options) ||
+    Array.isArray(object.images)
+  );
+};
+
 function resolveItemArray(source: unknown, depth = 0): any[] {
-  if (source === null || source === undefined || depth > 6) {
+  if (source === null || source === undefined || depth > 8) {
     return [];
   }
 
@@ -1004,7 +1023,7 @@ function resolveItemArray(source: unknown, depth = 0): any[] {
     return [];
   }
 
-  if (typeof source !== 'object') {
+  if (!isPlainObject(source)) {
     return [];
   }
 
@@ -1016,6 +1035,7 @@ function resolveItemArray(source: unknown, depth = 0): any[] {
     'orderItems',
     'line_items',
     'lineItems',
+    'line_items_data',
     'orderLines',
     'order_lines',
     'products',
@@ -1052,6 +1072,22 @@ function resolveItemArray(source: unknown, depth = 0): any[] {
     const resolved = resolveItemArray(value, depth + 1);
     if (resolved.length > 0) {
       return resolved;
+    }
+  }
+
+  const values = Object.values(container);
+  if (values.length > 0) {
+    const flattened: any[] = [];
+    values.forEach((value) => {
+      if (Array.isArray(value) && value.length > 0) {
+        flattened.push(...value);
+      } else if (isPlainObject(value)) {
+        flattened.push(value);
+      }
+    });
+    const itemCandidates = flattened.filter(isLikelyLineItem);
+    if (itemCandidates.length > 0) {
+      return itemCandidates;
     }
   }
 
