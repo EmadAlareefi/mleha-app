@@ -982,12 +982,47 @@ function AssignmentCard({
   );
 }
 
+function resolveItemArray(source: unknown): any[] {
+  if (!source || (typeof source !== 'object' && !Array.isArray(source))) {
+    return [];
+  }
+
+  if (Array.isArray(source)) {
+    return source;
+  }
+
+  const container = source as Record<string, unknown>;
+  if (Array.isArray(container.data)) {
+    return container.data;
+  }
+  if (Array.isArray(container.items)) {
+    return container.items;
+  }
+
+  return [];
+}
+
 function getLineItems(order: any): LineItem[] {
-  const list = Array.isArray(order?.items)
-    ? order.items
-    : Array.isArray(order?.order?.items)
-    ? order.order.items
-    : [];
+  const candidates = [
+    order?.items,
+    order?.order?.items,
+    order?.orderItems,
+    order?.order_items,
+    order?.lineItems,
+    order?.line_items,
+    order?.cart?.items,
+    order?.order?.cart?.items,
+    order?.products,
+  ];
+
+  let list: any[] = [];
+  for (const candidate of candidates) {
+    const resolved = resolveItemArray(candidate);
+    if (resolved.length > 0) {
+      list = resolved;
+      break;
+    }
+  }
 
   return list.map((item: any): LineItem => {
     const image =
