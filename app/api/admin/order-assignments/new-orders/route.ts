@@ -415,7 +415,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limitParam = Number.parseInt(searchParams.get('limit') || '', 10);
     const limit = Number.isFinite(limitParam)
-      ? Math.min(Math.max(limitParam, 10), 100)
+      ? Math.min(Math.max(limitParam, 10), 500)
       : DEFAULT_LIMIT;
 
     const statuses = await getSallaOrderStatuses(MERCHANT_ID);
