@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         try {
           const updateUrl = `${baseUrl}/orders/${assignment.orderId}/status`;
           await fetch(updateUrl, {
-            method: 'PUT',
+            method: 'POST',
             headers: {
               'Authorization': `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
