@@ -355,7 +355,7 @@ export default function AdminOrderPrepPage() {
   const loadLiveOrders = useCallback(async () => {
     setLiveOrdersLoading(true);
     try {
-      const response = await fetch('/api/admin/order-assignments/new-orders?limit=60', {
+      const response = await fetch('/api/admin/order-assignments/new-orders?limit=300', {
         cache: 'no-store',
       });
       const rawBody = await response.text();
