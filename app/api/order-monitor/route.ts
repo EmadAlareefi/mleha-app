@@ -95,6 +95,27 @@ const maxTimestamp = (currentMs: number, nextDate: Date | null): number => {
   return Math.max(currentMs, nextMs);
 };
 
+const parseDateInput = (value: string | null, endOfDay = false): Date | null => {
+  if (!value) {
+    return null;
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const [, yearStr, monthStr, dayStr] = match;
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  if (endOfDay) {
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
+  return new Date(year, month - 1, day);
+};
+
 const buildAssignmentSearchFilters = (
   query: string,
 ): Prisma.OrderPrepAssignmentWhereInput[] => {
@@ -164,8 +185,13 @@ export async function GET(request: NextRequest) {
     );
     const daysParam = searchParams.get('days');
     const requestedMerchantId = searchParams.get('merchantId') || MERCHANT_ID;
+    const missingShipmentOnly = searchParams.get('missingShipment') === '1';
+    const statusFilter = (searchParams.get('prepStatus') || '').trim();
+    const startDate = parseDateInput(searchParams.get('startDate'), false);
+    const endDate = parseDateInput(searchParams.get('endDate'), true);
 
-    const resolvedDays = query
+    const useCustomDateRange = Boolean(startDate || endDate);
+    const resolvedDays = query || useCustomDateRange
       ? null
       : Math.max(1, Number.parseInt(daysParam || `${DEFAULT_DAYS}`, 10) || DEFAULT_DAYS);
     const sinceDate = resolvedDays ? new Date(Date.now() - resolvedDays * DAY_MS) : null;
@@ -173,7 +199,16 @@ export async function GET(request: NextRequest) {
     const assignmentWhere: Prisma.OrderPrepAssignmentWhereInput = {
       merchantId: requestedMerchantId,
     };
-    if (sinceDate) {
+    const assignmentDateFilter: Prisma.DateTimeFilter = {};
+    if (startDate) {
+      assignmentDateFilter.gte = startDate;
+    }
+    if (endDate) {
+      assignmentDateFilter.lte = endDate;
+    }
+    if (assignmentDateFilter.gte || assignmentDateFilter.lte) {
+      assignmentWhere.assignedAt = assignmentDateFilter;
+    } else if (sinceDate) {
       assignmentWhere.assignedAt = { gte: sinceDate };
     }
     if (query) {
@@ -181,6 +216,9 @@ export async function GET(request: NextRequest) {
       if (filters.length) {
         assignmentWhere.OR = filters;
       }
+    }
+    if (statusFilter) {
+      assignmentWhere.status = statusFilter;
     }
 
     const assignments = await prisma.orderPrepAssignment.findMany({
@@ -210,6 +248,15 @@ export async function GET(request: NextRequest) {
 
     const orderIds = assignments.map((assignment) => assignment.orderId);
 
+    const shipmentDateFilter: Prisma.DateTimeFilter = {};
+    if (startDate) {
+      shipmentDateFilter.gte = startDate;
+    }
+    if (endDate) {
+      shipmentDateFilter.lte = endDate;
+    }
+    const hasCustomDateFilter = Boolean(shipmentDateFilter.gte || shipmentDateFilter.lte);
+
     const shipmentWhere: Prisma.SallaShipmentWhereInput = {
       merchantId: requestedMerchantId,
     };
@@ -224,11 +271,14 @@ export async function GET(request: NextRequest) {
           { orderId: { in: orderIds } },
           { updatedAt: { gte: sinceDate } },
         ];
-      } else if (orderIds.length) {
+      } else if (orderIds.length && !hasCustomDateFilter) {
         shipmentWhere.orderId = { in: orderIds };
       } else if (sinceDate) {
         shipmentWhere.updatedAt = { gte: sinceDate };
       }
+    }
+    if (hasCustomDateFilter) {
+      shipmentWhere.updatedAt = shipmentDateFilter;
     }
 
     const shipments = await prisma.sallaShipment.findMany({
@@ -343,15 +393,29 @@ export async function GET(request: NextRequest) {
       recordMap.set(shipment.orderId, base);
     });
 
-    const mergedRecords = Array.from(recordMap.values())
+    let mergedRecords = Array.from(recordMap.values())
       .sort((a, b) => b._latestActivityMs - a._latestActivityMs)
-      .slice(0, limit)
       .map(({ _latestActivityMs, ...rest }) => ({
         ...rest,
         latestActivityAt:
           rest.latestActivityAt ??
           (_latestActivityMs > 0 ? new Date(_latestActivityMs).toISOString() : null),
       }));
+
+    if (statusFilter) {
+      mergedRecords = mergedRecords.filter((record) => record.prepStatus === statusFilter);
+    }
+    if (missingShipmentOnly) {
+      mergedRecords = mergedRecords.filter(
+        (record) =>
+          !record.shippingStatus &&
+          !record.trackingNumber &&
+          !record.labelUrl &&
+          !record.labelPrinted,
+      );
+    }
+
+    mergedRecords = mergedRecords.slice(0, limit);
 
     return NextResponse.json({
       success: true,

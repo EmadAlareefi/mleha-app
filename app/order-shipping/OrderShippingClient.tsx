@@ -26,6 +26,8 @@ interface OrderShipmentRecord {
   labelPrintedAt?: string | null;
   printCount?: number | null;
   updatedAt?: string | null;
+  type?: 'salla' | 'local';
+  localShipmentId?: string | null;
 }
 
 interface OrderAssignment {
@@ -294,6 +296,8 @@ export default function OrderShippingPage() {
     labelPrinted: boolean;
     printedAt: string | null;
     labelUrl: string | null;
+    type: 'salla' | 'local';
+    localShipmentId: string | null;
   } | null>(null);
   const [shipmentError, setShipmentError] = useState<string | null>(null);
   const [localShipmentDialogOpen, setLocalShipmentDialogOpen] = useState(false);
@@ -314,12 +318,17 @@ export default function OrderShippingPage() {
         return;
       }
       const shipment = assignment.shipment;
+      const shipmentType: 'salla' | 'local' = shipment.type === 'local' ? 'local' : 'salla';
       setShipmentInfo({
         trackingNumber: shipment.trackingNumber || 'سيتم توفير رقم التتبع قريباً',
-        courierName: shipment.courierName || 'شركة الشحن المعتمدة',
+        courierName:
+          shipment.courierName ||
+          (shipmentType === 'local' ? 'شحن محلي' : 'شركة الشحن المعتمدة'),
         labelPrinted: Boolean(shipment.labelPrinted),
         printedAt: shipment.labelPrintedAt || null,
         labelUrl: shipment.labelUrl || null,
+        type: shipmentType,
+        localShipmentId: shipmentType === 'local' ? shipment.localShipmentId || shipment.id : null,
       });
     },
     [],
@@ -728,6 +737,7 @@ export default function OrderShippingPage() {
         alert(data.error || 'فشل تحديث المنتجات');
       }
     } catch (error) {
+      console.error('Refresh items failed', error);
       alert('فشل تحديث المنتجات');
     } finally {
       setRefreshingItems(false);
@@ -766,6 +776,8 @@ export default function OrderShippingPage() {
           labelPrinted,
           printedAt: labelPrintedAt,
           labelUrl,
+          type: 'salla',
+          localShipmentId: null,
         });
         setShipmentError(null);
 
@@ -796,30 +808,47 @@ export default function OrderShippingPage() {
 
     const shouldIncludeAssignmentId =
       !currentOrder.source || currentOrder.source === 'assignment';
+    const currentShipmentInfo = shipmentInfo;
+    const isLocalShipment = currentShipmentInfo?.type === 'local';
 
     setPrintingShipmentLabel(true);
     try {
-      const response = await fetch('/api/salla/shipments/print', {
+      const response = await fetch(isLocalShipment ? '/api/local-shipping/print' : '/api/salla/shipments/print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assignmentId: shouldIncludeAssignmentId ? currentOrder.id : undefined,
-          orderId: currentOrder.orderId,
-          orderNumber: currentOrder.orderNumber,
+          ...(isLocalShipment
+            ? {
+                shipmentId: currentShipmentInfo?.localShipmentId || undefined,
+                orderNumber: currentOrder.orderNumber,
+                trackingNumber: currentShipmentInfo?.trackingNumber,
+              }
+            : {
+                assignmentId: shouldIncludeAssignmentId ? currentOrder.id : undefined,
+                orderId: currentOrder.orderId,
+                orderNumber: currentOrder.orderNumber,
+              }),
         }),
       });
 
-      const data = await parseJsonResponse(response, 'POST /api/salla/shipments/print');
+      const data = await parseJsonResponse(
+        response,
+        isLocalShipment ? 'POST /api/local-shipping/print' : 'POST /api/salla/shipments/print',
+      );
 
       if (data.success) {
         const printedAt = data.data?.labelPrintedAt || new Date().toISOString();
 
         setShipmentInfo((prev) => ({
           trackingNumber: prev?.trackingNumber || 'سيتم توفير رقم التتبع قريباً',
-          courierName: prev?.courierName || 'شركة الشحن المعتمدة',
+          courierName:
+            prev?.courierName ||
+            (isLocalShipment ? 'شحن محلي' : 'شركة الشحن المعتمدة'),
           labelPrinted: true,
           printedAt,
           labelUrl: data.data?.labelUrl || prev?.labelUrl || null,
+          type: prev?.type || (isLocalShipment ? 'local' : 'salla'),
+          localShipmentId: prev?.localShipmentId || (isLocalShipment ? currentShipmentInfo?.localShipmentId || null : null),
         }));
 
         alert(data.message || 'تم إرسال البوليصة للطابعة');
@@ -934,9 +963,20 @@ export default function OrderShippingPage() {
 
       const createData = await parseJsonResponse<{
         success?: boolean;
-        shipment?: { id: string; trackingNumber: string };
+        shipment?: {
+          id: string;
+          trackingNumber: string;
+          labelUrl?: string | null;
+          labelPrinted?: boolean;
+          labelPrintedAt?: string | null;
+        };
         error?: string;
         reused?: boolean;
+        autoPrint?: {
+          success?: boolean;
+          error?: string | null;
+          jobId?: number | null;
+        } | null;
       }>(createResponse, 'POST /api/local-shipping/create');
 
       if (!createResponse.ok || createData.success === false || !createData.shipment) {
@@ -963,13 +1003,29 @@ export default function OrderShippingPage() {
 
       const agent = deliveryAgents.find((item) => item.id === selectedDeliveryAgentId);
       const agentDisplayName = agent?.name || agent?.username || 'المندوب المختار';
+      if (createData.shipment) {
+        setShipmentInfo({
+          trackingNumber: createData.shipment.trackingNumber,
+          courierName: 'شحن محلي',
+          labelPrinted: Boolean(createData.shipment.labelPrinted),
+          printedAt: createData.shipment.labelPrintedAt || null,
+          labelUrl: createData.shipment.labelUrl || null,
+          type: 'local',
+          localShipmentId: createData.shipment.id,
+        });
+      }
       setLocalShipmentDialogOpen(false);
       setSelectedDeliveryAgentId('');
-      alert(
-        createData.reused
-          ? `تم العثور على شحنة محلية سابقة (${createData.shipment.trackingNumber}) وتم تأكيد تعيينها إلى ${agentDisplayName}.`
-          : `تم إنشاء شحنة محلية (${createData.shipment.trackingNumber}) وتعيينها إلى ${agentDisplayName}.`
-      );
+      const trackingNumber = createData.shipment?.trackingNumber || 'غير معروف';
+      const baseMessage = createData.reused
+        ? `تم العثور على شحنة محلية سابقة (${trackingNumber}) وتم تأكيد تعيينها إلى ${agentDisplayName}.`
+        : `تم إنشاء شحنة محلية (${trackingNumber}) وتعيينها إلى ${agentDisplayName}.`;
+      const autoPrintMessage = createData.autoPrint
+        ? createData.autoPrint.success
+          ? '\n\nتم إرسال البوليصة للطابعة تلقائياً عبر PrintNode.'
+          : '\n\n⚠️ تعذر إرسال البوليصة تلقائياً للطابعة، يرجى الضغط على زر "طباعة البوليصة".'
+        : '';
+      alert(`${baseMessage}${autoPrintMessage}`);
     } catch (error) {
       console.error('Local shipment creation failed', error);
       setLocalShipmentDialogError(

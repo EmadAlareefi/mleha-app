@@ -59,7 +59,12 @@ type SallaStatusTarget =
 type ConfirmDialogType = 'complete' | SallaStatusTarget;
 
 const isNoteEnabledTarget = (target: ConfirmDialogType): target is SallaStatusTarget =>
-  target === 'under_review_a' || target === 'under_review_reservation';
+  target === 'under_review_a' ||
+  target === 'under_review_reservation' ||
+  target === 'under_review_x4';
+
+const isNoteRequiredTarget = (target: ConfirmDialogType): target is SallaStatusTarget =>
+  target === 'under_review_a' || target === 'under_review_x4';
 
 const assignmentStatusMeta: Record<
   AssignmentStatus,
@@ -175,8 +180,15 @@ export default function OrderPrepClient() {
         if (!response.ok) {
           throw new Error(data.error || 'تعذر تحميل الطلبات');
         }
-        const assignmentsList = Array.isArray(data.assignments) ? data.assignments : [];
-        setAssignments(assignmentsList.length > 0 ? [assignmentsList[0]] : []);
+        const assignmentsList: Assignment[] = Array.isArray(data.assignments)
+          ? (data.assignments as Assignment[])
+          : [];
+        const prioritized =
+          assignmentsList.find((assignment) => assignment.status === 'preparing') ||
+          assignmentsList.find((assignment) => assignment.status === 'waiting') ||
+          assignmentsList[0] ||
+          null;
+        setAssignments(prioritized ? [prioritized] : []);
         if (data.autoAssigned) {
           toast({ description: '🎉 تم تعيين أقدم طلب جديد لك تلقائياً' });
         }
@@ -424,8 +436,12 @@ export default function OrderPrepClient() {
       closeConfirmDialog();
       return;
     }
-    const trimmedNote = isNoteEnabledTarget(type) && dialogNote.trim() ? dialogNote.trim() : undefined;
-    void handleUpdateSallaStatus(assignment, type, trimmedNote);
+    const trimmedNote = dialogNote.trim();
+    if (isNoteRequiredTarget(type) && !trimmedNote) {
+      return;
+    }
+    const noteToSend = isNoteEnabledTarget(type) && trimmedNote ? trimmedNote : undefined;
+    void handleUpdateSallaStatus(assignment, type, noteToSend);
     closeConfirmDialog();
   }, [confirmDialog, dialogNote, closeConfirmDialog, handleUpdateSallaStatus, updateStatus]);
 
@@ -459,21 +475,36 @@ export default function OrderPrepClient() {
   };
 
   const shouldShowNoteField = Boolean(confirmDialog && isNoteEnabledTarget(confirmDialog.type));
-
+  const noteIsRequired = Boolean(confirmDialog && isNoteRequiredTarget(confirmDialog.type));
+  const trimmedDialogNote = dialogNote.trim();
   const noteField = shouldShowNoteField ? (
     <div className="mt-4">
       <label htmlFor={noteInputId} className="block text-sm font-medium text-gray-700">
-        ملاحظة لسلة (اختياري)
+        ملاحظة لسلة {noteIsRequired ? '(مطلوبة)' : '(اختيارية)'}
       </label>
       <textarea
         id={noteInputId}
-        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500"
+        className={cn(
+          'mt-1 w-full rounded-md border px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500',
+          noteIsRequired && !trimmedDialogNote ? 'border-red-300' : 'border-gray-300',
+        )}
         rows={3}
         placeholder="يمكنك كتابة سبب التحويل أو تفاصيل إضافية هنا"
         value={dialogNote}
         onChange={(event) => setDialogNote(event.target.value)}
+        required={noteIsRequired}
+        aria-invalid={noteIsRequired && !trimmedDialogNote}
       />
-      <p className="mt-1 text-xs text-gray-500">سيتم إنشاء إدخال في سجل الطلب في سلة عند إضافة هذه الملاحظة.</p>
+      <p
+        className={cn(
+          'mt-1 text-xs',
+          noteIsRequired && !trimmedDialogNote ? 'text-red-600' : 'text-gray-500',
+        )}
+      >
+        {noteIsRequired
+          ? 'يجب إضافة ملاحظة توضح سبب تغيير الحالة قبل المتابعة.'
+          : 'سيتم إنشاء إدخال في سجل الطلب في سلة عند إضافة هذه الملاحظة.'}
+      </p>
     </div>
   ) : null;
 
@@ -577,6 +608,7 @@ export default function OrderPrepClient() {
         }
         onConfirm={runConfirmedAction}
         onCancel={closeConfirmDialog}
+        confirmDisabled={Boolean(confirmDialog && noteIsRequired && !trimmedDialogNote)}
         content={noteField}
       />
     </section>

@@ -9,6 +9,7 @@ import { AlertTriangle, Clock3, Loader2, RefreshCcw, Search, Truck, UserCheck } 
 import { cn } from '@/lib/utils';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
+import { Select } from '@/components/ui/select';
 
 interface MonitorRecord {
   merchantId: string | null;
@@ -65,6 +66,14 @@ const PREP_STATUS_META: Record<
   completed: { label: 'مكتمل', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   cancelled: { label: 'ملغي', className: 'bg-rose-50 text-rose-700 border-rose-200' },
 };
+
+const ORDER_STATUS_FILTERS = [
+  { label: 'كل الحالات', value: '' },
+  ...Object.entries(PREP_STATUS_META).map(([value, meta]) => ({
+    value,
+    label: meta.label,
+  })),
+] as const;
 
 const SHIPPING_STATUS_META: Record<
   string,
@@ -135,6 +144,9 @@ export default function OrderMonitorClient() {
   const [records, setRecords] = useState<MonitorRecord[]>([]);
   const [meta, setMeta] = useState<MonitorMeta | null>(null);
   const [filterDays, setFilterDays] = useState<string>(TIME_FILTERS[1].value);
+  const [statusFilter, setStatusFilter] = useState<string>(ORDER_STATUS_FILTERS[0].value);
+  const [missingShipmentOnly, setMissingShipmentOnly] = useState(false);
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [activeQuery, setActiveQuery] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [loading, setLoading] = useState(true);
@@ -158,18 +170,52 @@ export default function OrderMonitorClient() {
   const { toast } = useToast();
 
   const fetchRecords = useCallback(
-    async (options?: { query?: string; days?: string; silent?: boolean }) => {
+    async (
+      options?: {
+        query?: string;
+        days?: string;
+        status?: string;
+        missingShipment?: boolean;
+        startDate?: string;
+        endDate?: string;
+        silent?: boolean;
+      },
+    ) => {
       const queryToUse =
         options?.query !== undefined ? options.query.trim() : activeQuery.trim();
       const daysToUse =
         options?.days !== undefined ? options.days : filterDays;
+      const statusToUse =
+        options?.status !== undefined ? options.status : statusFilter;
+      const missingShipmentToUse =
+        options?.missingShipment !== undefined
+          ? options.missingShipment
+          : missingShipmentOnly;
+      const startDateToUse =
+        options?.startDate !== undefined ? options.startDate : dateRange.start;
+      const endDateToUse =
+        options?.endDate !== undefined ? options.endDate : dateRange.end;
+      const hasDateFilter = Boolean(startDateToUse || endDateToUse);
+
       const params = new URLSearchParams();
       if (queryToUse) {
         params.set('query', queryToUse);
-      } else {
+      } else if (!hasDateFilter) {
         params.set('days', daysToUse);
       }
       params.set('limit', '80');
+      if (statusToUse) {
+        params.set('prepStatus', statusToUse);
+      }
+      if (missingShipmentToUse) {
+        params.set('missingShipment', '1');
+      }
+      if (startDateToUse) {
+        params.set('startDate', startDateToUse);
+      }
+      if (endDateToUse) {
+        params.set('endDate', endDateToUse);
+      }
 
       if (!options?.silent) {
         setLoading(true);
@@ -191,14 +237,22 @@ export default function OrderMonitorClient() {
         setLoading(false);
       }
     },
-    [activeQuery, filterDays],
+    [activeQuery, dateRange.end, dateRange.start, filterDays, missingShipmentOnly, statusFilter],
   );
 
   useEffect(() => {
     if (!activeQuery) {
       fetchRecords({ silent: true });
     }
-  }, [activeQuery, filterDays, fetchRecords]);
+  }, [
+    activeQuery,
+    dateRange.end,
+    dateRange.start,
+    fetchRecords,
+    filterDays,
+    missingShipmentOnly,
+    statusFilter,
+  ]);
 
   const handleSearchSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -229,6 +283,50 @@ export default function OrderMonitorClient() {
     },
     [activeQuery, fetchRecords],
   );
+
+  const handleStatusChange = useCallback(
+    (value: string) => {
+      setStatusFilter(value);
+      if (activeQuery) {
+        fetchRecords({ status: value });
+      }
+    },
+    [activeQuery, fetchRecords],
+  );
+
+  const handleMissingShipmentChange = useCallback(() => {
+    const nextValue = !missingShipmentOnly;
+    setMissingShipmentOnly(nextValue);
+    if (activeQuery) {
+      fetchRecords({ missingShipment: nextValue });
+    }
+  }, [activeQuery, fetchRecords, missingShipmentOnly]);
+
+  const handleDateChange = useCallback(
+    (field: 'start' | 'end', value: string) => {
+      setDateRange((prev) => ({
+        ...prev,
+        [field]: value,
+      }));
+      if (activeQuery) {
+        fetchRecords(
+          field === 'start'
+            ? { startDate: value }
+            : { endDate: value },
+        );
+      }
+    },
+    [activeQuery, fetchRecords],
+  );
+
+  const handleClearDates = useCallback(() => {
+    setDateRange({ start: '', end: '' });
+    if (activeQuery) {
+      fetchRecords({ startDate: '', endDate: '' });
+    }
+  }, [activeQuery, fetchRecords]);
+
+  const isDateFilterActive = Boolean(dateRange.start || dateRange.end);
 
   const lastUpdatedLabel = useMemo(() => {
     if (!meta?.lastRefreshedAt) {
@@ -397,6 +495,7 @@ export default function OrderMonitorClient() {
                 key={filter.value}
                 type="button"
                 onClick={() => handleFilterChange(filter.value)}
+                disabled={isDateFilterActive}
                 className={cn(
                   'rounded-2xl border px-4 py-3 text-sm font-semibold transition',
                   filterDays === filter.value && !activeQuery
@@ -409,6 +508,74 @@ export default function OrderMonitorClient() {
             ))}
           </div>
         </form>
+
+        <div className="mb-6 grid gap-4 rounded-3xl border border-slate-100 bg-white/90 p-4 shadow-sm shadow-slate-200 md:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="status-filter" className="mb-2 block text-sm font-medium text-slate-600">
+                حالة التحضير
+              </label>
+              <Select
+                id="status-filter"
+                value={statusFilter}
+                onChange={(event) => handleStatusChange(event.target.value)}
+                className="h-12 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+              >
+                {ORDER_STATUS_FILTERS.map((option) => (
+                  <option key={option.value || 'all'} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={missingShipmentOnly}
+                onChange={handleMissingShipmentChange}
+                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              عرض الطلبات التي لا تحتوي على شحنة
+            </label>
+          </div>
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-slate-600">فلترة بالتاريخ</p>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex-1 space-y-1">
+                <span className="text-xs text-slate-500">من</span>
+                <Input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(event) => handleDateChange('start', event.target.value)}
+                  className="rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="flex-1 space-y-1">
+                <span className="text-xs text-slate-500">إلى</span>
+                <Input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(event) => handleDateChange('end', event.target.value)}
+                  className="rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleClearDates}
+                disabled={!isDateFilterActive}
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold"
+              >
+                مسح التاريخ
+              </Button>
+              <p className="text-xs text-slate-500">
+                عند اختيار تاريخ يتم تجاهل فلتر الأيام أعلاه تلقائياً.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {meta && (
           <div className="mb-6 grid gap-4 md:grid-cols-3">

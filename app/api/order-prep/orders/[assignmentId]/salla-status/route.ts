@@ -30,6 +30,7 @@ const TARGET_STATUSES = {
 } as const;
 
 type TargetKey = keyof typeof TARGET_STATUSES;
+const NOTE_REQUIRED_TARGETS: TargetKey[] = ['under_review_a', 'under_review_x4'];
 
 export async function POST(
   request: NextRequest,
@@ -58,6 +59,12 @@ export async function POST(
 
     if (!target || !(target in TARGET_STATUSES)) {
       return NextResponse.json({ error: 'حالة سلة غير مدعومة' }, { status: 400 });
+    }
+    if (NOTE_REQUIRED_TARGETS.includes(target) && !note) {
+      return NextResponse.json(
+        { error: 'يجب إضافة ملاحظة لتحديث هذه الحالة في سلة' },
+        { status: 400 },
+      );
     }
 
     const assignment = await prisma.orderPrepAssignment.findUnique({

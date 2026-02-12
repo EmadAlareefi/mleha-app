@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { log } from '@/app/lib/logger';
-import { serializeLocalShipment } from '../serializer';
+import { serializeLocalShipment } from '@/app/lib/local-shipping/serializer';
 
 const prisma = new PrismaClient();
 

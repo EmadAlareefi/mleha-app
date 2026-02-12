@@ -330,6 +330,34 @@ model SallaProductQuantityRequest {
   @@index([requestedAt])
 }
 
+model SallaProductAvailabilityRequest {
+  id               String   @id @default(cuid())
+  merchantId       String?
+  productId        Int
+  productName      String
+  productSku       String?
+  productImageUrl  String?
+  variationId      String?
+  variationName    String?
+  requestedSize    String?
+  customerFirstName String?
+  customerLastName String?
+  customerEmail    String?
+  customerPhone    String
+  notes            String?  @db.Text
+  status           String   @default("pending")
+  requestedBy      String
+  requestedByUser  String?
+  notifiedAt       DateTime?
+  notifiedBy       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([productId, status])
+  @@index([customerPhone])
+  @@index([createdAt])
+}
+
 model ReturnRequest {
   id            String  @id @default(cuid())
   merchantId    String // Salla merchant ID

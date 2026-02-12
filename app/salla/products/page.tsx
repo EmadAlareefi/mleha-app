@@ -1,10 +1,10 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, PackageSearch, RefreshCcw, Search, Users } from 'lucide-react';
+import { BellRing, Loader2, PackageSearch, RefreshCcw, Search, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -50,6 +50,37 @@ type QuantityRequestRecord = {
   fulfilledAt?: string | null;
   providedBy?: string | null;
   providedAmount?: number | null;
+};
+
+type NewAvailabilityRequestPayload = {
+  variationId?: string;
+  variationName?: string;
+  requestedSize?: string;
+  customerFirstName?: string;
+  customerLastName?: string;
+  customerEmail?: string;
+  customerPhone: string;
+  notes?: string;
+};
+
+type AvailabilityRequestRecord = {
+  id: string;
+  productId: number;
+  productName: string;
+  productSku?: string | null;
+  productImageUrl?: string | null;
+  variationId?: string | null;
+  variationName?: string | null;
+  requestedSize?: string | null;
+  customerFirstName?: string | null;
+  customerLastName?: string | null;
+  customerEmail?: string | null;
+  customerPhone: string;
+  notes?: string | null;
+  status: 'pending' | 'notified' | 'cancelled';
+  requestedBy: string;
+  requestedByUser?: string | null;
+  createdAt: string;
 };
 
 type ActionResult = { success: true } | { success: false; error: string };
@@ -105,6 +136,11 @@ export default function SallaProductsPage() {
   const [searchSku, setSearchSku] = useState('');
   const [skuInput, setSkuInput] = useState('');
   const [productRequests, setProductRequests] = useState<Record<number, QuantityRequestRecord[]>>({});
+  const [availabilityRequests, setAvailabilityRequests] = useState<
+    Record<number, AvailabilityRequestRecord[]>
+  >({});
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
@@ -303,6 +339,59 @@ export default function SallaProductsPage() {
     }
   }, []);
 
+  const fetchAvailabilityRequests = useCallback(async (productIds: number[]) => {
+    if (!productIds || productIds.length === 0) {
+      setAvailabilityRequests({});
+      return;
+    }
+
+    setAvailabilityLoading(true);
+    setAvailabilityError(null);
+
+    try {
+      const params = new URLSearchParams();
+      productIds.forEach((id) => params.append('productId', id.toString()));
+      const response = await fetch(`/api/salla/availability-requests?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data?.error || 'تعذر تحميل طلبات الإشعار');
+      }
+
+      const map: Record<number, AvailabilityRequestRecord[]> = {};
+      productIds.forEach((id) => {
+        map[id] = [];
+      });
+
+      if (Array.isArray(data.requests)) {
+        data.requests.forEach((request: AvailabilityRequestRecord) => {
+          if (!map[request.productId]) {
+            map[request.productId] = [];
+          }
+          map[request.productId].push(request);
+        });
+      }
+
+      Object.keys(map).forEach((key) => {
+        const id = Number.parseInt(key, 10);
+        map[id] = map[id].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+
+      setAvailabilityRequests(map);
+    } catch (err) {
+      setAvailabilityError(
+        err instanceof Error ? err.message : 'تعذر تحميل طلبات الإشعار لهذا المنتج'
+      );
+      setAvailabilityRequests({});
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (status === 'authenticated') {
       fetchProducts(currentPage, searchSku, statusFilter);
@@ -334,6 +423,18 @@ export default function SallaProductsPage() {
     const ids = products.map((product) => product.id);
     fetchProductRequests(ids);
   }, [status, products, fetchProductRequests]);
+
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      return;
+    }
+    if (products.length === 0) {
+      setAvailabilityRequests({});
+      return;
+    }
+    const ids = products.map((product) => product.id);
+    fetchAvailabilityRequests(ids);
+  }, [status, products, fetchAvailabilityRequests]);
 
   const handleRefresh = () => {
     fetchProducts(currentPage, searchSku, statusFilter);
@@ -461,6 +562,56 @@ export default function SallaProductsPage() {
         return {
           success: false,
           error: error instanceof Error ? error.message : 'تعذر إنشاء طلب الكمية',
+        };
+      }
+    },
+    [merchantId]
+  );
+
+  const handleCreateAvailabilityRequest = useCallback(
+    async (
+      product: SallaProductSummary,
+      payload: NewAvailabilityRequestPayload
+    ): Promise<ActionResult> => {
+      try {
+        const response = await fetch('/api/salla/availability-requests', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            productId: product.id,
+            productName: product.name,
+            productSku: product.sku,
+            productImageUrl: product.imageUrl,
+            merchantId,
+            variationId: payload.variationId,
+            variationName: payload.variationName,
+            requestedSize: payload.requestedSize,
+            customerFirstName: payload.customerFirstName,
+            customerLastName: payload.customerLastName,
+            customerEmail: payload.customerEmail,
+            customerPhone: payload.customerPhone,
+            notes: payload.notes,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر حفظ طلب الإشعار');
+        }
+        const created: AvailabilityRequestRecord = data.request;
+        setAvailabilityRequests((prev) => {
+          const updated = { ...prev };
+          const list = updated[product.id] ? [...updated[product.id]] : [];
+          list.unshift(created);
+          updated[product.id] = list;
+          return updated;
+        });
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'تعذر حفظ طلب الإشعار',
         };
       }
     },
@@ -713,6 +864,10 @@ export default function SallaProductsPage() {
                           requestsLoading={requestsLoading}
                           requestsError={requestsError}
                           onCreateRequest={handleCreateRequest}
+                          availabilityRequests={availabilityRequests[product.id] ?? []}
+                          availabilityLoading={availabilityLoading}
+                          availabilityError={availabilityError}
+                          onCreateAvailabilityRequest={handleCreateAvailabilityRequest}
                           variations={variationsMap[product.id] ?? []}
                           variationsLoading={variationsLoading}
                           rowVariationsLoading={!!rowVariationsLoading[product.id]}
@@ -741,6 +896,13 @@ type ProductRowProps = {
     product: SallaProductSummary,
     payload: NewRequestPayload
   ) => Promise<ActionResult>;
+  availabilityRequests: AvailabilityRequestRecord[];
+  availabilityLoading: boolean;
+  availabilityError?: string | null;
+  onCreateAvailabilityRequest: (
+    product: SallaProductSummary,
+    payload: NewAvailabilityRequestPayload
+  ) => Promise<ActionResult>;
   variations: SallaProductVariation[];
   variationsLoading: boolean;
   rowVariationsLoading: boolean;
@@ -755,6 +917,10 @@ function ProductRow({
   requestsLoading,
   requestsError,
   onCreateRequest,
+  availabilityRequests,
+  availabilityLoading,
+  availabilityError,
+  onCreateAvailabilityRequest,
   variations,
   variationsLoading,
   rowVariationsLoading,
@@ -770,6 +936,17 @@ function ProductRow({
   });
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [notifyForm, setNotifyForm] = useState({
+    variationKey: '',
+    customSize: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    notes: '',
+  });
+  const [notifySubmitting, setNotifySubmitting] = useState(false);
+  const [notifyError, setNotifyError] = useState<string | null>(null);
   const [variationAdjustments, setVariationAdjustments] = useState<
     Record<string, { quantity: string; mode: 'increment' | 'decrement' }>
   >({});
@@ -930,8 +1107,66 @@ function ProductRow({
     }
   };
 
+  const handleNotifySubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (notifySubmitting) {
+      return;
+    }
+    setNotifyError(null);
+
+    const trimmedPhone = notifyForm.phone.trim();
+    const selectedVariation =
+      notifyForm.variationKey && variationList.length > 0
+        ? variationList.find(
+            (variation) => variation.id != null && String(variation.id) === notifyForm.variationKey
+          )
+        : undefined;
+    const customSize = notifyForm.customSize.trim();
+
+    if (!selectedVariation && customSize.length === 0) {
+      setNotifyError('يرجى اختيار مقاس من القائمة أو إدخاله يدوياً.');
+      return;
+    }
+
+    if (!trimmedPhone) {
+      setNotifyError('رقم الجوال مطلوب.');
+      return;
+    }
+
+    setNotifySubmitting(true);
+    const result = await onCreateAvailabilityRequest(product, {
+      variationId:
+        selectedVariation && selectedVariation.id != null
+          ? String(selectedVariation.id)
+          : undefined,
+      variationName: selectedVariation?.name,
+      requestedSize: customSize || selectedVariation?.name,
+      customerFirstName: notifyForm.firstName.trim() || undefined,
+      customerLastName: notifyForm.lastName.trim() || undefined,
+      customerEmail: notifyForm.email.trim() || undefined,
+      customerPhone: trimmedPhone,
+      notes: notifyForm.notes.trim() || undefined,
+    });
+    setNotifySubmitting(false);
+
+    if (!result.success) {
+      setNotifyError(result.error);
+      return;
+    }
+
+    setNotifyForm({
+      variationKey: '',
+      customSize: '',
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      notes: '',
+    });
+  };
+
   const renderQuantityRequestSection = () => (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-4 text-sm">
       <form onSubmit={handleRequestSubmit} className="space-y-2 rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
         <p className="text-xs text-gray-500">أضف طلب كمية جديد</p>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -1006,6 +1241,125 @@ function ProductRow({
           ))}
         </div>
       )}
+
+      <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 shadow-sm">
+        <div className="flex items-start gap-2">
+          <span className="rounded-xl bg-white/80 p-2 text-indigo-600">
+            <BellRing className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">سجل إشعارات التوفر</p>
+            <p className="text-xs text-slate-600">
+              أضف بيانات العميل والمقاس المطلوب ليتم التواصل معه عند وصول التوريد.
+            </p>
+          </div>
+        </div>
+        <form onSubmit={handleNotifySubmit} className="mt-3 space-y-2">
+          {variationList.length > 0 && (
+            <Select
+              value={notifyForm.variationKey}
+              onChange={(event) =>
+                setNotifyForm((prev) => ({ ...prev, variationKey: event.target.value }))
+              }
+              className="w-full rounded-lg border border-slate-200 bg-white/90 px-3 py-2 text-sm"
+            >
+              <option value="">اختر المقاس من المتغيرات</option>
+              {variationList.map((variation) => {
+                const rawQuantity =
+                  typeof variation.availableQuantity === 'number'
+                    ? variation.availableQuantity
+                    : variation.availableQuantity != null
+                      ? Number(variation.availableQuantity)
+                      : null;
+                const quantitySuffix =
+                  rawQuantity != null && Number.isFinite(rawQuantity)
+                    ? ` - متوفر ${formatNumber(rawQuantity)}`
+                    : '';
+                return (
+                  <option key={String(variation.id)} value={String(variation.id)}>
+                    {variation.name || 'متغير'}
+                    {quantitySuffix}
+                  </option>
+                );
+              })}
+            </Select>
+          )}
+          <Input
+            placeholder={
+              variationList.length > 0 ? 'المقاس (في حال عدم وجوده ضمن القائمة)' : 'المقاس المطلوب'
+            }
+            value={notifyForm.customSize}
+            onChange={(event) =>
+              setNotifyForm((prev) => ({ ...prev, customSize: event.target.value }))
+            }
+          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              placeholder="الاسم الأول (اختياري)"
+              value={notifyForm.firstName}
+              onChange={(event) =>
+                setNotifyForm((prev) => ({ ...prev, firstName: event.target.value }))
+              }
+            />
+            <Input
+              placeholder="اسم العائلة (اختياري)"
+              value={notifyForm.lastName}
+              onChange={(event) =>
+                setNotifyForm((prev) => ({ ...prev, lastName: event.target.value }))
+              }
+            />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              placeholder="البريد الإلكتروني (اختياري)"
+              type="email"
+              value={notifyForm.email}
+              onChange={(event) =>
+                setNotifyForm((prev) => ({ ...prev, email: event.target.value }))
+              }
+            />
+            <Input
+              placeholder="رقم الجوال *"
+              type="tel"
+              value={notifyForm.phone}
+              onChange={(event) => setNotifyForm((prev) => ({ ...prev, phone: event.target.value }))}
+              required
+            />
+          </div>
+          <Input
+            placeholder="ملاحظات إضافية (اختياري)"
+            value={notifyForm.notes}
+            onChange={(event) => setNotifyForm((prev) => ({ ...prev, notes: event.target.value }))}
+          />
+          <Button
+            type="submit"
+            className="flex w-full items-center justify-center gap-2 text-sm"
+            disabled={notifySubmitting}
+          >
+            {notifySubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            <BellRing className="h-4 w-4" />
+            <span>حفظ طلب الإشعار</span>
+          </Button>
+          {notifyError && <p className="text-xs text-red-600">{notifyError}</p>}
+        </form>
+        {availabilityError && (
+          <p className="mt-2 text-xs text-red-600">تعذر تحميل الإشعارات: {availabilityError}</p>
+        )}
+        {availabilityLoading ? (
+          <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            جاري تحميل إشعارات العملاء...
+          </div>
+        ) : availabilityRequests.length === 0 ? (
+          <p className="mt-3 text-[11px] text-slate-500">لم يتم تسجيل أي إشعار لهذا المنتج بعد.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {availabilityRequests.map((request) => (
+              <AvailabilityRequestCard key={request.id} request={request} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -1268,6 +1622,58 @@ function QuantityRequestCard({ request }: QuantityRequestCardProps) {
             .
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+type AvailabilityRequestCardProps = {
+  request: AvailabilityRequestRecord;
+};
+
+function AvailabilityRequestCard({ request }: AvailabilityRequestCardProps) {
+  const statusLabelMap: Record<AvailabilityRequestRecord['status'], string> = {
+    pending: 'بانتظار التوفر',
+    notified: 'تم إشعار العميل',
+    cancelled: 'ملغي',
+  };
+  const statusClassMap: Record<AvailabilityRequestRecord['status'], string> = {
+    pending: 'border-amber-200 bg-amber-50 text-amber-700',
+    notified: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    cancelled: 'border-slate-200 bg-slate-50 text-slate-600',
+  };
+
+  const fullName = [request.customerFirstName, request.customerLastName]
+    .filter((part) => part && part.trim().length > 0)
+    .join(' ')
+    .trim();
+  const sizeLabel = request.requestedSize || request.variationName || request.productSku || 'غير محدد';
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">{fullName || 'عميل'}</p>
+          <p className="text-xs text-slate-500">المقاس المطلوب: {sizeLabel}</p>
+        </div>
+        <span
+          className={`rounded-full border px-3 py-0.5 text-xs font-semibold ${statusClassMap[request.status]}`}
+        >
+          {statusLabelMap[request.status]}
+        </span>
+      </div>
+      <div className="mt-2 space-y-1 text-xs text-slate-600">
+        <p>
+          رقم الجوال:{' '}
+          <span className="font-semibold text-slate-900 ltr:font-mono rtl:font-mono">
+            {request.customerPhone}
+          </span>
+        </p>
+        {request.customerEmail && <p>البريد الإلكتروني: {request.customerEmail}</p>}
+        {request.notes && <p className="text-slate-500">ملاحظات: {request.notes}</p>}
+        <p>
+          أضيف بواسطة {request.requestedBy} بتاريخ {formatDate(request.createdAt)}
+        </p>
       </div>
     </div>
   );

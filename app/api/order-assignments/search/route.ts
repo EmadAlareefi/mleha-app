@@ -9,6 +9,7 @@ import type { SallaOrder as RemoteSallaOrder } from '@/app/lib/salla-api';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
+import { serializeLocalShipment } from '@/app/lib/local-shipping/serializer';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
@@ -609,7 +610,7 @@ async function getShipmentInfoForOrder(params: {
   orderNumber?: string | null;
 }) {
   const { merchantId, orderId, orderNumber } = params;
-  const orConditions: Prisma.SallaShipmentWhereInput[] = [];
+  const orConditions: Array<{ orderId?: string; orderNumber?: string }> = [];
 
   if (orderId) {
     orConditions.push({ orderId }, { orderNumber: orderId });
@@ -633,26 +634,55 @@ async function getShipmentInfoForOrder(params: {
     },
   });
 
-  if (!shipment) {
+  if (shipment) {
+    const shipmentData = shipment.shipmentData as any;
+    const labelUrl =
+      shipment.labelUrl ||
+      shipmentData?.label_url ||
+      shipmentData?.label?.url ||
+      (typeof shipmentData?.label === 'string' ? shipmentData.label : null);
+
+    return {
+      id: shipment.id,
+      trackingNumber: shipment.trackingNumber,
+      courierName: shipment.courierName,
+      status: shipment.status,
+      labelUrl,
+      labelPrinted: shipment.labelPrinted,
+      labelPrintedAt: shipment.labelPrintedAt ? shipment.labelPrintedAt.toISOString() : null,
+      printCount: shipment.printCount,
+      updatedAt: shipment.updatedAt.toISOString(),
+      type: 'salla',
+      localShipmentId: null,
+    };
+  }
+
+  const localShipment = await prisma.localShipment.findFirst({
+    where: {
+      ...(merchantId ? { merchantId } : {}),
+      OR: orConditions,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  if (!localShipment) {
     return null;
   }
 
-  const shipmentData = shipment.shipmentData as any;
-  const labelUrl =
-    shipment.labelUrl ||
-    shipmentData?.label_url ||
-    shipmentData?.label?.url ||
-    (typeof shipmentData?.label === 'string' ? shipmentData.label : null);
-
+  const serialized = serializeLocalShipment(localShipment);
   return {
-    id: shipment.id,
-    trackingNumber: shipment.trackingNumber,
-    courierName: shipment.courierName,
-    status: shipment.status,
-    labelUrl,
-    labelPrinted: shipment.labelPrinted,
-    labelPrintedAt: shipment.labelPrintedAt ? shipment.labelPrintedAt.toISOString() : null,
-    printCount: shipment.printCount,
-    updatedAt: shipment.updatedAt.toISOString(),
+    id: localShipment.id,
+    trackingNumber: localShipment.trackingNumber,
+    courierName: 'شحن محلي',
+    status: localShipment.status,
+    labelUrl: serialized.labelUrl,
+    labelPrinted: serialized.labelPrinted,
+    labelPrintedAt: serialized.labelPrintedAt,
+    printCount: serialized.printCount,
+    updatedAt: localShipment.updatedAt.toISOString(),
+    type: 'local',
+    localShipmentId: localShipment.id,
   };
 }
