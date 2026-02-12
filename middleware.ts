@@ -88,7 +88,10 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['salla-products', [/^\/salla\/products(\/.*)?$/, /^\/api\/salla\/products(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/]],
   ['salla-requests', [/^\/salla\/requests(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/]],
   ['settings', [/^\/settings(\/.*)?$/, /^\/erp-settings(\/.*)?$/]],
-  ['order-users-management', [/^\/order-users-management(\/.*)?$/]],
+  [
+    'order-users-management',
+    [/^\/order-users-management(\/.*)?$/, /^\/api\/printers(\/.*)?$/],
+  ],
   ['user-recognition', [/^\/user-recognition(\/.*)?$/]],
   ['my-recognition', [/^\/my-recognition(\/.*)?$/]],
   ['warehouse-management', [/^\/warehouse-management(\/.*)?$/]],
