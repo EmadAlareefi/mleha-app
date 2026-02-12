@@ -14,7 +14,8 @@ import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses
 import { hasServiceAccess } from '@/app/lib/service-access';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
-const DEFAULT_LIMIT = 200;
+const DEFAULT_LIMIT = 300;
+const MAX_SALLA_PAGE_SIZE = 60;
 const TARGET_NEW_ORDER_STATUS_IDS = [
   '449146439', // طلب جديد
   '1065456688', // تحت المراجعة ع
@@ -438,35 +439,58 @@ export async function GET(request: NextRequest) {
     const seenOrderIds = new Set<string>();
 
     for (const filterValue of statusFilters) {
-      const url = `${baseUrl}/orders?status=${encodeURIComponent(filterValue)}&per_page=${limit}&sort_by=created_at-desc`;
-      try {
-        const response = await fetchSallaWithRetry(url, accessToken);
-        if (!response.ok) {
-          const errorText = await response.text();
-          log.warn('Failed to fetch Salla orders for dashboard', {
-            status: response.status,
-            error: errorText,
-            filterValue,
-          });
-          continue;
-        }
+      let fetchedForStatus = 0;
+      let page = 1;
 
-        const data = await response.json();
-        const orders = Array.isArray(data?.data) ? data.data : [];
-
-        for (const order of orders) {
-          const orderId = extractOrderId(order);
-          if (!orderId || seenOrderIds.has(orderId)) {
-            continue;
-          }
-          seenOrderIds.add(orderId);
-          allOrders.push({ order, statusFilter: String(filterValue) });
-        }
-      } catch (error) {
-        log.warn('Error fetching Salla orders for dashboard', {
+      while (fetchedForStatus < limit) {
+        const remaining = limit - fetchedForStatus;
+        const perPage = Math.min(MAX_SALLA_PAGE_SIZE, remaining);
+        const url = `${baseUrl}/orders?status=${encodeURIComponent(
           filterValue,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        )}&per_page=${perPage}&page=${page}&sort_by=created_at-desc`;
+
+        try {
+          const response = await fetchSallaWithRetry(url, accessToken);
+          if (!response.ok) {
+            const errorText = await response.text();
+            log.warn('Failed to fetch Salla orders for dashboard', {
+              status: response.status,
+              error: errorText,
+              filterValue,
+              page,
+            });
+            break;
+          }
+
+          const data = await response.json();
+          const orders = Array.isArray(data?.data) ? data.data : [];
+
+          if (orders.length === 0) {
+            break;
+          }
+
+          for (const order of orders) {
+            const orderId = extractOrderId(order);
+            if (!orderId || seenOrderIds.has(orderId)) {
+              continue;
+            }
+            seenOrderIds.add(orderId);
+            allOrders.push({ order, statusFilter: String(filterValue) });
+          }
+
+          fetchedForStatus += orders.length;
+          if (orders.length < perPage) {
+            break;
+          }
+          page += 1;
+        } catch (error) {
+          log.warn('Error fetching Salla orders for dashboard', {
+            filterValue,
+            page,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          break;
+        }
       }
     }
 
