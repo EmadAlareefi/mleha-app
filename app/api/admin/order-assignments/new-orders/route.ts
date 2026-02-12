@@ -21,6 +21,7 @@ const TARGET_NEW_ORDER_STATUS_IDS = [
   '1576217163', // تحت المراجعة حجز قطع
   '1882207425', // تحت المراجعة ا
   '2046404155', // غير متوفر (ارجاع مبلغ)
+  '1956875584', // جاري التحضير
 ];
 
 const TARGET_STATUS_FALLBACK_NAMES: Record<string, string> = {
@@ -29,6 +30,7 @@ const TARGET_STATUS_FALLBACK_NAMES: Record<string, string> = {
   '1576217163': 'تحت المراجعة حجز قطع',
   '1882207425': 'تحت المراجعة ا',
   '2046404155': 'غير متوفر (ارجاع مبلغ)',
+  '1956875584': 'جاري التحضير',
 };
 
 type AssignmentWithUser = Awaited<ReturnType<typeof prisma.orderAssignment.findMany>>[number] & {
@@ -560,7 +562,7 @@ export async function GET(request: NextRequest) {
       priorityByOrder.set(record.orderId, record);
     });
 
-    const serializedOrders = normalizedOrders.map(({ order, statusFilter }) => {
+    const serializedOrders = normalizedOrders.map(({ order, statusFilter }, index) => {
       const orderId = extractOrderId(order);
       const assignment = orderId ? latestAssignmentByOrder.get(orderId) : undefined;
       const classification = classifyAssignment(assignment);
@@ -610,6 +612,7 @@ export async function GET(request: NextRequest) {
       return {
         id: orderId,
         orderNumber: extractOrderNumber(order),
+        sequenceNumber: index + 1,
         createdAt: extractDate(order),
         paymentMethod: extractPaymentMethod(order),
         totalAmount: extractTotalAmount(order),

@@ -74,6 +74,7 @@ type PriorityToggleOrder = {
 interface LiveSallaOrder {
   id: string | null;
   orderNumber: string | null;
+  sequenceNumber?: number | null;
   createdAt: string | null;
   paymentMethod: string | null;
   totalAmount: number | null;
@@ -164,6 +165,12 @@ const NEW_ORDER_STATUS_COLUMNS = [
     fallbackName: 'غير متوفر (ارجاع مبلغ)',
     description: 'حالات استرداد بسبب عدم توفر المنتج',
     pillAccentClass: 'border-rose-200',
+  },
+  {
+    id: '1956875584',
+    fallbackName: 'جاري التحضير',
+    description: 'طلبات يتم تجهيزها حالياً من الفريق',
+    pillAccentClass: 'border-emerald-200',
   },
 ] as const;
 
@@ -1088,9 +1095,16 @@ export default function AdminOrderPrepPage() {
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-gray-900 truncate">
-                                  #{order.orderNumber || order.id}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">
+                                    #{order.orderNumber || order.id}
+                                  </p>
+                                  {typeof order.sequenceNumber === 'number' && (
+                                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                      ترتيب #{order.sequenceNumber}
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-xs text-gray-500 truncate">
                                   {order.customerName || order.paymentMethod || '—'}
                                 </p>
