@@ -40,7 +40,12 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['warehouse', [/^\/warehouse(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   [
     'local-shipping',
-    [/^\/local-shipping(\/.*)?$/, /^\/api\/local-shipping(\/.*)?$/, /^\/api\/shipments(\/.*)?$/],
+    [
+      /^\/local-shipping(\/.*)?$/,
+      /^\/api\/local-shipping(\/.*)?$/,
+      /^\/api\/shipment-assignments(\/.*)?$/,
+      /^\/api\/shipments(\/.*)?$/,
+    ],
   ],
   ['warehouse-locations', [/^\/warehouse-locations(\/.*)?$/]],
   [
@@ -53,7 +58,10 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     ],
   ],
   ['barcode-labels', [/^\/barcode-labels(\/.*)?$/]],
-  ['shipment-assignments', [/^\/shipment-assignments(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
+  [
+    'shipment-assignments',
+    [/^\/shipment-assignments(\/.*)?$/, /^\/api\/shipment-assignments(\/.*)?$/, /^\/api\/shipments(\/.*)?$/],
+  ],
   [
     'delivery-agent-tasks',
     [/^\/delivery-agent-tasks(\/.*)?$/, /^\/api\/delivery-agent-tasks(\/.*)?$/, /^\/api\/delivery-agents(\/.*)?$/],
