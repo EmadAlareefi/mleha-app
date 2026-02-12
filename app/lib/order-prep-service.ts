@@ -6,6 +6,7 @@ import { fetchSallaWithRetry } from '@/app/lib/fetch-with-retry';
 import { getSallaOrderStatuses, getNewOrderStatusFilters } from '@/app/lib/salla-statuses';
 import { STATUS_IDS, STATUS_SLUGS } from '@/SALLA_ORDER_STATUSES';
 import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
+import { extractSallaStatus, isOrderStatusEligible } from '@/app/lib/order-prep-status-guard';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -103,6 +104,16 @@ export async function assignOldestOrderToUser(user: {
 
     const detail = await fetchOrderDetailWithItems(orderId, accessToken);
     if (!detail) {
+      continue;
+    }
+
+    const { status, subStatus } = extractSallaStatus(detail);
+    if (!isOrderStatusEligible(status, subStatus)) {
+      log.info('Skipping Salla order due to ineligible status', {
+        orderId,
+        statusName: status?.name || status?.label || null,
+        subStatusName: subStatus?.name || subStatus?.label || null,
+      });
       continue;
     }
 

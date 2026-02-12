@@ -6,18 +6,11 @@ import { assignOldestOrderToUser, getActiveAssignmentsForUser } from '@/app/lib/
 import { log } from '@/app/lib/logger';
 import { prisma } from '@/lib/prisma';
 import { getSallaAccessToken } from '@/app/lib/salla-oauth';
+import { fetchSallaWithRetry } from '@/app/lib/fetch-with-retry';
+import { extractSallaStatus, isOrderStatusEligible } from '@/app/lib/order-prep-status-guard';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
-const NEW_ORDER_STATUS_IDS = new Set([
-  '449146439',
-  '1065456688',
-  '1576217163',
-  '1882207425',
-  '2046404155',
-  '566146469',
-]);
-const NEW_ORDER_STATUS_SLUGS = new Set(['under_review']);
 
 export const runtime = 'nodejs';
 
@@ -47,7 +40,7 @@ export async function GET() {
   }
   try {
     let assignments = await getActiveAssignmentsForUser(orderUser.id);
-    assignments = await ensureOrdersStillNew(assignments);
+    assignments = await ensureOrdersStillEligible(assignments);
 
     if (assignments.length > 0) {
       return NextResponse.json({ success: true, assignments, autoAssigned: false });
@@ -69,7 +62,7 @@ export async function GET() {
   }
 }
 
-async function ensureOrdersStillNew(assignments: Awaited<ReturnType<typeof getActiveAssignmentsForUser>>) {
+async function ensureOrdersStillEligible(assignments: Awaited<ReturnType<typeof getActiveAssignmentsForUser>>) {
   if (assignments.length === 0) {
     return assignments;
   }
@@ -83,8 +76,8 @@ async function ensureOrdersStillNew(assignments: Awaited<ReturnType<typeof getAc
   const validAssignments = [];
   for (const assignment of assignments) {
     try {
-      const stillNew = await isOrderStillNew(assignment.orderId, accessToken);
-      if (stillNew) {
+      const stillAllowed = await isOrderStillEligible(assignment.orderId, accessToken);
+      if (stillAllowed) {
         validAssignments.push(assignment);
         continue;
       }
@@ -110,35 +103,18 @@ async function ensureOrdersStillNew(assignments: Awaited<ReturnType<typeof getAc
   return validAssignments;
 }
 
-async function isOrderStillNew(orderId: string, accessToken: string) {
-  const response = await fetch(`${SALLA_API_BASE}/orders/${encodeURIComponent(orderId)}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    cache: 'no-store',
-  });
+async function isOrderStillEligible(orderId: string, accessToken: string) {
+  const response = await fetchSallaWithRetry(
+    `${SALLA_API_BASE}/orders/${encodeURIComponent(orderId)}`,
+    accessToken,
+    { timeoutMs: 12000 },
+  );
 
   if (!response.ok) {
     throw new Error(`Failed to fetch order ${orderId} from Salla (status ${response.status})`);
   }
 
   const data = await response.json();
-  const status = data?.data?.status;
-  const subStatus = status?.sub_status || status?.subStatus;
-  const primaryId = status?.id ? status.id.toString() : null;
-  const subId = subStatus?.id ? subStatus.id.toString() : null;
-  const slug = subStatus?.slug || status?.slug || null;
-
-  if (subId && NEW_ORDER_STATUS_IDS.has(subId)) {
-    return true;
-  }
-  if (primaryId && NEW_ORDER_STATUS_IDS.has(primaryId)) {
-    return true;
-  }
-  if (slug && NEW_ORDER_STATUS_SLUGS.has(slug)) {
-    return true;
-  }
-
-  return false;
+  const { status, subStatus } = extractSallaStatus(data?.data);
+  return isOrderStatusEligible(status, subStatus);
 }
