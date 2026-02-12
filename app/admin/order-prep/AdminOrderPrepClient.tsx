@@ -793,6 +793,52 @@ export default function AdminOrderPrepPage() {
     });
   }, [liveOrders]);
 
+  const linkedLiveOrdersCount = useMemo(() => {
+    return liveStatusColumns.reduce((total, column) => {
+      return (
+        total +
+        column.orders.filter(
+          (order) => order.assignmentState === 'assigned' && (order.assignmentId || order.assignedUserId),
+        ).length
+      );
+    }, 0);
+  }, [liveStatusColumns]);
+
+  const handleBulkUnlinkLiveOrders = useCallback(async () => {
+    const assignmentIds = new Set<string>();
+    const orderIds = new Set<string>();
+
+    liveStatusColumns.forEach((column) => {
+      column.orders.forEach((order) => {
+        if (order.assignmentState !== 'assigned') {
+          return;
+        }
+        if (order.assignmentId) {
+          assignmentIds.add(order.assignmentId);
+        } else if (order.id) {
+          orderIds.add(order.id);
+        }
+      });
+    });
+
+    if (assignmentIds.size === 0 && orderIds.size === 0) {
+      alert('لا يوجد طلبات مرتبطة لإزالتها حالياً.');
+      return;
+    }
+
+    const confirmed = confirm(
+      `سيتم إلغاء ربط ${assignmentIds.size + orderIds.size} طلب من المستخدمين الحاليين.\n\nهل تريد المتابعة؟`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    await performAssignmentsRemoval({
+      assignmentIds: assignmentIds.size > 0 ? Array.from(assignmentIds) : undefined,
+      orderIds: orderIds.size > 0 ? Array.from(orderIds) : undefined,
+    });
+  }, [liveStatusColumns, performAssignmentsRemoval]);
+
   const liveOrdersTotal = liveStatusColumns.reduce((sum, column) => sum + column.orders.length, 0);
   const liveOrdersTimestamp = liveOrders?.fetchedAt ? new Date(liveOrders.fetchedAt) : null;
   const liveTotals = liveOrders?.totals || { new: 0, assigned: 0 };
@@ -1058,6 +1104,21 @@ export default function AdminOrderPrepPage() {
                 </p>
               )}
             </Card>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-900">الطلبات المرتبطة في لوحة التحضير</p>
+              <p className="text-xs text-gray-500">عدد الطلبات المرتبطة حالياً: {linkedLiveOrdersCount}</p>
+            </div>
+            <Button
+              variant="outline"
+              className="border-rose-200 text-rose-700 hover:bg-rose-50"
+              onClick={handleBulkUnlinkLiveOrders}
+              disabled={linkedLiveOrdersCount === 0}
+            >
+              الغاء ربط الطلبات
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
