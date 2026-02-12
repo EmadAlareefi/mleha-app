@@ -70,6 +70,7 @@ export default function DeliveryAgentWalletsPage() {
     notes: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [collectingAgentId, setCollectingAgentId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchWallets();
@@ -93,6 +94,52 @@ export default function DeliveryAgentWalletsPage() {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل البيانات');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCollectOutstanding = async (wallet: WalletSummary) => {
+    if (wallet.balance <= 0 || collectingAgentId === wallet.agent.id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `سيتم تسجيل تحصيل بقيمة ${formatCurrency(wallet.balance)} للمندوب ${wallet.agent.name}. هل تريد المتابعة؟`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setCollectingAgentId(wallet.agent.id);
+      const response = await fetch('/api/delivery-agent-wallets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deliveryAgentId: wallet.agent.id,
+          amount: wallet.balance,
+          paymentMethod: 'cash',
+          notes: 'تحصيل رصيد الشحنات (من لوحة إدارة المحافظ)',
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'تعذر تحصيل المبلغ');
+      }
+
+      toast({
+        title: 'تم تحصيل رصيد المندوب',
+        description: `تم تسجيل تحصيل بقيمة ${formatCurrency(wallet.balance)} من ${wallet.agent.name}.`,
+      });
+      await fetchWallets();
+    } catch (err) {
+      toast({
+        title: 'فشل التحصيل',
+        description: err instanceof Error ? err.message : 'حدث خطأ أثناء التحصيل، يرجى المحاولة مجدداً',
+        variant: 'destructive',
+      });
+    } finally {
+      setCollectingAgentId(null);
     }
   };
 
@@ -213,6 +260,7 @@ export default function DeliveryAgentWalletsPage() {
                     <TableHead>إجمالي المكافآت</TableHead>
                     <TableHead>المدفوع</TableHead>
                     <TableHead>الرصيد الحالي</TableHead>
+                    <TableHead>إجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -262,11 +310,24 @@ export default function DeliveryAgentWalletsPage() {
                           {formatCurrency(wallet.balance)}
                         </span>
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={wallet.balance <= 0 || collectingAgentId === wallet.agent.id}
+                          onClick={() => handleCollectOutstanding(wallet)}
+                        >
+                          {collectingAgentId === wallet.agent.id ? 'جاري التحصيل...' : 'تحصيل الرصيد'}
+                        </Button>
+                        {wallet.balance <= 0 && (
+                          <p className="text-xs text-slate-500 mt-1">لا يوجد رصيد موجب للتحصيل</p>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {!wallets.length && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-slate-500 py-6">
+                      <TableCell colSpan={7} className="text-center text-slate-500 py-6">
                         لا توجد بيانات محافظ حتى الآن
                       </TableCell>
                     </TableRow>

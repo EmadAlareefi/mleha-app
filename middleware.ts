@@ -78,6 +78,7 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/my-deliveries(\/.*)?$/,
       /^\/api\/shipment-assignments(\/.*)?$/,
       /^\/api\/delivery-agent-tasks(\/.*)?$/,
+      /^\/api\/delivery-agent-wallets(\/.*)?$/,
     ],
   ],
   ['returns-management', [/^\/returns-management(\/.*)?$/, /^\/cancel-shipment(\/.*)?$/]],
