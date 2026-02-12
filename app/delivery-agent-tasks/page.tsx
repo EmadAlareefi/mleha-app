@@ -28,7 +28,7 @@ type DeliveryAgentTask = {
   requestedItem?: string | null;
   quantity?: number | null;
   details?: string | null;
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'in_progress' | 'agent_completed' | 'completed' | 'cancelled';
   priority?: string | null;
   dueDate?: string | null;
   completionNotes?: string | null;
@@ -51,6 +51,7 @@ type DeliveryAgentTask = {
 const statusBadgeClasses: Record<string, string> = {
   pending: 'bg-slate-100 text-slate-800',
   in_progress: 'bg-amber-100 text-amber-800',
+  agent_completed: 'bg-blue-100 text-blue-800',
   completed: 'bg-emerald-100 text-emerald-800',
   cancelled: 'bg-rose-100 text-rose-800',
 };
@@ -84,6 +85,7 @@ export default function DeliveryAgentTasksPage() {
     total: 0,
     pending: 0,
     inProgress: 0,
+    awaitingConfirmation: 0,
     completed: 0,
     cancelled: 0,
   });
@@ -153,7 +155,7 @@ export default function DeliveryAgentTasksPage() {
       }
 
       if (statusFilter === 'active') {
-        params.set('status', 'pending,in_progress');
+        params.set('status', 'pending,in_progress,agent_completed');
       } else if (statusFilter === 'completed') {
         params.set('status', 'completed');
       } else {
@@ -168,7 +170,16 @@ export default function DeliveryAgentTasksPage() {
       }
 
       setTasks(data.tasks || []);
-      setSummary(data.summary || { total: 0, pending: 0, inProgress: 0, completed: 0, cancelled: 0 });
+      setSummary(
+        data.summary || {
+          total: 0,
+          pending: 0,
+          inProgress: 0,
+          awaitingConfirmation: 0,
+          completed: 0,
+          cancelled: 0,
+        }
+      );
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : 'حدث خطأ غير متوقع');
     } finally {
@@ -281,6 +292,7 @@ export default function DeliveryAgentTasksPage() {
     >
       {status === 'pending' && 'بانتظار التنفيذ'}
       {status === 'in_progress' && 'قيد التنفيذ'}
+      {status === 'agent_completed' && 'بانتظار تأكيد الإدارة'}
       {status === 'completed' && 'منجز'}
       {status === 'cancelled' && 'ملغي'}
     </span>
@@ -423,10 +435,14 @@ export default function DeliveryAgentTasksPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <dl className="grid grid-cols-2 gap-4 text-center">
+              <dl className="grid grid-cols-2 gap-4 text-center md:grid-cols-3 lg:grid-cols-5">
                 <div className="rounded-lg border bg-white/70 p-4">
                   <dt className="text-sm text-gray-500">الطلبات النشطة</dt>
                   <dd className="text-2xl font-bold text-gray-900">{summary.pending + summary.inProgress}</dd>
+                </div>
+                <div className="rounded-lg border bg-white/70 p-4">
+                  <dt className="text-sm text-gray-500">بانتظار تأكيد الإدارة</dt>
+                  <dd className="text-2xl font-bold text-blue-600">{summary.awaitingConfirmation}</dd>
                 </div>
                 <div className="rounded-lg border bg-white/70 p-4">
                   <dt className="text-sm text-gray-500">طلبات مكتملة</dt>
@@ -571,33 +587,66 @@ export default function DeliveryAgentTasksPage() {
                     </div>
 
                     {task.status !== 'completed' && task.status !== 'cancelled' && (
-                      <div className="mt-4 flex flex-wrap gap-3">
-                        {task.status === 'pending' && (
+                      <div className="mt-4 space-y-3">
+                        {task.status === 'agent_completed' && (
+                          <p className="text-sm text-blue-700">
+                            أعلن المندوب أنهى المهمة وينتظر التأكيد. راجع الملاحظات ثم أقر التنفيذ أو أعد فتح المهمة.
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-3">
+                          {task.status === 'pending' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleTaskStatusChange(task.id, 'in_progress')}
+                              disabled={updatingTaskId === task.id}
+                            >
+                              بدء التنفيذ
+                            </Button>
+                          )}
+                          {task.status === 'agent_completed' ? (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => handleTaskStatusChange(task.id, 'completed')}
+                                disabled={updatingTaskId === task.id}
+                              >
+                                تأكيد إنهاء المندوب
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleTaskStatusChange(task.id, 'in_progress')}
+                                disabled={updatingTaskId === task.id}
+                              >
+                                إعادة المهمة للمندوب
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => handleTaskStatusChange(task.id, 'completed')}
+                              disabled={updatingTaskId === task.id}
+                            >
+                              تم التنفيذ
+                            </Button>
+                          )}
                           <Button
-                            variant="outline"
+                            variant="destructive"
                             size="sm"
-                            onClick={() => handleTaskStatusChange(task.id, 'in_progress')}
+                            onClick={() => handleTaskStatusChange(task.id, 'cancelled')}
                             disabled={updatingTaskId === task.id}
                           >
-                            بدء التنفيذ
+                            إلغاء الطلب
                           </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          onClick={() => handleTaskStatusChange(task.id, 'completed')}
-                          disabled={updatingTaskId === task.id}
-                        >
-                          تم التنفيذ
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleTaskStatusChange(task.id, 'cancelled')}
-                          disabled={updatingTaskId === task.id}
-                        >
-                          إلغاء الطلب
-                        </Button>
+                        </div>
                       </div>
+                    )}
+
+                    {task.status === 'agent_completed' && task.completionNotes && (
+                      <p className="mt-3 text-sm text-blue-700">
+                        ملاحظات المندوب: {task.completionNotes}
+                      </p>
                     )}
 
                     {task.status === 'completed' && task.completionNotes && (

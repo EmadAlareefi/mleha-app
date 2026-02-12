@@ -119,6 +119,7 @@ export default function DeliveryAgentWalletsPage() {
           amount: wallet.balance,
           paymentMethod: 'cash',
           notes: 'تحصيل رصيد الشحنات (من لوحة إدارة المحافظ)',
+          settleCod: true,
         }),
       });
       const data = await response.json();
@@ -127,9 +128,11 @@ export default function DeliveryAgentWalletsPage() {
         throw new Error(data?.error || 'تعذر تحصيل المبلغ');
       }
 
+      const settledAmount = data?.settledCod?.amount ?? wallet.balance;
+
       toast({
         title: 'تم تحصيل رصيد المندوب',
-        description: `تم تسجيل تحصيل بقيمة ${formatCurrency(wallet.balance)} من ${wallet.agent.name}.`,
+        description: `تم تسجيل تحصيل بقيمة ${formatCurrency(settledAmount)} من ${wallet.agent.name}.`,
       });
       await fetchWallets();
     } catch (err) {

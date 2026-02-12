@@ -49,7 +49,7 @@ interface Assignment {
 interface DeliveryAgentTask {
   id: string;
   title: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'in_progress' | 'agent_completed' | 'completed' | 'cancelled';
   requestType: string;
   requestedItem?: string | null;
   quantity?: number | null;
@@ -174,7 +174,7 @@ export default function MyDeliveriesPage() {
       setTasksLoading(true);
       setTasksError('');
 
-      const response = await fetch('/api/delivery-agent-tasks');
+      const response = await fetch('/api/delivery-agent-tasks?includeCompleted=true');
       const data = await parseJsonResponse(response);
 
       if (!response.ok) {
@@ -220,7 +220,7 @@ export default function MyDeliveriesPage() {
       setTaskUpdatingId(taskId);
       const payload: Record<string, unknown> = { status };
 
-      if (status === 'completed') {
+      if (status === 'completed' || status === 'agent_completed') {
         payload.completionNotes = taskNotes[taskId]?.trim() || undefined;
       }
 
@@ -240,7 +240,7 @@ export default function MyDeliveriesPage() {
         description: 'تم تعديل حالة المهمة الخاصة بنجاح',
       });
 
-      if (status === 'completed') {
+      if (status === 'completed' || status === 'agent_completed') {
         setTaskNotes((prev) => ({ ...prev, [taskId]: '' }));
       }
 
@@ -372,6 +372,7 @@ export default function MyDeliveriesPage() {
     const statusMap: Record<DeliveryAgentTask['status'], { label: string; className: string }> = {
       pending: { label: 'بانتظار التنفيذ', className: 'bg-slate-100 text-slate-800' },
       in_progress: { label: 'قيد التنفيذ', className: 'bg-amber-100 text-amber-800' },
+      agent_completed: { label: 'بانتظار تأكيد الإدارة', className: 'bg-blue-100 text-blue-800' },
       completed: { label: 'تم التنفيذ', className: 'bg-green-100 text-green-800' },
       cancelled: { label: 'ملغي', className: 'bg-gray-100 text-gray-700' },
     };
@@ -450,18 +451,33 @@ export default function MyDeliveriesPage() {
   const completedAssignments = assignments.filter((a) =>
     ['delivered', 'failed', 'cancelled'].includes(a.status)
   );
-  const activeAgentTasks = agentTasks.filter((task) => task.status !== 'completed');
-  const completedAgentTasks = agentTasks.filter((task) => task.status === 'completed');
+  const activeAgentTasks = agentTasks.filter(
+    (task) => !['agent_completed', 'completed', 'cancelled'].includes(task.status)
+  );
+  const completedAgentTasks = agentTasks.filter((task) =>
+    ['agent_completed', 'completed', 'cancelled'].includes(task.status)
+  );
   const visibleTasks = tasksTab === 'active' ? activeAgentTasks : completedAgentTasks;
+
+  const outstandingCodAmount = assignments
+    .filter(
+      (assignment) =>
+        assignment.shipment.isCOD &&
+        assignment.shipment.codCollection &&
+        (assignment.shipment.codCollection.status === 'pending' ||
+          assignment.shipment.codCollection.status === 'collected')
+    )
+    .reduce((sum, assignment) => {
+      const codAmount = assignment.shipment.codCollection?.collectionAmount ?? 0;
+      return sum + Number(codAmount);
+    }, 0);
 
   const stats = {
     total: assignments.length,
     active: activeAssignments.length,
     delivered: assignments.filter((a) => a.status === 'delivered').length,
     failed: assignments.filter((a) => a.status === 'failed').length,
-    totalCOD: assignments
-      .filter((a) => a.shipment.isCOD && a.shipment.codCollection)
-      .reduce((sum, a) => sum + Number(a.shipment.codCollection!.collectionAmount), 0),
+    totalCOD: outstandingCodAmount,
   };
   const recentWalletTransactions = walletInfo?.recentTransactions?.slice(0, 5) ?? [];
 
@@ -510,7 +526,7 @@ export default function MyDeliveriesPage() {
           </Card>
           <Card className="p-4 text-center">
             <div className="text-xl font-bold text-orange-600">{formatCurrency(stats.totalCOD)}</div>
-            <div className="text-sm text-gray-600">مبالغ COD</div>
+            <div className="text-sm text-gray-600">COD قيد التسوية</div>
           </Card>
         </div>
 
@@ -627,7 +643,7 @@ export default function MyDeliveriesPage() {
               variant={tasksTab === 'completed' ? 'default' : 'outline'}
               onClick={() => setTasksTab('completed')}
             >
-              المهام المكتملة
+              المهام المكتملة / بانتظار التأكيد
             </Button>
           </div>
 
@@ -639,7 +655,7 @@ export default function MyDeliveriesPage() {
             <p className="text-center text-gray-500 py-6">
               {tasksTab === 'active'
                 ? 'لا توجد مهام حالياً، ستظهر هنا الطلبات عند إرسالها لك.'
-                : 'لا توجد مهام مكتملة بعد.'}
+                : 'لا توجد مهام مكتملة أو بانتظار التأكيد أو ملغاة.'}
             </p>
           ) : (
             <div className="space-y-4">
@@ -712,7 +728,7 @@ export default function MyDeliveriesPage() {
                     </div>
                   </div>
 
-                  {task.status !== 'completed' && task.status !== 'cancelled' && (
+                  {!['completed', 'agent_completed', 'cancelled'].includes(task.status) && (
                     <div className="mt-4 space-y-3">
                       <textarea
                         className="w-full rounded-md border border-input px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -734,12 +750,27 @@ export default function MyDeliveriesPage() {
                         )}
                         <Button
                           size="sm"
-                          onClick={() => handleTaskStatusUpdate(task.id, 'completed')}
+                          onClick={() => handleTaskStatusUpdate(task.id, 'agent_completed')}
                           disabled={taskUpdatingId === task.id}
                         >
-                          تم التنفيذ
+                          تم التنفيذ (بانتظار التأكيد)
                         </Button>
                       </div>
+                    </div>
+                  )}
+
+                  {task.status === 'agent_completed' && (
+                    <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                      <p className="font-semibold">بانتظار تأكيد الإدارة</p>
+                      <p className="mt-1">
+                        سيتم اعتماد المهمة بعد أن يقوم صاحب الطلب بمراجعة ما تم وتأكيده. يمكنك متابعة الحالة من
+                        هذه القائمة.
+                      </p>
+                      {task.completionNotes && (
+                        <p className="mt-2 text-blue-900">
+                          ملاحظات التنفيذ: <span className="font-medium">{task.completionNotes}</span>
+                        </p>
+                      )}
                     </div>
                   )}
 

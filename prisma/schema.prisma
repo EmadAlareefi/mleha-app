@@ -901,7 +901,7 @@ model DeliveryAgentTask {
   requestedItem String?
   quantity      Int?
   details       String?  @db.Text
-  status        String   @default("pending") // pending, in_progress, completed, cancelled
+  status        String   @default("pending") // pending, in_progress, agent_completed, completed, cancelled
   priority      String?  // low, normal, high
   dueDate       DateTime?
   completedAt   DateTime?

@@ -36,7 +36,8 @@ const TASK_INCLUDE = {
   },
 };
 
-const STATUS_WHITELIST = ['pending', 'in_progress', 'completed', 'cancelled'];
+const STATUS_WHITELIST = ['pending', 'in_progress', 'agent_completed', 'completed', 'cancelled'];
+const DELIVERY_AGENT_ALLOWED_STATUSES = ['pending', 'in_progress', 'agent_completed'];
 
 /**
  * PATCH /api/delivery-agent-tasks/[id]
@@ -96,9 +97,17 @@ export async function PATCH(
         return NextResponse.json({ error: 'حالة غير صحيحة' }, { status: 400 });
       }
 
-      if (isDeliveryAgent && !['pending', 'in_progress', 'completed'].includes(status)) {
+      if (isDeliveryAgent && !hasManagementAccess && !DELIVERY_AGENT_ALLOWED_STATUSES.includes(status)) {
         return NextResponse.json(
-          { error: 'لا يمكن للمندوب إلغاء المهام' },
+          { error: 'لا يمكن للمندوب تحديث المهمة إلى هذه الحالة' },
+          { status: 403 }
+        );
+      }
+
+      const canConfirmCompletion = hasManagementAccess || isWarehouseAdmin || isCreator;
+      if (status === 'completed' && !canConfirmCompletion) {
+        return NextResponse.json(
+          { error: 'لا يمكن تأكيد اكتمال المهمة إلا من قِبل مالك الطلب أو الإدارة' },
           { status: 403 }
         );
       }

@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
         tasksWhere.status = { in: statuses };
       }
     } else if (!includeCompleted) {
-      tasksWhere.status = { in: ['pending', 'in_progress'] };
+      tasksWhere.status = { in: ['pending', 'in_progress', 'agent_completed'] };
     }
 
     const tasks = await prisma.deliveryAgentTask.findMany({
@@ -104,11 +104,12 @@ export async function GET(request: NextRequest) {
         acc.total += count;
         if (record.status === 'pending') acc.pending += count;
         if (record.status === 'in_progress') acc.inProgress += count;
+        if (record.status === 'agent_completed') acc.awaitingConfirmation += count;
         if (record.status === 'completed') acc.completed += count;
         if (record.status === 'cancelled') acc.cancelled += count;
         return acc;
       },
-      { total: 0, pending: 0, inProgress: 0, completed: 0, cancelled: 0 }
+      { total: 0, pending: 0, inProgress: 0, awaitingConfirmation: 0, completed: 0, cancelled: 0 }
     );
 
     return NextResponse.json({ success: true, tasks, summary });

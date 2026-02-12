@@ -78,6 +78,53 @@ const buildStats = (
   };
 };
 
+async function settleAgentCodCollections(
+  deliveryAgentId: string,
+  options: { depositMethod?: string; depositNotes?: string; depositedBy?: string }
+) {
+  const codCollections = await prisma.cODCollection.findMany({
+    where: {
+      status: 'collected',
+      shipment: {
+        assignment: {
+          deliveryAgentId,
+        },
+      },
+    },
+    select: {
+      id: true,
+      collectionAmount: true,
+      collectedAmount: true,
+    },
+  });
+
+  if (codCollections.length === 0) {
+    return { count: 0, amount: 0 };
+  }
+
+  const totalAmount = codCollections.reduce(
+    (sum, collection) => sum + Number(collection.collectedAmount ?? collection.collectionAmount),
+    0
+  );
+
+  await prisma.cODCollection.updateMany({
+    where: {
+      id: {
+        in: codCollections.map((collection) => collection.id),
+      },
+    },
+    data: {
+      status: 'deposited',
+      depositedAt: new Date(),
+      depositedBy: options.depositedBy,
+      depositMethod: options.depositMethod,
+      depositNotes: options.depositNotes,
+    },
+  });
+
+  return { count: codCollections.length, amount: totalAmount };
+}
+
 async function getDeliveryAgentWallet(
   deliveryAgentId: string,
   options?: { includeTransactions?: boolean }
@@ -288,7 +335,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { deliveryAgentId, amount, paymentMethod, notes } = body;
+    const { deliveryAgentId, amount, paymentMethod, notes, settleCod } = body;
 
     if (!deliveryAgentId || amount === undefined) {
       return NextResponse.json({ error: 'المندوب والمبلغ مطلوبان' }, { status: 400 });
@@ -322,13 +369,28 @@ export async function POST(request: NextRequest) {
       createdByName: user.name || user.username,
     });
 
+    let settledCod: { count: number; amount: number } | null = null;
+    if (settleCod) {
+      settledCod = await settleAgentCodCollections(deliveryAgentId, {
+        depositMethod: paymentMethod,
+        depositNotes: notes,
+        depositedBy: user.username || user.name || 'system',
+      });
+    }
+
     log.info('Recorded delivery agent payout', {
       deliveryAgentId,
       amount: payoutAmount,
+      settleCod: Boolean(settleCod),
+      settledCod,
       createdBy: user.username,
     });
 
-    return NextResponse.json({ success: true, transaction: formatTransaction(transaction) });
+    return NextResponse.json({
+      success: true,
+      transaction: formatTransaction(transaction),
+      settledCod,
+    });
   } catch (error) {
     log.error('Error recording delivery agent payout', {
       error: error instanceof Error ? error.message : error,
