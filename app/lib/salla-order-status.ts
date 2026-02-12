@@ -116,8 +116,11 @@ export async function createSallaOrderHistoryEntry(
       return { success: false, error: 'missing_token' };
     }
 
-    const url = `${SALLA_API_BASE}/orders/${orderId}/history`;
+    const url = `${SALLA_API_BASE}/orders/history`;
+    const numericOrderId =
+      typeof orderId === 'string' && /^\d+$/.test(orderId) ? Number.parseInt(orderId, 10) : null;
     const payload = {
+      order_id: numericOrderId ?? orderId,
       comment: trimmedComment,
       notify_customer: false,
     };
