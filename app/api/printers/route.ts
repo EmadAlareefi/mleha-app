@@ -30,7 +30,7 @@ export async function GET() {
       prisma.printerProfile.findMany({
         orderBy: { label: 'asc' },
       }),
-      fetchPrintNodePrinters().catch((error) => {
+      fetchPrintNodePrinters({ timeoutMs: 7000 }).catch((error) => {
         log.error('Failed to fetch PrintNode printers for configuration', { error });
         return [];
       }),

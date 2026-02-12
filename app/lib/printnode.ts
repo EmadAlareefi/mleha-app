@@ -6,6 +6,7 @@
 const PRINTNODE_API_KEY = 'qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU';
 const PRINTNODE_BASE_URL = 'https://api.printnode.com';
 const PRINTNODE_PRINTJOBS_URL = `${PRINTNODE_BASE_URL}/printjobs`;
+const PRINTNODE_PRINTERS_URL = `${PRINTNODE_BASE_URL}/printers`;
 export const PRINTNODE_LABEL_PRINTER_ID = 75006700;
 export const PRINTNODE_INVOICE_PRINTER_ID = 75006701;
 export const PRINTNODE_ORDER_NUMBER_PRINTER_ID = 75062492;
@@ -13,6 +14,7 @@ export const PRINTNODE_LABEL_PAPER_NAME = 'LABEL(100mm x 150mm)';
 export const PRINTNODE_INVOICE_PAPER_NAME = 'A4‏ 210‏ ×‏ 297‏ ملم';
 export const PRINTNODE_DEFAULT_DPI = '203x203';
 const DEFAULT_LABEL_PAPER_MM = { width: 100, height: 150 } as const;
+const PRINTNODE_FETCH_TIMEOUT_MS = 7000;
 const LABEL_PRINTER_SIZE_OVERRIDES: Record<number, LabelPrinterSizing> = {
   [PRINTNODE_LABEL_PRINTER_ID]: {
     fitToPage: true,
@@ -143,15 +145,19 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
 /**
  * Fetch printers (devices) from PrintNode
  */
-export async function fetchPrintNodePrinters(): Promise<PrintNodePrinter[]> {
+export async function fetchPrintNodePrinters(options?: { timeoutMs?: number }): Promise<PrintNodePrinter[]> {
+  const timeoutMs = options?.timeoutMs ?? PRINTNODE_FETCH_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const basicAuth = Buffer.from(`${PRINTNODE_API_KEY}:`).toString('base64');
-    const response = await fetch(`${PRINTNODE_BASE_URL}/printers`, {
+    const response = await fetch(PRINTNODE_PRINTERS_URL, {
       headers: {
         'Authorization': 'Basic ' + basicAuth,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -184,8 +190,14 @@ export async function fetchPrintNodePrinters(): Promise<PrintNodePrinter[]> {
       default: printer.default,
     })) as PrintNodePrinter[];
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('Timed out while fetching PrintNode printers');
+      throw new Error('Timed out while fetching PrintNode printers');
+    }
     console.error('Failed to fetch PrintNode printers:', error);
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

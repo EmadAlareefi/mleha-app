@@ -105,7 +105,10 @@ export async function GET() {
           name: 'asc',
         },
       }),
-      fetchPrintNodePrinters(),
+      fetchPrintNodePrinters({ timeoutMs: 7000 }).catch((error) => {
+        log.error('Failed to fetch PrintNode printers for linking', { error });
+        return [];
+      }),
     ]);
 
     return NextResponse.json({

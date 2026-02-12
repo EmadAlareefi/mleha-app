@@ -327,6 +327,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
+    key: 'salla-notify',
+    title: 'أبلغني عند التوفر',
+    description: 'تسجيل طلبات العملاء للتواصل عند توفر مقاسات منتجات سلة',
+    icon: '🔔',
+    href: '/salla/notify',
+    color: 'from-indigo-500 to-indigo-600',
+    defaultRoles: ['admin', 'store_manager'],
+    grantsRoles: ['store_manager'],
+  },
+  {
     key: 'salla-requests',
     title: 'طلبات كميات سلة',
     description: 'متابعة طلبات الكميات وتواريخ التوريد لكل منتج',

@@ -14,7 +14,7 @@ import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses
 import { hasServiceAccess } from '@/app/lib/service-access';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
-const DEFAULT_LIMIT = 60;
+const DEFAULT_LIMIT = 200;
 const TARGET_NEW_ORDER_STATUS_IDS = [
   '449146439', // طلب جديد
   '1065456688', // تحت المراجعة ع
