@@ -60,7 +60,7 @@ export async function updateSallaOrderStatus(
     }
 
     const response = await fetch(url, {
-      method: 'POST',
+      method: 'PUT',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
