@@ -982,8 +982,8 @@ function AssignmentCard({
   );
 }
 
-function resolveItemArray(source: unknown): any[] {
-  if (!source || (typeof source !== 'object' && !Array.isArray(source))) {
+function resolveItemArray(source: unknown, depth = 0): any[] {
+  if (source === null || source === undefined || depth > 6) {
     return [];
   }
 
@@ -991,38 +991,75 @@ function resolveItemArray(source: unknown): any[] {
     return source;
   }
 
-  const container = source as Record<string, unknown>;
-  if (Array.isArray(container.data)) {
-    return container.data;
+  if (typeof source === 'string') {
+    const trimmed = source.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return resolveItemArray(parsed, depth + 1);
+      } catch {
+        return [];
+      }
+    }
+    return [];
   }
-  if (Array.isArray(container.items)) {
-    return container.items;
+
+  if (typeof source !== 'object') {
+    return [];
+  }
+
+  const container = source as Record<string, unknown>;
+  const directArrayKeys = [
+    'items',
+    'data',
+    'order_items',
+    'orderItems',
+    'line_items',
+    'lineItems',
+    'orderLines',
+    'order_lines',
+    'products',
+  ];
+
+  for (const key of directArrayKeys) {
+    const value = container[key];
+    if (Array.isArray(value) && value.length > 0) {
+      return value;
+    }
+  }
+
+  const nestedKeys = [
+    'order',
+    'orderData',
+    'order_data',
+    'payload',
+    'result',
+    'results',
+    'record',
+    'records',
+    'response',
+    'cart',
+    'content',
+    'value',
+  ];
+
+  const keysToExplore = [...directArrayKeys, ...nestedKeys];
+  for (const key of keysToExplore) {
+    const value = container[key];
+    if (!value || value === source) {
+      continue;
+    }
+    const resolved = resolveItemArray(value, depth + 1);
+    if (resolved.length > 0) {
+      return resolved;
+    }
   }
 
   return [];
 }
 
 function getLineItems(order: any): LineItem[] {
-  const candidates = [
-    order?.items,
-    order?.order?.items,
-    order?.orderItems,
-    order?.order_items,
-    order?.lineItems,
-    order?.line_items,
-    order?.cart?.items,
-    order?.order?.cart?.items,
-    order?.products,
-  ];
-
-  let list: any[] = [];
-  for (const candidate of candidates) {
-    const resolved = resolveItemArray(candidate);
-    if (resolved.length > 0) {
-      list = resolved;
-      break;
-    }
-  }
+  const list = resolveItemArray(order);
 
   return list.map((item: any): LineItem => {
     const image =
