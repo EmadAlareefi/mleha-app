@@ -3,8 +3,18 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { hasServiceAccess } from '@/app/lib/service-access';
+import type { ServiceKey } from '@/app/lib/service-definitions';
 
 export const runtime = 'nodejs';
+
+const ALLOWED_SERVICES: ServiceKey[] = [
+  'warehouse',
+  'order-shipping',
+  'order-prep',
+  'shipment-assignments',
+  'local-shipping',
+];
 
 /**
  * GET /api/delivery-agents
@@ -20,8 +30,11 @@ export async function GET(request: NextRequest) {
 
     const user = session.user as any;
 
-    // Only warehouse admins can list delivery agents
-    if (!user.roles?.includes('warehouse') && user.role !== 'admin') {
+    const hasWarehouseRole = Array.isArray(user.roles) && user.roles.includes('warehouse');
+    const hasAllowedService =
+      hasWarehouseRole || hasServiceAccess(session, ALLOWED_SERVICES);
+
+    if (!hasAllowedService) {
       return NextResponse.json(
         { error: 'ليس لديك صلاحية لعرض قائمة المناديب' },
         { status: 403 }

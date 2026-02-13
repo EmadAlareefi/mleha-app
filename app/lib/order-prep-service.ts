@@ -252,11 +252,11 @@ function updateStoredOrderStatus(
 function mapStatusToSalla(status: 'preparing' | 'waiting' | 'completed'): number | null {
   switch (status) {
     case 'preparing':
-      return null;
+      return STATUS_IDS.IN_PROGRESS ?? null;
     case 'waiting':
-      return STATUS_IDS.NEW_ORDER ?? null;
+      return STATUS_IDS.UNDER_REVIEW ?? null;
     case 'completed':
-      return STATUS_IDS.COMPLETED ?? null;
+      return STATUS_IDS.IN_PROGRESS ?? null;
     default:
       return null;
   }

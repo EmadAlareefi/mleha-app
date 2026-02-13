@@ -158,6 +158,7 @@ export default function OrderPrepClient() {
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [sallaStatusAction, setSallaStatusAction] = useState<string | null>(null);
   const [dialogNote, setDialogNote] = useState('');
+  const autoStartedAssignments = useRef<Set<string>>(new Set());
   const refreshedAssignments = useRef<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
     type: ConfirmDialogType;
@@ -409,6 +410,31 @@ export default function OrderPrepClient() {
       void refreshAssignmentItems(activeAssignment.id);
     }
   }, [activeAssignment, refreshAssignmentItems]);
+
+  useEffect(() => {
+    if (
+      activeAssignment &&
+      activeAssignment.status === 'assigned' &&
+      !autoStartedAssignments.current.has(activeAssignment.id)
+    ) {
+      autoStartedAssignments.current.add(activeAssignment.id);
+      setAssignments((prev) =>
+        prev.map((assignment) =>
+          assignment.id === activeAssignment.id
+            ? {
+                ...assignment,
+                status: 'preparing',
+                startedAt: assignment.startedAt ?? new Date().toISOString(),
+              }
+            : assignment,
+        ),
+      );
+      void updateStatus(activeAssignment.id, 'preparing', {
+        skipSallaSync: true,
+        suppressError: true,
+      });
+    }
+  }, [activeAssignment, updateStatus]);
 
   const runConfirmedAction = useCallback(() => {
     if (!confirmDialog) return;
