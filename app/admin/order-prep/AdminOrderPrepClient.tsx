@@ -916,8 +916,7 @@ export default function AdminOrderPrepPage() {
     <div className="min-h-screen bg-gray-50">
       <AppNavbar title="إدارة طلبات التحضير" subtitle="لوحة تحكم المسؤول" />
 
-      <div className="w-full px-4 md:px-6 py-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <div className="w-full px-4 md:px-6 py-6 space-y-6">
           <Card className="p-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
@@ -1121,7 +1120,7 @@ export default function AdminOrderPrepPage() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-6">
             {liveStatusColumns.map((column) => (
               <Card key={column.id} className="p-4 flex flex-col gap-4 border border-slate-100 h-full">
                 <div className="flex items-center justify-between">
