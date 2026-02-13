@@ -85,7 +85,18 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['returns-inspection', [/^\/returns-inspection(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   ['returns-priority', [/^\/returns-priority(\/.*)?$/]],
   ['returns-gifts', [/^\/returns-gifts(\/.*)?$/]],
-  ['salla-products', [/^\/salla\/products(\/.*)?$/, /^\/api\/salla\/products(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/]],
+  [
+    'salla-products',
+    [/^\/salla\/products(\/.*)?$/, /^\/api\/salla\/products(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/],
+  ],
+  [
+    'salla-notify',
+    [
+      /^\/salla\/notify(\/.*)?$/,
+      /^\/api\/salla\/availability-requests(\/.*)?$/,
+      /^\/api\/salla\/products(\/.*)?$/,
+    ],
+  ],
   ['salla-requests', [/^\/salla\/requests(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/]],
   ['settings', [/^\/settings(\/.*)?$/, /^\/erp-settings(\/.*)?$/]],
   [

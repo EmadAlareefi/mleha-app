@@ -1,22 +1,16 @@
 const ALLOWED_ORDER_STATUS_IDS = new Set([
   '449146439', // Custom "طلب جديد"
   '566146469', // Original "تحت المراجعة / طلب جديد"
-  '1956875584', // Custom "جاري التجهيز"
-  '1939592358', // Original "قيد التنفيذ / جاري التجهيز"
 ]);
 
-const ALLOWED_ORDER_STATUS_SLUGS = new Set(['under_review', 'in_progress']);
+const ALLOWED_ORDER_STATUS_SLUGS = new Set(['under_review']);
 
 const ALLOWED_ORDER_STATUS_NAMES = new Set(
   [
     'طلب جديد',
+    'بإنتظار المراجعة',
     'new order',
     'under review',
-    'جاري التجهيز',
-    'in progress',
-    'processing',
-    'preparing',
-    'قيد التنفيذ',
   ].map((value) => value.trim().toLowerCase()),
 );
 

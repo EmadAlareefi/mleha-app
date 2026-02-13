@@ -158,7 +158,6 @@ export default function OrderPrepClient() {
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [sallaStatusAction, setSallaStatusAction] = useState<string | null>(null);
   const [dialogNote, setDialogNote] = useState('');
-  const autoStartedAssignments = useRef<Set<string>>(new Set());
   const refreshedAssignments = useRef<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
     type: ConfirmDialogType;
@@ -404,29 +403,12 @@ export default function OrderPrepClient() {
     loading || assigning || Boolean(pendingAction || sallaStatusAction || printingOrderId);
 
   useEffect(() => {
+    // Automatically refresh line items once per assignment to keep quantities current
     if (activeAssignment && !refreshedAssignments.current.has(activeAssignment.id)) {
       refreshedAssignments.current.add(activeAssignment.id);
       void refreshAssignmentItems(activeAssignment.id);
     }
   }, [activeAssignment, refreshAssignmentItems]);
-
-  useEffect(() => {
-    if (activeAssignment && activeAssignment.status === 'assigned' && !autoStartedAssignments.current.has(activeAssignment.id)) {
-      autoStartedAssignments.current.add(activeAssignment.id);
-      setAssignments((prev) =>
-        prev.map((assignment) =>
-          assignment.id === activeAssignment.id
-            ? {
-                ...assignment,
-                status: 'preparing',
-                startedAt: assignment.startedAt ?? new Date().toISOString(),
-              }
-            : assignment,
-        ),
-      );
-      void updateStatus(activeAssignment.id, 'preparing', { skipSallaSync: true, suppressError: true });
-    }
-  }, [activeAssignment, updateStatus]);
 
   const runConfirmedAction = useCallback(() => {
     if (!confirmDialog) return;
@@ -583,10 +565,8 @@ export default function OrderPrepClient() {
           key={activeAssignment.id}
           assignment={activeAssignment}
           pendingAction={pendingAction}
-          onStatusChange={updateStatus}
           onPrintOrderNumber={handlePrintOrderNumber}
           printingOrderId={printingOrderId}
-          onUpdateSallaStatus={handleUpdateSallaStatus}
           sallaStatusAction={sallaStatusAction}
           onConfirmComplete={() => {
             setDialogNote('');
@@ -618,20 +598,16 @@ export default function OrderPrepClient() {
 function AssignmentCard({
   assignment,
   pendingAction,
-  onStatusChange,
   onPrintOrderNumber,
   printingOrderId,
-  onUpdateSallaStatus,
   sallaStatusAction,
   onConfirmComplete,
   onConfirmSallaStatus,
 }: {
   assignment: Assignment;
   pendingAction: string | null;
-  onStatusChange: (assignmentId: string, status: AssignmentStatus) => void;
   onPrintOrderNumber: (assignment: Assignment) => void;
   printingOrderId: string | null;
-  onUpdateSallaStatus: (assignment: Assignment, target: SallaStatusTarget) => void;
   sallaStatusAction: string | null;
   onConfirmComplete: () => void;
   onConfirmSallaStatus: (target: SallaStatusTarget) => void;
@@ -641,7 +617,6 @@ function AssignmentCard({
   const orderNumber = assignment.orderNumber || assignment.orderReference || assignment.orderId;
   const statusMeta = assignmentStatusMeta[assignment.status];
   const actionKey = (status: AssignmentStatus) => `${assignment.id}_${status}`;
-  const waitingDisabled = assignment.status === 'waiting';
   const completedDisabled = assignment.status === 'completed';
   const itemsCount = items.reduce<number>((sum, item) => sum + (item.quantity || 0), 0);
   const orderTags = Array.isArray(assignment.orderData?.tags) ? assignment.orderData.tags : [];
@@ -1371,22 +1346,6 @@ function getOrderStatus(order: any) {
   const name = status.name || status.label || normalizedSlug || '';
 
   return normalizedSlug ? { slug: normalizedSlug, name } : { slug: '', name };
-}
-
-function formatCurrency(value: unknown, currency?: string) {
-  const numeric = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numeric)) {
-    return '—';
-  }
-  const safeCurrency = currency || 'SAR';
-  try {
-    return new Intl.NumberFormat('ar-SA', {
-      style: 'currency',
-      currency: safeCurrency,
-    }).format(numeric);
-  } catch {
-    return `${numeric.toFixed(2)} ${safeCurrency}`;
-  }
 }
 
 function formatDate(value: string) {

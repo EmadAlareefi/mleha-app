@@ -7,7 +7,7 @@ import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
-const ALLOWED_STATUSES = ['preparing', 'waiting', 'completed'] as const;
+const ALLOWED_STATUSES = ['waiting', 'completed'] as const;
 
 type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
 
