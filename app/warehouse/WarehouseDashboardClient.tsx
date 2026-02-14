@@ -173,7 +173,6 @@ export default function WarehouseDashboardClient({
     try {
       const params = new URLSearchParams({
         date: formattedDate,
-        limit: '100',
         warehouseId: selectedWarehouseId,
       });
 

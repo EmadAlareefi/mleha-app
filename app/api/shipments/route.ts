@@ -56,7 +56,9 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type'); // 'incoming' or 'outgoing'
     const company = searchParams.get('company');
     const date = searchParams.get('date'); // ISO date string
-    const limit = parseInt(searchParams.get('limit') || '100');
+    const limitParam = searchParams.get('limit');
+    const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : NaN;
+    const limit = Number.isFinite(parsedLimit) ? parsedLimit : undefined;
     const requestedWarehouseId = searchParams.get('warehouseId') || undefined;
 
     const where: any = {};
@@ -89,12 +91,11 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    const shipments = await prisma.shipment.findMany({
+    const shipmentsQuery: Parameters<typeof prisma.shipment.findMany>[0] = {
       where,
       orderBy: {
         scannedAt: 'desc',
       },
-      take: limit,
       include: {
         warehouse: {
           select: {
@@ -104,7 +105,13 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-    });
+    };
+
+    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+      shipmentsQuery.take = limit;
+    }
+
+    const shipments = await prisma.shipment.findMany(shipmentsQuery);
 
     return NextResponse.json(shipments);
   } catch (error) {

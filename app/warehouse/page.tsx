@@ -177,7 +177,6 @@ async function loadWarehouseSnapshot({
       orderBy: {
         scannedAt: 'desc',
       },
-      take: 100,
     });
 
     const [incoming, outgoing, byCompany] = await Promise.all([
