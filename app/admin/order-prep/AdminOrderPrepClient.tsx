@@ -1347,7 +1347,6 @@ export default function AdminOrderPrepPage() {
           )}
 
         </div>
-      </div>
 
       {/* Reassign Modal */}
       {showReassignModal && (
