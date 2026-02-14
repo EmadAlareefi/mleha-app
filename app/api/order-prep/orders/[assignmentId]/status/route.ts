@@ -54,6 +54,13 @@ export async function POST(
       );
     }
 
+    if (result.blocked) {
+      return NextResponse.json(
+        { error: result.sallaError || 'تعذر تحديث حالة الطلب في سلة' },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       assignment: result.assignment,

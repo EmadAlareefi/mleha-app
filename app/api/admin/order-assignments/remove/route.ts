@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
           where: {
             merchantId: MERCHANT_ID,
             orderId: { in: orderIdsForPrepRemoval },
+            status: { not: 'completed' },
           },
           select: {
             id: true,

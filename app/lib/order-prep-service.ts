@@ -89,16 +89,28 @@ export async function assignOldestOrderToUser(user: {
     return null;
   }
 
-  const existingAssignments = await prisma.orderPrepAssignment.findMany({
-    where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
-    select: { orderId: true },
-  });
+  const [existingAssignments, existingShipments] = await Promise.all([
+    prisma.orderPrepAssignment.findMany({
+      where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
+      select: { orderId: true },
+    }),
+    prisma.sallaShipment.findMany({
+      where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
+      select: { orderId: true },
+    }),
+  ]);
 
   const assignedIds = new Set(existingAssignments.map((record) => record.orderId));
+  const shippedIds = new Set(existingShipments.map((record) => record.orderId));
 
   for (const order of candidateOrders) {
     const orderId = extractOrderId(order);
     if (!orderId || assignedIds.has(orderId)) {
+      continue;
+    }
+
+    if (shippedIds.has(orderId)) {
+      log.info('Skipping order with existing shipment label', { orderId });
       continue;
     }
 
@@ -160,6 +172,7 @@ export async function updateAssignmentStatus(options: {
   assignment: SerializedOrderPrepAssignment;
   sallaStatusSynced: boolean;
   sallaError?: string;
+  blocked?: boolean;
 } | null> {
   const { assignmentId, userId, targetStatus, skipSallaSync } = options;
 
@@ -201,6 +214,15 @@ export async function updateAssignmentStatus(options: {
         orderId: assignment.orderId,
         error: result.error,
       });
+
+      if (targetStatus === 'completed') {
+        return {
+          assignment: serializeAssignment(assignment),
+          sallaStatusSynced: false,
+          sallaError: 'تعذر تحديث حالة الطلب في سلة. يرجى المحاولة مرة أخرى.',
+          blocked: true,
+        };
+      }
     } else if (result.success) {
       data.orderData = updateStoredOrderStatus(assignment.orderData, targetStatus);
     }
