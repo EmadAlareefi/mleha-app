@@ -679,6 +679,27 @@ model OrderPrepAssignment {
   @@index([assignedAt])
 }
 
+model OrderPrepUnavailableItem {
+  id            String   @id @default(cuid())
+  merchantId    String
+  orderId       String
+  orderNumber   String?
+  sku           String
+  normalizedSku String
+  itemName      String?
+  reportedById   String?
+  reportedByName String?
+  createdAt     DateTime @default(now())
+  resolvedAt    DateTime?
+  resolvedById   String?
+  resolvedByName String?
+
+  @@index([merchantId])
+  @@index([orderId])
+  @@index([normalizedSku])
+  @@unique([merchantId, orderId, normalizedSku])
+}
+
 model HighPriorityOrder {
   id                String   @id @default(cuid())
   merchantId        String

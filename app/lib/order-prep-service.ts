@@ -163,18 +163,27 @@ export async function assignOldestOrderToUser(user: {
   return null;
 }
 
+type ItemStatusPayload = {
+  index?: number | null;
+  sku?: string | null;
+  normalizedSku?: string | null;
+  name?: string | null;
+  status?: string | null;
+};
+
 export async function updateAssignmentStatus(options: {
   assignmentId: string;
   userId: string;
   targetStatus: 'preparing' | 'waiting' | 'completed';
   skipSallaSync?: boolean;
+  itemStatuses?: ItemStatusPayload[];
 }): Promise<{
   assignment: SerializedOrderPrepAssignment;
   sallaStatusSynced: boolean;
   sallaError?: string;
   blocked?: boolean;
 } | null> {
-  const { assignmentId, userId, targetStatus, skipSallaSync } = options;
+  const { assignmentId, userId, targetStatus, skipSallaSync, itemStatuses } = options;
 
   const assignment = await prisma.orderPrepAssignment.findUnique({
     where: { id: assignmentId },
@@ -224,8 +233,10 @@ export async function updateAssignmentStatus(options: {
         };
       }
     } else if (result.success) {
-      data.orderData = updateStoredOrderStatus(assignment.orderData, targetStatus);
+      data.orderData = updateStoredOrderStatus(assignment.orderData, targetStatus, itemStatuses);
     }
+  } else if (targetStatus === 'completed') {
+    data.orderData = updateStoredOrderStatus(assignment.orderData, targetStatus, itemStatuses);
   }
 
   const updated = await prisma.orderPrepAssignment.update({
@@ -243,6 +254,7 @@ export async function updateAssignmentStatus(options: {
 function updateStoredOrderStatus(
   orderData: Prisma.JsonValue,
   targetStatus: string,
+  itemStatuses?: ItemStatusPayload[],
 ): Prisma.InputJsonValue {
   if (typeof orderData !== 'object' || orderData === null) {
     return orderData as Prisma.InputJsonValue;
@@ -255,20 +267,55 @@ function updateStoredOrderStatus(
   };
 
   const match = statusMap[targetStatus];
-  if (!match) {
-    return orderData;
-  }
+  const normalizedStatuses =
+    Array.isArray(itemStatuses) && itemStatuses.length > 0
+      ? itemStatuses
+          .map((entry, idx) => {
+            const rawSku = typeof entry.sku === 'string' ? entry.sku : null;
+            const normalized =
+              typeof entry.normalizedSku === 'string' && entry.normalizedSku
+                ? entry.normalizedSku
+                : rawSku
+                  ? rawSku.trim().toUpperCase()
+                  : null;
+            const status =
+              entry.status === 'ready' ||
+              entry.status === 'comingSoon' ||
+              entry.status === 'unavailable'
+                ? entry.status
+                : null;
+            if (!status) {
+              return null;
+            }
+            return {
+              index: typeof entry.index === 'number' ? entry.index : idx,
+              sku: rawSku,
+              normalizedSku: normalized,
+              status,
+              name: typeof entry.name === 'string' ? entry.name : null,
+              recordedAt: new Date().toISOString(),
+            };
+          })
+          .filter(Boolean)
+      : null;
 
-  const nextStatus = {
-    ...(typeof (orderData as any).status === 'object' ? (orderData as any).status : {}),
-    slug: match.slug,
-    name: match.name,
+  const nextData: Record<string, any> = {
+    ...(orderData as Record<string, any>),
   };
 
-  return {
-    ...(orderData as any),
-    status: nextStatus,
-  } as Prisma.InputJsonValue;
+  if (match) {
+    nextData.status = {
+      ...(typeof nextData.status === 'object' ? nextData.status : {}),
+      slug: match.slug,
+      name: match.name,
+    };
+  }
+
+  if (normalizedStatuses) {
+    nextData.prepItemStatuses = normalizedStatuses;
+  }
+
+  return nextData as Prisma.InputJsonValue;
 }
 
 function mapStatusToSalla(status: 'preparing' | 'waiting' | 'completed'): number | null {

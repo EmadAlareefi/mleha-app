@@ -32,6 +32,27 @@ const formatCurrency = (value: number) =>
     Number.isFinite(value) ? value : 0
   );
 
+const CODE39_ALLOWED_CHARS = new Set('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%');
+
+const normalizeOrderNumberForBarcode = (value: string) => {
+  if (!value) return '0';
+  const asciiValue = value
+    .toString()
+    .trim()
+    .replace(/[\u0660-\u0669]/g, (digit) =>
+      String.fromCharCode(digit.charCodeAt(0) - 0x0660 + 48)
+    )
+    .toUpperCase();
+
+  const sanitized = asciiValue
+    .split('')
+    .map((char) => (CODE39_ALLOWED_CHARS.has(char) ? char : '-'))
+    .join('')
+    .replace(/-+/g, '-');
+
+  return sanitized || '0';
+};
+
 const ShippingLabel = forwardRef<HTMLDivElement, ShippingLabelProps>(
   ({ shipment, merchant }, ref) => {
     const logoSrc = merchant.logoUrl || '/logo.png';
@@ -116,11 +137,13 @@ const ShippingLabel = forwardRef<HTMLDivElement, ShippingLabelProps>(
             </div>
             <div className="bg-white border-2 border-black px-2 py-1 text-center">
               <Barcode
-                value={shipment.trackingNumber}
+                value={normalizeOrderNumberForBarcode(shipment.orderNumber)}
+                format="CODE39"
                 height={60}
                 displayValue={false}
                 background="#ffffff"
-                width={1.4}
+                width={2}
+                margin={0}
               />
             </div>
           </div>

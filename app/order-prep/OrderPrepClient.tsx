@@ -1,11 +1,11 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { Loader2, Package, RefreshCcw, Printer } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Loader2, Package, Printer, RefreshCcw } from 'lucide-react';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
@@ -39,6 +39,9 @@ interface LineItem {
   location: string | null;
   locationNotes: string | null;
   options: any[];
+  product?: Record<string, unknown> | null;
+  variant?: Record<string, unknown> | null;
+  code?: string | null;
 }
 
 interface ProductLocation {
@@ -51,20 +54,45 @@ interface ProductLocation {
   updatedAt: string;
 }
 
+interface UnavailableItemRecord {
+  id: string;
+  orderId: string;
+  orderNumber?: string | null;
+  sku: string;
+  normalizedSku: string;
+  itemName?: string | null;
+  reportedById?: string | null;
+  reportedByName?: string | null;
+  createdAt: string;
+  resolvedAt?: string | null;
+}
+
 type SallaStatusTarget =
   | 'under_review_a'
   | 'under_review_reservation'
   | 'under_review_inner'
   | 'under_review_x4';
-type ConfirmDialogType = 'complete' | SallaStatusTarget;
+type ConfirmDialogType = 'complete';
+type ItemProgressState = 'ready' | 'comingSoon' | 'unavailable';
 
-const isNoteEnabledTarget = (target: ConfirmDialogType): target is SallaStatusTarget =>
-  target === 'under_review_a' ||
-  target === 'under_review_reservation' ||
-  target === 'under_review_x4';
+interface ItemStatusPayload {
+  index: number;
+  sku: string | null;
+  normalizedSku: string | null;
+  name: string | null;
+  status: ItemProgressState;
+}
 
-const isNoteRequiredTarget = (target: ConfirmDialogType): target is SallaStatusTarget =>
-  target === 'under_review_a' || target === 'under_review_x4';
+interface CompletionSummary {
+  allReady: boolean;
+  hasComingSoon: boolean;
+  hasUnavailable: boolean;
+  allUnavailable: boolean;
+  singleUnavailable: boolean;
+  missingRecordsValid: boolean;
+  note: string;
+  itemStatuses: ItemStatusPayload[];
+}
 
 const assignmentStatusMeta: Record<
   AssignmentStatus,
@@ -149,6 +177,29 @@ const generateSkuVariants = (value: unknown): string[] => {
   return Array.from(variants).filter((sku) => sku.length >= 3);
 };
 
+const extractLineItemSku = (item: LineItem): string => {
+  if (!item) return '';
+  const candidates = [
+    item.sku,
+    item.code,
+    (item.product as Record<string, unknown> | undefined)?.sku,
+    (item.product as Record<string, unknown> | undefined)?.code,
+    (item.variant as Record<string, unknown> | undefined)?.sku,
+    (item.variant as Record<string, unknown> | undefined)?.code,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'number') {
+      return candidate.toString();
+    }
+  }
+
+  return '';
+};
+
 export default function OrderPrepClient() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,14 +208,13 @@ export default function OrderPrepClient() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [sallaStatusAction, setSallaStatusAction] = useState<string | null>(null);
-  const [dialogNote, setDialogNote] = useState('');
   const autoStartedAssignments = useRef<Set<string>>(new Set());
   const refreshedAssignments = useRef<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
     type: ConfirmDialogType;
     assignment: Assignment;
+    completion: CompletionSummary;
   } | null>(null);
-  const noteInputId = useId();
   const { toast } = useToast();
 
   const loadAssignments = useCallback(
@@ -233,7 +283,11 @@ export default function OrderPrepClient() {
   }, [assignments.length, toast]);
 
   const updateStatus = useCallback(
-    async (assignmentId: string, status: AssignmentStatus, options?: { skipSallaSync?: boolean; suppressError?: boolean }) => {
+    async (
+      assignmentId: string,
+      status: AssignmentStatus,
+      options?: { skipSallaSync?: boolean; suppressError?: boolean; itemStatuses?: ItemStatusPayload[] },
+    ) => {
       setPendingAction(`${assignmentId}_${status}`);
       try {
         const response = await fetch(`/api/order-prep/orders/${assignmentId}/status`, {
@@ -244,6 +298,7 @@ export default function OrderPrepClient() {
           body: JSON.stringify({
             status,
             skipSallaSync: Boolean(options?.skipSallaSync),
+            itemStatuses: options?.itemStatuses ?? undefined,
           }),
         });
         const data = await response.json();
@@ -391,8 +446,7 @@ export default function OrderPrepClient() {
 
   const closeConfirmDialog = useCallback(() => {
     setConfirmDialog(null);
-    setDialogNote('');
-  }, [setConfirmDialog, setDialogNote]);
+  }, []);
 
   useEffect(() => {
     void loadAssignments();
@@ -436,22 +490,54 @@ export default function OrderPrepClient() {
     }
   }, [activeAssignment, updateStatus]);
 
+  const handleCompleteFlow = useCallback(
+    async (assignment: Assignment, completion: CompletionSummary): Promise<boolean> => {
+    if (completion.hasUnavailable && !completion.missingRecordsValid) {
+      toast({
+        variant: 'destructive',
+        description: 'يرجى تسجيل النواقص لكل منتج تم وضعه كغير متوفر قبل إنهاء الطلب.',
+      });
+      return false;
+    }
+
+    const reference = assignment.orderNumber || assignment.orderReference || assignment.orderId;
+
+    if (completion.allUnavailable || completion.singleUnavailable) {
+      const note =
+        completion.note && completion.note.trim()
+          ? completion.note
+          : `تم تحويل الطلب (${reference}) إلى حالة غير متوفر (إرجاع مبلغ) بعد تسجيل جميع القطع المفقودة.`;
+      await handleUpdateSallaStatus(assignment, 'under_review_x4', note);
+      return true;
+    }
+
+    if (completion.hasComingSoon) {
+      const note =
+        completion.note && completion.note.trim()
+          ? completion.note
+          : `تم تحويل الطلب (${reference}) إلى تحت المراجعة لوجود منتجات سيتم توفيرها لاحقاً.`;
+      await handleUpdateSallaStatus(assignment, 'under_review_a', note);
+      return true;
+    }
+
+    await updateStatus(assignment.id, 'completed', {
+      itemStatuses: completion.itemStatuses,
+    });
+      return true;
+    },
+    [handleUpdateSallaStatus, toast, updateStatus],
+  );
+
   const runConfirmedAction = useCallback(() => {
     if (!confirmDialog) return;
-    const { type, assignment } = confirmDialog;
-    if (type === 'complete') {
-      void updateStatus(assignment.id, 'completed');
-      closeConfirmDialog();
-      return;
-    }
-    const trimmedNote = dialogNote.trim();
-    if (isNoteRequiredTarget(type) && !trimmedNote) {
-      return;
-    }
-    const noteToSend = isNoteEnabledTarget(type) && trimmedNote ? trimmedNote : undefined;
-    void handleUpdateSallaStatus(assignment, type, noteToSend);
-    closeConfirmDialog();
-  }, [confirmDialog, dialogNote, closeConfirmDialog, handleUpdateSallaStatus, updateStatus]);
+    const { assignment, completion } = confirmDialog;
+    void (async () => {
+      const success = await handleCompleteFlow(assignment, completion);
+      if (success) {
+        closeConfirmDialog();
+      }
+    })();
+  }, [confirmDialog, closeConfirmDialog, handleCompleteFlow]);
 
   const confirmConfig: Record<
     ConfirmDialogType,
@@ -462,59 +548,13 @@ export default function OrderPrepClient() {
       confirmLabel: 'إنهاء الطلب',
       variant: 'danger',
     },
-    under_review_a: {
-      message: 'سيتم إعادة الطلب إلى حالة "تحت المراجعة". هل تريد المتابعة؟',
-      confirmLabel: 'تأكيد الإرجاع',
-    },
-    under_review_reservation: {
-      message: 'سيتم وضع الطلب في حالة "تحت المراجعة - حجز قطع". تأكيد العملية؟',
-      confirmLabel: 'تأكيد النقل',
-    },
-    under_review_inner: {
-      message: 'سيتم تحويل الطلب إلى "تحت المراجعة ا". هل أنت متأكد؟',
-      confirmLabel: 'تأكيد التحويل',
-    },
-    under_review_x4: {
-      message:
-        'سيتم تغيير حالة الطلب إلى "غير متوفر (ارجاع مبلغ)" وإعادته إلى التنسيق مع خدمة العملاء. هل تريد المتابعة؟',
-      confirmLabel: 'تأكيد التحديث',
-      variant: 'danger',
-    },
   };
-
-  const shouldShowNoteField = Boolean(confirmDialog && isNoteEnabledTarget(confirmDialog.type));
-  const noteIsRequired = Boolean(confirmDialog && isNoteRequiredTarget(confirmDialog.type));
-  const trimmedDialogNote = dialogNote.trim();
-  const noteField = shouldShowNoteField ? (
-    <div className="mt-4">
-      <label htmlFor={noteInputId} className="block text-sm font-medium text-gray-700">
-        ملاحظة لسلة {noteIsRequired ? '(مطلوبة)' : '(اختيارية)'}
-      </label>
-      <textarea
-        id={noteInputId}
-        className={cn(
-          'mt-1 w-full rounded-md border px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500',
-          noteIsRequired && !trimmedDialogNote ? 'border-red-300' : 'border-gray-300',
-        )}
-        rows={3}
-        placeholder="يمكنك كتابة سبب التحويل أو تفاصيل إضافية هنا"
-        value={dialogNote}
-        onChange={(event) => setDialogNote(event.target.value)}
-        required={noteIsRequired}
-        aria-invalid={noteIsRequired && !trimmedDialogNote}
-      />
-      <p
-        className={cn(
-          'mt-1 text-xs',
-          noteIsRequired && !trimmedDialogNote ? 'text-red-600' : 'text-gray-500',
-        )}
-      >
-        {noteIsRequired
-          ? 'يجب إضافة ملاحظة توضح سبب تغيير الحالة قبل المتابعة.'
-          : 'سيتم إنشاء إدخال في سجل الطلب في سلة عند إضافة هذه الملاحظة.'}
-      </p>
-    </div>
-  ) : null;
+  const notePreview =
+    confirmDialog?.completion?.note && confirmDialog.completion.note.trim() ? (
+      <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 whitespace-pre-line">
+        {confirmDialog.completion.note}
+      </div>
+    ) : null;
 
   return (
     <section className="space-y-6">
@@ -593,14 +633,13 @@ export default function OrderPrepClient() {
           pendingAction={pendingAction}
           onPrintOrderNumber={handlePrintOrderNumber}
           printingOrderId={printingOrderId}
-          sallaStatusAction={sallaStatusAction}
-          onConfirmComplete={() => {
-            setDialogNote('');
-            setConfirmDialog({ type: 'complete', assignment: activeAssignment });
-          }}
-          onConfirmSallaStatus={(target) => {
-            setDialogNote('');
-            setConfirmDialog({ type: target, assignment: activeAssignment });
+          isSallaUpdating={Boolean(sallaStatusAction)}
+          onConfirmComplete={({ assignment, summary }) => {
+            setConfirmDialog({
+              type: 'complete',
+              assignment,
+              completion: summary,
+            });
           }}
         />
       )}
@@ -614,11 +653,15 @@ export default function OrderPrepClient() {
         }
         onConfirm={runConfirmedAction}
         onCancel={closeConfirmDialog}
-        confirmDisabled={Boolean(confirmDialog && noteIsRequired && !trimmedDialogNote)}
-        content={noteField}
+        content={notePreview}
       />
     </section>
   );
+}
+
+interface CompletionRequest {
+  assignment: Assignment;
+  summary: CompletionSummary;
 }
 
 function AssignmentCard({
@@ -626,17 +669,15 @@ function AssignmentCard({
   pendingAction,
   onPrintOrderNumber,
   printingOrderId,
-  sallaStatusAction,
+  isSallaUpdating,
   onConfirmComplete,
-  onConfirmSallaStatus,
 }: {
   assignment: Assignment;
   pendingAction: string | null;
   onPrintOrderNumber: (assignment: Assignment) => void;
   printingOrderId: string | null;
-  sallaStatusAction: string | null;
-  onConfirmComplete: () => void;
-  onConfirmSallaStatus: (target: SallaStatusTarget) => void;
+  isSallaUpdating: boolean;
+  onConfirmComplete: (request: CompletionRequest) => void;
 }) {
   const items = useMemo(() => getLineItems(assignment.orderData), [assignment.orderData]);
   const orderStatus = getOrderStatus(assignment.orderData);
@@ -660,17 +701,93 @@ function AssignmentCard({
     shippingAddress.addressLine && shippingAddress.locationLabel
       ? shippingAddress.locationLabel
       : null;
+  const { toast } = useToast();
+  const getItemKey = useCallback((index: number) => `${assignment.id}_${index}`, [assignment.id]);
+  const [itemProgress, setItemProgress] = useState<Record<string, ItemProgressState>>({});
+  const [unavailableItems, setUnavailableItems] = useState<UnavailableItemRecord[]>([]);
+  const [unavailableActionKey, setUnavailableActionKey] = useState<string | null>(null);
   const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
+  const [printingSkuKey, setPrintingSkuKey] = useState<string | null>(null);
 
   const currentSkus = useMemo(() => {
     const variants = new Set<string>();
     items.forEach((item) => {
-      generateSkuVariants(item?.sku).forEach((variant) => variants.add(variant));
+      const sku = extractLineItemSku(item);
+      generateSkuVariants(sku).forEach((variant) => variants.add(variant));
     });
     return Array.from(variants);
   }, [items]);
+
+  useEffect(() => {
+    if (!assignment.orderId) {
+      setUnavailableItems([]);
+      return;
+    }
+    const controller = new AbortController();
+    const loadUnavailableItems = async () => {
+      try {
+        const response = await fetch(
+          `/api/order-prep/unavailable-items?orderId=${encodeURIComponent(assignment.orderId)}`,
+          { cache: 'no-store', signal: controller.signal },
+        );
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'تعذر تحميل قائمة النواقص');
+        }
+        setUnavailableItems(Array.isArray(data?.data) ? data.data : []);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+        toast({
+          variant: 'destructive',
+          description: error instanceof Error ? error.message : 'تعذر تحميل قائمة النواقص',
+        });
+      }
+    };
+
+    loadUnavailableItems();
+
+    return () => {
+      controller.abort();
+    };
+  }, [assignment.orderId, toast]);
+
+  useEffect(() => {
+    setItemProgress({});
+    setUnavailableActionKey(null);
+  }, [assignment.id]);
+
+  useEffect(() => {
+    setItemProgress((prev) => {
+      const next: Record<string, ItemProgressState> = {};
+      items.forEach((item, index) => {
+        const key = getItemKey(index);
+        const normalizedSku = normalizeSku(extractLineItemSku(item));
+        if (normalizedSku) {
+          const hasUnavailable = unavailableItems.some(
+            (record) => record.normalizedSku === normalizedSku,
+          );
+          if (hasUnavailable) {
+            next[key] = 'unavailable';
+            return;
+          }
+        }
+        const previous = prev[key];
+        if (previous === 'comingSoon') {
+          next[key] = 'comingSoon';
+          return;
+        }
+        if (previous === 'ready') {
+          next[key] = 'ready';
+          return;
+        }
+      });
+      return next;
+    });
+  }, [getItemKey, items, unavailableItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -757,6 +874,227 @@ function AssignmentCard({
       return bestMatch;
     },
     [productLocations]
+  );
+
+  const getUnavailableRecord = useCallback(
+    (normalizedSku: string): UnavailableItemRecord | null => {
+      if (!normalizedSku) {
+        return null;
+      }
+      return unavailableItems.find((record) => record.normalizedSku === normalizedSku) || null;
+    },
+    [unavailableItems],
+  );
+
+  const updateItemProgress = useCallback(
+    (index: number, status: ItemProgressState) => {
+      const key = getItemKey(index);
+      setItemProgress((prev) => ({
+        ...prev,
+        [key]: status,
+      }));
+    },
+    [getItemKey],
+  );
+
+  const handleMarkUnavailable = useCallback(
+    async (item: LineItem, index: number) => {
+      const rawSku = extractLineItemSku(item);
+      const normalizedSku = normalizeSku(rawSku);
+      if (!normalizedSku) {
+        toast({
+          variant: 'destructive',
+          description: 'لا يمكن تسجيل نقص لهذا المنتج لأنه بدون SKU.',
+        });
+        return;
+      }
+      const actionKeyValue = `${assignment.id}_${normalizedSku}`;
+      setUnavailableActionKey(actionKeyValue);
+      try {
+        const response = await fetch('/api/order-prep/unavailable-items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: assignment.orderId,
+            orderNumber,
+            sku: rawSku || normalizedSku,
+            itemName: item.name || null,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'تعذر تسجيل النقص');
+        }
+        const record: UnavailableItemRecord | null = data?.data || null;
+        if (record) {
+          setUnavailableItems((prev) => {
+            const filtered = prev.filter((entry) => entry.normalizedSku !== record.normalizedSku);
+            return [record, ...filtered];
+          });
+          updateItemProgress(index, 'unavailable');
+        }
+        const skuLabel = record?.sku || normalizedSku;
+        toast({
+          description: `تم تسجيل النقص للمنتج ${skuLabel}`,
+        });
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          description: error instanceof Error ? error.message : 'تعذر تسجيل النقص',
+        });
+      } finally {
+        setUnavailableActionKey((current) => (current === actionKeyValue ? null : current));
+      }
+    },
+    [assignment.id, assignment.orderId, getItemKey, orderNumber, toast, updateItemProgress],
+  );
+
+  const handlePrintSku = useCallback(
+    async (item: LineItem, index: number) => {
+      const rawSku = extractLineItemSku(item);
+      if (!rawSku) {
+        toast({
+          variant: 'destructive',
+          description: 'لا يمكن طباعة رمز المنتج لعدم توفر SKU واضح.',
+        });
+        return;
+      }
+      const key = `${assignment.id}_${index}`;
+      setPrintingSkuKey(key);
+      try {
+        const response = await fetch('/api/order-prep/print-sku', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sku: rawSku,
+            productName: item.name || undefined,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.error || 'تعذر طباعة رمز المنتج');
+        }
+        toast({ description: `تم إرسال SKU ${rawSku} للطابعة` });
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          description: error instanceof Error ? error.message : 'تعذر طباعة رمز المنتج',
+        });
+      } finally {
+        setPrintingSkuKey((current) => (current === key ? null : current));
+      }
+    },
+    [assignment.id, toast],
+  );
+
+  const progressValues = items.map((_, idx) => itemProgress[getItemKey(idx)]);
+  const hasComingSoon = progressValues.includes('comingSoon');
+  const hasUnavailable = progressValues.includes('unavailable');
+  const allUnavailable = items.length > 0 && progressValues.every((value) => value === 'unavailable');
+  const allReady = !hasComingSoon && !hasUnavailable && progressValues.every((value) => value === 'ready');
+  const actionsLocked = items.length > 0 && items.some((_, idx) => !itemProgress[getItemKey(idx)]);
+  const pendingItemsCount = actionsLocked
+    ? items.reduce((count, _, idx) => (itemProgress[getItemKey(idx)] ? count : count + 1), 0)
+    : 0;
+
+  const missingItemsSummary = useMemo(
+    () =>
+      items.reduce<Array<{ sku: string; name: string; status: 'unavailable' | 'comingSoon' }>>(
+        (acc, item, index) => {
+          const status = itemProgress[getItemKey(index)];
+          if (status === 'unavailable' || status === 'comingSoon') {
+                  acc.push({
+                    sku: extractLineItemSku(item) || 'غير متوفر',
+                    name: item.name || 'منتج بدون اسم',
+                    status: status === 'comingSoon' ? 'comingSoon' : 'unavailable',
+                  });
+                }
+          return acc;
+        },
+        [],
+      ),
+    [getItemKey, itemProgress, items],
+  );
+
+  const autoNote = useMemo(() => {
+    if (items.length === 0) {
+      return 'لا توجد منتجات مرتبطة بهذا الطلب عند وقت التحديث.';
+    }
+    if (missingItemsSummary.length === 0 && Object.keys(itemProgress).length === items.length) {
+      return `تم تجهيز جميع منتجات الطلب (${orderNumber}). لا توجد نواقص مسجلة عند تغيير حالة الطلب.`;
+    }
+
+    if (missingItemsSummary.length === 0) {
+      return `لا توجد نواقص مسجلة، لكن لم يتم تأكيد تجهيز جميع المنتجات للطلب (${orderNumber}) بعد.`;
+    }
+
+    const details = missingItemsSummary
+      .map((item, idx) => {
+        const statusLabel = item.status === 'comingSoon' ? 'سيتوفر قريباً' : 'غير متوفر';
+        return `${idx + 1}- ${item.name} (SKU: ${item.sku || 'غير متوفر'}) - ${statusLabel}`;
+      })
+      .join('\n');
+
+    return `المنتجات غير الجاهزة للطلب (${orderNumber}):\n${details}`;
+  }, [itemProgress, items.length, missingItemsSummary, orderNumber]);
+
+  const missingRecordsValid = useMemo(
+    () =>
+      items.every((item, index) => {
+        if (itemProgress[getItemKey(index)] !== 'unavailable') {
+          return true;
+        }
+        const normalizedItemSku = normalizeSku(extractLineItemSku(item));
+        if (!normalizedItemSku) {
+          return false;
+        }
+        return Boolean(getUnavailableRecord(normalizedItemSku));
+      }),
+    [getItemKey, getUnavailableRecord, itemProgress, items],
+  );
+
+  const itemStatuses = useMemo<ItemStatusPayload[]>(
+    () =>
+      items
+        .map((item, index) => {
+          const status = itemProgress[getItemKey(index)];
+          if (!status) return null;
+          const sku = extractLineItemSku(item);
+          const normalizedSku = normalizeSku(sku);
+          return {
+            index,
+            sku: sku || null,
+            normalizedSku: normalizedSku || null,
+            name: item.name || null,
+            status,
+          };
+        })
+        .filter((value): value is ItemStatusPayload => Boolean(value)),
+    [getItemKey, itemProgress, items],
+  );
+
+  const completionSummary = useMemo(
+    () => ({
+      allReady,
+      hasComingSoon,
+      hasUnavailable,
+      allUnavailable,
+      singleUnavailable: items.length === 1 && progressValues[0] === 'unavailable',
+      missingRecordsValid,
+      note: autoNote,
+      itemStatuses,
+    }),
+    [
+      allReady,
+      allUnavailable,
+      autoNote,
+      hasComingSoon,
+      hasUnavailable,
+      itemStatuses,
+      items.length,
+      missingRecordsValid,
+      progressValues,
+    ],
   );
 
   return (
@@ -846,51 +1184,153 @@ function AssignmentCard({
                 لا توجد بيانات للمنتجات داخل هذا الطلب حتى الآن.
               </div>
             ) : (
-              items.map((item: LineItem, index: number) => (
-                <div
-                  key={`${item.sku ?? 'item'}-${index}`}
-                  className="flex flex-col sm:flex-row gap-3 rounded-lg border border-gray-100 p-3"
-                >
-                  {item.image && (
-                    <Image
-                      src={item.image}
-                      alt={item.name || item.sku || 'منتج'}
-                      width={256}
-                      height={256}
-                      unoptimized
-                      className="w-full h-full rounded-md object-cover border border-gray-100 sm:w-16 sm:h-16"
-                    />
-                  )}
-                  <div className="flex-1 space-y-3">
-                    <div>
-                      <p className="text-base font-semibold text-gray-900">
-                        {item.name || 'منتج بدون اسم'}
-                      </p>
-                    </div>
-                    <ProductMeta
-                      item={item}
-                      getLocationForSku={getLocationForSku}
-                      loadingProductLocations={loadingProductLocations}
-                    />
-                    {item.options && item.options.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-bold text-gray-700 mb-1">خيارات المنتج:</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {item.options.map((option: any, optionIdx: number) => (
-                            <span
-                              key={`${item.sku ?? 'item'}-option-${optionIdx}`}
-                              className="inline-flex items-center gap-2 rounded-lg bg-purple-50 px-3 py-1 text-xs font-medium text-purple-800 border border-purple-200"
-                            >
-                              <span className="font-semibold">{getStringValue(option?.name)}:</span>
-                              <span>{getStringValue(option?.value)}</span>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+              items.map((item: LineItem, index: number) => {
+                const rawSkuValue = extractLineItemSku(item);
+                const normalizedItemSku = normalizeSku(rawSkuValue);
+                const unavailableRecord = getUnavailableRecord(normalizedItemSku);
+                const unavailableKey = `${assignment.id}_${normalizedItemSku}`;
+                const isMarkingUnavailable =
+                  Boolean(normalizedItemSku) && unavailableActionKey === unavailableKey;
+                const itemStatus = itemProgress[getItemKey(index)];
+                const isReady = itemStatus === 'ready';
+                const isComingSoon = itemStatus === 'comingSoon';
+                const isUnavailable = itemStatus === 'unavailable';
+                const readyDisabled = isReady || isUnavailable;
+                const unavailableDisabled =
+                  !normalizedItemSku || isMarkingUnavailable || isUnavailable;
+                const printingSku = printingSkuKey === `${assignment.id}_${index}`;
+
+                return (
+                  <div
+                    key={`${item.sku ?? 'item'}-${index}`}
+                    className="flex flex-col sm:flex-row gap-3 rounded-lg border border-gray-100 p-3"
+                  >
+                    {item.image && (
+                      <Image
+                        src={item.image}
+                        alt={item.name || item.sku || 'منتج'}
+                        width={256}
+                        height={256}
+                        unoptimized
+                        className="w-full h-full rounded-md object-cover border border-gray-100 sm:w-16 sm:h-16"
+                      />
                     )}
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <p className="text-base font-semibold text-gray-900">
+                          {item.name || 'منتج بدون اسم'}
+                        </p>
+                      </div>
+                      <ProductMeta
+                        item={item}
+                        getLocationForSku={getLocationForSku}
+                        loadingProductLocations={loadingProductLocations}
+                      />
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                        <Button
+                          onClick={() => updateItemProgress(index, 'ready')}
+                          disabled={readyDisabled}
+                          className={cn(
+                            'w-full sm:w-auto bg-green-600 text-white hover:bg-green-700',
+                            readyDisabled ? 'opacity-80' : '',
+                          )}
+                        >
+                          <CheckCircle className="h-4 w-4 ml-2" />
+                          تم التجهيز
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => updateItemProgress(index, 'comingSoon')}
+                          disabled={isComingSoon || isUnavailable}
+                          className={cn(
+                            'w-full sm:w-auto border-amber-200 text-amber-900',
+                            isComingSoon ? 'bg-amber-50' : '',
+                          )}
+                        >
+                          <AlertTriangle className="h-4 w-4 ml-2" />
+                          سيتوفر قريبًا
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleMarkUnavailable(item, index)}
+                          disabled={unavailableDisabled}
+                          className="w-full sm:w-auto border-rose-200 text-rose-900"
+                        >
+                          {isMarkingUnavailable ? (
+                            <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 ml-2" />
+                          )}
+                          غير متوفر
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => handlePrintSku(item, index)}
+                          disabled={printingSku}
+                          className={cn(
+                            'w-full sm:w-auto border-dashed border-gray-300 text-gray-700 mt-2 sm:mt-0',
+                            printingSku ? 'opacity-70' : '',
+                          )}
+                        >
+                          {printingSku ? (
+                            <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+                          ) : (
+                            <Printer className="h-4 w-4 ml-2" />
+                          )}
+                          طباعة رمز المنتج
+                        </Button>
+                      </div>
+                      {isReady && (
+                        <p className="text-xs font-semibold text-green-700 flex items-center gap-1">
+                          <CheckCircle className="h-4 w-4" />
+                          تم تأكيد تجهيز هذا المنتج.
+                        </p>
+                      )}
+                      {isComingSoon && (
+                        <p className="text-xs font-semibold text-amber-700 flex items-center gap-1">
+                          <AlertTriangle className="h-4 w-4" />
+                          تم وضع هذا المنتج في قائمة الانتظار وسيتم توفره قريباً.
+                        </p>
+                      )}
+                      {isUnavailable && unavailableRecord && (
+                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-800">
+                          تم تسجيل النقص بواسطة{' '}
+                          <span className="mx-1 text-rose-900">
+                            {unavailableRecord.reportedByName || 'عضو الفريق'}
+                          </span>
+                          قبل {formatRelativeTime(unavailableRecord.createdAt)}
+                        </span>
+                      )}
+                      {!isUnavailable && !unavailableRecord && normalizedItemSku && (
+                        <span className="text-xs text-gray-500">
+                          سيظهر إشعار التسجيل إذا تم اختيار "غير متوفر".
+                        </span>
+                      )}
+                      {!normalizedItemSku && (
+                        <p className="text-xs text-gray-500">
+                          لا يمكن تسجيل نقص لهذا المنتج لعدم توفر SKU واضح في بياناته.
+                        </p>
+                      )}
+                      {item.options && item.options.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-bold text-gray-700 mb-1">خيارات المنتج:</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {item.options.map((option: any, optionIdx: number) => (
+                              <span
+                                key={`${item.sku ?? 'item'}-option-${optionIdx}`}
+                                className="inline-flex items-center gap-2 rounded-lg bg-purple-50 px-3 py-1 text-xs font-medium text-purple-800 border border-purple-200"
+                              >
+                                <span className="font-semibold">{getStringValue(option?.name)}:</span>
+                                <span>{getStringValue(option?.value)}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -900,7 +1340,7 @@ function AssignmentCard({
             <Button
               variant="outline"
               onClick={() => onPrintOrderNumber(assignment)}
-              disabled={printingOrderId === assignment.id}
+              disabled={printingOrderId === assignment.id || actionsLocked || isSallaUpdating}
               className="w-full sm:w-auto"
             >
               {printingOrderId === assignment.id ? (
@@ -911,8 +1351,13 @@ function AssignmentCard({
               طباعة رقم الطلب
             </Button>
             <Button
-              onClick={onConfirmComplete}
-              disabled={completedDisabled || pendingAction === actionKey('completed')}
+              onClick={() => onConfirmComplete({ assignment, summary: completionSummary })}
+              disabled={
+                completedDisabled ||
+                pendingAction === actionKey('completed') ||
+                actionsLocked ||
+                isSallaUpdating
+              }
               className="w-full sm:w-auto"
             >
               {pendingAction === actionKey('completed') ? (
@@ -923,60 +1368,12 @@ function AssignmentCard({
               إنهاء الطلب
             </Button>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <Button
-              variant="outline"
-              onClick={() => onConfirmSallaStatus('under_review_a')}
-              disabled={sallaStatusAction === `${assignment.id}_under_review_a`}
-              className="w-full sm:w-auto"
-            >
-              {sallaStatusAction === `${assignment.id}_under_review_a` ? (
-                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-              ) : (
-                <RefreshCcw className="h-4 w-4 ml-2" />
-              )}
-              تحديث سلة: تحت المراجعة
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => onConfirmSallaStatus('under_review_reservation')}
-              disabled={sallaStatusAction === `${assignment.id}_under_review_reservation`}
-              className="w-full sm:w-auto"
-            >
-              {sallaStatusAction === `${assignment.id}_under_review_reservation` ? (
-                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-              ) : (
-                <RefreshCcw className="h-4 w-4 ml-2" />
-              )}
-              تحديث سلة: تحت المراجعة (حجز)
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => onConfirmSallaStatus('under_review_inner')}
-              disabled={sallaStatusAction === `${assignment.id}_under_review_inner`}
-              className="w-full sm:w-auto"
-            >
-              {sallaStatusAction === `${assignment.id}_under_review_inner` ? (
-                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-              ) : (
-                <RefreshCcw className="h-4 w-4 ml-2" />
-              )}
-              تحديث سلة: تحت المراجعة ا
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => onConfirmSallaStatus('under_review_x4')}
-              disabled={sallaStatusAction === `${assignment.id}_under_review_x4`}
-              className="w-full sm:w-auto border-rose-200 text-rose-900"
-            >
-              {sallaStatusAction === `${assignment.id}_under_review_x4` ? (
-                <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-              ) : (
-                <RefreshCcw className="h-4 w-4 ml-2" />
-              )}
-              غير متوفر (ارجاع مبلغ)
-            </Button>
-          </div>
+          {actionsLocked && (
+            <p className="text-xs font-semibold text-amber-600">
+              يرجى تحديد حالة كل منتج (تم التجهيز أو سيتوفر قريبًا أو غير متوفر) قبل المتابعة. تبقى{' '}
+              {pendingItemsCount} منتج بدون حالة.
+            </p>
+          )}
         </div>
       </div>
     </Card>

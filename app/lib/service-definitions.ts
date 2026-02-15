@@ -33,6 +33,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['orders'],
   },
   {
+    key: 'order-shortages',
+    title: 'صفحة النواقص',
+    description: 'سجل بالمنتجات غير المتوفرة التي تم الإبلاغ عنها أثناء التحضير',
+    icon: '⚠️',
+    href: '/order-shortages',
+    color: 'from-rose-500 to-amber-500',
+    defaultRoles: ['admin', 'orders'],
+    grantsRoles: ['orders'],
+  },
+  {
     key: 'order-shipping',
     title: 'شحن الطلبات',
     description: 'البحث عن الطلبات وإنشاء الشحنات وطباعة البوالص',

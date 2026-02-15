@@ -351,11 +351,17 @@ export async function GET(request: NextRequest) {
 
     if (assignment) {
       const payload = buildResponsePayload(assignment, 'assignment');
+      console.log('[search] Found via OrderAssignment, looking up shipment with:', {
+        merchantId: payload.merchantId,
+        orderId: payload.orderId,
+        orderNumber: payload.orderNumber,
+      });
       const shipment = await getShipmentInfoForOrder({
         merchantId: payload.merchantId,
         orderId: payload.orderId,
         orderNumber: payload.orderNumber,
       });
+      console.log('[search] Shipment result:', shipment ? { type: shipment.type, trackingNumber: shipment.trackingNumber } : null);
 
       return respondWithAssignment(payload, shipment);
     }
@@ -393,11 +399,17 @@ export async function GET(request: NextRequest) {
 
       if (sallaOrder) {
         const payload = buildSallaAssignmentFromRecord(sallaOrder);
+        console.log('[search] Found via SallaOrder, looking up shipment with:', {
+          merchantId: payload.merchantId,
+          orderId: payload.orderId,
+          orderNumber: payload.orderNumber,
+        });
         const shipment = await getShipmentInfoForOrder({
           merchantId: payload.merchantId,
           orderId: payload.orderId,
           orderNumber: payload.orderNumber,
         });
+        console.log('[search] Shipment result:', shipment ? { type: shipment.type, trackingNumber: shipment.trackingNumber } : null);
 
         return respondWithAssignment(payload, shipment);
       }
@@ -610,12 +622,91 @@ async function getShipmentInfoForOrder(params: {
   orderNumber?: string | null;
 }) {
   const { merchantId, orderId, orderNumber } = params;
-  const orConditions: Array<{ orderId?: string; orderNumber?: string }> = [];
 
+  console.log('[getShipmentInfoForOrder] params:', { merchantId, orderId, orderNumber });
+
+  // Check local shipments FIRST — they are explicitly created by users and take priority.
+  // Build multiple search strategies from most specific to broadest.
+  const localWhereConditions: any[] = [];
+
+  // Strategy 1: direct orderNumber match (same query the create API uses)
+  if (orderNumber) {
+    localWhereConditions.push({
+      ...(merchantId ? { merchantId } : {}),
+      orderNumber,
+    });
+  }
+
+  // Strategy 2: direct orderId match
+  if (orderId) {
+    localWhereConditions.push({
+      ...(merchantId ? { merchantId } : {}),
+      orderId,
+    });
+  }
+
+  // Strategy 3: orderNumber without merchantId filter (broadest)
+  if (orderNumber && merchantId) {
+    localWhereConditions.push({ orderNumber });
+  }
+
+  const localInclude = {
+    assignment: {
+      include: {
+        deliveryAgent: {
+          select: { id: true, name: true, username: true },
+        },
+      },
+    },
+  };
+
+  let localShipment = null;
+  for (const where of localWhereConditions) {
+    localShipment = await prisma.localShipment.findFirst({
+      where,
+      include: localInclude,
+      orderBy: { createdAt: 'desc' as const },
+    });
+    if (localShipment) {
+      console.log('[getShipmentInfoForOrder] Found local shipment:', {
+        id: localShipment.id,
+        trackingNumber: localShipment.trackingNumber,
+        orderNumber: localShipment.orderNumber,
+        orderId: localShipment.orderId,
+        merchantId: localShipment.merchantId,
+        matchedWith: JSON.stringify(where),
+      });
+      break;
+    }
+  }
+
+  if (localShipment) {
+    const serialized = serializeLocalShipment(localShipment);
+    const agent = localShipment.assignment?.deliveryAgent;
+    return {
+      id: localShipment.id,
+      trackingNumber: localShipment.trackingNumber,
+      courierName: 'شحن محلي',
+      status: localShipment.status,
+      labelUrl: serialized.labelUrl,
+      labelPrinted: serialized.labelPrinted,
+      labelPrintedAt: serialized.labelPrintedAt,
+      printCount: serialized.printCount,
+      updatedAt: localShipment.updatedAt.toISOString(),
+      type: 'local',
+      localShipmentId: localShipment.id,
+      assignedAgentName: agent ? (agent.name || agent.username) : null,
+      assignmentStatus: localShipment.assignment?.status || null,
+    };
+  }
+
+  console.log('[getShipmentInfoForOrder] No local shipment found, checking SallaShipment...');
+
+  // Fall back to Salla shipments
+  const orConditions: Array<{ orderId?: string; orderNumber?: string }> = [];
   if (orderId) {
     orConditions.push({ orderId }, { orderNumber: orderId });
   }
-
   if (orderNumber) {
     orConditions.push({ orderNumber }, { orderId: orderNumber });
   }
@@ -635,6 +726,11 @@ async function getShipmentInfoForOrder(params: {
   });
 
   if (shipment) {
+    console.log('[getShipmentInfoForOrder] Found SallaShipment:', {
+      id: shipment.id,
+      trackingNumber: shipment.trackingNumber,
+    });
+
     const shipmentData = shipment.shipmentData as any;
     const labelUrl =
       shipment.labelUrl ||
@@ -654,35 +750,11 @@ async function getShipmentInfoForOrder(params: {
       updatedAt: shipment.updatedAt.toISOString(),
       type: 'salla',
       localShipmentId: null,
+      assignedAgentName: null,
+      assignmentStatus: null,
     };
   }
 
-  const localShipment = await prisma.localShipment.findFirst({
-    where: {
-      ...(merchantId ? { merchantId } : {}),
-      OR: orConditions,
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-  });
-
-  if (!localShipment) {
-    return null;
-  }
-
-  const serialized = serializeLocalShipment(localShipment);
-  return {
-    id: localShipment.id,
-    trackingNumber: localShipment.trackingNumber,
-    courierName: 'شحن محلي',
-    status: localShipment.status,
-    labelUrl: serialized.labelUrl,
-    labelPrinted: serialized.labelPrinted,
-    labelPrintedAt: serialized.labelPrintedAt,
-    printCount: serialized.printCount,
-    updatedAt: localShipment.updatedAt.toISOString(),
-    type: 'local',
-    localShipmentId: localShipment.id,
-  };
+  console.log('[getShipmentInfoForOrder] No shipment found at all');
+  return null;
 }

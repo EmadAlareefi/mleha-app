@@ -28,6 +28,8 @@ interface OrderShipmentRecord {
   updatedAt?: string | null;
   type?: 'salla' | 'local';
   localShipmentId?: string | null;
+  assignedAgentName?: string | null;
+  assignmentStatus?: string | null;
 }
 
 interface OrderAssignment {
@@ -201,6 +203,24 @@ const findUrlInsideText = (value: unknown): string | null => {
   return match ? match[0] : null;
 };
 
+const prepStatusMeta: Record<
+  'ready' | 'comingSoon' | 'unavailable',
+  { label: string; className: string }
+> = {
+  ready: {
+    label: 'تم التجهيز',
+    className: 'bg-green-50 border-green-200 text-green-800',
+  },
+  comingSoon: {
+    label: 'سيتوفر قريباً',
+    className: 'bg-amber-50 border-amber-200 text-amber-800',
+  },
+  unavailable: {
+    label: 'غير متوفر',
+    className: 'bg-rose-50 border-rose-200 text-rose-800',
+  },
+};
+
 const getLabelUrlFromOrderData = (orderData: any): string | null => {
   if (!orderData || typeof orderData !== 'object') {
     return null;
@@ -298,6 +318,8 @@ export default function OrderShippingPage() {
     labelUrl: string | null;
     type: 'salla' | 'local';
     localShipmentId: string | null;
+    assignedAgentName?: string | null;
+    assignmentStatus?: string | null;
   } | null>(null);
   const [shipmentError, setShipmentError] = useState<string | null>(null);
   const [localShipmentDialogOpen, setLocalShipmentDialogOpen] = useState(false);
@@ -329,6 +351,8 @@ export default function OrderShippingPage() {
         labelUrl: shipment.labelUrl || null,
         type: shipmentType,
         localShipmentId: shipmentType === 'local' ? shipment.localShipmentId || shipment.id : null,
+        assignedAgentName: shipment.assignedAgentName || null,
+        assignmentStatus: shipment.assignmentStatus || null,
       });
     },
     [],
@@ -455,7 +479,7 @@ export default function OrderShippingPage() {
       ? shippingAddressSummary.locationLabel
       : null;
 
-  const currentOrderSkus = useMemo(() => {
+const currentOrderSkus = useMemo(() => {
     if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
       return [] as string[];
     }
@@ -467,7 +491,54 @@ export default function OrderShippingPage() {
     });
 
     return Array.from(variants);
-  }, [currentOrder]);
+}, [currentOrder]);
+
+const prepItemStatuses = useMemo(() => {
+  const raw = currentOrder?.orderData?.prepItemStatuses;
+  if (!Array.isArray(raw)) {
+    return [] as Array<{ index: number; normalizedSku: string | null; status: 'ready' | 'comingSoon' | 'unavailable' }>;
+  }
+  return raw
+    .map((entry: any, idx: number) => {
+      const status =
+        entry?.status === 'ready' || entry?.status === 'comingSoon' || entry?.status === 'unavailable'
+          ? entry.status
+          : null;
+      if (!status) {
+        return null;
+      }
+      const normalized =
+        typeof entry?.normalizedSku === 'string' && entry.normalizedSku
+          ? entry.normalizedSku
+          : typeof entry?.sku === 'string'
+            ? normalizeSku(entry.sku)
+            : null;
+      const index = typeof entry?.index === 'number' ? entry.index : idx;
+      return { index, normalizedSku: normalized, status };
+    })
+    .filter(
+      (entry): entry is { index: number; normalizedSku: string | null; status: 'ready' | 'comingSoon' | 'unavailable' } =>
+        Boolean(entry),
+    );
+}, [currentOrder]);
+
+const getPrepStatusForItem = useCallback(
+  (item: any, index: number) => {
+    if (prepItemStatuses.length === 0) {
+      return null;
+    }
+    const normalized = normalizeSku(item?.sku);
+    if (normalized) {
+      const match = prepItemStatuses.find((entry) => entry.normalizedSku === normalized);
+      if (match) {
+        return match.status;
+      }
+    }
+    const fallback = prepItemStatuses.find((entry) => entry.index === index);
+    return fallback?.status ?? null;
+  },
+  [prepItemStatuses],
+);
 
   const getLocationForSku = useCallback(
     (sku: unknown): ProductLocation | undefined => {
@@ -591,10 +662,9 @@ export default function OrderShippingPage() {
     };
   }, [currentOrderSkus]);
 
-  useEffect(() => {
-    setShipmentInfo(null);
-    setShipmentError(null);
-  }, [currentOrder?.id]);
+  // Shipment info is reset at the start of handleSearch and via applyShipmentFromAssignment.
+  // A useEffect on currentOrder?.id would race with applyShipmentFromAssignment and clear
+  // the shipment info that was just set from the search result.
 
   useEffect(() => {
     if (!localShipmentDialogOpen) {
@@ -717,7 +787,7 @@ export default function OrderShippingPage() {
     }
   };
 
-  const handleRefreshItems = async () => {
+const handleRefreshItems = async () => {
     if (!currentOrder) return;
 
     setRefreshingItems(true);
@@ -778,6 +848,8 @@ export default function OrderShippingPage() {
           labelUrl,
           type: 'salla',
           localShipmentId: null,
+          assignedAgentName: null,
+          assignmentStatus: null,
         });
         setShipmentError(null);
 
@@ -849,6 +921,8 @@ export default function OrderShippingPage() {
           labelUrl: data.data?.labelUrl || prev?.labelUrl || null,
           type: prev?.type || (isLocalShipment ? 'local' : 'salla'),
           localShipmentId: prev?.localShipmentId || (isLocalShipment ? currentShipmentInfo?.localShipmentId || null : null),
+          assignedAgentName: prev?.assignedAgentName || null,
+          assignmentStatus: prev?.assignmentStatus || null,
         }));
 
         alert(data.message || 'تم إرسال البوليصة للطابعة');
@@ -972,6 +1046,7 @@ export default function OrderShippingPage() {
         };
         error?: string;
         reused?: boolean;
+        sallaStatusUpdated?: boolean;
         autoPrint?: {
           success?: boolean;
           error?: string | null;
@@ -1012,6 +1087,8 @@ export default function OrderShippingPage() {
           labelUrl: createData.shipment.labelUrl || null,
           type: 'local',
           localShipmentId: createData.shipment.id,
+          assignedAgentName: agentDisplayName,
+          assignmentStatus: 'assigned',
         });
       }
       setLocalShipmentDialogOpen(false);
@@ -1322,6 +1399,8 @@ export default function OrderShippingPage() {
                       const locationUpdatedAt = locationInfo?.updatedAt
                         ? new Date(locationInfo.updatedAt).toLocaleString('ar-SA')
                         : null;
+                      const prepStatus = getPrepStatusForItem(item, idx);
+                      const prepMeta = prepStatus ? prepStatusMeta[prepStatus] : null;
 
                       return (
                         <Card key={`item-${idx}`} className="p-4 md:p-6">
@@ -1377,6 +1456,11 @@ export default function OrderShippingPage() {
                                     {locationInfo?.notes && (
                                       <span className="text-xs text-gray-600">ملاحظات: {locationInfo.notes}</span>
                                     )}
+                                  </div>
+                                )}
+                                {prepMeta && (
+                                  <div className={`inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-semibold ${prepMeta.className}`}>
+                                    <span>{prepMeta.label}</span>
                                   </div>
                                 )}
                               </div>
@@ -1491,6 +1575,16 @@ export default function OrderShippingPage() {
                         <p className="text-sm text-green-800">
                           <strong>شركة الشحن:</strong> {shipmentInfo.courierName}
                         </p>
+                        {shipmentInfo.type === 'local' && shipmentInfo.assignedAgentName && (
+                          <p className="text-sm text-green-800">
+                            <strong>المندوب:</strong> {shipmentInfo.assignedAgentName}
+                            {shipmentInfo.assignmentStatus && (
+                              <span className="inline-block mr-2 rounded-full bg-green-200 px-2 py-0.5 text-xs font-semibold text-green-900">
+                                {shipmentInfo.assignmentStatus}
+                              </span>
+                            )}
+                          </p>
+                        )}
                         {shipmentInfo.labelPrinted && (
                           <p className="text-sm text-green-800">
                             <strong>حالة الطباعة:</strong>{' '}

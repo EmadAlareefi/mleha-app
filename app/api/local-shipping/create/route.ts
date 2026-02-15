@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { printLocalShipmentLabel } from '@/app/lib/local-shipping/print';
-import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
+import { markSallaOrderCompletedAfterLocalShipment } from '@/app/lib/local-shipping/salla-status';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
   '1': 75006700,
@@ -143,9 +143,19 @@ export async function POST(request: NextRequest) {
         trackingNumber: existingShipment.trackingNumber,
       });
 
+      const statusResult = await markSallaOrderCompletedAfterLocalShipment({
+        merchantId: body.merchantId,
+        orderId: order.id.toString(),
+        shipmentId: existingShipment.id,
+        orderNumber: normalizedOrderNumber,
+        trackingNumber: existingShipment.trackingNumber,
+        action: 'local-shipping-create-reuse',
+      });
+
       return NextResponse.json({
         success: true,
         reused: true,
+        sallaStatusUpdated: statusResult.success,
         shipment: serializeLocalShipment(existingShipment, {
           collectionAmount,
           paymentMethod: paymentLabel,
@@ -221,33 +231,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Update Salla order status to "تم التنفيذ" (completed) after local shipment creation and printing
-    let sallaStatusUpdated = false;
-    try {
-      const statusResult = await updateSallaOrderStatus(
-        body.merchantId,
-        order.id.toString(),
-        { slug: 'completed' }
-      );
-      sallaStatusUpdated = statusResult.success;
-      if (!statusResult.success) {
-        log.warn('Failed to update Salla order status to completed after local shipment', {
-          shipmentId: localShipment.id,
-          orderId: order.id.toString(),
-          error: statusResult.error,
-        });
-      } else {
-        log.info('Salla order status updated to completed after local shipment', {
-          shipmentId: localShipment.id,
-          orderId: order.id.toString(),
-        });
-      }
-    } catch (error) {
-      log.error('Unexpected error updating Salla status after local shipment', {
-        shipmentId: localShipment.id,
-        orderId: order.id.toString(),
-        error: error instanceof Error ? error.message : error,
-      });
-    }
+    const statusResult = await markSallaOrderCompletedAfterLocalShipment({
+      merchantId: body.merchantId,
+      orderId: order.id.toString(),
+      shipmentId: localShipment.id,
+      orderNumber: normalizedOrderNumber,
+      trackingNumber: localShipment.trackingNumber,
+      action: 'local-shipping-create',
+    });
+    const sallaStatusUpdated = statusResult.success;
 
     return NextResponse.json({
       success: true,

@@ -59,7 +59,7 @@ const mmToPt = (value: number) => value * MM_TO_POINTS;
 const formatCurrency = (value: number) => {
   const safe = Number.isFinite(value) ? value : 0;
   try {
-    return new Intl.NumberFormat('ar-SA', {
+    return new Intl.NumberFormat('en-SA', {
       style: 'currency',
       currency: 'SAR',
       maximumFractionDigits: 2,
@@ -69,7 +69,34 @@ const formatCurrency = (value: number) => {
   }
 };
 
-const isArabicText = (value: string) => /[\u0600-\u06FF]/.test(value);
+const ARABIC_CHAR_REGEX = /[\u0600-\u06FF]/;
+const ARABIC_TO_LATIN: Record<string, string> = {
+  ا: 'a', أ: 'a', إ: 'i', آ: 'a', ب: 'b', ت: 't', ث: 'th', ج: 'j',
+  ح: 'h', خ: 'kh', د: 'd', ذ: 'dh', ر: 'r', ز: 'z', س: 's', ش: 'sh',
+  ص: 's', ض: 'd', ط: 't', ظ: 'z', ع: 'a', غ: 'gh', ف: 'f', ق: 'q',
+  ك: 'k', ل: 'l', م: 'm', ن: 'n', ه: 'h', و: 'w', ي: 'y', ء: '',
+  ئ: 'y', ة: 'h', ى: 'a', ؤ: 'w', '،': ',', '؛': ';', '؟': '?',
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+  'ْ': '', 'ٌ': '', 'ٍ': '', 'ً': '', 'ُ': '', 'ِ': '', 'َ': '', 'ّ': '', 'ـ': '',
+};
+
+const safeText = (text: string): string => {
+  if (!text) return '';
+  const normalized = text.toString().trim();
+  if (!normalized) return normalized;
+  if (!ARABIC_CHAR_REGEX.test(normalized)) return normalized;
+  const transliterated = normalized
+    .split('')
+    .map((char) => ARABIC_TO_LATIN[char] ?? char)
+    .join('');
+  return transliterated
+    .split('')
+    .map((char) => (char.charCodeAt(0) >= 32 && char.charCodeAt(0) <= 126 ? char : ' '))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
 
 const wrapText = (text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] => {
   if (!text) return [];
@@ -113,25 +140,15 @@ const drawText = (
 ) => {
   const { x, y, font, size, color = rgb(0, 0, 0), maxWidth, lineHeight = size + 2, align = 'left' } =
     options;
-  const useArabicLayout = isArabicText(text);
+  const safe = safeText(text);
   if (!maxWidth) {
-    const content = useArabicLayout ? text.split('').reverse().join('') : text;
-    const width = font.widthOfTextAtSize(content, size);
+    const width = font.widthOfTextAtSize(safe, size);
     const targetX = align === 'right' ? x - width : x;
-    page.drawText(content, { x: targetX, y, size, font, color });
+    page.drawText(safe, { x: targetX, y, size, font, color });
     return lineHeight;
   }
 
-  if (useArabicLayout) {
-    // Reverse characters to keep right-to-left order even without shaping
-    const reversed = text.split('').reverse().join('');
-    const width = font.widthOfTextAtSize(reversed, size);
-    const targetX = align === 'right' ? x - Math.min(width, maxWidth) : x;
-    page.drawText(reversed, { x: targetX, y, size, font, color });
-    return lineHeight;
-  }
-
-  const lines = wrapText(text, font, size, maxWidth);
+  const lines = wrapText(safe, font, size, maxWidth);
   lines.forEach((line, index) => {
     const width = font.widthOfTextAtSize(line, size);
     const expectedX = align === 'right' ? x - width : x;
@@ -147,12 +164,27 @@ const drawText = (
   return lines.length * lineHeight;
 };
 
+const convertArabicIndicDigits = (value: string) =>
+  value
+    ? value.replace(/[\u0660-\u0669]/g, (char) =>
+        String.fromCharCode(char.charCodeAt(0) - 0x0660 + 48),
+      )
+    : '';
+
 const drawCode39Barcode = (
   page: PDFPage,
   value: string,
   opts: { x: number; y: number; width: number; height: number; color?: RGB },
 ) => {
-  const sanitized = `*${value
+  const asciiValue = convertArabicIndicDigits(
+    value
+      .toString()
+      .split('')
+      .map((char) => ARABIC_TO_LATIN[char] ?? char)
+      .join(''),
+  );
+  const normalizedValue = asciiValue || '0';
+  const sanitized = `*${normalizedValue
     .toUpperCase()
     .split('')
     .map((char) => (CODE39_PATTERNS[char] ? char : '-'))
@@ -200,10 +232,10 @@ export interface MerchantLabelInfo {
 }
 
 export const getMerchantLabelInfo = (): MerchantLabelInfo => ({
-  name: process.env.NEXT_PUBLIC_MERCHANT_NAME || 'متجر محلي',
+  name: process.env.NEXT_PUBLIC_MERCHANT_NAME || 'Local Store',
   phone: process.env.NEXT_PUBLIC_MERCHANT_PHONE || '0500000000',
-  address: process.env.NEXT_PUBLIC_MERCHANT_ADDRESS || 'الرياض - المملكة العربية السعودية',
-  city: process.env.NEXT_PUBLIC_MERCHANT_CITY || 'الرياض',
+  address: process.env.NEXT_PUBLIC_MERCHANT_ADDRESS || 'Riyadh - Saudi Arabia',
+  city: process.env.NEXT_PUBLIC_MERCHANT_CITY || 'Riyadh',
 });
 
 export async function generateLocalShipmentLabelPdf(
@@ -223,7 +255,7 @@ export async function generateLocalShipmentLabelPdf(
   const amountToCollectRaw = normalized.meta.collectionAmount ?? Number(shipment.orderTotal);
   const amountToCollect = shipment.isCOD ? amountToCollectRaw : 0;
   const paymentLabel = normalized.meta.paymentMethod || (shipment.isCOD ? 'Cash On Delivery' : 'Prepaid');
-  const createdDate = new Date(shipment.createdAt).toLocaleDateString('ar-SA');
+  const createdDate = new Date(shipment.createdAt).toLocaleDateString('en-GB');
 
   // Header
   const headerHeight = mmToPt(20);
@@ -247,7 +279,7 @@ export async function generateLocalShipmentLabelPdf(
     font: regularFont,
     size: 11,
   });
-  drawText(page, `تاريخ الطلب: ${createdDate}`, {
+  drawText(page, `Order Date: ${createdDate}`, {
     x: pageWidth - margin,
     y: pageHeight - margin - 24,
     font: regularFont,
@@ -274,7 +306,7 @@ export async function generateLocalShipmentLabelPdf(
   cursorY -= mmToPt(10);
 
   const barcodeHeight = mmToPt(24);
-  drawCode39Barcode(page, shipment.trackingNumber, {
+  drawCode39Barcode(page, shipment.orderNumber, {
     x: margin,
     y: cursorY - barcodeHeight,
     width: pageWidth - margin * 2,
@@ -289,7 +321,7 @@ export async function generateLocalShipmentLabelPdf(
     font: boldFont,
     size: 12,
   });
-  drawText(page, `القطع: ${shipment.itemsCount}`, {
+  drawText(page, `Items: ${shipment.itemsCount}`, {
     x: pageWidth - margin,
     y: cursorY,
     font: boldFont,
@@ -320,7 +352,7 @@ export async function generateLocalShipmentLabelPdf(
     borderWidth: 1,
   });
 
-  drawText(page, 'من / FROM', {
+  drawText(page, 'FROM', {
     x: margin + mmToPt(2),
     y: cursorY - mmToPt(2),
     font: boldFont,
@@ -340,7 +372,7 @@ export async function generateLocalShipmentLabelPdf(
     size: 9,
     maxWidth: columnWidth - mmToPt(4),
   });
-  drawText(page, `☎ ${merchant.phone}`, {
+  drawText(page, `Tel: ${merchant.phone}`, {
     x: margin + mmToPt(2),
     y: cursorY - mmToPt(28),
     font: regularFont,
@@ -348,7 +380,7 @@ export async function generateLocalShipmentLabelPdf(
   });
 
   const recipientX = margin + columnWidth + mmToPt(6);
-  drawText(page, 'إلى / TO', {
+  drawText(page, 'TO', {
     x: recipientX,
     y: cursorY - mmToPt(2),
     font: boldFont,
@@ -375,7 +407,7 @@ export async function generateLocalShipmentLabelPdf(
     size: 9,
     maxWidth: columnWidth - mmToPt(4),
   });
-  drawText(page, `☎ ${shipment.customerPhone}`, {
+  drawText(page, `Tel: ${shipment.customerPhone}`, {
     x: recipientX,
     y: cursorY - mmToPt(34),
     font: regularFont,
@@ -395,7 +427,7 @@ export async function generateLocalShipmentLabelPdf(
     borderWidth: 1,
   });
 
-  drawText(page, 'مبلغ التحصيل / Amount to Collect', {
+  drawText(page, 'Amount to Collect', {
     x: margin + mmToPt(2),
     y: cursorY - mmToPt(2),
     font: regularFont,
@@ -407,7 +439,7 @@ export async function generateLocalShipmentLabelPdf(
     font: boldFont,
     size: 16,
   });
-  drawText(page, `طريقة الدفع: ${paymentLabel}`, {
+  drawText(page, `Payment: ${paymentLabel}`, {
     x: pageWidth - margin - mmToPt(2),
     y: cursorY - mmToPt(10),
     font: boldFont,
@@ -427,7 +459,7 @@ export async function generateLocalShipmentLabelPdf(
     borderColor: rgb(0, 0, 0),
     borderWidth: 1,
   });
-  drawText(page, 'محتويات الشحنة / Shipment Contents', {
+  drawText(page, 'Shipment Contents', {
     x: margin + mmToPt(2),
     y: cursorY - mmToPt(2),
     font: regularFont,
@@ -438,7 +470,7 @@ export async function generateLocalShipmentLabelPdf(
   normalized.items.slice(0, maxItems).forEach((item: any, index: number) => {
     const lineY = cursorY - mmToPt(8) - index * mmToPt(5);
     const name =
-      item?.product?.name || item?.name || item?.product_name || item?.productName || 'منتج';
+      item?.product?.name || item?.name || item?.product_name || item?.productName || 'Product';
     const quantity = typeof item?.quantity === 'number' ? item.quantity : 1;
     drawText(page, `${name}`, {
       x: margin + mmToPt(2),
@@ -458,7 +490,7 @@ export async function generateLocalShipmentLabelPdf(
 
   cursorY -= itemsBoxHeight + mmToPt(4);
 
-  drawText(page, 'يجب على المندوب التأكد من الهوية والتوقيع عند التسليم.', {
+  drawText(page, 'Courier must verify ID and obtain signature upon delivery.', {
     x: margin,
     y: cursorY,
     font: regularFont,

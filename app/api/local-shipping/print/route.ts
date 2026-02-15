@@ -5,6 +5,7 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { printLocalShipmentLabel } from '@/app/lib/local-shipping/print';
+import { markSallaOrderCompletedAfterLocalShipment } from '@/app/lib/local-shipping/salla-status';
 
 export const runtime = 'nodejs';
 
@@ -117,6 +118,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const statusResult = await markSallaOrderCompletedAfterLocalShipment({
+      merchantId: shipment.merchantId,
+      orderId: shipment.orderId,
+      shipmentId: shipment.id,
+      orderNumber: shipment.orderNumber,
+      trackingNumber: shipment.trackingNumber,
+      action: 'local-shipping-print',
+    });
+
     return NextResponse.json({
       success: true,
       message: 'تم إرسال البوليصة المحلية للطابعة',
@@ -127,6 +137,7 @@ export async function POST(request: NextRequest) {
         printJobId: printResult.jobId ?? null,
         printCount: printResult.printCount ?? 1,
       },
+      sallaStatusUpdated: statusResult.success,
     });
   } catch (error) {
     log.error('Unexpected error while sending local shipment to printer', {

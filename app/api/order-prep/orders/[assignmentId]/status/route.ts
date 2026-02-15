@@ -32,6 +32,7 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const status = body?.status as AllowedStatus | undefined;
     const skipSallaSync = Boolean(body?.skipSallaSync);
+    const itemStatuses = Array.isArray(body?.itemStatuses) ? body.itemStatuses : undefined;
 
     if (!status || !ALLOWED_STATUSES.includes(status)) {
       return NextResponse.json(
@@ -45,6 +46,7 @@ export async function POST(
       userId: user.id,
       targetStatus: status,
       skipSallaSync,
+      itemStatuses,
     });
 
     if (!result) {
