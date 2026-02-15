@@ -6,7 +6,11 @@ import { fetchSallaWithRetry } from '@/app/lib/fetch-with-retry';
 import { getSallaOrderStatuses, getNewOrderStatusFilters } from '@/app/lib/salla-statuses';
 import { STATUS_IDS, STATUS_SLUGS } from '@/SALLA_ORDER_STATUSES';
 import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
-import { extractSallaStatus, isOrderStatusEligible } from '@/app/lib/order-prep-status-guard';
+import {
+  extractSallaStatus,
+  isOrderStatusEligible,
+  isOrderStatusAssignable,
+} from '@/app/lib/order-prep-status-guard';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -134,6 +138,15 @@ export async function assignOldestOrderToUser(user: {
         orderId,
         statusName: status?.name || status?.label || null,
         subStatusName: subStatus?.name || subStatus?.label || null,
+      });
+      continue;
+    }
+
+    if (!isOrderStatusAssignable(status)) {
+      log.info('Skipping Salla order due to non-new status', {
+        orderId,
+        statusId: status?.id || status?.status_id || status?.statusId || null,
+        statusName: status?.name || status?.label || status?.name_en || status?.nameEn || null,
       });
       continue;
     }

@@ -210,7 +210,7 @@ export const buildShipToArabicLabel = (shipTo: ShipToDetails | null | undefined)
     lines.push(`المستلم: ${shipTo.name}`);
   }
   if (shipTo.phone) {
-    lines.push(`الجوال: ${shipTo.phone}`);
+    lines.push(`Phone: ${shipTo.phone}`);
   }
   const addressParts = [
     shipTo.addressLine,

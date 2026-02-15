@@ -764,16 +764,6 @@ const getPrepStatusForItem = useCallback(
       throw new Error(data?.error || 'تعذر العثور على الطلب');
     }
 
-    if (data.assignment?.orderData) {
-      const identifier = data.assignment.orderNumber || data.assignment.orderId || data.assignment.id;
-      const label =
-        data.assignment.source === 'salla' ? 'Salla order JSON payload' : 'Order data payload';
-      console.log(
-        `[order-shipping][client] ${label} for ${identifier}:`,
-        data.assignment.orderData,
-      );
-    }
-
     return data.assignment as OrderAssignment;
   }, []);
 

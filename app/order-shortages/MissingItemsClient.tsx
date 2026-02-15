@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2, RefreshCcw, Search } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/components/ui/use-toast';
 
 interface UnavailableItemRecord {
   id: string;
@@ -16,6 +17,8 @@ interface UnavailableItemRecord {
   itemName?: string | null;
   reportedByName?: string | null;
   createdAt: string;
+  resolvedAt?: string | null;
+  resolvedByName?: string | null;
 }
 
 const formatDateTime = (value: string | null) => {
@@ -42,17 +45,20 @@ const formatRelative = (value: string | null) => {
 
 export default function MissingItemsClient() {
   const { status } = useSession();
+  const { toast } = useToast();
   const [items, setItems] = useState<UnavailableItemRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'pending' | 'refunded'>('pending');
+  const [markingRefundId, setMarkingRefundId] = useState<string | null>(null);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/order-prep/unavailable-items');
+      const response = await fetch('/api/order-prep/unavailable-items?includeResolved=true');
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data?.error || 'تعذر تحميل قائمة النواقص');
@@ -87,6 +93,60 @@ export default function MissingItemsClient() {
     });
   }, [items, search]);
 
+  const pendingCount = useMemo(
+    () => items.filter((item) => !item.resolvedAt).length,
+    [items]
+  );
+  const refundedCount = useMemo(
+    () => items.filter((item) => item.resolvedAt).length,
+    [items]
+  );
+
+  const pendingItems = useMemo(
+    () => filteredItems.filter((item) => !item.resolvedAt),
+    [filteredItems]
+  );
+  const refundedItems = useMemo(
+    () => filteredItems.filter((item) => item.resolvedAt),
+    [filteredItems]
+  );
+  const displayedItems = activeTab === 'pending' ? pendingItems : refundedItems;
+
+  const handleMarkRefunded = useCallback(
+    async (record: UnavailableItemRecord) => {
+      if (!record?.id) {
+        return;
+      }
+      setMarkingRefundId(record.id);
+      try {
+        const response = await fetch('/api/order-prep/unavailable-items', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recordId: record.id }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.error || 'تعذر تحديث السجل');
+        }
+        const updated: UnavailableItemRecord = data.data;
+        setItems((prev) =>
+          prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
+        );
+        toast({
+          description: `تم تسجيل إرجاع مبلغ الطلب ${record.orderNumber || record.orderId}`,
+        });
+      } catch (err) {
+        toast({
+          variant: 'destructive',
+          description: err instanceof Error ? err.message : 'تعذر تحديث السجل',
+        });
+      } finally {
+        setMarkingRefundId((current) => (current === record.id ? null : current));
+      }
+    },
+    [toast]
+  );
+
   return (
     <section className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -110,6 +170,36 @@ export default function MissingItemsClient() {
             )}
             تحديث القائمة
           </Button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+        <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1">
+          {(
+            [
+              { key: 'pending', label: 'النواقص الحالية', count: pendingCount },
+              { key: 'refunded', label: 'مبالغ تم ارجاعها', count: refundedCount },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex min-w-[150px] flex-col rounded-lg px-4 py-2 text-right text-sm font-semibold transition focus:outline-none ${
+                activeTab === tab.key
+                  ? 'bg-rose-600 text-white shadow'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span
+                className={`text-xs font-normal ${
+                  activeTab === tab.key ? 'text-white/90' : 'text-gray-500'
+                }`}
+              >
+                {tab.count} سجل
+              </span>
+            </button>
+          ))}
         </div>
       </div>
       <Card className="p-6 space-y-4">
@@ -137,9 +227,11 @@ export default function MissingItemsClient() {
             <Loader2 className="h-6 w-6 animate-spin text-rose-600" />
             <span className="mr-2 text-sm text-gray-600">جاري التحديث...</span>
           </div>
-        ) : filteredItems.length === 0 ? (
+        ) : displayedItems.length === 0 ? (
           <div className="rounded-lg border border-dashed border-gray-200 px-4 py-8 text-center text-gray-500">
-            لا توجد بلاغات نواقص حالياً.
+            {activeTab === 'pending'
+              ? 'لا توجد بلاغات نواقص حالياً.'
+              : 'لا توجد سجلات تم إرجاع مبالغها.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -151,10 +243,13 @@ export default function MissingItemsClient() {
                   <th className="px-4 py-3 text-right font-semibold">اسم المنتج</th>
                   <th className="px-4 py-3 text-right font-semibold">المبلّغ</th>
                   <th className="px-4 py-3 text-right font-semibold">وقت التبليغ</th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    {activeTab === 'pending' ? 'الإجراء' : 'تحديث الحالة'}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
-                {filteredItems.map((item) => (
+                {displayedItems.map((item) => (
                   <tr key={item.id} className="text-gray-700">
                     <td className="px-4 py-3 font-semibold text-gray-900">
                       #{item.orderNumber || item.orderId}
@@ -173,6 +268,32 @@ export default function MissingItemsClient() {
                         </span>
                         <span>{formatDateTime(item.createdAt)}</span>
                       </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {activeTab === 'pending' ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleMarkRefunded(item)}
+                          disabled={markingRefundId === item.id}
+                          className="min-w-[140px]"
+                        >
+                          {markingRefundId === item.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : null}
+                          تم ارجاع المبلغ
+                        </Button>
+                      ) : (
+                        <div className="text-xs text-gray-500">
+                          <p className="font-semibold text-gray-900">تم الإرجاع</p>
+                          <p>
+                            {item.resolvedByName
+                              ? `بواسطة ${item.resolvedByName}`
+                              : '—'}
+                          </p>
+                          <p>{formatDateTime(item.resolvedAt || null)}</p>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

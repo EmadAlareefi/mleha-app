@@ -34,6 +34,12 @@ const normalizeStatusId = (value: unknown): string | null => {
   return null;
 };
 
+const ASSIGNABLE_ORDER_STATUS_IDS = new Set(['449146439']);
+
+const ASSIGNABLE_ORDER_STATUS_NAMES = new Set(
+  ['طلب جديد', 'new order'].map((value) => value.trim().toLowerCase()),
+);
+
 const normalizeStatusName = (value: unknown): string | null => {
   if (typeof value !== 'string') {
     return null;
@@ -42,10 +48,13 @@ const normalizeStatusName = (value: unknown): string | null => {
   return normalized || null;
 };
 
-const hasRecognizedStatusName = (names: Array<unknown>): boolean => {
+const hasRecognizedStatusName = (
+  names: Array<unknown>,
+  allowedNames: Set<string> = ALLOWED_ORDER_STATUS_NAMES,
+): boolean => {
   return names.some((value) => {
     const normalized = normalizeStatusName(value);
-    return Boolean(normalized && ALLOWED_ORDER_STATUS_NAMES.has(normalized));
+    return Boolean(normalized && allowedNames.has(normalized));
   });
 };
 
@@ -134,3 +143,41 @@ export const ORDER_PREP_ALLOWED_STATUS_META = {
   slugs: ALLOWED_ORDER_STATUS_SLUGS,
   names: ALLOWED_ORDER_STATUS_NAMES,
 };
+
+export function isOrderStatusAssignable(status: any): boolean {
+  if (!status || typeof status !== 'object') {
+    return false;
+  }
+
+  const idCandidates = [
+    status.id,
+    status.status_id,
+    status.statusId,
+    status.code,
+    status.original?.id,
+  ];
+
+  for (const candidate of idCandidates) {
+    const normalized = normalizeStatusId(candidate);
+    if (normalized && ASSIGNABLE_ORDER_STATUS_IDS.has(normalized)) {
+      return true;
+    }
+  }
+
+  const nameCandidates = [
+    status.name,
+    status.name_en,
+    status.nameEn,
+    status.label,
+    status.status_name,
+    status.statusName,
+    status.translations?.ar?.name,
+    status.translations?.en?.name,
+  ];
+
+  if (hasRecognizedStatusName(nameCandidates, ASSIGNABLE_ORDER_STATUS_NAMES)) {
+    return true;
+  }
+
+  return false;
+}
