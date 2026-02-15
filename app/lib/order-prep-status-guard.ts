@@ -34,11 +34,8 @@ const normalizeStatusId = (value: unknown): string | null => {
   return null;
 };
 
-const ASSIGNABLE_ORDER_STATUS_IDS = new Set(['449146439']);
-
-const ASSIGNABLE_ORDER_STATUS_NAMES = new Set(
-  ['طلب جديد', 'new order'].map((value) => value.trim().toLowerCase()),
-);
+const ASSIGNABLE_ORDER_STATUS_IDS = new Set(['449146439', '566146469']);
+const ASSIGNABLE_ORDER_STATUS_SLUGS = new Set(['under_review']);
 
 const normalizeStatusName = (value: unknown): string | null => {
   if (typeof value !== 'string') {
@@ -66,29 +63,6 @@ const hasRecognizedStatusName = (
   return names.some((value) => {
     const normalized = normalizeStatusName(value);
     return Boolean(normalized && allowedNames.has(normalized));
-  });
-};
-
-const hasAssignableStatusName = (names: Array<unknown>): boolean => {
-  const patterns = Array.from(ASSIGNABLE_ORDER_STATUS_NAMES);
-  const containsAllTokens = (value: string, tokens: string[]) =>
-    tokens.every((token) => value.includes(token));
-
-  return names.some((value) => {
-    const normalized = normalizeStatusName(value);
-    if (!normalized) {
-      return false;
-    }
-    if (patterns.some((pattern) => normalized === pattern || normalized.includes(pattern))) {
-      return true;
-    }
-    if (containsAllTokens(normalized, ['طلب', 'جديد'])) {
-      return true;
-    }
-    if (containsAllTokens(normalized, ['new', 'order'])) {
-      return true;
-    }
-    return false;
   });
 };
 
@@ -201,19 +175,14 @@ function matchesAssignableStatus(status: any): boolean {
     }
   }
 
-  const nameCandidates = [
-    record.name,
-    record.name_en,
-    record.nameEn,
-    record.label,
-    record.status_name,
-    record.statusName,
-    record.translations?.ar?.name,
-    record.translations?.en?.name,
-  ];
+  const slugCandidates = [record.slug, record.status, record.code].map((value) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : null,
+  );
 
-  if (hasAssignableStatusName(nameCandidates)) {
-    return true;
+  for (const slug of slugCandidates) {
+    if (slug && ASSIGNABLE_ORDER_STATUS_SLUGS.has(slug)) {
+      return true;
+    }
   }
 
   return false;
