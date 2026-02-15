@@ -60,12 +60,24 @@ const hasRecognizedStatusName = (
 
 const hasAssignableStatusName = (names: Array<unknown>): boolean => {
   const patterns = Array.from(ASSIGNABLE_ORDER_STATUS_NAMES);
+  const containsAllTokens = (value: string, tokens: string[]) =>
+    tokens.every((token) => value.includes(token));
+
   return names.some((value) => {
     const normalized = normalizeStatusName(value);
     if (!normalized) {
       return false;
     }
-    return patterns.some((pattern) => normalized === pattern || normalized.includes(pattern));
+    if (patterns.some((pattern) => normalized === pattern || normalized.includes(pattern))) {
+      return true;
+    }
+    if (containsAllTokens(normalized, ['طلب', 'جديد'])) {
+      return true;
+    }
+    if (containsAllTokens(normalized, ['new', 'order'])) {
+      return true;
+    }
+    return false;
   });
 };
 
