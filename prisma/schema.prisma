@@ -700,6 +700,25 @@ model OrderPrepUnavailableItem {
   @@unique([merchantId, orderId, normalizedSku])
 }
 
+model OrderPrepEscalation {
+  id            String   @id @default(cuid())
+  merchantId    String
+  orderId       String
+  orderNumber   String?
+  reason        String
+  statusTarget  String?
+  notes         String?  @db.Text
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+  resolvedAt    DateTime?
+  resolvedById   String?
+  resolvedByName String?
+
+  @@index([merchantId, orderId])
+  @@index([merchantId, resolvedAt])
+}
+
 model HighPriorityOrder {
   id                String   @id @default(cuid())
   merchantId        String

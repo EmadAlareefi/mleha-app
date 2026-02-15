@@ -255,6 +255,39 @@ export default function OrderPrepClient() {
     [toast],
   );
 
+  const assignNextOrder = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      try {
+        const response = await fetch('/api/order-prep/orders/assign', {
+          method: 'POST',
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'لا توجد طلبات جديدة متاحة');
+        }
+        if (data.assignment) {
+          setAssignments([data.assignment]);
+          if (!options.silent) {
+            toast({ description: '✅ تم تعيين طلب جديد لك' });
+          }
+          setLastUpdated(new Date().toISOString());
+        } else if (!options.silent) {
+          toast({ description: '⚠️ لا توجد طلبات جديدة حالياً' });
+        }
+        return data.assignment as Assignment | null;
+      } catch (err) {
+        if (!options.silent) {
+          toast({
+            variant: 'destructive',
+            description: err instanceof Error ? err.message : 'تعذر الحصول على طلب جديد',
+          });
+        }
+        return null;
+      }
+    },
+    [toast],
+  );
+
   const requestNewOrder = useCallback(async () => {
     if (assignments.length > 0) {
       toast({ description: '⚠️ يرجى إنهاء الطلب الحالي قبل طلب طلب جديد' });
@@ -262,25 +295,11 @@ export default function OrderPrepClient() {
     }
     setAssigning(true);
     try {
-      const response = await fetch('/api/order-prep/orders/assign', {
-        method: 'POST',
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'لا توجد طلبات جديدة متاحة');
-      }
-      setAssignments([data.assignment]);
-      toast({ description: '✅ تم تعيين طلب جديد لك' });
-      setLastUpdated(new Date().toISOString());
-    } catch (err) {
-      toast({
-        variant: 'destructive',
-        description: err instanceof Error ? err.message : 'تعذر الحصول على طلب جديد',
-      });
+      await assignNextOrder();
     } finally {
       setAssigning(false);
     }
-  }, [assignments.length, toast]);
+  }, [assignments.length, assignNextOrder, toast]);
 
   const updateStatus = useCallback(
     async (
@@ -316,15 +335,11 @@ export default function OrderPrepClient() {
         });
 
         if (status === 'completed') {
-          toast({ description: '🎉 تم إنهاء الطلب، يمكنك طلب طلب جديد الآن' });
+          toast({ description: '🎉 تم إنهاء الطلب، جارٍ تحميل الطلب التالي' });
         } else if (status === 'preparing') {
           toast({ description: '🔄 تم تحديث الطلب إلى جاري التجهيز' });
         } else if (status === 'waiting') {
           toast({ description: '⌛ تم وضع الطلب في قائمة الانتظار' });
-        }
-
-        if (status === 'completed') {
-          void loadAssignments({ silent: true });
         }
       } catch (err) {
         if (!options?.suppressError) {
@@ -523,9 +538,13 @@ export default function OrderPrepClient() {
     await updateStatus(assignment.id, 'completed', {
       itemStatuses: completion.itemStatuses,
     });
-      return true;
-    },
-    [handleUpdateSallaStatus, toast, updateStatus],
+    const nextAssignment = await assignNextOrder({ silent: true });
+    if (!nextAssignment) {
+      toast({ description: 'لا توجد طلبات جديدة متاحة حالياً.' });
+    }
+    return true;
+  },
+    [assignNextOrder, handleUpdateSallaStatus, toast, updateStatus],
   );
 
   const runConfirmedAction = useCallback(() => {

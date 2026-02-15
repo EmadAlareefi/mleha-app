@@ -89,7 +89,7 @@ export async function assignOldestOrderToUser(user: {
     return null;
   }
 
-  const [existingAssignments, existingShipments] = await Promise.all([
+  const [existingAssignments, existingShipments, escalatedOrders] = await Promise.all([
     prisma.orderPrepAssignment.findMany({
       where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
       select: { orderId: true },
@@ -98,14 +98,23 @@ export async function assignOldestOrderToUser(user: {
       where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
       select: { orderId: true },
     }),
+    prisma.orderPrepEscalation.findMany({
+      where: {
+        merchantId: MERCHANT_ID,
+        orderId: { in: orderIds },
+        resolvedAt: null,
+      },
+      select: { orderId: true },
+    }),
   ]);
 
   const assignedIds = new Set(existingAssignments.map((record) => record.orderId));
   const shippedIds = new Set(existingShipments.map((record) => record.orderId));
+  const escalatedIds = new Set(escalatedOrders.map((record) => record.orderId));
 
   for (const order of candidateOrders) {
     const orderId = extractOrderId(order);
-    if (!orderId || assignedIds.has(orderId)) {
+    if (!orderId || assignedIds.has(orderId) || escalatedIds.has(orderId)) {
       continue;
     }
 
@@ -243,6 +252,21 @@ export async function updateAssignmentStatus(options: {
     where: { id: assignmentId },
     data,
   });
+
+  if (targetStatus === 'completed') {
+    await prisma.orderPrepEscalation.updateMany({
+      where: {
+        merchantId: assignment.merchantId,
+        orderId: assignment.orderId,
+        resolvedAt: null,
+      },
+      data: {
+        resolvedAt: now,
+        resolvedById: assignment.userId,
+        resolvedByName: assignment.userName,
+      },
+    });
+  }
 
   return {
     assignment: serializeAssignment(updated),

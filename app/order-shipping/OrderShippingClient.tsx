@@ -203,8 +203,10 @@ const findUrlInsideText = (value: unknown): string | null => {
   return match ? match[0] : null;
 };
 
+type PrepStatus = 'ready' | 'comingSoon' | 'unavailable';
+
 const prepStatusMeta: Record<
-  'ready' | 'comingSoon' | 'unavailable',
+  PrepStatus,
   { label: string; className: string }
 > = {
   ready: {
@@ -496,11 +498,11 @@ const currentOrderSkus = useMemo(() => {
 const prepItemStatuses = useMemo(() => {
   const raw = currentOrder?.orderData?.prepItemStatuses;
   if (!Array.isArray(raw)) {
-    return [] as Array<{ index: number; normalizedSku: string | null; status: 'ready' | 'comingSoon' | 'unavailable' }>;
+    return [] as Array<{ index: number; normalizedSku: string | null; status: PrepStatus }>;
   }
   return raw
     .map((entry: any, idx: number) => {
-      const status =
+      const status: PrepStatus | null =
         entry?.status === 'ready' || entry?.status === 'comingSoon' || entry?.status === 'unavailable'
           ? entry.status
           : null;
@@ -517,13 +519,13 @@ const prepItemStatuses = useMemo(() => {
       return { index, normalizedSku: normalized, status };
     })
     .filter(
-      (entry): entry is { index: number; normalizedSku: string | null; status: 'ready' | 'comingSoon' | 'unavailable' } =>
+      (entry): entry is { index: number; normalizedSku: string | null; status: PrepStatus } =>
         Boolean(entry),
     );
 }, [currentOrder]);
 
 const getPrepStatusForItem = useCallback(
-  (item: any, index: number) => {
+  (item: any, index: number): PrepStatus | null => {
     if (prepItemStatuses.length === 0) {
       return null;
     }

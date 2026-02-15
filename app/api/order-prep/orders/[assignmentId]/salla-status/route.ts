@@ -118,6 +118,23 @@ export async function POST(
       where: { merchantId: assignment.merchantId, orderId: assignment.orderId },
     });
 
+    await prisma.orderPrepEscalation.create({
+      data: {
+        merchantId: assignment.merchantId,
+        orderId: assignment.orderId,
+        orderNumber: assignment.orderNumber,
+        reason: target === 'under_review_x4' ? 'missing_items' : 'manual_review',
+        statusTarget: target,
+        notes: note || null,
+        createdById: user.id || null,
+        createdByName:
+          user.name ||
+          (user as any)?.username ||
+          user.email ||
+          'عضو فريق التجهيز',
+      },
+    });
+
     return NextResponse.json({
       success: true,
     });
