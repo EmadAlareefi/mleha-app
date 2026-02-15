@@ -4,16 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { ScannerInput } from '@/components/warehouse/scanner-input';
-import { StatsCards } from '@/components/warehouse/stats-cards';
 import { ShipmentsTable } from '@/components/warehouse/shipments-table';
 import { DailyReport } from '@/components/warehouse/daily-report';
 import { useWarehouseSelection } from '@/components/warehouse/useWarehouseSelection';
 import type { Shipment, WarehouseInfo } from '@/components/warehouse/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import AppNavbar from '@/components/AppNavbar';
-import { CalendarDays, Loader2, MapPin, RefreshCcw, Search, X } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Loader2, RefreshCcw, Search, X } from 'lucide-react';
 import { ShipmentDetailsDialog } from '@/components/warehouse/shipment-details-dialog';
 
 interface Stats {
@@ -337,7 +336,7 @@ export default function WarehouseDashboardClient({
   }, [isAdmin]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
+    <div className="min-h-screen bg-slate-50">
       <AppNavbar
         title="لوحة المستودع"
         subtitle={
@@ -347,174 +346,104 @@ export default function WarehouseDashboardClient({
         }
       />
 
-      <main className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 space-y-8">
-        {loading && (
-          <div className="flex items-center gap-3 rounded-3xl border border-dashed border-indigo-200 bg-white/80 px-4 py-3 text-sm text-indigo-800 shadow-sm">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>جاري تحديث بيانات {selectedWarehouse?.name || 'المستودع'}...</span>
-          </div>
-        )}
-
-        <section className="grid gap-6 lg:grid-cols-[1.8fr,1.2fr]">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-900 to-indigo-700 p-8 text-white shadow-2xl">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.15),transparent_60%)]" />
-            <div className="relative z-10 space-y-6">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.4em] text-white/60">المستودع</p>
-                  <h1 className="text-3xl font-semibold">سجل عمليات اليوم</h1>
-                  <p className="text-white/70">
-                    {selectedWarehouse?.name
-                      ? `المستودع الحالي: ${selectedWarehouse.name}`
-                      : 'اختر مستودعاً لمتابعة الشحنات'}
-                  </p>
+      <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+        {/* Warehouse Selection + Date Navigation */}
+        <Card className="rounded-2xl">
+          <CardContent className="py-4 space-y-4">
+            {/* Warehouse selector */}
+            <div className="flex flex-wrap items-center gap-3">
+              {warehousesLoading && (
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  جاري التحميل...
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
+              )}
+              {!warehousesLoading && availableWarehouses.length === 0 && (
+                <div className="text-sm text-amber-700">
+                  {isAdmin
+                    ? 'لا يوجد مستودعات. أنشئ واحداً من صفحة إدارة المستودعات.'
+                    : 'لم يتم ربط أي مستودع بحسابك.'}
+                </div>
+              )}
+              {availableWarehouses.map((warehouse) => {
+                const isSelected = warehouse.id === selectedWarehouseId;
+                return (
+                  <button
+                    key={warehouse.id}
                     type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handlePreviousDay();
-                    }}
-                    className="rounded-2xl bg-white/10 px-5 text-sm text-white shadow hover:bg-white/20"
+                    onClick={() => selectWarehouse(warehouse.id)}
+                    className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-900 shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
+                    }`}
                   >
-                    اليوم السابق
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handleNextDay();
-                    }}
-                    className="rounded-2xl bg-white px-5 text-sm font-semibold text-slate-900 shadow"
-                  >
-                    اليوم التالي
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4">
-                  <p className="text-sm text-indigo-100">تاريخ العرض</p>
-                  <div className="mt-2 flex items-center gap-2 text-xl font-semibold">
-                    <CalendarDays className="h-5 w-5 text-white/80" />
-                    {format(selectedDate, 'EEEE، d MMMM yyyy', { locale: ar })}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4">
-                  <p className="text-sm text-indigo-100">إجمالي اليوم</p>
-                  <p className="mt-2 text-3xl font-bold">{stats.total}</p>
-                </div>
-                <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4">
-                  <p className="text-sm text-indigo-100">وارد / صادر</p>
-                  <p className="mt-2 text-3xl font-bold">
-                    {stats.incoming} / {stats.outgoing}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-end gap-4">
-                <div className="flex-1 min-w-[200px]">
-                  <label htmlFor="date-picker" className="mb-2 block text-sm text-white/80">
-                    عرض يوم محدد
-                  </label>
-                  <Input
-                    id="date-picker"
-                    type="date"
-                    value={formattedDate}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value) handleDateChange(new Date(value));
-                    }}
-                    className="rounded-2xl border-white/40 bg-white/20 text-white placeholder:text-white/70 focus-visible:ring-white"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Card className="rounded-3xl border border-slate-100 bg-white/95 shadow-xl shadow-indigo-100/50">
-            <CardHeader className="space-y-2">
-              <p className="text-xs font-semibold uppercase text-indigo-600">المستودعات</p>
-              <CardTitle className="text-2xl">اختر المستودع</CardTitle>
-              <CardDescription>
-                {selectedWarehouse?.name
-                  ? `تم اختيار ${selectedWarehouse.name}`
-                  : 'اختر مستودعاً لتفعيل المسح والبحث'}
-              </CardDescription>
+                    {warehouse.name}
+                    {warehouse.code && (
+                      <span className="mr-1 text-xs text-slate-400">({warehouse.code})</span>
+                    )}
+                  </button>
+                );
+              })}
               {isAdmin && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={refreshAdminWarehouses}
                   disabled={warehousesLoading}
-                  className="mt-2 inline-flex items-center gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100"
+                  className="text-slate-500 hover:text-indigo-600"
                 >
                   <RefreshCcw className={`h-4 w-4 ${warehousesLoading ? 'animate-spin' : ''}`} />
-                  تحديث القائمة
                 </Button>
               )}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {warehousesLoading && (
-                <div className="flex items-center gap-2 rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-800">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  جاري تحميل قائمة المستودعات...
-                </div>
-              )}
-              {!warehousesLoading && availableWarehouses.length === 0 && (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  {isAdmin
-                    ? 'لا يوجد مستودعات متاحة بعد. استخدم صفحة إدارة المستودعات لإنشاء مستودع جديد.'
-                    : 'لم يتم ربط أي مستودع بحسابك. يرجى التواصل مع المسؤول.'}
-                </div>
-              )}
-              {availableWarehouses.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {availableWarehouses.map((warehouse) => {
-                    const isSelected = warehouse.id === selectedWarehouseId;
-                    return (
-                      <button
-                        key={warehouse.id}
-                        type="button"
-                        onClick={() => selectWarehouse(warehouse.id)}
-                        className={`flex min-w-[140px] flex-col rounded-2xl border px-4 py-3 text-right transition-all ${
-                          isSelected
-                            ? 'border-indigo-500 bg-indigo-50 text-indigo-900 shadow'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200'
-                        }`}
-                      >
-                        <span className="text-sm font-semibold">{warehouse.name}</span>
-                        {warehouse.code && (
-                          <span className="text-xs text-slate-500">رمز: {warehouse.code}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
               {warehouseError && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {warehouseError}
-                </div>
+                <span className="text-sm text-red-600">{warehouseError}</span>
               )}
-              {selectedWarehouse && (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
-                  <div className="flex items-center gap-2 font-medium text-slate-800">
-                    <MapPin className="h-4 w-4 text-indigo-500" />
-                    {selectedWarehouse.name}
-                  </div>
-                  {selectedWarehouse.code && (
-                    <p className="mt-1 text-xs text-slate-500">الكود الداخلي: {selectedWarehouse.code}</p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
+            </div>
 
+            {/* Date navigation */}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={(e) => { e.preventDefault(); handlePreviousDay(); }}
+                className="rounded-xl"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-medium text-slate-700">
+                {format(selectedDate, 'EEEE، d MMMM yyyy', { locale: ar })}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={(e) => { e.preventDefault(); handleNextDay(); }}
+                className="rounded-xl"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Input
+                type="date"
+                value={formattedDate}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value) handleDateChange(new Date(value));
+                }}
+                className="w-auto rounded-xl text-sm"
+              />
+              {loading && <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />}
+              <div className="mr-auto flex items-center gap-4 text-sm">
+                <span className="text-slate-500">الإجمالي: <strong className="text-slate-900">{stats.total}</strong></span>
+                <span className="text-green-600">وارد: <strong>{stats.incoming}</strong></span>
+                <span className="text-blue-600">صادر: <strong>{stats.outgoing}</strong></span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Scanner + Search */}
         <section className="grid gap-6 lg:grid-cols-2">
           <ScannerInput
             onScan={handleScan}
@@ -531,41 +460,30 @@ export default function WarehouseDashboardClient({
             }
           />
 
-          <Card className="rounded-3xl border border-slate-100 bg-white/95 shadow-sm">
-            <CardHeader className="space-y-1">
-              <p className="text-xs font-semibold uppercase text-indigo-600">بحث وتتبع</p>
-              <CardTitle className="text-2xl">ابحث عن شحنة</CardTitle>
-              <CardDescription>
-                ادخل رقم التتبع للتحقق من حالة الشحنة أو تغيير التاريخ تلقائياً إلى يوم مسحها.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <Card className="rounded-2xl">
+            <CardContent className="py-5 space-y-4">
+              <p className="text-sm font-medium text-slate-700">بحث عن شحنة</p>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <div className="relative flex-1">
                   <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-slate-400" />
                   <Input
                     type="text"
-                    placeholder="ابحث عن شحنة برقم التتبع..."
+                    placeholder="رقم التتبع..."
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
                       setSearchError(null);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        handleSearch();
-                      }
+                      if (e.key === 'Enter') handleSearch();
                     }}
-                    className="pr-10 text-right"
+                    className="pr-10 text-right rounded-xl"
                     disabled={searching || !selectedWarehouse}
                   />
                   {searchQuery && (
                     <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSearchError(null);
-                      }}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                      onClick={() => { setSearchQuery(''); setSearchError(null); }}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       disabled={searching}
                     >
                       <X className="h-4 w-4" />
@@ -575,45 +493,34 @@ export default function WarehouseDashboardClient({
                 <Button
                   onClick={handleSearch}
                   disabled={searching || !selectedWarehouse || !searchQuery.trim()}
-                  className="min-w-[120px] rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700"
+                  className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
                 >
-                  {searching ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      جاري البحث...
-                    </span>
-                  ) : (
-                    'بحث'
-                  )}
+                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'بحث'}
                 </Button>
               </div>
               {searchError && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {searchError}
-                </div>
+                <p className="text-sm text-red-600">{searchError}</p>
               )}
               {!selectedWarehouse && (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  يرجى اختيار مستودع لتفعيل البحث.
-                </div>
+                <p className="text-sm text-amber-700">يرجى اختيار مستودع لتفعيل البحث.</p>
               )}
             </CardContent>
           </Card>
         </section>
 
-        <StatsCards stats={stats} warehouseName={selectedWarehouse?.name} />
-
-        <ShipmentsTable
-          shipments={shipments}
-          onDelete={handleDelete}
-          highlightedId={highlightedShipmentId}
-        />
-
+        {/* Print Report (above shipments table) */}
         <DailyReport
           shipments={shipments}
           stats={stats}
           date={selectedDate}
           warehouseName={selectedWarehouse?.name}
+        />
+
+        {/* Shipments Table */}
+        <ShipmentsTable
+          shipments={shipments}
+          onDelete={handleDelete}
+          highlightedId={highlightedShipmentId}
         />
       </main>
 

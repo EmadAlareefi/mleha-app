@@ -115,6 +115,43 @@ export interface SallaSingleOrderResponse {
   data: SallaOrder;
 }
 
+export interface SallaOrderUpdateResponse {
+  status: number;
+  success: boolean;
+  message?: string;
+  data?: SallaOrder;
+}
+
+export interface SallaShipToUpdate {
+  country: number;
+  city: number;
+  district: number;
+  block: string;
+  street_number: string;
+  address_line: string;
+  postal_code: string;
+  short_address?: string;
+  building_number?: string;
+  additional_number?: string;
+  address?: string;
+  geo_coordinates?: {
+    lat: number;
+    lng: number;
+  };
+}
+
+export interface SallaOrderUpdatePayload {
+  customer?: Record<string, unknown>;
+  receiver?: Record<string, unknown>;
+  delivery_method?: string;
+  branch_id?: number;
+  courier_id?: number;
+  ship_to?: SallaShipToUpdate;
+  payment?: Record<string, unknown>;
+  coupon_code?: string;
+  employees?: number[];
+}
+
 /**
  * Fetches order items with full details including prices
  */
@@ -226,6 +263,26 @@ export async function getSallaOrderByReference(
     log.error('Error fetching Salla order by reference', { merchantId, referenceId, error });
     return null;
   }
+}
+
+export async function updateSallaOrder(
+  merchantId: string,
+  orderId: string | number,
+  payload: SallaOrderUpdatePayload
+): Promise<SallaOrderUpdateResponse | null> {
+  if (!merchantId || !orderId) {
+    log.warn('Cannot update Salla order - missing identifiers', { merchantId, orderId });
+    return null;
+  }
+
+  return sallaMakeRequest<SallaOrderUpdateResponse>(
+    merchantId,
+    `/orders/${orderId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 /**
