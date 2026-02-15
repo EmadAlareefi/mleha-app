@@ -48,6 +48,17 @@ const normalizeStatusName = (value: unknown): string | null => {
   return normalized || null;
 };
 
+const toStatusRecord = (status: any): Record<string, any> | null => {
+  if (status && typeof status === 'object') {
+    return status as Record<string, any>;
+  }
+  const normalizedId = normalizeStatusId(status);
+  if (normalizedId) {
+    return { id: normalizedId };
+  }
+  return null;
+};
+
 const hasRecognizedStatusName = (
   names: Array<unknown>,
   allowedNames: Set<string> = ALLOWED_ORDER_STATUS_NAMES,
@@ -82,18 +93,19 @@ const hasAssignableStatusName = (names: Array<unknown>): boolean => {
 };
 
 export function isAllowedOrderStatus(status: any): boolean {
-  if (!status || typeof status !== 'object') {
+  const record = toStatusRecord(status);
+  if (!record) {
     return false;
   }
 
   const idCandidates = [
-    status.id,
-    status.status_id,
-    status.statusId,
-    status.code,
-    status.original?.id,
-    status.original_id,
-    status.originalId,
+    record.id,
+    record.status_id,
+    record.statusId,
+    record.code,
+    record.original?.id,
+    record.original_id,
+    record.originalId,
   ];
 
   for (const candidate of idCandidates) {
@@ -104,21 +116,21 @@ export function isAllowedOrderStatus(status: any): boolean {
   }
 
   const nameCandidates = [
-    status.name,
-    status.name_en,
-    status.nameEn,
-    status.label,
-    status.status_name,
-    status.statusName,
-    status.translations?.ar?.name,
-    status.translations?.en?.name,
+    record.name,
+    record.name_en,
+    record.nameEn,
+    record.label,
+    record.status_name,
+    record.statusName,
+    record.translations?.ar?.name,
+    record.translations?.en?.name,
   ];
 
   if (hasRecognizedStatusName(nameCandidates)) {
     return true;
   }
 
-  const slugCandidates = [status.slug, status.status, status.code].map((value) =>
+  const slugCandidates = [record.slug, record.status, record.code].map((value) =>
     typeof value === 'string' ? value.trim().toLowerCase() : null,
   );
   const hasAnyNameValue = nameCandidates.some((value) => typeof value === 'string' && value.trim());
@@ -150,15 +162,16 @@ export function isOrderStatusEligible(status: any, subStatus?: any): boolean {
 }
 
 export function extractSallaStatus(data: any): { status: any; subStatus: any } {
-  const status = data?.status || null;
-  const subStatus =
-    status?.sub_status ||
-    status?.subStatus ||
-    data?.sub_status ||
-    data?.subStatus ||
-    null;
+  const statusRecord = toStatusRecord(data?.status);
+  const subStatusRecord = toStatusRecord(
+    statusRecord?.sub_status ||
+      statusRecord?.subStatus ||
+      data?.sub_status ||
+      data?.subStatus ||
+      null,
+  );
 
-  return { status, subStatus };
+  return { status: statusRecord, subStatus: subStatusRecord };
 }
 
 export const ORDER_PREP_ALLOWED_STATUS_META = {
@@ -168,16 +181,17 @@ export const ORDER_PREP_ALLOWED_STATUS_META = {
 };
 
 function matchesAssignableStatus(status: any): boolean {
-  if (!status || typeof status !== 'object') {
+  const record = toStatusRecord(status);
+  if (!record) {
     return false;
   }
 
   const idCandidates = [
-    status.id,
-    status.status_id,
-    status.statusId,
-    status.code,
-    status.original?.id,
+    record.id,
+    record.status_id,
+    record.statusId,
+    record.code,
+    record.original?.id,
   ];
 
   for (const candidate of idCandidates) {
@@ -188,14 +202,14 @@ function matchesAssignableStatus(status: any): boolean {
   }
 
   const nameCandidates = [
-    status.name,
-    status.name_en,
-    status.nameEn,
-    status.label,
-    status.status_name,
-    status.statusName,
-    status.translations?.ar?.name,
-    status.translations?.en?.name,
+    record.name,
+    record.name_en,
+    record.nameEn,
+    record.label,
+    record.status_name,
+    record.statusName,
+    record.translations?.ar?.name,
+    record.translations?.en?.name,
   ];
 
   if (hasAssignableStatusName(nameCandidates)) {
