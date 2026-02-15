@@ -145,3 +145,64 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'تعذر حفظ سجل النواقص' }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+
+  if (!session?.user || !hasUnavailableAccess(session)) {
+    return NextResponse.json({ error: 'ليست لديك صلاحية للوصول' }, { status: 403 });
+  }
+
+  try {
+    const body = await request.json().catch(() => ({}));
+    const recordId = typeof body?.recordId === 'string' ? body.recordId.trim() : '';
+    const orderId = typeof body?.orderId === 'string' ? body.orderId.trim() : '';
+    const normalizedSku = normalizeSku(body?.normalizedSku ?? body?.sku);
+
+    if (!recordId && (!orderId || !normalizedSku)) {
+      return NextResponse.json(
+        { error: 'يجب تحديد السجل المطلوب حذفه' },
+        { status: 400 },
+      );
+    }
+
+    const existing = await prisma.orderPrepUnavailableItem.findFirst({
+      where: recordId
+        ? {
+            merchantId: MERCHANT_ID,
+            id: recordId,
+          }
+        : {
+            merchantId: MERCHANT_ID,
+            orderId,
+            normalizedSku,
+            resolvedAt: null,
+          },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'لم يتم العثور على السجل المطلوب' },
+        { status: 404 },
+      );
+    }
+
+    const resolved = await prisma.orderPrepUnavailableItem.update({
+      where: { id: existing.id },
+      data: {
+        resolvedAt: new Date(),
+        resolvedById: (session.user as any)?.id || null,
+        resolvedByName:
+          session.user.name ||
+          (session.user as any)?.username ||
+          (session.user as any)?.email ||
+          null,
+      },
+    });
+
+    return NextResponse.json({ success: true, data: serializeRecord(resolved) });
+  } catch (error) {
+    log.error('Failed to resolve unavailable item record', { error });
+    return NextResponse.json({ error: 'تعذر حذف سجل النواقص' }, { status: 500 });
+  }
+}

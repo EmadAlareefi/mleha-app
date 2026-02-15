@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, CheckCircle, Loader2, Package, Printer, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Loader2, Package, Printer, RefreshCcw, Undo2 } from 'lucide-react';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
@@ -734,6 +734,7 @@ function AssignmentCard({
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
   const [printingSkuKey, setPrintingSkuKey] = useState<string | null>(null);
+  const [resolvingUnavailableId, setResolvingUnavailableId] = useState<string | null>(null);
   const [itemActionDialog, setItemActionDialog] = useState<{
     type: ItemProgressState;
     itemName: string;
@@ -979,6 +980,46 @@ function AssignmentCard({
     [assignment.id, assignment.orderId, getItemKey, orderNumber, toast, updateItemProgress],
   );
 
+  const handleResolveUnavailable = useCallback(
+    async (record: UnavailableItemRecord, index: number) => {
+      if (!record?.id) {
+        return;
+      }
+      setResolvingUnavailableId(record.id);
+      try {
+        const response = await fetch('/api/order-prep/unavailable-items', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recordId: record.id }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.error || 'تعذر حذف سجل النقص');
+        }
+        setUnavailableItems((prev) => prev.filter((entry) => entry.id !== record.id));
+        setItemProgress((prev) => {
+          const key = getItemKey(index);
+          if (prev[key] !== 'unavailable') {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        const skuLabel = record.sku || record.normalizedSku;
+        toast({ description: `تم حذف سجل النقص للمنتج ${skuLabel}` });
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          description: error instanceof Error ? error.message : 'تعذر حذف سجل النقص',
+        });
+      } finally {
+        setResolvingUnavailableId((current) => (current === record.id ? null : current));
+      }
+    },
+    [getItemKey, toast],
+  );
+
   const handlePrintSku = useCallback(
     async (item: LineItem, index: number) => {
       const rawSku = extractLineItemSku(item);
@@ -1165,9 +1206,9 @@ function AssignmentCard({
     const actionLabel = itemProgressLabels[itemActionDialog.type];
     const skuLabel = itemActionDialog.sku || 'غير متوفر';
     if (itemActionDialog.type === 'unavailable') {
-      return `سيتم تسجيل المنتج \"${itemActionDialog.itemName}\" (SKU: ${skuLabel}) كغير متوفر وإضافته إلى قائمة النواقص. هل تريد المتابعة؟`;
+      return `سيتم تسجيل المنتج "${itemActionDialog.itemName}" (SKU: ${skuLabel}) كغير متوفر وإضافته إلى قائمة النواقص. هل تريد المتابعة؟`;
     }
-    return `هل تريد تأكيد وضع المنتج \"${itemActionDialog.itemName}\" (SKU: ${skuLabel}) في حالة \"${actionLabel}\"؟`;
+    return `هل تريد تأكيد وضع المنتج "${itemActionDialog.itemName}" (SKU: ${skuLabel}) في حالة "${actionLabel}"؟`;
   }, [itemActionDialog]);
   const itemActionConfirmLabel = itemActionDialog
     ? `تأكيد ${itemProgressLabels[itemActionDialog.type]}`
@@ -1306,7 +1347,7 @@ function AssignmentCard({
                       />
                       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                         <Button
-                          onClick={() => updateItemProgress(index, 'ready')}
+                          onClick={() => openItemActionDialog('ready', item, index)}
                           disabled={readyDisabled}
                           className={cn(
                             'w-full sm:w-auto bg-green-600 text-white hover:bg-green-700',
@@ -1318,7 +1359,7 @@ function AssignmentCard({
                         </Button>
                         <Button
                           variant="outline"
-                          onClick={() => updateItemProgress(index, 'comingSoon')}
+                          onClick={() => openItemActionDialog('comingSoon', item, index)}
                           disabled={isComingSoon || isUnavailable}
                           className={cn(
                             'w-full sm:w-auto border-amber-200 text-amber-900',
@@ -1330,7 +1371,7 @@ function AssignmentCard({
                         </Button>
                         <Button
                           variant="outline"
-                          onClick={() => handleMarkUnavailable(item, index)}
+                          onClick={() => openItemActionDialog('unavailable', item, index)}
                           disabled={unavailableDisabled}
                           className="w-full sm:w-auto border-rose-200 text-rose-900"
                         >
@@ -1371,13 +1412,29 @@ function AssignmentCard({
                         </p>
                       )}
                       {isUnavailable && unavailableRecord && (
-                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-800">
-                          تم تسجيل النقص بواسطة{' '}
-                          <span className="mx-1 text-rose-900">
-                            {unavailableRecord.reportedByName || 'عضو الفريق'}
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-800">
+                            تم تسجيل النقص بواسطة{' '}
+                            <span className="mx-1 text-rose-900">
+                              {unavailableRecord.reportedByName || 'عضو الفريق'}
+                            </span>
+                            قبل {formatRelativeTime(unavailableRecord.createdAt)}
                           </span>
-                          قبل {formatRelativeTime(unavailableRecord.createdAt)}
-                        </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={resolvingUnavailableId === unavailableRecord.id}
+                            onClick={() => handleResolveUnavailable(unavailableRecord, index)}
+                            className="self-start sm:self-auto text-rose-700 hover:text-rose-900"
+                          >
+                            {resolvingUnavailableId === unavailableRecord.id ? (
+                              <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+                            ) : (
+                              <Undo2 className="h-4 w-4 ml-2" />
+                            )}
+                            التراجع عن غير متوفر
+                          </Button>
+                        </div>
                       )}
                       {!isUnavailable && !unavailableRecord && normalizedItemSku && (
                         <span className="text-xs text-gray-500">
@@ -1455,6 +1512,16 @@ function AssignmentCard({
         </div>
       </div>
     </Card>
+    <ConfirmationDialog
+      open={Boolean(itemActionDialog)}
+      title="تأكيد حالة المنتج"
+      message={itemActionMessage}
+      confirmLabel={itemActionConfirmLabel}
+      confirmVariant={itemActionConfirmVariant}
+      onConfirm={confirmItemAction}
+      onCancel={closeItemActionDialog}
+    />
+    </>
   );
 }
 
