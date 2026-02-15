@@ -12,7 +12,15 @@ import {
   buildOrderItemsPayload,
   getLocalShipmentLabelUrl,
   normalizeOrderItems,
+  type LocalShipmentMeta,
 } from './serializer';
+import {
+  detectMessengerShipments,
+  extractPrimaryShipTo,
+  buildShipToArabicLabel,
+  type ShipToDetails,
+} from './messenger';
+import { getSallaOrderByReference } from '@/app/lib/salla-api';
 
 interface PrintLocalShipmentOptions {
   shipment: LocalShipment;
@@ -22,6 +30,10 @@ interface PrintLocalShipmentOptions {
   source?: string;
   userId?: string;
   userName?: string;
+  shipToOverride?: ShipToDetails | null;
+  messengerCourierLabel?: string | null;
+  shipToArabicText?: string | null;
+  orderDataOverride?: any;
 }
 
 export interface LocalShipmentPrintResult {
@@ -48,6 +60,82 @@ const resolvePaymentMethod = (shipment: LocalShipment, metaValue?: string | null
   return shipment.isCOD ? 'Cash On Delivery' : 'Prepaid';
 };
 
+const enrichMessengerMetaIfNeeded = async (
+  shipment: LocalShipment,
+  meta: LocalShipmentMeta,
+  options: {
+    providedShipTo?: ShipToDetails | null;
+    providedCourierLabel?: string | null;
+    providedShipToArabicText?: string | null;
+    orderData?: any;
+  } = {},
+): Promise<LocalShipmentMeta> => {
+  const applyShipTo = (
+    shipTo?: ShipToDetails | null,
+    courierLabel?: string | null,
+    shipToArabicTextOverride?: string | null,
+    currentMeta: LocalShipmentMeta = meta,
+  ): LocalShipmentMeta => {
+    if (!shipTo && !courierLabel && !shipToArabicTextOverride) {
+      return currentMeta;
+    }
+    const computedArabicText =
+      shipToArabicTextOverride || buildShipToArabicLabel(shipTo) || null;
+    return {
+      ...currentMeta,
+      shipToArabicText: currentMeta.shipToArabicText ?? computedArabicText,
+      shipToName: currentMeta.shipToName ?? shipTo?.name ?? null,
+      shipToPhone: currentMeta.shipToPhone ?? shipTo?.phone ?? null,
+      shipToCity: currentMeta.shipToCity ?? shipTo?.city ?? null,
+      shipToDistrict: currentMeta.shipToDistrict ?? shipTo?.district ?? null,
+      shipToAddressLine: currentMeta.shipToAddressLine ?? shipTo?.addressLine ?? null,
+      shipToPostalCode: currentMeta.shipToPostalCode ?? shipTo?.postalCode ?? null,
+      messengerCourierLabel: currentMeta.messengerCourierLabel ?? courierLabel ?? null,
+    };
+  };
+
+  let nextMeta = applyShipTo(
+    options.providedShipTo,
+    options.providedCourierLabel,
+    options.providedShipToArabicText,
+  );
+
+  const needsShipTo =
+    !nextMeta.shipToArabicText ||
+    !nextMeta.shipToName ||
+    !nextMeta.shipToPhone ||
+    !nextMeta.shipToCity ||
+    !nextMeta.shipToAddressLine;
+  const needsCourierLabel = !nextMeta.messengerCourierLabel;
+
+  if (!needsShipTo && !needsCourierLabel) {
+    return nextMeta;
+  }
+
+  if (!shipment.merchantId || !shipment.orderNumber) {
+    return nextMeta;
+  }
+
+  try {
+    const orderData =
+      options.orderData ||
+      (await getSallaOrderByReference(shipment.merchantId, shipment.orderNumber));
+    if (!orderData) {
+      return nextMeta;
+    }
+    const primaryShipTo = extractPrimaryShipTo(orderData);
+    const messengerShipments = detectMessengerShipments(orderData);
+    nextMeta = applyShipTo(primaryShipTo, messengerShipments[0]?.courierLabel, null, nextMeta);
+    return nextMeta;
+  } catch (error) {
+    log.warn('Failed to enrich messenger metadata for local shipment', {
+      shipmentId: shipment.id,
+      error: error instanceof Error ? error.message : error,
+    });
+    return nextMeta;
+  }
+};
+
 export async function printLocalShipmentLabel({
   shipment,
   printerId,
@@ -56,12 +144,28 @@ export async function printLocalShipmentLabel({
   source = 'manual',
   userId,
   userName,
+  shipToOverride,
+  messengerCourierLabel,
+  shipToArabicText,
+  orderDataOverride,
 }: PrintLocalShipmentOptions): Promise<LocalShipmentPrintResult> {
   const labelUrl = getLocalShipmentLabelUrl(shipment.id);
   const normalized = normalizeOrderItems(shipment.orderItems);
+  const enrichedMeta = await enrichMessengerMetaIfNeeded(shipment, normalized.meta || {}, {
+    providedShipTo: shipToOverride,
+    providedCourierLabel: messengerCourierLabel,
+    providedShipToArabicText: shipToArabicText,
+    orderData: orderDataOverride,
+  });
+  normalized.meta = enrichedMeta;
+  const printableOrderItems = buildOrderItemsPayload(normalized.items, enrichedMeta);
+  const printableShipment = {
+    ...shipment,
+    orderItems: printableOrderItems,
+  };
 
   try {
-    const pdfBuffer = await generateLocalShipmentLabelPdf(shipment, getMerchantLabelInfo());
+    const pdfBuffer = await generateLocalShipmentLabelPdf(printableShipment, getMerchantLabelInfo());
     const printerSizing = getLabelPrinterSizing(printerId);
 
     const printJobResult = await sendPrintJob({

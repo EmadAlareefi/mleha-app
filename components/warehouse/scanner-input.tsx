@@ -1,10 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Scan, CheckCircle, AlertCircle, ArrowUpFromLine, ArrowDownToLine } from 'lucide-react';
+import { Scan, CheckCircle, AlertCircle, ArrowUpFromLine, ArrowDownToLine, Camera } from 'lucide-react';
+
+type BarcodeDetection = { rawValue?: string };
+type BarcodeDetectorInstance = {
+  detect: (source: HTMLVideoElement) => Promise<BarcodeDetection[]>;
+};
+type BarcodeDetectorConstructor = new (options?: {
+  formats?: string[];
+}) => BarcodeDetectorInstance;
 
 interface ScannerInputProps {
   onScan: (trackingNumber: string, type: 'incoming' | 'outgoing') => Promise<void>;
@@ -24,11 +32,58 @@ export function ScannerInput({
   const [isScanning, setIsScanning] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [scannerSupported, setScannerSupported] = useState(false);
+  const [scannerActive, setScannerActive] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const barcodeDetectorRef = useRef<BarcodeDetectorInstance | null>(null);
+  const scanFrameRef = useRef<number | null>(null);
+
+  const stopScanner = useCallback(() => {
+    setScannerActive(false);
+    if (scanFrameRef.current) {
+      cancelAnimationFrame(scanFrameRef.current);
+      scanFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    barcodeDetectorRef.current = null;
+  }, []);
+
+  const waitForVideoElement = async (): Promise<HTMLVideoElement> => {
+    if (videoRef.current) {
+      return videoRef.current;
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (videoRef.current) {
+        return videoRef.current;
+      }
+    }
+    throw new Error('video_not_ready');
+  };
 
   useEffect(() => {
-    // Auto-focus on input
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    setScannerSupported(
+      'BarcodeDetector' in window && typeof (window as any).BarcodeDetector === 'function'
+    );
+    return () => {
+      stopScanner();
+    };
+  }, [stopScanner]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -61,8 +116,71 @@ export function ScannerInput({
     }
   };
 
+  const startScanner = useCallback(async () => {
+    if (!scannerSupported) {
+      setScannerError('جهازك لا يدعم قراءة الباركود عبر الكاميرا في هذا المتصفح');
+      return;
+    }
+    if (disabled) {
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScannerError('الكاميرا غير متاحة في هذا الجهاز أو المتصفح');
+      return;
+    }
+    try {
+      setScannerError(null);
+      const BarcodeDetectorClass = (window as any).BarcodeDetector as BarcodeDetectorConstructor;
+      barcodeDetectorRef.current = new BarcodeDetectorClass({
+        formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'qr_code'],
+      });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      streamRef.current = stream;
+      const videoElement = await waitForVideoElement();
+      videoElement.srcObject = stream;
+      videoElement.playsInline = true;
+      videoElement.muted = true;
+      await videoElement.play();
+      setScannerActive(true);
+
+      const scanLoop = async () => {
+        if (!barcodeDetectorRef.current || !videoElement || videoElement.readyState < 2) {
+          scanFrameRef.current = requestAnimationFrame(scanLoop);
+          return;
+        }
+        try {
+          const barcodes = await barcodeDetectorRef.current.detect(videoElement);
+          if (barcodes.length > 0) {
+            const value = barcodes[0]?.rawValue || '';
+            if (value) {
+              setTrackingNumber(value);
+              stopScanner();
+              setTimeout(() => inputRef.current?.focus(), 100);
+              return;
+            }
+          }
+          scanFrameRef.current = requestAnimationFrame(scanLoop);
+        } catch (error) {
+          console.error('Barcode detection error', error);
+          setScannerError('تعذر قراءة الرقم. حاول مرة أخرى');
+          stopScanner();
+        }
+      };
+
+      scanFrameRef.current = requestAnimationFrame(scanLoop);
+    } catch (error) {
+      console.error('Camera access failed', error);
+      setScannerError('تعذر تشغيل الكاميرا. تحقق من الأذونات وحاول مرة أخرى');
+      stopScanner();
+    }
+  }, [disabled, scannerSupported, stopScanner]);
+
   return (
-    <Card>
+    <>
+      <Card>
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2">
           <Scan className="w-6 h-6" />
@@ -185,7 +303,58 @@ export function ScannerInput({
             </div>
           )}
         </form>
+        <div className="md:hidden space-y-2">
+          {scannerSupported ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={scannerActive ? stopScanner : startScanner}
+              disabled={disabled}
+            >
+              <Camera className="w-4 h-4 ml-2" />
+              {scannerActive ? 'إيقاف الكاميرا' : 'استخدام كاميرا الجوال لمسح الباركود'}
+            </Button>
+          ) : (
+            <p className="text-xs text-slate-500">
+              الكاميرا غير مدعومة في هذا المتصفح. استخدم قارئ الباركود التقليدي.
+            </p>
+          )}
+          {scannerError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {scannerError}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
+      {scannerActive && (
+        <div className="md:hidden fixed inset-0 z-40 flex items-center justify-center bg-black/80 px-4 py-8">
+          <div className="w-full max-w-sm rounded-2xl bg-gray-900/90 p-4 text-white shadow-lg">
+            <p className="mb-3 text-center text-sm font-medium">
+              ضع الباركود داخل الإطار ليتم قراءة الرقم تلقائياً
+            </p>
+            <div className="relative aspect-video overflow-hidden rounded-xl border border-white/20 bg-black">
+              <video
+                ref={videoRef}
+                className="h-full w-full object-cover"
+                autoPlay
+                muted
+                playsInline
+              />
+              <div className="pointer-events-none absolute inset-4 rounded-xl border-2 border-white/70" />
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="mt-4 w-full border border-white/50 text-white hover:bg-white/10"
+              onClick={stopScanner}
+            >
+              إغلاق
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

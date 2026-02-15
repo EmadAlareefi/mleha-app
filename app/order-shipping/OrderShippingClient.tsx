@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
 import { Select } from '@/components/ui/select';
+import { detectMessengerShipments, buildShipToArabicLabel } from '@/app/lib/local-shipping/messenger';
 
 interface OrderUser {
   id: string;
@@ -481,6 +482,26 @@ export default function OrderShippingPage() {
       ? shippingAddressSummary.locationLabel
       : null;
 
+  const messengerShipments = useMemo(() => {
+    if (!currentOrder?.orderData) {
+      return [];
+    }
+    try {
+      return detectMessengerShipments(currentOrder.orderData);
+    } catch (error) {
+      console.error('Failed to detect messenger shipments', error);
+      return [];
+    }
+  }, [currentOrder]);
+
+  const primaryMessengerEntry = messengerShipments.length > 0 ? messengerShipments[0] : null;
+  const primaryMessengerShipTo = primaryMessengerEntry?.shipTo || null;
+  const primaryMessengerCourierLabel = primaryMessengerEntry?.courierLabel || null;
+  const primaryMessengerShipToArabic = useMemo(
+    () => buildShipToArabicLabel(primaryMessengerShipTo),
+    [primaryMessengerShipTo],
+  );
+
 const currentOrderSkus = useMemo(() => {
     if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
       return [] as string[];
@@ -743,6 +764,16 @@ const getPrepStatusForItem = useCallback(
       throw new Error(data?.error || 'تعذر العثور على الطلب');
     }
 
+    if (data.assignment?.orderData) {
+      const identifier = data.assignment.orderNumber || data.assignment.orderId || data.assignment.id;
+      const label =
+        data.assignment.source === 'salla' ? 'Salla order JSON payload' : 'Order data payload';
+      console.log(
+        `[order-shipping][client] ${label} for ${identifier}:`,
+        data.assignment.orderData,
+      );
+    }
+
     return data.assignment as OrderAssignment;
   }, []);
 
@@ -899,6 +930,9 @@ const handleRefreshItems = async () => {
                 shipmentId: currentShipmentInfo?.localShipmentId || undefined,
                 orderNumber: currentOrder.orderNumber,
                 trackingNumber: currentShipmentInfo?.trackingNumber,
+                shipTo: primaryMessengerShipTo,
+                messengerCourierLabel: primaryMessengerCourierLabel,
+                shipToArabicText: primaryMessengerShipToArabic,
               }
             : {
                 assignmentId: shouldIncludeAssignmentId ? currentOrder.id : undefined,
@@ -1349,6 +1383,51 @@ const handleRefreshItems = async () => {
                   </div>
                 </div>
               </Card>
+
+              {messengerShipments.length > 0 && (
+                <Card className="p-4 md:p-6 mb-4 md:mb-6 border-green-300 bg-green-50">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-green-900 flex items-center gap-2">
+                        <span role="img" aria-label="delivery">
+                          🚚
+                        </span>
+                        تم اكتشاف شحنة مندوب من سلة
+                      </h3>
+                      <p className="text-sm text-green-800 mt-1">
+                        سيتم استخدام عنوان <code className="font-semibold">ship_to</code> عند إنشاء الشحنة
+                        المحلية لضمان دقة بيانات التوصيل.
+                      </p>
+                    </div>
+                    <div className="space-y-3">
+                      {messengerShipments.map((entry, index) => {
+                        const shipToLabel = buildShipToArabicLabel(entry.shipTo);
+                        return (
+                          <div
+                            key={`${entry.source}-${index}`}
+                            className="rounded-lg border border-green-200 bg-white/70 p-3 shadow-sm"
+                          >
+                            <p className="text-sm font-semibold text-green-900">
+                              الشركة: {entry.courierLabel || 'مندوب التوصيل'} · المصدر: {entry.source}
+                            </p>
+                            {shipToLabel && (
+                              <pre
+                                className="mt-2 whitespace-pre-wrap rounded-md bg-green-50/80 p-2 text-sm text-green-800"
+                                dir="rtl"
+                              >
+                                {shipToLabel}
+                              </pre>
+                            )}
+                            {!shipToLabel && (
+                              <p className="text-xs text-green-700 mt-1">لا توجد بيانات ship_to مفصلة.</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </Card>
+              )}
 
               <div className="space-y-3 md:space-y-4">
                 {loadingProductLocations && (

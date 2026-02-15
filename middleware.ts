@@ -26,6 +26,10 @@ const isPublicPath = (pathname: string) =>
 const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['order-prep', [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/]],
   [
+    'order-shortages',
+    [/^\/order-shortages(\/.*)?$/, /^\/api\/order-prep\/unavailable-items(\/.*)?$/],
+  ],
+  [
     'order-shipping',
     [
       /^\/order-shipping(\/.*)?$/,

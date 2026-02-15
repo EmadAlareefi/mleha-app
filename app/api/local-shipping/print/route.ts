@@ -46,6 +46,15 @@ export async function POST(request: NextRequest) {
     const orderNumber = typeof body.orderNumber === 'string' ? body.orderNumber : undefined;
     const trackingNumber = typeof body.trackingNumber === 'string' ? body.trackingNumber : undefined;
     const requestedPrinterId = parsePrinterId(body.printerId);
+    const shipTo = body.shipTo && typeof body.shipTo === 'object' ? body.shipTo : undefined;
+    const messengerCourierLabel =
+      typeof body.messengerCourierLabel === 'string' && body.messengerCourierLabel.trim()
+        ? body.messengerCourierLabel
+        : undefined;
+    const shipToArabicText =
+      typeof body.shipToArabicText === 'string' && body.shipToArabicText.trim()
+        ? body.shipToArabicText
+        : undefined;
 
     if (!shipmentId && !orderNumber && !trackingNumber) {
       return NextResponse.json(
@@ -109,6 +118,9 @@ export async function POST(request: NextRequest) {
       userId: user?.id,
       userName: user?.name || user?.username,
       source: 'order-shipping-manual',
+      shipToOverride: shipTo,
+      messengerCourierLabel,
+      shipToArabicText,
     });
 
     if (!printResult.success) {

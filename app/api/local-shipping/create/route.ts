@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
-import { buildOrderItemsPayload, serializeLocalShipment } from '@/app/lib/local-shipping/serializer';
+import {
+  buildOrderItemsPayload,
+  serializeLocalShipment,
+  type LocalShipmentMeta,
+} from '@/app/lib/local-shipping/serializer';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { printLocalShipmentLabel } from '@/app/lib/local-shipping/print';
 import { markSallaOrderCompletedAfterLocalShipment } from '@/app/lib/local-shipping/salla-status';
+import {
+  detectMessengerShipments,
+  extractPrimaryShipTo,
+  buildShipToArabicLabel,
+} from '@/app/lib/local-shipping/messenger';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
   '1': 75006700,
@@ -84,17 +93,44 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract shipping information
-    const shippingAddress =
+    const messengerShipments = detectMessengerShipments(order);
+    const primaryShipTo = extractPrimaryShipTo(order);
+    const shipToArabicText = buildShipToArabicLabel(primaryShipTo);
+
+    const fallbackShippingAddress =
       (order as any).shipping_address?.street_address ||
       (order as any).shipping?.pickup_address?.address ||
       (order.customer?.city ? `مدينة العميل: ${order.customer.city}` : null) ||
       'لم يتم توفير العنوان';
+
+    const derivedArabicAddressParts: string[] = [];
+    if (primaryShipTo?.addressLine) derivedArabicAddressParts.push(primaryShipTo.addressLine);
+    if (primaryShipTo?.block) derivedArabicAddressParts.push(primaryShipTo.block);
+    if (primaryShipTo?.district) derivedArabicAddressParts.push(primaryShipTo.district);
+    if (primaryShipTo?.city) derivedArabicAddressParts.push(primaryShipTo.city);
+    if (primaryShipTo?.region && !derivedArabicAddressParts.includes(primaryShipTo.region)) {
+      derivedArabicAddressParts.push(primaryShipTo.region);
+    }
+    if (primaryShipTo?.shortAddress) {
+      derivedArabicAddressParts.push(`رمز العنوان: ${primaryShipTo.shortAddress}`);
+    }
+
+    const derivedArabicAddress =
+      derivedArabicAddressParts.length > 0 ? derivedArabicAddressParts.join('، ') : null;
+
+    const shippingAddress =
+      derivedArabicAddress && fallbackShippingAddress && derivedArabicAddress !== fallbackShippingAddress
+        ? `${derivedArabicAddress}\n${fallbackShippingAddress}`
+        : derivedArabicAddress || fallbackShippingAddress;
+
     const shippingCity =
+      primaryShipTo?.city ||
       (order as any).shipping_address?.city ||
       (order as any).shipping?.pickup_address?.city ||
       order.customer?.city ||
       'الرياض';
     const shippingPostcode =
+      primaryShipTo?.postalCode ||
       (order as any).shipping_address?.postal_code ||
       (order as any).shipping?.pickup_address?.postal_code ||
       '';
@@ -185,6 +221,14 @@ export async function POST(request: NextRequest) {
         orderItems: buildOrderItemsPayload(orderItems, {
           collectionAmount,
           paymentMethod: paymentLabel,
+          shipToArabicText: shipToArabicText || null,
+          shipToName: primaryShipTo?.name || null,
+          shipToPhone: primaryShipTo?.phone || null,
+          shipToCity: primaryShipTo?.city || null,
+          shipToDistrict: primaryShipTo?.district || null,
+          shipToAddressLine: primaryShipTo?.addressLine || null,
+          shipToPostalCode: primaryShipTo?.postalCode || null,
+          messengerCourierLabel: messengerShipments[0]?.courierLabel || null,
         }),
         paymentMethod: isCashOnDelivery ? 'cod' : 'prepaid',
         isCOD: isCashOnDelivery,
@@ -210,6 +254,10 @@ export async function POST(request: NextRequest) {
         userId: user?.id,
         userName: user?.name || user?.username,
         source: 'local-shipping-create',
+        orderDataOverride: order,
+        shipToOverride: primaryShipTo,
+        messengerCourierLabel: messengerShipments[0]?.courierLabel || null,
+        shipToArabicText: shipToArabicText || null,
       });
 
       if (!autoPrintResult.success) {

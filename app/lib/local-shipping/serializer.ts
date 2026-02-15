@@ -9,6 +9,14 @@ export interface LocalShipmentMeta {
   printJobId?: string | null;
   labelPrintedBy?: string | null;
   labelPrintedByName?: string | null;
+  shipToArabicText?: string | null;
+  shipToName?: string | null;
+  shipToPhone?: string | null;
+  shipToCity?: string | null;
+  shipToDistrict?: string | null;
+  shipToAddressLine?: string | null;
+  shipToPostalCode?: string | null;
+  messengerCourierLabel?: string | null;
 }
 
 export interface NormalizedOrderItems {
@@ -56,6 +64,30 @@ const sanitizeMeta = (meta: LocalShipmentMeta): Prisma.JsonObject => {
   if (typeof meta.labelPrintedByName === 'string') {
     payload.labelPrintedByName = meta.labelPrintedByName;
   }
+  if (typeof meta.shipToArabicText === 'string') {
+    payload.shipToArabicText = meta.shipToArabicText;
+  }
+  if (typeof meta.shipToName === 'string') {
+    payload.shipToName = meta.shipToName;
+  }
+  if (typeof meta.shipToPhone === 'string') {
+    payload.shipToPhone = meta.shipToPhone;
+  }
+  if (typeof meta.shipToCity === 'string') {
+    payload.shipToCity = meta.shipToCity;
+  }
+  if (typeof meta.shipToDistrict === 'string') {
+    payload.shipToDistrict = meta.shipToDistrict;
+  }
+  if (typeof meta.shipToAddressLine === 'string') {
+    payload.shipToAddressLine = meta.shipToAddressLine;
+  }
+  if (typeof meta.shipToPostalCode === 'string') {
+    payload.shipToPostalCode = meta.shipToPostalCode;
+  }
+  if (typeof meta.messengerCourierLabel === 'string') {
+    payload.messengerCourierLabel = meta.messengerCourierLabel;
+  }
 
   return payload;
 };
@@ -83,6 +115,19 @@ export const normalizeOrderItems = (raw: any): NormalizedOrderItems => {
         labelPrintedBy: typeof meta.labelPrintedBy === 'string' ? meta.labelPrintedBy : undefined,
         labelPrintedByName:
           typeof meta.labelPrintedByName === 'string' ? meta.labelPrintedByName : undefined,
+        shipToArabicText:
+          typeof meta.shipToArabicText === 'string' ? meta.shipToArabicText : undefined,
+        shipToName: typeof meta.shipToName === 'string' ? meta.shipToName : undefined,
+        shipToPhone: typeof meta.shipToPhone === 'string' ? meta.shipToPhone : undefined,
+        shipToCity: typeof meta.shipToCity === 'string' ? meta.shipToCity : undefined,
+        shipToDistrict:
+          typeof meta.shipToDistrict === 'string' ? meta.shipToDistrict : undefined,
+        shipToAddressLine:
+          typeof meta.shipToAddressLine === 'string' ? meta.shipToAddressLine : undefined,
+        shipToPostalCode:
+          typeof meta.shipToPostalCode === 'string' ? meta.shipToPostalCode : undefined,
+        messengerCourierLabel:
+          typeof meta.messengerCourierLabel === 'string' ? meta.messengerCourierLabel : undefined,
       },
     };
   }
@@ -144,6 +189,14 @@ export const serializeLocalShipment = (
     labelPrintedBy: meta.labelPrintedBy ?? null,
     labelPrintedByName: meta.labelPrintedByName ?? null,
     printJobId: meta.printJobId ?? null,
+    shipToArabicText: meta.shipToArabicText ?? null,
+    shipToName: meta.shipToName ?? null,
+    shipToPhone: meta.shipToPhone ?? null,
+    shipToCity: meta.shipToCity ?? null,
+    shipToDistrict: meta.shipToDistrict ?? null,
+    shipToAddressLine: meta.shipToAddressLine ?? null,
+    shipToPostalCode: meta.shipToPostalCode ?? null,
+    messengerCourierLabel: meta.messengerCourierLabel ?? null,
   };
 };
 

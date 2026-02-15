@@ -10,6 +10,12 @@ export interface ShipmentCompany {
 }
 
 export const SHIPMENT_COMPANIES: Record<string, ShipmentCompany> = {
+  messenger: {
+    id: 'messenger',
+    nameAr: 'مندوب توصيل',
+    nameEn: 'Messenger Courier',
+    color: '#9333ea',
+  },
   aramex: {
     id: 'aramex',
     nameAr: 'ارامكس',
@@ -78,11 +84,29 @@ export const SHIPMENT_COMPANIES: Record<string, ShipmentCompany> = {
   },
 };
 
+const ORDER_NUMBER_REGEX = /^#?\d{6,9}$/;
+const ORDER_NUMBER_WITH_PREFIX_REGEX = /^#?ORD[-_\s]?\d{3,}$/i;
+
+function isLikelyOrderNumber(trackingNumber: string): boolean {
+  const cleaned = trackingNumber.trim();
+  if (!cleaned) {
+    return false;
+  }
+  if (ORDER_NUMBER_WITH_PREFIX_REGEX.test(cleaned)) {
+    return true;
+  }
+  return ORDER_NUMBER_REGEX.test(cleaned);
+}
+
 /**
  * Detects the shipping company based on tracking number pattern
  */
 export function detectShipmentCompany(trackingNumber: string): ShipmentCompany {
   const cleaned = trackingNumber.trim().toUpperCase();
+
+  if (isLikelyOrderNumber(trackingNumber)) {
+    return SHIPMENT_COMPANIES.messenger;
+  }
 
   // Ajex: Starts with "AJEX" followed by numbers
   // Pattern: AJEX123456789

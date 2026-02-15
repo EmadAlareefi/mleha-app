@@ -13,13 +13,35 @@ import { serializeLocalShipment } from '@/app/lib/local-shipping/serializer';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
+const logSallaOrderPayload = (assignment: any) => {
+  if (!assignment?.orderData) {
+    return;
+  }
+  const identifier = assignment.orderNumber || assignment.orderId || assignment.id || 'unknown';
+  const label =
+    assignment.source === 'salla' || assignment.assignedUserId === 'salla-system'
+      ? 'Salla order JSON payload'
+      : 'Order data payload';
+  try {
+    const serialized = JSON.stringify(assignment.orderData, null, 2);
+    console.log(
+      `[order-assignments/search][server] ${label} for ${identifier}:\n${serialized}`,
+    );
+  } catch (error) {
+    console.log(
+      `[order-assignments/search][server] ${label} for ${identifier} (object logged separately)`,
+      assignment.orderData,
+    );
+  }
+};
+
 const respondWithAssignment = async (payload: any, shipment: any) => {
   const [giftFlag, priorityRecord] = await Promise.all([
     getGiftFlagForOrder(payload.merchantId, payload.orderId),
     getPriorityRecordForOrder(payload.merchantId, payload.orderId),
   ]);
 
-  return NextResponse.json({
+  const assignmentPayload = {
     success: true,
     assignment: {
       ...payload,
@@ -33,7 +55,11 @@ const respondWithAssignment = async (payload: any, shipment: any) => {
         ? priorityRecord.createdAt.toISOString()
         : null,
     },
-  });
+  };
+
+  logSallaOrderPayload(assignmentPayload.assignment);
+
+  return NextResponse.json(assignmentPayload);
 };
 
 const getGiftFlagForOrder = async (

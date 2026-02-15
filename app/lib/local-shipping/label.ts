@@ -1,4 +1,7 @@
+import fs from 'fs';
+import path from 'path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import type { PDFPage, PDFFont, RGB } from 'pdf-lib';
 import type { LocalShipment } from '@prisma/client';
 import { normalizeOrderItems } from './serializer';
@@ -55,6 +58,39 @@ const CODE39_PATTERNS: Record<string, string> = {
 };
 
 const mmToPt = (value: number) => value * MM_TO_POINTS;
+
+const loadFontBytes = (fileName: string): Buffer | null => {
+  const searchPaths = [
+    path.join(process.cwd(), 'public', 'fonts', 'local-shipping', fileName),
+    path.join(process.cwd(), 'app', 'lib', 'local-shipping', 'fonts', fileName),
+  ];
+  for (const candidate of searchPaths) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return fs.readFileSync(candidate);
+      }
+    } catch (error) {
+      console.error('[local-shipping][label] Failed to load font from', candidate, error);
+    }
+  }
+  console.warn('[local-shipping][label] Arabic font not found for', fileName);
+  return null;
+};
+
+const arabicFontCache = {
+  regular: null as Buffer | null,
+  bold: null as Buffer | null,
+};
+
+const getArabicFontBytes = () => {
+  if (!arabicFontCache.regular) {
+    arabicFontCache.regular = loadFontBytes('DejaVuSans.ttf');
+  }
+  if (!arabicFontCache.bold) {
+    arabicFontCache.bold = loadFontBytes('DejaVuSans-Bold.ttf');
+  }
+  return arabicFontCache;
+};
 
 const formatCurrency = (value: number) => {
   const safe = Number.isFinite(value) ? value : 0;
@@ -136,19 +172,43 @@ const drawText = (
     maxWidth?: number;
     lineHeight?: number;
     align?: 'left' | 'right';
+    allowArabic?: boolean;
   },
 ) => {
-  const { x, y, font, size, color = rgb(0, 0, 0), maxWidth, lineHeight = size + 2, align = 'left' } =
-    options;
-  const safe = safeText(text);
+  const {
+    x,
+    y,
+    font,
+    size,
+    color = rgb(0, 0, 0),
+    maxWidth,
+    lineHeight = size + 2,
+    align = 'left',
+    allowArabic = false,
+  } = options;
+  const rawText = typeof text === 'string' ? text : text != null ? String(text) : '';
+  const normalizedText = allowArabic ? rawText.trim() : safeText(rawText);
+  if (!normalizedText) {
+    return 0;
+  }
+
   if (!maxWidth) {
-    const width = font.widthOfTextAtSize(safe, size);
+    const width = font.widthOfTextAtSize(normalizedText, size);
     const targetX = align === 'right' ? x - width : x;
-    page.drawText(safe, { x: targetX, y, size, font, color });
+    page.drawText(normalizedText, { x: targetX, y, size, font, color });
     return lineHeight;
   }
 
-  const lines = wrapText(safe, font, size, maxWidth);
+  const paragraphs: string[] = allowArabic ? normalizedText.split(/\r?\n/) : [normalizedText];
+  const lines: string[] = [];
+  paragraphs.forEach((paragraph: string) => {
+    const trimmed = paragraph.trim();
+    if (!trimmed) {
+      return;
+    }
+    wrapText(trimmed, font, size, maxWidth).forEach((line) => lines.push(line));
+  });
+
   lines.forEach((line, index) => {
     const width = font.widthOfTextAtSize(line, size);
     const expectedX = align === 'right' ? x - width : x;
@@ -243,6 +303,7 @@ export async function generateLocalShipmentLabelPdf(
   merchant: MerchantLabelInfo = getMerchantLabelInfo(),
 ) {
   const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
   const pageWidth = mmToPt(LABEL_WIDTH_MM);
   const pageHeight = mmToPt(LABEL_HEIGHT_MM);
   const margin = mmToPt(PAGE_MARGIN_MM);
@@ -250,90 +311,101 @@ export async function generateLocalShipmentLabelPdf(
   const page = pdfDoc.addPage([pageWidth, pageHeight]);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const { regular: arabicRegularBytes, bold: arabicBoldBytes } = getArabicFontBytes();
+  const hasArabicFont = Boolean(arabicRegularBytes && arabicBoldBytes);
+  const arabicRegularFont = hasArabicFont
+    ? await pdfDoc.embedFont(arabicRegularBytes as Buffer)
+    : regularFont;
+  const arabicBoldFont = hasArabicFont
+    ? await pdfDoc.embedFont(arabicBoldBytes as Buffer)
+    : boldFont;
 
   const normalized = normalizeOrderItems(shipment.orderItems);
   const amountToCollectRaw = normalized.meta.collectionAmount ?? Number(shipment.orderTotal);
   const amountToCollect = shipment.isCOD ? amountToCollectRaw : 0;
   const paymentLabel = normalized.meta.paymentMethod || (shipment.isCOD ? 'Cash On Delivery' : 'Prepaid');
   const createdDate = new Date(shipment.createdAt).toLocaleDateString('en-GB');
+  const shipToArabicText =
+    typeof normalized.meta.shipToArabicText === 'string' ? normalized.meta.shipToArabicText : null;
+  const messengerCourierLabel =
+    typeof normalized.meta.messengerCourierLabel === 'string'
+      ? normalized.meta.messengerCourierLabel
+      : null;
 
-  // Header
-  const headerHeight = mmToPt(20);
-  page.drawRectangle({
-    x: 0,
-    y: pageHeight - headerHeight,
-    width: pageWidth,
-    height: headerHeight,
-    color: rgb(1, 0.89, 0.2),
-  });
+  const orderDateArabic = new Date(shipment.createdAt).toLocaleDateString('ar-SA');
 
-  drawText(page, 'LOCAL EXPRESS', {
+  let cursorY = pageHeight - margin;
+
+  drawText(page, `${merchant.name} - شحن محلي`, {
     x: margin,
-    y: pageHeight - margin - 10,
-    font: boldFont,
-    size: 14,
+    y: cursorY,
+    font: arabicBoldFont,
+    size: 13,
+    allowArabic: hasArabicFont,
   });
-  drawText(page, merchant.name, {
+  drawText(page, `تاريخ الطلب: ${orderDateArabic}`, {
     x: margin,
-    y: pageHeight - margin - 24,
-    font: regularFont,
-    size: 11,
+    y: cursorY - mmToPt(6),
+    font: arabicRegularFont,
+    size: 9,
+    allowArabic: hasArabicFont,
   });
   drawText(page, `Order Date: ${createdDate}`, {
     x: pageWidth - margin,
-    y: pageHeight - margin - 24,
+    y: cursorY - mmToPt(6),
     font: regularFont,
-    size: 9,
+    size: 8,
     align: 'right',
   });
 
-  let cursorY = pageHeight - headerHeight - mmToPt(4);
+  cursorY -= mmToPt(14);
 
-  drawText(page, 'AIR WAYBILL / TRACKING', {
+  drawText(page, 'رقم الشحنة / Tracking', {
     x: margin,
     y: cursorY,
-    font: regularFont,
-    size: 8,
+    font: arabicRegularFont,
+    size: 9,
+    allowArabic: hasArabicFont,
   });
-  cursorY -= 12;
-
   drawText(page, shipment.trackingNumber, {
     x: margin,
-    y: cursorY,
+    y: cursorY - mmToPt(6),
     font: boldFont,
     size: 18,
   });
-  cursorY -= mmToPt(10);
+  cursorY -= mmToPt(16);
 
-  const barcodeHeight = mmToPt(24);
+  const barcodeHeight = mmToPt(22);
   drawCode39Barcode(page, shipment.orderNumber, {
     x: margin,
     y: cursorY - barcodeHeight,
     width: pageWidth - margin * 2,
     height: barcodeHeight,
   });
-  cursorY -= barcodeHeight + mmToPt(6);
+  cursorY -= barcodeHeight + mmToPt(4);
 
-  // Order info row
-  drawText(page, `Order #${shipment.orderNumber}`, {
+  drawText(page, `رقم الطلب: ${shipment.orderNumber}`, {
     x: margin,
     y: cursorY,
-    font: boldFont,
-    size: 12,
+    font: arabicRegularFont,
+    size: 10,
+    allowArabic: hasArabicFont,
   });
-  drawText(page, `Items: ${shipment.itemsCount}`, {
+  drawText(page, `عدد القطع: ${shipment.itemsCount}`, {
     x: pageWidth - margin,
     y: cursorY,
-    font: boldFont,
-    size: 12,
+    font: arabicRegularFont,
+    size: 10,
     align: 'right',
+    allowArabic: hasArabicFont,
   });
 
-  cursorY -= mmToPt(10);
+  cursorY -= mmToPt(8);
 
   // Addresses
   const columnWidth = (pageWidth - margin * 2 - mmToPt(4)) / 2;
-  const blockHeight = mmToPt(38);
+  const baseBlockHeight = shipToArabicText ? 48 : 38;
+  const blockHeight = mmToPt(baseBlockHeight);
 
   page.drawRectangle({
     x: margin,
@@ -352,72 +424,114 @@ export async function generateLocalShipmentLabelPdf(
     borderWidth: 1,
   });
 
-  drawText(page, 'FROM', {
+  drawText(page, 'المرسل', {
     x: margin + mmToPt(2),
-    y: cursorY - mmToPt(2),
-    font: boldFont,
-    size: 9,
+    y: cursorY - mmToPt(1),
+    font: hasArabicFont ? arabicBoldFont : boldFont,
+    size: 10,
+    allowArabic: hasArabicFont,
   });
   drawText(page, merchant.name, {
     x: margin + mmToPt(2),
-    y: cursorY - mmToPt(8),
-    font: boldFont,
+    y: cursorY - mmToPt(7),
+    font: hasArabicFont ? arabicBoldFont : boldFont,
     size: 11,
     maxWidth: columnWidth - mmToPt(4),
+    allowArabic: hasArabicFont,
   });
   drawText(page, `${merchant.address} - ${merchant.city}`, {
     x: margin + mmToPt(2),
-    y: cursorY - mmToPt(18),
-    font: regularFont,
+    y: cursorY - mmToPt(17),
+    font: arabicRegularFont,
     size: 9,
     maxWidth: columnWidth - mmToPt(4),
+    allowArabic: hasArabicFont,
   });
-  drawText(page, `Tel: ${merchant.phone}`, {
+  drawText(page, `هاتف: ${merchant.phone}`, {
     x: margin + mmToPt(2),
-    y: cursorY - mmToPt(28),
-    font: regularFont,
+    y: cursorY - mmToPt(27),
+    font: arabicRegularFont,
     size: 9,
+    allowArabic: hasArabicFont,
   });
 
   const recipientX = margin + columnWidth + mmToPt(6);
-  drawText(page, 'TO', {
+  drawText(page, 'المستلم', {
     x: recipientX,
-    y: cursorY - mmToPt(2),
-    font: boldFont,
-    size: 9,
+    y: cursorY - mmToPt(1),
+    font: hasArabicFont ? arabicBoldFont : boldFont,
+    size: 10,
+    allowArabic: hasArabicFont,
   });
   drawText(page, shipment.customerName, {
     x: recipientX,
-    y: cursorY - mmToPt(8),
-    font: boldFont,
+    y: cursorY - mmToPt(7),
+    font: arabicBoldFont,
     size: 11,
     maxWidth: columnWidth - mmToPt(4),
+    allowArabic: hasArabicFont,
   });
   drawText(page, shipment.shippingAddress, {
     x: recipientX,
-    y: cursorY - mmToPt(18),
-    font: regularFont,
+    y: cursorY - mmToPt(17),
+    font: arabicRegularFont,
     size: 9,
     maxWidth: columnWidth - mmToPt(4),
+    allowArabic: hasArabicFont,
   });
   drawText(page, `${shipment.shippingCity || ''} ${shipment.shippingPostcode || ''}`.trim(), {
     x: recipientX,
-    y: cursorY - mmToPt(28),
-    font: regularFont,
+    y: cursorY - mmToPt(25),
+    font: arabicRegularFont,
     size: 9,
     maxWidth: columnWidth - mmToPt(4),
+    allowArabic: hasArabicFont,
   });
-  drawText(page, `Tel: ${shipment.customerPhone}`, {
+  drawText(page, `هاتف: ${shipment.customerPhone}`, {
     x: recipientX,
-    y: cursorY - mmToPt(34),
-    font: regularFont,
+    y: cursorY - mmToPt(31),
+    font: arabicRegularFont,
     size: 9,
+    allowArabic: hasArabicFont,
   });
 
-  cursorY -= blockHeight + mmToPt(8);
+  let toBlockY = cursorY - mmToPt(33);
+  if (messengerCourierLabel) {
+    drawText(page, `شركة سلة: ${messengerCourierLabel}`, {
+      x: recipientX,
+      y: toBlockY,
+      font: arabicRegularFont,
+      size: 8,
+      maxWidth: columnWidth - mmToPt(4),
+      allowArabic: hasArabicFont,
+    });
+    toBlockY -= mmToPt(5);
+  }
+  if (shipToArabicText) {
+    drawText(page, 'تفاصيل العنوان (سلة):', {
+      x: recipientX,
+      y: toBlockY,
+      font: arabicBoldFont,
+      size: 8,
+      maxWidth: columnWidth - mmToPt(4),
+      allowArabic: hasArabicFont,
+    });
+    toBlockY -= mmToPt(5);
+    drawText(page, shipToArabicText, {
+      x: recipientX,
+      y: toBlockY,
+      font: arabicRegularFont,
+      size: 8,
+      maxWidth: columnWidth - mmToPt(4),
+      lineHeight: 9,
+      allowArabic: hasArabicFont,
+    });
+  }
+
+  cursorY -= blockHeight + mmToPt(6);
 
   // Amount to collect
-  const amountBoxHeight = mmToPt(22);
+  const amountBoxHeight = mmToPt(20);
   page.drawRectangle({
     x: margin,
     y: cursorY - amountBoxHeight,
@@ -427,24 +541,26 @@ export async function generateLocalShipmentLabelPdf(
     borderWidth: 1,
   });
 
-  drawText(page, 'Amount to Collect', {
+  drawText(page, 'مبلغ التحصيل (SAR)', {
     x: margin + mmToPt(2),
-    y: cursorY - mmToPt(2),
-    font: regularFont,
+    y: cursorY - mmToPt(1),
+    font: hasArabicFont ? arabicRegularFont : regularFont,
     size: 9,
+    allowArabic: hasArabicFont,
   });
   drawText(page, formatCurrency(amountToCollect), {
     x: margin + mmToPt(2),
-    y: cursorY - mmToPt(10),
+    y: cursorY - mmToPt(8),
     font: boldFont,
     size: 16,
   });
-  drawText(page, `Payment: ${paymentLabel}`, {
+  drawText(page, `طريقة الدفع: ${paymentLabel}`, {
     x: pageWidth - margin - mmToPt(2),
-    y: cursorY - mmToPt(10),
-    font: boldFont,
-    size: 10,
+    y: cursorY - mmToPt(8),
+    font: hasArabicFont ? arabicBoldFont : boldFont,
+    size: 9,
     align: 'right',
+    allowArabic: hasArabicFont,
   });
 
   cursorY -= amountBoxHeight + mmToPt(6);
@@ -459,11 +575,12 @@ export async function generateLocalShipmentLabelPdf(
     borderColor: rgb(0, 0, 0),
     borderWidth: 1,
   });
-  drawText(page, 'Shipment Contents', {
+  drawText(page, 'محتويات الشحنة', {
     x: margin + mmToPt(2),
-    y: cursorY - mmToPt(2),
-    font: regularFont,
+    y: cursorY - mmToPt(1),
+    font: hasArabicFont ? arabicRegularFont : regularFont,
     size: 9,
+    allowArabic: hasArabicFont,
   });
 
   const maxItems = 5;
@@ -475,9 +592,10 @@ export async function generateLocalShipmentLabelPdf(
     drawText(page, `${name}`, {
       x: margin + mmToPt(2),
       y: lineY,
-      font: regularFont,
+      font: hasArabicFont ? arabicRegularFont : regularFont,
       size: 9,
       maxWidth: pageWidth - margin * 2 - mmToPt(40),
+      allowArabic: hasArabicFont,
     });
     drawText(page, `x${quantity}`, {
       x: pageWidth - margin - mmToPt(4),
@@ -490,12 +608,13 @@ export async function generateLocalShipmentLabelPdf(
 
   cursorY -= itemsBoxHeight + mmToPt(4);
 
-  drawText(page, 'Courier must verify ID and obtain signature upon delivery.', {
+  drawText(page, 'يجب على المندوب التحقق من هوية المستلم والحصول على توقيعه عند التسليم.', {
     x: margin,
     y: cursorY,
-    font: regularFont,
+    font: hasArabicFont ? arabicRegularFont : regularFont,
     size: 8,
     maxWidth: pageWidth - margin * 2,
+    allowArabic: hasArabicFont,
   });
 
   const pdfBytes = await pdfDoc.save();
