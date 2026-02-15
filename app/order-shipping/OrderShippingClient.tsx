@@ -1025,7 +1025,12 @@ export default function OrderShippingPage() {
           ? '\n\nتم إرسال البوليصة للطابعة تلقائياً عبر PrintNode.'
           : '\n\n⚠️ تعذر إرسال البوليصة تلقائياً للطابعة، يرجى الضغط على زر "طباعة البوليصة".'
         : '';
-      alert(`${baseMessage}${autoPrintMessage}`);
+      const sallaStatusMessage = createData.sallaStatusUpdated
+        ? '\n\n✅ تم تحديث حالة الطلب في سلة إلى "تم التنفيذ".'
+        : createData.reused
+          ? ''
+          : '\n\n⚠️ تعذر تحديث حالة الطلب في سلة تلقائياً.';
+      alert(`${baseMessage}${autoPrintMessage}${sallaStatusMessage}`);
     } catch (error) {
       console.error('Local shipment creation failed', error);
       setLocalShipmentDialogError(
