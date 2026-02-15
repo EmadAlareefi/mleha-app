@@ -142,11 +142,13 @@ export async function assignOldestOrderToUser(user: {
       continue;
     }
 
-    if (!isOrderStatusAssignable(status)) {
+    if (!isOrderStatusAssignable(status, subStatus)) {
       log.info('Skipping Salla order due to non-new status', {
         orderId,
         statusId: status?.id || status?.status_id || status?.statusId || null,
         statusName: status?.name || status?.label || status?.name_en || status?.nameEn || null,
+        subStatusId: subStatus?.id || subStatus?.status_id || subStatus?.statusId || null,
+        subStatusName: subStatus?.name || subStatus?.label || subStatus?.name_en || subStatus?.nameEn || null,
       });
       continue;
     }

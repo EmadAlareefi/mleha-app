@@ -58,6 +58,17 @@ const hasRecognizedStatusName = (
   });
 };
 
+const hasAssignableStatusName = (names: Array<unknown>): boolean => {
+  const patterns = Array.from(ASSIGNABLE_ORDER_STATUS_NAMES);
+  return names.some((value) => {
+    const normalized = normalizeStatusName(value);
+    if (!normalized) {
+      return false;
+    }
+    return patterns.some((pattern) => normalized === pattern || normalized.includes(pattern));
+  });
+};
+
 export function isAllowedOrderStatus(status: any): boolean {
   if (!status || typeof status !== 'object') {
     return false;
@@ -144,7 +155,7 @@ export const ORDER_PREP_ALLOWED_STATUS_META = {
   names: ALLOWED_ORDER_STATUS_NAMES,
 };
 
-export function isOrderStatusAssignable(status: any): boolean {
+function matchesAssignableStatus(status: any): boolean {
   if (!status || typeof status !== 'object') {
     return false;
   }
@@ -175,9 +186,19 @@ export function isOrderStatusAssignable(status: any): boolean {
     status.translations?.en?.name,
   ];
 
-  if (hasRecognizedStatusName(nameCandidates, ASSIGNABLE_ORDER_STATUS_NAMES)) {
+  if (hasAssignableStatusName(nameCandidates)) {
     return true;
   }
 
+  return false;
+}
+
+export function isOrderStatusAssignable(status: any, subStatus?: any): boolean {
+  if (matchesAssignableStatus(status)) {
+    return true;
+  }
+  if (subStatus && matchesAssignableStatus(subStatus)) {
+    return true;
+  }
   return false;
 }
