@@ -74,6 +74,11 @@ type SallaStatusTarget =
   | 'under_review_x4';
 type ConfirmDialogType = 'complete';
 type ItemProgressState = 'ready' | 'comingSoon' | 'unavailable';
+const itemProgressLabels: Record<ItemProgressState, string> = {
+  ready: 'تم التجهيز',
+  comingSoon: 'سيتوفر قريبًا',
+  unavailable: 'غير متوفر',
+};
 
 interface ItemStatusPayload {
   index: number;
@@ -729,6 +734,12 @@ function AssignmentCard({
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
   const [printingSkuKey, setPrintingSkuKey] = useState<string | null>(null);
+  const [itemActionDialog, setItemActionDialog] = useState<{
+    type: ItemProgressState;
+    itemName: string;
+    sku: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
 
   const currentSkus = useMemo(() => {
     const variants = new Set<string>();
@@ -1006,6 +1017,38 @@ function AssignmentCard({
     [assignment.id, toast],
   );
 
+  const openItemActionDialog = useCallback(
+    (action: ItemProgressState, item: LineItem, index: number) => {
+      const itemName = item.name || 'منتج بدون اسم';
+      const sku = extractLineItemSku(item) || 'غير متوفر';
+      setItemActionDialog({
+        type: action,
+        itemName,
+        sku,
+        onConfirm: () => {
+          if (action === 'unavailable') {
+            return handleMarkUnavailable(item, index);
+          }
+          updateItemProgress(index, action);
+        },
+      });
+    },
+    [handleMarkUnavailable, updateItemProgress],
+  );
+
+  const closeItemActionDialog = useCallback(() => {
+    setItemActionDialog(null);
+  }, []);
+
+  const confirmItemAction = useCallback(() => {
+    if (!itemActionDialog) {
+      return;
+    }
+    const confirmAction = itemActionDialog.onConfirm;
+    closeItemActionDialog();
+    confirmAction();
+  }, [closeItemActionDialog, itemActionDialog]);
+
   const progressValues = items.map((_, idx) => itemProgress[getItemKey(idx)]);
   const hasComingSoon = progressValues.includes('comingSoon');
   const hasUnavailable = progressValues.includes('unavailable');
@@ -1115,9 +1158,25 @@ function AssignmentCard({
       progressValues,
     ],
   );
+  const itemActionMessage = useMemo(() => {
+    if (!itemActionDialog) {
+      return '';
+    }
+    const actionLabel = itemProgressLabels[itemActionDialog.type];
+    const skuLabel = itemActionDialog.sku || 'غير متوفر';
+    if (itemActionDialog.type === 'unavailable') {
+      return `سيتم تسجيل المنتج \"${itemActionDialog.itemName}\" (SKU: ${skuLabel}) كغير متوفر وإضافته إلى قائمة النواقص. هل تريد المتابعة؟`;
+    }
+    return `هل تريد تأكيد وضع المنتج \"${itemActionDialog.itemName}\" (SKU: ${skuLabel}) في حالة \"${actionLabel}\"؟`;
+  }, [itemActionDialog]);
+  const itemActionConfirmLabel = itemActionDialog
+    ? `تأكيد ${itemProgressLabels[itemActionDialog.type]}`
+    : 'تأكيد';
+  const itemActionConfirmVariant = itemActionDialog?.type === 'unavailable' ? 'danger' : 'primary';
 
   return (
-    <Card className="overflow-hidden border border-gray-200 shadow-sm">
+    <>
+      <Card className="overflow-hidden border border-gray-200 shadow-sm">
       <div className="border-b border-gray-100 bg-white px-6 py-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1">
           <p className="text-xs text-gray-400">رقم الطلب</p>

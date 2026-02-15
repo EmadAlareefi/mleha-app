@@ -578,12 +578,12 @@ const getPrepStatusForItem = useCallback(
 
   const existingShipmentLabelUrl = useMemo(() => {
     if (!currentOrder) return null;
-    if (shipmentInfo?.labelUrl) {
-      return shipmentInfo.labelUrl;
-    }
     const labelFromOrderData = getLabelUrlFromOrderData(currentOrder.orderData);
     if (labelFromOrderData) {
       return labelFromOrderData;
+    }
+    if (shipmentInfo?.labelUrl) {
+      return shipmentInfo.labelUrl;
     }
     const labelFromNotes = extractHttpUrl(currentOrder.notes) || findUrlInsideText(currentOrder.notes);
     if (labelFromNotes) {
@@ -597,6 +597,9 @@ const getPrepStatusForItem = useCallback(
 
   const canPrintShipmentLabel =
     Boolean(currentOrder && (currentOrder.status === 'shipped' || shipmentInfo));
+  const shouldShowShipmentCard = Boolean(
+    shipmentInfo || currentOrder?.status === 'shipped' || existingShipmentLabelUrl,
+  );
 
   const canCreateLocalShipment = Boolean(currentOrder && resolvedMerchantId && currentOrder.orderNumber);
   const canReturnOrderToReview = Boolean(
@@ -1565,7 +1568,7 @@ const handleRefreshItems = async () => {
                 )}
               </div>
 
-              {(shipmentInfo || currentOrder.status === 'shipped') && (
+              {shouldShowShipmentCard && (
                 <Card className="mt-6 p-4 bg-green-50 border-2 border-green-500">
                   <h3 className="text-lg font-bold text-green-900 mb-2">✅ تم إنشاء الشحنة</h3>
                   <div className="space-y-2">
@@ -1595,17 +1598,22 @@ const handleRefreshItems = async () => {
                               : 'تمت الطباعة'}
                           </p>
                         )}
-                        {shipmentInfo.labelUrl && (
-                          <a
-                            href={shipmentInfo.labelUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-blue-800 underline font-medium"
-                          >
-                            عرض رابط البوليصة
-                          </a>
-                        )}
                       </>
+                    )}
+                    {!shipmentInfo && existingShipmentLabelUrl && (
+                      <p className="text-sm text-green-800">
+                        تم جلب رابط البوليصة من بيانات الطلب في سلة. يمكنك عرضه أو طباعته مباشرة.
+                      </p>
+                    )}
+                    {existingShipmentLabelUrl && (
+                      <a
+                        href={existingShipmentLabelUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-800 underline font-medium"
+                      >
+                        عرض رابط البوليصة
+                      </a>
                     )}
                     {!shipmentInfo && currentOrder.status === 'shipped' && currentOrder.notes && (
                       <p className="text-sm text-green-800">
