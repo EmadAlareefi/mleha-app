@@ -156,7 +156,10 @@ export default withAuth(
       if (
         path === '/' ||
         path.startsWith('/affiliate-stats') ||
-        path.startsWith('/api/affiliate-stats')
+        path.startsWith('/api/affiliate-stats') ||
+        path.startsWith('/salla/notify') ||
+        path.startsWith('/api/salla/availability-requests') ||
+        path.startsWith('/api/salla/products')
       ) {
         return NextResponse.next();
       }

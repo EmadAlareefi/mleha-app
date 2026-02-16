@@ -59,6 +59,27 @@ interface Stats {
   month: StatsBucket;
 }
 
+type PerformancePreset = 'today' | 'week' | 'month' | 'custom';
+
+interface PerformanceUserMetrics {
+  userId: string;
+  userName: string;
+  totalAssigned: number;
+  totalCompleted: number;
+  completionRate: number;
+  avgCompletionMs: number | null;
+  ordersPerHour: number;
+  underReview: number;
+  reservation: number;
+  active: number;
+}
+
+interface PerformanceData {
+  range: { from: string; to: string; hoursInRange: number };
+  aggregate: Omit<PerformanceUserMetrics, 'userId' | 'userName'>;
+  byUser: PerformanceUserMetrics[];
+}
+
 type AssignmentState = 'new' | 'assigned';
 
 type PriorityToggleOrder = {
@@ -278,6 +299,11 @@ export default function AdminOrderPrepPage() {
   const [orderSearchLoading, setOrderSearchLoading] = useState(false);
   const [orderSearchResult, setOrderSearchResult] = useState<OrderAssignment | null>(null);
   const [orderSearchError, setOrderSearchError] = useState<string | null>(null);
+  const [perfPreset, setPerfPreset] = useState<PerformancePreset>('today');
+  const [perfCustomFrom, setPerfCustomFrom] = useState('');
+  const [perfCustomTo, setPerfCustomTo] = useState('');
+  const [perfData, setPerfData] = useState<PerformanceData | null>(null);
+  const [perfLoading, setPerfLoading] = useState(false);
   const currentStats = stats?.active ?? null;
   const currentUserStats = currentStats?.byUser ?? [];
 
@@ -415,13 +441,50 @@ export default function AdminOrderPrepPage() {
     }
   }, []);
 
+  const loadPerformanceMetrics = useCallback(async () => {
+    const now = new Date();
+    let from: Date;
+    let to: Date = now;
+
+    if (perfPreset === 'today') {
+      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (perfPreset === 'week') {
+      from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (perfPreset === 'month') {
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else {
+      if (!perfCustomFrom || !perfCustomTo) return;
+      from = new Date(perfCustomFrom);
+      to = new Date(perfCustomTo + 'T23:59:59');
+    }
+
+    setPerfLoading(true);
+    try {
+      const params = new URLSearchParams({
+        from: from.toISOString(),
+        to: to.toISOString(),
+      });
+      const res = await fetch(`/api/admin/order-assignments/performance?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setPerfData(data);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load performance metrics:', err);
+    } finally {
+      setPerfLoading(false);
+    }
+  }, [perfPreset, perfCustomFrom, perfCustomTo]);
+
   const refreshAll = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!options?.silent) {
         setDashboardLoading(true);
       }
       try {
-        await Promise.all([loadAssignmentsData(), loadLiveOrders()]);
+        await Promise.all([loadAssignmentsData(), loadLiveOrders(), loadPerformanceMetrics()]);
         setLastUpdated(new Date());
       } finally {
         if (!options?.silent) {
@@ -430,7 +493,7 @@ export default function AdminOrderPrepPage() {
         setInitialized(true);
       }
     },
-    [loadAssignmentsData, loadLiveOrders],
+    [loadAssignmentsData, loadLiveOrders, loadPerformanceMetrics],
   );
 
   useEffect(() => {
@@ -452,6 +515,11 @@ export default function AdminOrderPrepPage() {
 
     return () => clearInterval(interval);
   }, [autoRefresh, isAuthenticated, refreshAll]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    loadPerformanceMetrics();
+  }, [isAuthenticated, perfPreset, perfCustomFrom, perfCustomTo, loadPerformanceMetrics]);
 
   const handleTogglePriority = useCallback(
     async (order: PriorityToggleOrder) => {
@@ -756,6 +824,18 @@ export default function AdminOrderPrepPage() {
     },
     [orderSearchQuery],
   );
+
+  const formatCompletionTime = (ms: number | null) => {
+    if (ms === null) return '—';
+    const minutes = Math.round(ms / 60000);
+    if (minutes < 60) return `${minutes} دقيقة`;
+    const hours = Math.floor(minutes / 60);
+    const remainMinutes = minutes % 60;
+    if (hours < 24) return `${hours} ساعة ${remainMinutes > 0 ? `${remainMinutes} دقيقة` : ''}`.trim();
+    const days = Math.floor(hours / 24);
+    const remainHours = hours % 24;
+    return `${days} يوم ${remainHours > 0 ? `${remainHours} ساعة` : ''}`.trim();
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('ar-SA', {
@@ -1291,60 +1371,134 @@ export default function AdminOrderPrepPage() {
           )}
 
           {/* Users Performance */}
-          {currentUserStats.length > 0 && (
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
+          <Card className="p-6">
+            <div className="flex flex-col gap-4 mb-4">
+              <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold">أداء المستخدمين</h3>
-                <span className="text-sm text-gray-500">الطلبات النشطة</span>
+                <div className="flex gap-2 flex-wrap">
+                  {([
+                    ['today', 'اليوم'],
+                    ['week', 'هذا الأسبوع'],
+                    ['month', 'هذا الشهر'],
+                    ['custom', 'فترة مخصصة'],
+                  ] as [PerformancePreset, string][]).map(([key, label]) => (
+                    <Button
+                      key={key}
+                      size="sm"
+                      variant={perfPreset === key ? 'default' : 'outline'}
+                      onClick={() => setPerfPreset(key)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-right pb-3 font-semibold">المستخدم</th>
-                      <th className="text-center pb-3 font-semibold">الإجمالي</th>
-                      <th className="text-center pb-3 font-semibold">مكتمل</th>
-                      <th className="text-center pb-3 font-semibold">تحت المراجعة</th>
-                      <th className="text-center pb-3 font-semibold">حجز قطع</th>
-                      <th className="text-center pb-3 font-semibold">معدل الإنجاز</th>
-                      <th className="text-center pb-3 font-semibold">إجراءات</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentUserStats.map((userStat) => (
-                      <tr key={userStat.userId} className="border-b">
-                        <td className="py-3 font-medium">{userStat.userName}</td>
-                        <td className="text-center">{userStat.total}</td>
-                        <td className="text-center text-green-600 font-semibold">
-                          {userStat.completed}
-                        </td>
-                        <td className="text-center text-orange-600">
-                          {userStat.underReview}
-                        </td>
-                        <td className="text-center text-purple-600">
-                          {userStat.reservation}
-                        </td>
-                        <td className="text-center font-semibold">
-                          {userStat.total > 0
-                            ? `${Math.round((userStat.completed / userStat.total) * 100)}%`
-                            : '0%'}
-                        </td>
-                        <td className="text-center">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleRemoveUserAssignments(userStat.userId, userStat.userName)}
-                          >
-                            إزالة الارتباطات
-                          </Button>
-                        </td>
+              {perfPreset === 'custom' && (
+                <div className="flex gap-3 items-center justify-end">
+                  <label className="text-sm text-gray-600">من</label>
+                  <Input
+                    type="date"
+                    value={perfCustomFrom}
+                    onChange={(e) => setPerfCustomFrom(e.target.value)}
+                    className="w-44"
+                  />
+                  <label className="text-sm text-gray-600">إلى</label>
+                  <Input
+                    type="date"
+                    value={perfCustomTo}
+                    onChange={(e) => setPerfCustomTo(e.target.value)}
+                    className="w-44"
+                  />
+                </div>
+              )}
+            </div>
+
+            {perfLoading ? (
+              <div className="text-center py-8 text-gray-500">جاري تحميل بيانات الأداء...</div>
+            ) : !perfData || (perfData.byUser.length === 0) ? (
+              <div className="text-center py-8 text-gray-400">لا توجد بيانات أداء لهذه الفترة</div>
+            ) : (
+              <>
+                {/* Aggregate Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold">{perfData.aggregate.totalAssigned}</div>
+                    <div className="text-xs text-gray-500">إجمالي المعين</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-green-600">{perfData.aggregate.totalCompleted}</div>
+                    <div className="text-xs text-gray-500">المكتمل</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-600">{formatCompletionTime(perfData.aggregate.avgCompletionMs)}</div>
+                    <div className="text-xs text-gray-500">متوسط وقت الإنجاز</div>
+                  </div>
+                  <div className="bg-amber-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-amber-600">{perfData.aggregate.ordersPerHour}</div>
+                    <div className="text-xs text-gray-500">طلبات / ساعة</div>
+                  </div>
+                </div>
+
+                {/* Enhanced Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-right pb-3 font-semibold">المستخدم</th>
+                        <th className="text-center pb-3 font-semibold">المعين</th>
+                        <th className="text-center pb-3 font-semibold">مكتمل</th>
+                        <th className="text-center pb-3 font-semibold">متوسط الإنجاز</th>
+                        <th className="text-center pb-3 font-semibold">طلبات/ساعة</th>
+                        <th className="text-center pb-3 font-semibold">معدل الإنجاز</th>
+                        <th className="text-center pb-3 font-semibold">نشط</th>
+                        <th className="text-center pb-3 font-semibold">مراجعة</th>
+                        <th className="text-center pb-3 font-semibold">حجز</th>
+                        <th className="text-center pb-3 font-semibold">إجراءات</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
+                    </thead>
+                    <tbody>
+                      {perfData.byUser.map((u) => (
+                        <tr key={u.userId} className="border-b">
+                          <td className="py-3 font-medium">{u.userName}</td>
+                          <td className="text-center">{u.totalAssigned}</td>
+                          <td className="text-center text-green-600 font-semibold">{u.totalCompleted}</td>
+                          <td className="text-center text-blue-600">{formatCompletionTime(u.avgCompletionMs)}</td>
+                          <td className="text-center text-amber-600">{u.ordersPerHour}</td>
+                          <td className="text-center font-semibold">{u.completionRate}%</td>
+                          <td className="text-center">{u.active}</td>
+                          <td className="text-center text-orange-600">{u.underReview}</td>
+                          <td className="text-center text-purple-600">{u.reservation}</td>
+                          <td className="text-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRemoveUserAssignments(u.userId, u.userName)}
+                            >
+                              إزالة الارتباطات
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 font-bold">
+                        <td className="py-3">الإجمالي</td>
+                        <td className="text-center">{perfData.aggregate.totalAssigned}</td>
+                        <td className="text-center text-green-600">{perfData.aggregate.totalCompleted}</td>
+                        <td className="text-center text-blue-600">{formatCompletionTime(perfData.aggregate.avgCompletionMs)}</td>
+                        <td className="text-center text-amber-600">{perfData.aggregate.ordersPerHour}</td>
+                        <td className="text-center">{perfData.aggregate.completionRate}%</td>
+                        <td className="text-center">{perfData.aggregate.active}</td>
+                        <td className="text-center text-orange-600">{perfData.aggregate.underReview}</td>
+                        <td className="text-center text-purple-600">{perfData.aggregate.reservation}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            )}
+          </Card>
 
         </div>
 
