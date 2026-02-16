@@ -391,7 +391,7 @@ export default function OrderShippingPage() {
     }
   }, [session, isOrdersUser]);
 
-  const fetchDeliveryAgents = useCallback(async () => {
+  const fetchDeliveryAgents = useCallback(async (): Promise<DeliveryAgentOption[]> => {
     try {
       setLoadingDeliveryAgents(true);
       setDeliveryAgentsError(null);
@@ -406,11 +406,14 @@ export default function OrderShippingPage() {
         throw new Error(data?.error || 'تعذر تحميل قائمة المناديب');
       }
 
-      setDeliveryAgents(Array.isArray(data.deliveryAgents) ? data.deliveryAgents : []);
+      const agents = Array.isArray(data.deliveryAgents) ? data.deliveryAgents : [];
+      setDeliveryAgents(agents);
+      return agents;
     } catch (error) {
       console.error('Failed to load delivery agents', error);
       setDeliveryAgents([]);
       setDeliveryAgentsError(error instanceof Error ? error.message : 'تعذر تحميل قائمة المناديب');
+      return [];
     } finally {
       setLoadingDeliveryAgents(false);
     }
@@ -628,6 +631,44 @@ const getPrepStatusForItem = useCallback(
   );
 
   useEffect(() => {
+    if (!shipmentInfo || shipmentInfo.type !== 'salla' || shipmentInfo.labelUrl) {
+      return;
+    }
+
+    const labelFromOrderData = currentOrder ? getLabelUrlFromOrderData(currentOrder.orderData) : null;
+    if (labelFromOrderData) {
+      setShipmentInfo((prev) => {
+        if (!prev || prev.labelUrl === labelFromOrderData) {
+          return prev;
+        }
+        return {
+          ...prev,
+          labelUrl: labelFromOrderData,
+        };
+      });
+      return;
+    }
+
+    const assignmentShipment = currentOrder?.shipment;
+    const labelFromSallaShipment =
+      assignmentShipment && assignmentShipment.type !== 'local'
+        ? assignmentShipment.labelUrl || null
+        : null;
+
+    if (labelFromSallaShipment) {
+      setShipmentInfo((prev) => {
+        if (!prev || prev.labelUrl === labelFromSallaShipment) {
+          return prev;
+        }
+        return {
+          ...prev,
+          labelUrl: labelFromSallaShipment,
+        };
+      });
+    }
+  }, [currentOrder, shipmentInfo]);
+
+  useEffect(() => {
     let cancelled = false;
 
     if (currentOrderSkus.length === 0) {
@@ -699,7 +740,7 @@ const getPrepStatusForItem = useCallback(
     if (deliveryAgents.length > 0 || loadingDeliveryAgents) {
       return;
     }
-    fetchDeliveryAgents();
+    void fetchDeliveryAgents();
   }, [localShipmentDialogOpen, deliveryAgents.length, loadingDeliveryAgents, fetchDeliveryAgents]);
 
   const locationSummary = useMemo(() => {
@@ -1015,7 +1056,7 @@ const handleRefreshItems = async () => {
     }
   };
  
-  const handleOpenLocalShipmentDialog = () => {
+  const handleOpenLocalShipmentDialog = async () => {
     if (!currentOrder) {
       return;
     }
@@ -1023,11 +1064,31 @@ const handleRefreshItems = async () => {
       alert('لا يمكن إنشاء شحنة محلية لهذا الطلب لعدم توفر معرف التاجر.');
       return;
     }
+
+    let agents = deliveryAgents;
+    if (agents.length === 0 && !loadingDeliveryAgents) {
+      agents = await fetchDeliveryAgents();
+    }
+
+    if (agents.length === 1) {
+      const soleAgent = agents[0];
+      const agentDisplay = `${soleAgent.name} (${soleAgent.username})`;
+      openConfirmationDialog({
+        title: 'تأكيد إنشاء الشحنة المحلية',
+        message: `سيتم إنشاء شحنة محلية للطلب الحالي وتعيينها تلقائياً إلى ${agentDisplay}.`,
+        confirmLabel: 'نعم، أنشئ الشحنة',
+        onConfirm: () => {
+          void createLocalShipmentForAgent(soleAgent, { showInlineError: false });
+        },
+      });
+      return;
+    }
+
     setSelectedDeliveryAgentId('');
     setLocalShipmentDialogError(null);
     setLocalShipmentDialogOpen(true);
-    if (deliveryAgents.length === 0 && !loadingDeliveryAgents) {
-      fetchDeliveryAgents();
+    if (agents.length === 0 && !loadingDeliveryAgents) {
+      void fetchDeliveryAgents();
     }
   };
 
@@ -1040,111 +1101,138 @@ const handleRefreshItems = async () => {
     setSelectedDeliveryAgentId('');
   };
 
-  const handleCreateLocalShipment = async () => {
-    if (!currentOrder || !resolvedMerchantId) {
-      setLocalShipmentDialogError('لا يمكن تحديد الطلب أو التاجر لإنشاء شحنة محلية.');
-      return;
-    }
+  const createLocalShipmentForAgent = useCallback(
+    async (
+      agent: DeliveryAgentOption,
+      options: { showInlineError?: boolean } = { showInlineError: true },
+    ) => {
+      if (!currentOrder || !resolvedMerchantId) {
+        const fallbackMessage = 'لا يمكن تحديد الطلب أو التاجر لإنشاء شحنة محلية.';
+        if (options.showInlineError) {
+          setLocalShipmentDialogError(fallbackMessage);
+        } else {
+          alert(fallbackMessage);
+        }
+        return;
+      }
+
+      try {
+        setCreatingLocalShipment(true);
+        if (options.showInlineError) {
+          setLocalShipmentDialogError(null);
+        }
+
+        const createResponse = await fetch('/api/local-shipping/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            merchantId: resolvedMerchantId,
+            orderNumber: currentOrder.orderNumber,
+            generatedBy: user?.username || user?.name || 'order-shipping',
+          }),
+        });
+
+        const createData = await parseJsonResponse<{
+          success?: boolean;
+          shipment?: {
+            id: string;
+            trackingNumber: string;
+            labelUrl?: string | null;
+            labelPrinted?: boolean;
+            labelPrintedAt?: string | null;
+          };
+          error?: string;
+          reused?: boolean;
+          sallaStatusUpdated?: boolean;
+          autoPrint?: {
+            success?: boolean;
+            error?: string | null;
+            jobId?: number | null;
+          } | null;
+        }>(createResponse, 'POST /api/local-shipping/create');
+
+        if (!createResponse.ok || createData.success === false || !createData.shipment) {
+          throw new Error(createData?.error || 'تعذر إنشاء الشحنة المحلية');
+        }
+
+        const assignmentResponse = await fetch('/api/shipment-assignments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shipmentId: createData.shipment.id,
+            deliveryAgentId: agent.id,
+          }),
+        });
+
+        const assignmentData = await parseJsonResponse<{
+          success?: boolean;
+          error?: string;
+        }>(assignmentResponse, 'POST /api/shipment-assignments');
+
+        if (!assignmentResponse.ok || assignmentData.success === false) {
+          throw new Error(assignmentData?.error || 'تم إنشاء الشحنة ولكن فشل تعيينها للمندوب');
+        }
+
+        const agentDisplayName = agent.name || agent.username || 'المندوب المختار';
+        if (createData.shipment) {
+          setShipmentInfo({
+            trackingNumber: createData.shipment.trackingNumber,
+            courierName: 'شحن محلي',
+            labelPrinted: Boolean(createData.shipment.labelPrinted),
+            printedAt: createData.shipment.labelPrintedAt || null,
+            labelUrl: createData.shipment.labelUrl || null,
+            type: 'local',
+            localShipmentId: createData.shipment.id,
+            assignedAgentName: agentDisplayName,
+            assignmentStatus: 'assigned',
+          });
+        }
+        setLocalShipmentDialogOpen(false);
+        setSelectedDeliveryAgentId('');
+        const trackingNumber = createData.shipment?.trackingNumber || 'غير معروف';
+        const baseMessage = createData.reused
+          ? `تم العثور على شحنة محلية سابقة (${trackingNumber}) وتم تأكيد تعيينها إلى ${agentDisplayName}.`
+          : `تم إنشاء شحنة محلية (${trackingNumber}) وتعيينها إلى ${agentDisplayName}.`;
+        const autoPrintMessage = createData.autoPrint
+          ? createData.autoPrint.success
+            ? '\n\nتم إرسال البوليصة للطابعة تلقائياً عبر PrintNode.'
+            : '\n\n⚠️ تعذر إرسال البوليصة تلقائياً للطابعة، يرجى الضغط على زر "طباعة البوليصة".'
+          : '';
+        const sallaStatusMessage = createData.sallaStatusUpdated
+          ? '\n\n✅ تم تحديث حالة الطلب في سلة إلى "تم التنفيذ".'
+          : createData.reused
+            ? ''
+            : '\n\n⚠️ تعذر تحديث حالة الطلب في سلة تلقائياً.';
+        alert(`${baseMessage}${autoPrintMessage}${sallaStatusMessage}`);
+      } catch (error) {
+        console.error('Local shipment creation failed', error);
+        const message =
+          error instanceof Error ? error.message : 'حدث خطأ أثناء إنشاء الشحنة المحلية';
+        if (options.showInlineError) {
+          setLocalShipmentDialogError(message);
+        } else {
+          alert(message);
+        }
+      } finally {
+        setCreatingLocalShipment(false);
+      }
+    },
+    [currentOrder, resolvedMerchantId, user],
+  );
+
+  const handleCreateLocalShipment = () => {
     if (!selectedDeliveryAgentId) {
       setLocalShipmentDialogError('يرجى اختيار المندوب المسؤول عن التوصيل.');
       return;
     }
 
-    try {
-      setCreatingLocalShipment(true);
-      setLocalShipmentDialogError(null);
-
-      const createResponse = await fetch('/api/local-shipping/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          merchantId: resolvedMerchantId,
-          orderNumber: currentOrder.orderNumber,
-          generatedBy: user?.username || user?.name || 'order-shipping',
-        }),
-      });
-
-      const createData = await parseJsonResponse<{
-        success?: boolean;
-        shipment?: {
-          id: string;
-          trackingNumber: string;
-          labelUrl?: string | null;
-          labelPrinted?: boolean;
-          labelPrintedAt?: string | null;
-        };
-        error?: string;
-        reused?: boolean;
-        sallaStatusUpdated?: boolean;
-        autoPrint?: {
-          success?: boolean;
-          error?: string | null;
-          jobId?: number | null;
-        } | null;
-      }>(createResponse, 'POST /api/local-shipping/create');
-
-      if (!createResponse.ok || createData.success === false || !createData.shipment) {
-        throw new Error(createData?.error || 'تعذر إنشاء الشحنة المحلية');
-      }
-
-      const assignmentResponse = await fetch('/api/shipment-assignments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shipmentId: createData.shipment.id,
-          deliveryAgentId: selectedDeliveryAgentId,
-        }),
-      });
-
-      const assignmentData = await parseJsonResponse<{
-        success?: boolean;
-        error?: string;
-      }>(assignmentResponse, 'POST /api/shipment-assignments');
-
-      if (!assignmentResponse.ok || assignmentData.success === false) {
-        throw new Error(assignmentData?.error || 'تم إنشاء الشحنة ولكن فشل تعيينها للمندوب');
-      }
-
-      const agent = deliveryAgents.find((item) => item.id === selectedDeliveryAgentId);
-      const agentDisplayName = agent?.name || agent?.username || 'المندوب المختار';
-      if (createData.shipment) {
-        setShipmentInfo({
-          trackingNumber: createData.shipment.trackingNumber,
-          courierName: 'شحن محلي',
-          labelPrinted: Boolean(createData.shipment.labelPrinted),
-          printedAt: createData.shipment.labelPrintedAt || null,
-          labelUrl: createData.shipment.labelUrl || null,
-          type: 'local',
-          localShipmentId: createData.shipment.id,
-          assignedAgentName: agentDisplayName,
-          assignmentStatus: 'assigned',
-        });
-      }
-      setLocalShipmentDialogOpen(false);
-      setSelectedDeliveryAgentId('');
-      const trackingNumber = createData.shipment?.trackingNumber || 'غير معروف';
-      const baseMessage = createData.reused
-        ? `تم العثور على شحنة محلية سابقة (${trackingNumber}) وتم تأكيد تعيينها إلى ${agentDisplayName}.`
-        : `تم إنشاء شحنة محلية (${trackingNumber}) وتعيينها إلى ${agentDisplayName}.`;
-      const autoPrintMessage = createData.autoPrint
-        ? createData.autoPrint.success
-          ? '\n\nتم إرسال البوليصة للطابعة تلقائياً عبر PrintNode.'
-          : '\n\n⚠️ تعذر إرسال البوليصة تلقائياً للطابعة، يرجى الضغط على زر "طباعة البوليصة".'
-        : '';
-      const sallaStatusMessage = createData.sallaStatusUpdated
-        ? '\n\n✅ تم تحديث حالة الطلب في سلة إلى "تم التنفيذ".'
-        : createData.reused
-          ? ''
-          : '\n\n⚠️ تعذر تحديث حالة الطلب في سلة تلقائياً.';
-      alert(`${baseMessage}${autoPrintMessage}${sallaStatusMessage}`);
-    } catch (error) {
-      console.error('Local shipment creation failed', error);
-      setLocalShipmentDialogError(
-        error instanceof Error ? error.message : 'حدث خطأ أثناء إنشاء الشحنة المحلية'
-      );
-    } finally {
-      setCreatingLocalShipment(false);
+    const agent = deliveryAgents.find((item) => item.id === selectedDeliveryAgentId);
+    if (!agent) {
+      setLocalShipmentDialogError('تعذر العثور على بيانات المندوب المحدد.');
+      return;
     }
+
+    void createLocalShipmentForAgent(agent, { showInlineError: true });
   };
 
   if (status === 'loading') {
@@ -1803,7 +1891,9 @@ const handleRefreshItems = async () => {
                     )}
                     <Button
                       type="button"
-                      onClick={handleOpenLocalShipmentDialog}
+                      onClick={() => {
+                        void handleOpenLocalShipmentDialog();
+                      }}
                       disabled={!canCreateLocalShipment || creatingLocalShipment}
                       className={`${ACTION_BUTTON_BASE} bg-amber-500 hover:bg-amber-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
                     >
@@ -1876,7 +1966,9 @@ const handleRefreshItems = async () => {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={fetchDeliveryAgents}
+                  onClick={() => {
+                    void fetchDeliveryAgents();
+                  }}
                   disabled={loadingDeliveryAgents}
                   className="w-full"
                 >
