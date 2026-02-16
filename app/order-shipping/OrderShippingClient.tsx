@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
-import { Select } from '@/components/ui/select';
 import { detectMessengerShipments, buildShipToArabicLabel } from '@/app/lib/local-shipping/messenger';
 
 interface OrderUser {
@@ -325,13 +324,9 @@ export default function OrderShippingPage() {
     assignmentStatus?: string | null;
   } | null>(null);
   const [shipmentError, setShipmentError] = useState<string | null>(null);
-  const [localShipmentDialogOpen, setLocalShipmentDialogOpen] = useState(false);
   const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgentOption[]>([]);
-  const [loadingDeliveryAgents, setLoadingDeliveryAgents] = useState(false);
   const [deliveryAgentsError, setDeliveryAgentsError] = useState<string | null>(null);
-  const [selectedDeliveryAgentId, setSelectedDeliveryAgentId] = useState('');
   const [creatingLocalShipment, setCreatingLocalShipment] = useState(false);
-  const [localShipmentDialogError, setLocalShipmentDialogError] = useState<string | null>(null);
 
   const applyShipmentFromAssignment = useCallback(
     (assignment: OrderAssignment | null, options: { resetWhenMissing?: boolean } = {}) => {
@@ -393,7 +388,6 @@ export default function OrderShippingPage() {
 
   const fetchDeliveryAgents = useCallback(async (): Promise<DeliveryAgentOption[]> => {
     try {
-      setLoadingDeliveryAgents(true);
       setDeliveryAgentsError(null);
       const response = await fetch('/api/delivery-agents');
       const data = await parseJsonResponse<{
@@ -414,8 +408,6 @@ export default function OrderShippingPage() {
       setDeliveryAgents([]);
       setDeliveryAgentsError(error instanceof Error ? error.message : 'تعذر تحميل قائمة المناديب');
       return [];
-    } finally {
-      setLoadingDeliveryAgents(false);
     }
   }, []);
 
@@ -503,6 +495,71 @@ export default function OrderShippingPage() {
   const primaryMessengerShipToArabic = useMemo(
     () => buildShipToArabicLabel(primaryMessengerShipTo),
     [primaryMessengerShipTo],
+  );
+  const autoSelectDeliveryAgent = useCallback(
+    (agents: DeliveryAgentOption[]): DeliveryAgentOption | null => {
+      if (!agents.length) {
+        return null;
+      }
+
+      const normalizeText = (value: string | null | undefined) => {
+        if (!value) {
+          return null;
+        }
+        return value.toString().replace(/\s+/g, '').toLowerCase();
+      };
+
+      const normalizePhone = (value: string | null | undefined) => {
+        if (!value) {
+          return null;
+        }
+        const digits = value.replace(/\D+/g, '');
+        return digits || null;
+      };
+
+      const labelCandidates = [primaryMessengerCourierLabel, resolvedShippingCompanyName];
+      for (const candidate of labelCandidates) {
+        const normalizedLabel = normalizeText(candidate);
+        if (!normalizedLabel) {
+          continue;
+        }
+        const match = agents.find((agent) => {
+          const normalizedName = normalizeText(agent.name);
+          const normalizedUsername = normalizeText(agent.username);
+          return (
+            (normalizedName && normalizedLabel.includes(normalizedName)) ||
+            (normalizedUsername && normalizedLabel.includes(normalizedUsername))
+          );
+        });
+        if (match) {
+          return match;
+        }
+      }
+
+      const phoneCandidates = [primaryMessengerShipTo?.phone];
+      for (const phone of phoneCandidates) {
+        const normalizedPhone = normalizePhone(phone);
+        if (!normalizedPhone) {
+          continue;
+        }
+        const match = agents.find((agent) => {
+          const agentPhone = normalizePhone(agent.phone);
+          if (!agentPhone) {
+            return false;
+          }
+          return (
+            agentPhone.endsWith(normalizedPhone) ||
+            normalizedPhone.endsWith(agentPhone)
+          );
+        });
+        if (match) {
+          return match;
+        }
+      }
+
+      return agents[0];
+    },
+    [primaryMessengerCourierLabel, primaryMessengerShipTo, resolvedShippingCompanyName],
   );
 
 const currentOrderSkus = useMemo(() => {
@@ -732,16 +789,6 @@ const getPrepStatusForItem = useCallback(
   // Shipment info is reset at the start of handleSearch and via applyShipmentFromAssignment.
   // A useEffect on currentOrder?.id would race with applyShipmentFromAssignment and clear
   // the shipment info that was just set from the search result.
-
-  useEffect(() => {
-    if (!localShipmentDialogOpen) {
-      return;
-    }
-    if (deliveryAgents.length > 0 || loadingDeliveryAgents) {
-      return;
-    }
-    void fetchDeliveryAgents();
-  }, [localShipmentDialogOpen, deliveryAgents.length, loadingDeliveryAgents, fetchDeliveryAgents]);
 
   const locationSummary = useMemo(() => {
     if (
@@ -1056,71 +1103,15 @@ const handleRefreshItems = async () => {
     }
   };
  
-  const handleOpenLocalShipmentDialog = async () => {
-    if (!currentOrder) {
-      return;
-    }
-    if (!resolvedMerchantId) {
-      alert('لا يمكن إنشاء شحنة محلية لهذا الطلب لعدم توفر معرف التاجر.');
-      return;
-    }
-
-    let agents = deliveryAgents;
-    if (agents.length === 0 && !loadingDeliveryAgents) {
-      agents = await fetchDeliveryAgents();
-    }
-
-    if (agents.length === 1) {
-      const soleAgent = agents[0];
-      const agentDisplay = `${soleAgent.name} (${soleAgent.username})`;
-      openConfirmationDialog({
-        title: 'تأكيد إنشاء الشحنة المحلية',
-        message: `سيتم إنشاء شحنة محلية للطلب الحالي وتعيينها تلقائياً إلى ${agentDisplay}.`,
-        confirmLabel: 'نعم، أنشئ الشحنة',
-        onConfirm: () => {
-          void createLocalShipmentForAgent(soleAgent, { showInlineError: false });
-        },
-      });
-      return;
-    }
-
-    setSelectedDeliveryAgentId('');
-    setLocalShipmentDialogError(null);
-    setLocalShipmentDialogOpen(true);
-    if (agents.length === 0 && !loadingDeliveryAgents) {
-      void fetchDeliveryAgents();
-    }
-  };
-
-  const handleCloseLocalShipmentDialog = () => {
-    if (creatingLocalShipment) {
-      return;
-    }
-    setLocalShipmentDialogOpen(false);
-    setLocalShipmentDialogError(null);
-    setSelectedDeliveryAgentId('');
-  };
-
   const createLocalShipmentForAgent = useCallback(
-    async (
-      agent: DeliveryAgentOption,
-      options: { showInlineError?: boolean } = { showInlineError: true },
-    ) => {
+    async (agent: DeliveryAgentOption) => {
       if (!currentOrder || !resolvedMerchantId) {
-        const fallbackMessage = 'لا يمكن تحديد الطلب أو التاجر لإنشاء شحنة محلية.';
-        if (options.showInlineError) {
-          setLocalShipmentDialogError(fallbackMessage);
-        } else {
-          alert(fallbackMessage);
-        }
+        alert('لا يمكن تحديد الطلب أو التاجر لإنشاء شحنة محلية.');
         return;
       }
 
       try {
         setCreatingLocalShipment(true);
-        if (options.showInlineError) {
-          setLocalShipmentDialogError(null);
-        }
 
         const createResponse = await fetch('/api/local-shipping/create', {
           method: 'POST',
@@ -1187,8 +1178,6 @@ const handleRefreshItems = async () => {
             assignmentStatus: 'assigned',
           });
         }
-        setLocalShipmentDialogOpen(false);
-        setSelectedDeliveryAgentId('');
         const trackingNumber = createData.shipment?.trackingNumber || 'غير معروف';
         const baseMessage = createData.reused
           ? `تم العثور على شحنة محلية سابقة (${trackingNumber}) وتم تأكيد تعيينها إلى ${agentDisplayName}.`
@@ -1204,36 +1193,57 @@ const handleRefreshItems = async () => {
             ? ''
             : '\n\n⚠️ تعذر تحديث حالة الطلب في سلة تلقائياً.';
         alert(`${baseMessage}${autoPrintMessage}${sallaStatusMessage}`);
+        await reloadCurrentOrder();
       } catch (error) {
         console.error('Local shipment creation failed', error);
         const message =
           error instanceof Error ? error.message : 'حدث خطأ أثناء إنشاء الشحنة المحلية';
-        if (options.showInlineError) {
-          setLocalShipmentDialogError(message);
-        } else {
-          alert(message);
-        }
+        alert(message);
       } finally {
         setCreatingLocalShipment(false);
       }
     },
-    [currentOrder, resolvedMerchantId, user],
+    [currentOrder, resolvedMerchantId, user, reloadCurrentOrder],
   );
 
-  const handleCreateLocalShipment = () => {
-    if (!selectedDeliveryAgentId) {
-      setLocalShipmentDialogError('يرجى اختيار المندوب المسؤول عن التوصيل.');
+  const handleCreateLocalShipment = useCallback(async () => {
+    if (!currentOrder) {
+      return;
+    }
+    if (!resolvedMerchantId) {
+      alert('لا يمكن إنشاء شحنة محلية لهذا الطلب لعدم توفر معرف التاجر.');
       return;
     }
 
-    const agent = deliveryAgents.find((item) => item.id === selectedDeliveryAgentId);
-    if (!agent) {
-      setLocalShipmentDialogError('تعذر العثور على بيانات المندوب المحدد.');
+    let agents = deliveryAgents;
+    if (agents.length === 0) {
+      agents = await fetchDeliveryAgents();
+    }
+
+    if (agents.length === 0) {
+      alert(
+        deliveryAgentsError ||
+          'لا يوجد مناديب متاحون حالياً لتعيين الشحنة المحلية. يرجى التواصل مع مسؤول المستودع.',
+      );
       return;
     }
 
-    void createLocalShipmentForAgent(agent, { showInlineError: true });
-  };
+    const selectedAgent = autoSelectDeliveryAgent(agents);
+    if (!selectedAgent) {
+      alert('تعذر تحديد المندوب المناسب لتعيين الشحنة المحلية.');
+      return;
+    }
+
+    await createLocalShipmentForAgent(selectedAgent);
+  }, [
+    currentOrder,
+    resolvedMerchantId,
+    deliveryAgents,
+    fetchDeliveryAgents,
+    deliveryAgentsError,
+    autoSelectDeliveryAgent,
+    createLocalShipmentForAgent,
+  ]);
 
   if (status === 'loading') {
     return (
@@ -1891,13 +1901,21 @@ const handleRefreshItems = async () => {
                     )}
                     <Button
                       type="button"
-                      onClick={() => {
-                        void handleOpenLocalShipmentDialog();
-                      }}
+                      onClick={() =>
+                        openConfirmationDialog({
+                          title: 'تأكيد إنشاء الشحنة المحلية',
+                          message:
+                            'سيتم إنشاء شحنة محلية جديدة، وإرسال البوليصة للطابعة، وتعيين الشحنة تلقائياً لأحد المناديب المتاحين.',
+                          confirmLabel: 'نعم، أنشئ الشحنة',
+                          onConfirm: () => {
+                            void handleCreateLocalShipment();
+                          },
+                        })
+                      }
                       disabled={!canCreateLocalShipment || creatingLocalShipment}
                       className={`${ACTION_BUTTON_BASE} bg-amber-500 hover:bg-amber-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
                     >
-                      إنشاء شحنة محلية
+                      {creatingLocalShipment ? 'جاري إنشاء الشحنة المحلية...' : 'إنشاء شحنة محلية'}
                     </Button>
                     <Button
                       type="button"
@@ -1941,74 +1959,6 @@ const handleRefreshItems = async () => {
         confirmVariant={confirmationDialog?.confirmVariant}
         onConfirm={handleConfirmDialog}
         onCancel={handleCancelDialog}
-      />
-      <ConfirmationDialog
-        open={localShipmentDialogOpen}
-        title="إنشاء شحنة محلية"
-        message="سيتم إنشاء ملصق شحن محلي للطلب الحالي وتعيينه للمندوب المحدد."
-        confirmLabel={creatingLocalShipment ? 'جاري الإنشاء...' : 'إنشاء وتعيين'}
-        cancelLabel="إلغاء"
-        confirmDisabled={
-          creatingLocalShipment ||
-          !selectedDeliveryAgentId ||
-          Boolean(deliveryAgentsError) ||
-          loadingDeliveryAgents
-        }
-        onConfirm={handleCreateLocalShipment}
-        onCancel={handleCloseLocalShipmentDialog}
-        content={
-          <div className="mt-4 space-y-4 text-right">
-            {loadingDeliveryAgents && deliveryAgents.length === 0 ? (
-              <p className="text-sm text-gray-600">جاري تحميل قائمة المناديب...</p>
-            ) : deliveryAgentsError ? (
-              <div className="space-y-3">
-                <p className="text-sm text-red-600">{deliveryAgentsError}</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    void fetchDeliveryAgents();
-                  }}
-                  disabled={loadingDeliveryAgents}
-                  className="w-full"
-                >
-                  {loadingDeliveryAgents ? 'جاري إعادة المحاولة...' : 'إعادة تحميل القائمة'}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <label
-                  htmlFor="localShipmentDeliveryAgent"
-                  className="block text-sm font-semibold text-gray-700"
-                >
-                  اختر المندوب المسؤول
-                </label>
-                <Select
-                  id="localShipmentDeliveryAgent"
-                  value={selectedDeliveryAgentId}
-                  onChange={(event) => {
-                    setSelectedDeliveryAgentId(event.target.value);
-                    setLocalShipmentDialogError(null);
-                  }}
-                  disabled={loadingDeliveryAgents || deliveryAgents.length === 0}
-                >
-                  <option value="">اختر المندوب</option>
-                  {deliveryAgents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name} ({agent.username})
-                    </option>
-                  ))}
-                </Select>
-                <p className="text-xs text-gray-500">
-                  سيتم مشاركة رقم الطلب وبيانات العميل مع المندوب لتسهيل التوصيل.
-                </p>
-              </>
-            )}
-            {localShipmentDialogError && (
-              <p className="text-sm text-red-600">{localShipmentDialogError}</p>
-            )}
-          </div>
-        }
       />
     </div>
   );
