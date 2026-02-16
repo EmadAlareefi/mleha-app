@@ -9,6 +9,8 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 
 export const runtime = 'nodejs';
 
+const LINKABLE_SERVICE_KEYS = new Set(['order-prep', 'order-shipping']);
+
 type UserWithPermissions = {
   id: string;
   username: string;
@@ -23,8 +25,10 @@ type UserWithPermissions = {
   } | null;
 };
 
-function hasOrdersPermission(user: Pick<UserWithPermissions, 'servicePermissions'>) {
-  return user.servicePermissions?.some((permission) => permission.serviceKey === 'order-prep');
+function canLinkPrinter(user: Pick<UserWithPermissions, 'servicePermissions'>) {
+  return user.servicePermissions?.some((permission) =>
+    LINKABLE_SERVICE_KEYS.has(permission.serviceKey)
+  );
 }
 
 function formatPrinterResponse(printers: Awaited<ReturnType<typeof fetchPrintNodePrinters>>) {
@@ -47,7 +51,7 @@ function formatPrinterResponse(printers: Awaited<ReturnType<typeof fetchPrintNod
 
 function formatUserResponse(users: UserWithPermissions[]) {
   return users
-    .filter(hasOrdersPermission)
+    .filter(canLinkPrinter)
     .map((user) => ({
       id: user.id,
       username: user.username,
@@ -159,9 +163,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'المستخدم غير موجود' }, { status: 404 });
     }
 
-    if (!hasOrdersPermission(user)) {
+    if (!canLinkPrinter(user)) {
       return NextResponse.json(
-        { error: 'يمكن ربط مستخدمي التحضير فقط بالطابعات' },
+        { error: 'يمكن ربط مستخدمي التحضير أو الشحن فقط بالطابعات' },
         { status: 400 },
       );
     }

@@ -269,19 +269,15 @@ export default function OrderUsersManagementPage() {
 
   const loadPrinterInventory = useCallback(
     async (force = false) => {
-      let shouldFetch = force;
-      setPrinterInventory((prev) => {
-        if (!force && (prev.loaded || prev.loading)) {
-          shouldFetch = false;
-          return prev;
-        }
-        shouldFetch = true;
-        return { ...prev, loading: true, error: null };
-      });
-
-      if (!shouldFetch) {
+      if (!force && (printerInventory.loaded || printerInventory.loading)) {
         return;
       }
+
+      setPrinterInventory((prev) => ({
+        ...prev,
+        loading: true,
+        error: null,
+      }));
 
       try {
         const response = await fetch('/api/printers');
@@ -308,7 +304,7 @@ export default function OrderUsersManagementPage() {
         }));
       }
     },
-    []
+    [printerInventory.loaded, printerInventory.loading]
   );
 
   const ensurePrinterInventory = useCallback(() => {
