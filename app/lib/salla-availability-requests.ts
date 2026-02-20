@@ -52,6 +52,14 @@ export type ListAvailabilityRequestsInput = {
   status?: 'pending' | 'notified' | 'cancelled';
 };
 
+export type AvailabilityRequestStatus = 'pending' | 'notified' | 'cancelled';
+
+export type UpdateAvailabilityRequestStatusInput = {
+  id: string;
+  status: AvailabilityRequestStatus;
+  actorName?: string | null;
+};
+
 export async function listAvailabilityRequests(
   params: ListAvailabilityRequestsInput = {}
 ): Promise<AvailabilityRequestRecord[]> {
@@ -96,4 +104,67 @@ export async function createAvailabilityRequest(
     },
     select: availabilityRequestSelect,
   });
+}
+
+export async function getAvailabilityRequestById(
+  id: string
+): Promise<AvailabilityRequestRecord | null> {
+  if (!id) {
+    return null;
+  }
+  return prisma.sallaProductAvailabilityRequest.findUnique({
+    where: { id },
+    select: availabilityRequestSelect,
+  });
+}
+
+export async function updateAvailabilityRequestStatus(
+  input: UpdateAvailabilityRequestStatusInput
+): Promise<AvailabilityRequestRecord> {
+  const data: Prisma.SallaProductAvailabilityRequestUpdateInput = {
+    status: input.status,
+  };
+
+  if (input.status === 'notified') {
+    data.notifiedAt = new Date();
+    data.notifiedBy = input.actorName ?? null;
+  } else if (input.status === 'pending') {
+    data.notifiedAt = null;
+    data.notifiedBy = null;
+  }
+
+  return prisma.sallaProductAvailabilityRequest.update({
+    where: { id: input.id },
+    data,
+    select: availabilityRequestSelect,
+  });
+}
+
+export async function listAvailabilityRequestsByIds(
+  ids: string[]
+): Promise<AvailabilityRequestRecord[]> {
+  const normalized = Array.isArray(ids)
+    ? ids.map((id) => (typeof id === 'string' ? id : String(id ?? ''))).filter((id) => id.length > 0)
+    : [];
+  if (normalized.length === 0) {
+    return [];
+  }
+  return prisma.sallaProductAvailabilityRequest.findMany({
+    where: { id: { in: normalized } },
+    select: availabilityRequestSelect,
+  });
+}
+
+const DEFAULT_TEMPLATE_IMAGE =
+  'https://cdn.files.salla.network/homepage/1696031053/9239dc2f-2c06-4548-9011-ff615b728924.webp';
+
+export function buildAvailabilityTemplateArgs(
+  request: AvailabilityRequestRecord
+): (string | number)[] {
+  const imageUrl = request.productImageUrl || DEFAULT_TEMPLATE_IMAGE;
+  const productName = request.productName || `منتج رقم ${request.productId}`;
+  const productLink = request.productSku
+    ? `https://mleha.com/ar/search?q=${encodeURIComponent(request.productSku)}`
+    : `https://mleha.com/ar/products/${request.productId}`;
+  return [imageUrl, productName, productLink];
 }

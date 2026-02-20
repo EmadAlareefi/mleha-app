@@ -198,6 +198,63 @@ const isInternationalOrder = (order: any): boolean => {
   return false;
 };
 
+const normalizeStatusString = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const isDeliveredStatus = (status: unknown): boolean => {
+  if (!status) {
+    return false;
+  }
+
+  const candidates: string[] = [];
+  if (typeof status === 'string') {
+    candidates.push(status);
+  } else if (typeof status === 'object' && status !== null) {
+    const statusRecord = status as Record<string, unknown>;
+    if (typeof statusRecord.name === 'string') {
+      candidates.push(statusRecord.name);
+    }
+    if (typeof statusRecord.slug === 'string') {
+      candidates.push(statusRecord.slug);
+    }
+    if (typeof statusRecord.status === 'string') {
+      candidates.push(statusRecord.status);
+    }
+  }
+
+  return candidates.some(candidate => {
+    const normalized = normalizeStatusString(candidate);
+    if (!normalized) {
+      return false;
+    }
+    const lower = normalized.toLowerCase();
+    return normalized === 'تم التوصيل' || lower === 'delivered';
+  });
+};
+
+const getOrderStatusLabel = (status: unknown): string | undefined => {
+  if (typeof status === 'string') {
+    return normalizeStatusString(status);
+  }
+  if (status && typeof status === 'object') {
+    const statusRecord = status as Record<string, unknown>;
+    const name = normalizeStatusString(statusRecord.name);
+    if (name) {
+      return name;
+    }
+    const slug = normalizeStatusString(statusRecord.slug);
+    if (slug) {
+      return slug;
+    }
+  }
+  return undefined;
+};
+
 export default function ReturnsPage() {
   const [step, setStep] = useState<Step>('lookup');
   const [orderNumber, setOrderNumber] = useState('');
@@ -296,6 +353,21 @@ export default function ReturnsPage() {
         setErrorDetails({
           title: 'طلب دولي',
           message: 'الطلبات الدولية خارج السعودية غير قابلة للإرجاع أو الاستبدال.',
+          variant: 'error',
+        });
+        setErrorDialogOpen(true);
+        setLoading(false);
+        return;
+      }
+
+      const orderStatusLabel = getOrderStatusLabel(orderData.order?.status);
+      if (!isDeliveredStatus(orderData.order?.status)) {
+        setErrorDetails({
+          title: 'الطلب غير مؤهل للإرجاع',
+          message: 'يمكن تقديم طلب الإرجاع فقط بعد توصيل الطلب.',
+          description: orderStatusLabel
+            ? `حالة الطلب الحالية: ${orderStatusLabel}`
+            : undefined,
           variant: 'error',
         });
         setErrorDialogOpen(true);

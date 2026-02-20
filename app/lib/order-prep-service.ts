@@ -62,7 +62,9 @@ export async function getActiveAssignmentsForUser(userId: string): Promise<Seria
     orderBy: [{ assignedAt: 'asc' }],
   });
 
-  return records.map(serializeAssignment);
+  const processedRecords = await Promise.all(records.map((record) => applyPostalPatchIfNeeded(record)));
+
+  return processedRecords.map(serializeAssignment);
 }
 
 export async function assignOldestOrderToUser(user: {
@@ -173,7 +175,9 @@ export async function assignOldestOrderToUser(user: {
         orderNumber: assignment.orderNumber,
       });
 
-      return serializeAssignment(assignment);
+      const finalAssignment = await applyPostalPatchIfNeeded(assignment);
+
+      return serializeAssignment(finalAssignment);
     } catch (error) {
       const isUniqueViolation =
         error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
@@ -467,6 +471,28 @@ async function ensureInternationalPostalCode(
   });
 
   return cloneOrderDataWithPostal(orderData, normalizedPostal);
+}
+
+async function applyPostalPatchIfNeeded(
+  assignment: OrderPrepAssignment,
+): Promise<OrderPrepAssignment> {
+  try {
+    const patchedOrderData = await ensureInternationalPostalCode(assignment);
+    if (patchedOrderData) {
+      const updated = await prisma.orderPrepAssignment.update({
+        where: { id: assignment.id },
+        data: { orderData: patchedOrderData as Prisma.InputJsonValue },
+      });
+      return updated;
+    }
+  } catch (error) {
+    log.warn('Failed to auto-patch postal code for assignment', {
+      assignmentId: assignment.id,
+      orderId: assignment.orderId,
+      error,
+    });
+  }
+  return assignment;
 }
 
 function toRecord(value: unknown): Record<string, any> | null {

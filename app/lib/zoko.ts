@@ -8,6 +8,14 @@ export interface SendTemplateArgs {
   args?: (string | number)[]; // placeholders
 }
 
+export interface SendButtonTemplateArgs {
+  to: string;
+  templateId: string;
+  lang?: string;
+  templateArgs?: (string | number)[];
+  message?: string;
+}
+
 async function postData(url: string, data: any) {
   const response = await fetch(url, {
     method: "POST",
@@ -45,6 +53,28 @@ export async function sendWhatsAppText(to: string, body: string) {
     recipient: to.replace(/\s/g, ""),
     type: "text",
     text: { body },
+  };
+
+  return withBackoff(() => postData(`${env.ZOKO_BASE_URL}/v2/message`, payload));
+}
+
+export async function sendWhatsAppButtonTemplate(args: SendButtonTemplateArgs) {
+  const {
+    to,
+    templateId,
+    lang = env.WHATSAPP_DEFAULT_LANG || "ar",
+    templateArgs = [],
+    message = " ",
+  } = args;
+
+  const payload = {
+    channel: "whatsapp",
+    recipient: to.replace(/\s/g, ""),
+    type: "buttonTemplate",
+    message,
+    templateId,
+    templateArgs,
+    templateLanguage: lang,
   };
 
   return withBackoff(() => postData(`${env.ZOKO_BASE_URL}/v2/message`, payload));
