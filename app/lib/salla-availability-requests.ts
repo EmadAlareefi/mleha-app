@@ -155,16 +155,15 @@ export async function listAvailabilityRequestsByIds(
   });
 }
 
-const DEFAULT_TEMPLATE_IMAGE =
-  'https://cdn.files.salla.network/homepage/1696031053/9239dc2f-2c06-4548-9011-ff615b728924.webp';
-
 export function buildAvailabilityTemplateArgs(
   request: AvailabilityRequestRecord
 ): (string | number)[] {
-  const imageUrl = request.productImageUrl || DEFAULT_TEMPLATE_IMAGE;
-  const productName = request.productName || `منتج رقم ${request.productId}`;
-  const productLink = request.productSku
-    ? `https://mleha.com/ar/search?q=${encodeURIComponent(request.productSku)}`
-    : `https://mleha.com/ar/products/${request.productId}`;
-  return [imageUrl, productName, productLink];
+  if (!request.productImageUrl) {
+    throw new Error('لا تتوفر صورة للمنتج المرتبط بالطلب');
+  }
+  if (!request.productName) {
+    throw new Error('اسم المنتج غير متوفر لهذا الطلب');
+  }
+  const productLink = `https://mleha.com/ar/products/p${request.productId}`;
+  return [request.productImageUrl, request.productName, productLink];
 }
