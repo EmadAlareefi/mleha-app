@@ -16,6 +16,8 @@ interface LocalShipmentMeta {
   shipToLatitude?: string | number | null;
   shipToLongitude?: string | number | null;
   mapsLink?: string | null;
+  hasExchangeCoupon?: boolean;
+  exchangeCouponCode?: string | null;
 }
 
 interface LocalShipmentOrderItems {
@@ -219,6 +221,28 @@ const getMapsLink = (shipment: LocalShipment) => {
   }
 
   return `${MAPS_SEARCH_BASE}${encodeURIComponent(queryParts.join('، '))}`;
+};
+
+const getExchangeCouponCode = (shipment: LocalShipment) => {
+  const meta = shipment.orderItems?.meta;
+  if (!meta) return null;
+  const code =
+    typeof meta.exchangeCouponCode === 'string' && meta.exchangeCouponCode.trim()
+      ? meta.exchangeCouponCode.trim()
+      : null;
+  if (code) return code;
+  return meta.hasExchangeCoupon ? 'EXCHANGE' : null;
+};
+
+const hasExchangeCouponFlag = (shipment: LocalShipment) => {
+  const meta = shipment.orderItems?.meta;
+  if (!meta) return false;
+  if (meta.hasExchangeCoupon) return true;
+  if (typeof meta.exchangeCouponCode === 'string') {
+    const normalized = meta.exchangeCouponCode.trim().toUpperCase();
+    return normalized.startsWith('EX');
+  }
+  return false;
 };
 
 const normalizePhoneNumber = (phone: string) => phone.replace(/[^\d]/g, '');
@@ -1016,6 +1040,9 @@ export default function MyDeliveriesPage() {
                     const fullAddress = getFullAddressLabel(assignment.shipment);
                     const whatsappLink = getWhatsAppLink(assignment.shipment);
                     const mapsLink = getMapsLink(assignment.shipment);
+                    const exchangeCouponCode = getExchangeCouponCode(assignment.shipment);
+                    const hasExchangeCoupon = hasExchangeCouponFlag(assignment.shipment);
+                    const showExchangeLabel = hasExchangeCoupon || Boolean(assignment.exchangeRequest);
 
                     return (
                       <div
@@ -1028,11 +1055,19 @@ export default function MyDeliveriesPage() {
                               <span className="font-semibold">#{assignment.shipment.orderNumber}</span>
                               {getStatusBadge(assignment.status)}
                               {getShipmentTypeBadge(assignment.shipmentDirection)}
-                              {assignment.exchangeRequest && (
-                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                                  طلب استبدال
-                                </span>
-                              )}
+                            {assignment.exchangeRequest && (
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                طلب استبدال
+                              </span>
+                            )}
+                            {showExchangeLabel && (
+                              <span
+                                className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                                title="يجب استلام الطلب الأصلي من العميل قبل تسليم هذه الشحنة"
+                              >
+                                استبدال
+                              </span>
+                            )}
                               {assignment.shipment.isCOD && (
                                 <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                                   COD
@@ -1112,6 +1147,22 @@ export default function MyDeliveriesPage() {
                       </div>
 
                       {renderExchangeReminder(assignment.exchangeRequest)}
+
+                      {!assignment.exchangeRequest && hasExchangeCoupon && (
+                        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                          <p className="font-semibold">تنبيه استبدال</p>
+                          <p>
+                            تم إنشاء هذه الشحنة باستخدام كوبون استبدال. تأكد من استلام الطلب الأصلي من العميل قبل
+                            تسليم هذه الشحنة.
+                          </p>
+                          {exchangeCouponCode && (
+                            <p className="mt-1">
+                              <span className="font-semibold">الكوبون:</span>{' '}
+                              <span className="font-mono">{exchangeCouponCode}</span>
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                       {assignment.notes && (
                         <div className="mb-3 text-sm bg-blue-50 p-2 rounded">
@@ -1199,6 +1250,8 @@ export default function MyDeliveriesPage() {
                       completedAssignments.map((assignment) => {
                         const fullAddress = getFullAddressLabel(assignment.shipment);
                         const mapsLink = getMapsLink(assignment.shipment);
+                        const hasExchangeCoupon = hasExchangeCouponFlag(assignment.shipment);
+                        const showExchangeLabel = hasExchangeCoupon || Boolean(assignment.exchangeRequest);
                         return (
                           <tr key={assignment.id} className="border-b">
                             <td className="px-3 py-2">
@@ -1208,6 +1261,14 @@ export default function MyDeliveriesPage() {
                                 {assignment.exchangeRequest && (
                                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                                     طلب استبدال
+                                  </span>
+                                )}
+                                {showExchangeLabel && (
+                                  <span
+                                    className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                                    title="يجب استلام الطلب الأصلي من العميل قبل تسليم هذه الشحنة"
+                                  >
+                                    استبدال
                                   </span>
                                 )}
                               </div>

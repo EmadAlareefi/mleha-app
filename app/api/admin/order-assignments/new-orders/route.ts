@@ -447,7 +447,7 @@ export async function GET(request: NextRequest) {
         const perPage = Math.min(MAX_SALLA_PAGE_SIZE, remaining);
         const url = `${baseUrl}/orders?status=${encodeURIComponent(
           filterValue,
-        )}&per_page=${perPage}&page=${page}&sort_by=created_at-desc`;
+        )}&per_page=${perPage}&page=${page}&sort_by=created_at-asc`;
 
         try {
           const response = await fetchSallaWithRetry(url, accessToken);

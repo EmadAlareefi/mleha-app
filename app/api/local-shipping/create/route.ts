@@ -16,6 +16,7 @@ import {
   extractPrimaryShipTo,
   buildShipToArabicLabel,
 } from '@/app/lib/local-shipping/messenger';
+import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
   '1': 75006700,
@@ -143,6 +144,10 @@ export async function POST(request: NextRequest) {
 
     // Calculate items count
     const orderItems = Array.isArray(order.items) ? order.items : [];
+    const couponCodes = extractAppliedCouponCodes(order);
+    const exchangeCouponCode =
+      couponCodes.find((code) => code.trim().toUpperCase().startsWith('EX')) || null;
+    const hasExchangeCoupon = Boolean(exchangeCouponCode);
     const itemsCount = orderItems.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
 
     const rawOrderTotal =
@@ -229,6 +234,11 @@ export async function POST(request: NextRequest) {
           shipToAddressLine: primaryShipTo?.addressLine || null,
           shipToPostalCode: primaryShipTo?.postalCode || null,
           messengerCourierLabel: messengerShipments[0]?.courierLabel || null,
+          shipToLatitude: primaryShipTo?.raw?.latitude || primaryShipTo?.raw?.lat || null,
+          shipToLongitude: primaryShipTo?.raw?.longitude || primaryShipTo?.raw?.lng || null,
+          mapsLink: primaryShipTo?.raw?.maps_link || primaryShipTo?.raw?.map_link || null,
+          hasExchangeCoupon: hasExchangeCoupon || undefined,
+          exchangeCouponCode: exchangeCouponCode || undefined,
         }),
         paymentMethod: isCashOnDelivery ? 'cod' : 'prepaid',
         isCOD: isCashOnDelivery,

@@ -17,6 +17,11 @@ export interface LocalShipmentMeta {
   shipToAddressLine?: string | null;
   shipToPostalCode?: string | null;
   messengerCourierLabel?: string | null;
+  shipToLatitude?: string | number | null;
+  shipToLongitude?: string | number | null;
+  mapsLink?: string | null;
+  hasExchangeCoupon?: boolean;
+  exchangeCouponCode?: string | null;
 }
 
 export interface NormalizedOrderItems {
@@ -88,6 +93,27 @@ const sanitizeMeta = (meta: LocalShipmentMeta): Prisma.JsonObject => {
   if (typeof meta.messengerCourierLabel === 'string') {
     payload.messengerCourierLabel = meta.messengerCourierLabel;
   }
+  if (
+    typeof meta.shipToLatitude === 'string' ||
+    typeof meta.shipToLatitude === 'number'
+  ) {
+    payload.shipToLatitude = meta.shipToLatitude as Prisma.JsonValue;
+  }
+  if (
+    typeof meta.shipToLongitude === 'string' ||
+    typeof meta.shipToLongitude === 'number'
+  ) {
+    payload.shipToLongitude = meta.shipToLongitude as Prisma.JsonValue;
+  }
+  if (typeof meta.mapsLink === 'string') {
+    payload.mapsLink = meta.mapsLink;
+  }
+  if (typeof meta.hasExchangeCoupon === 'boolean') {
+    payload.hasExchangeCoupon = meta.hasExchangeCoupon;
+  }
+  if (typeof meta.exchangeCouponCode === 'string') {
+    payload.exchangeCouponCode = meta.exchangeCouponCode;
+  }
 
   return payload;
 };
@@ -128,6 +154,19 @@ export const normalizeOrderItems = (raw: any): NormalizedOrderItems => {
           typeof meta.shipToPostalCode === 'string' ? meta.shipToPostalCode : undefined,
         messengerCourierLabel:
           typeof meta.messengerCourierLabel === 'string' ? meta.messengerCourierLabel : undefined,
+        shipToLatitude:
+          typeof meta.shipToLatitude === 'string' || typeof meta.shipToLatitude === 'number'
+            ? meta.shipToLatitude
+            : undefined,
+        shipToLongitude:
+          typeof meta.shipToLongitude === 'string' || typeof meta.shipToLongitude === 'number'
+            ? meta.shipToLongitude
+            : undefined,
+        mapsLink: typeof meta.mapsLink === 'string' ? meta.mapsLink : undefined,
+        hasExchangeCoupon:
+          typeof meta.hasExchangeCoupon === 'boolean' ? meta.hasExchangeCoupon : undefined,
+        exchangeCouponCode:
+          typeof meta.exchangeCouponCode === 'string' ? meta.exchangeCouponCode : undefined,
       },
     };
   }
