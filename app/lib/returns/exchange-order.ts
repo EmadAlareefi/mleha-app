@@ -58,7 +58,7 @@ function normalizeCoupon(value: unknown): string | null {
   return normalized ? normalized.toUpperCase() : null;
 }
 
-function extractAppliedCouponCodes(order: AnyRecord): string[] {
+export function extractAppliedCouponCodes(order: AnyRecord): string[] {
   const codes = new Set<string>();
 
   const push = (value: unknown) => {
@@ -259,6 +259,15 @@ export async function linkExchangeOrderFromWebhook(
     needsUpdate = true;
   }
 
+  log.debug('Found exchange request for new order', {
+    returnRequestId: returnRequest.id,
+    couponCodes,
+    merchantId,
+    orderId,
+    alreadyLinked,
+    existingExchangeOrderId: returnRequest.exchangeOrderId,
+  });
+
   let holdApplied = false;
   const hasWarehouseReceipt = await hasReturnShipmentScanBeforeOrder(
     returnRequest,
@@ -267,6 +276,15 @@ export async function linkExchangeOrderFromWebhook(
   const hasArrivedByStatus = hasReturnShipmentArrived(returnRequest);
   const requiresHold = !(hasWarehouseReceipt || hasArrivedByStatus);
   const holdOutdated = returnRequest.exchangeOrderId !== orderId;
+
+  log.debug('Exchange hold evaluation', {
+    returnRequestId: returnRequest.id,
+    hasWarehouseReceipt,
+    hasArrivedByStatus,
+    requiresHold,
+    holdOutdated,
+    currentlyActive: returnRequest.exchangeOrderHoldActive,
+  });
 
   if (requiresHold && (holdOutdated || !returnRequest.exchangeOrderHoldActive)) {
     const statusResult = await updateSallaOrderStatus(merchantId, orderId, {

@@ -5,7 +5,10 @@ import { log } from "@/app/lib/logger";
 import { storeSallaTokens } from "@/app/lib/salla-oauth";
 import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
 import { prisma } from "@/lib/prisma";
-import { linkExchangeOrderFromWebhook } from "@/app/lib/returns/exchange-order";
+import {
+  extractAppliedCouponCodes,
+  linkExchangeOrderFromWebhook,
+} from "@/app/lib/returns/exchange-order";
 
 type AnyObj = Record<string, any>;
 
@@ -355,10 +358,9 @@ const STATUS_TEMPLATE_MAP: Record<string, StatusTemplateConfig> = {
     templateKey: "ORDER_PROCESSING",
     buildArgs: (ctx) => [ctx.customerName, ctx.orderNumber],
   },
-  in_progress: {
-    templateKey: "ORDER_PROCESSING",
-    buildArgs: (ctx) => [ctx.customerName, ctx.orderNumber],
-  },
+  // Intentionally skip sending Zoko notifications when Salla moves to
+  // "in_progress" (جاري التجهيز); merchants handle this status manually.
+  in_progress: {},
   ready_for_pickup: {
     templateKey: "ORDER_PROCESSING",
     buildArgs: (ctx) => [ctx.customerName, ctx.orderNumber],
@@ -533,6 +535,11 @@ export async function process_salla_order_status_updated(
 
   await upsertSallaOrderFromPayload(data);
   await maybePrintShipmentLabelFromStatus(order, data, meta);
+  log.debug("Exchange link attempt", {
+    orderId,
+    merchantId: meta?.merchantId,
+    coupons: extractAppliedCouponCodes(order),
+  });
   await linkExchangeOrderFromWebhook(order, {
     merchantId: meta?.merchantId,
     orderId,
@@ -577,6 +584,11 @@ export async function process_salla_order_created(
   const customerName = getCustomerName(customer);
   const orderNumber =
     getOrderNumber(order) || String(order?.id ?? order?.order_id ?? "");
+  log.debug("Exchange link attempt", {
+    orderId: meta?.orderId ?? order?.id?.toString?.() ?? null,
+    merchantId: meta?.merchantId,
+    coupons: extractAppliedCouponCodes(order),
+  });
   await linkExchangeOrderFromWebhook(order, {
     merchantId: meta?.merchantId,
     orderId: meta?.orderId ?? order?.id?.toString?.() ?? null,
