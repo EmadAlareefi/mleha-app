@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { MessageCircle } from 'lucide-react';
+import { MapPin, MessageCircle } from 'lucide-react';
 
 interface LocalShipmentMeta {
   shipToArabicText?: string | null;
@@ -13,6 +13,9 @@ interface LocalShipmentMeta {
   shipToDistrict?: string | null;
   shipToCity?: string | null;
   shipToPostalCode?: string | null;
+  shipToLatitude?: string | number | null;
+  shipToLongitude?: string | number | null;
+  mapsLink?: string | null;
 }
 
 interface LocalShipmentOrderItems {
@@ -159,6 +162,63 @@ const getFullAddressLabel = (shipment: LocalShipment) => {
   }
 
   return fallbackParts.join('\n') || 'غير متوفر';
+};
+
+const MAPS_SEARCH_BASE = 'https://www.google.com/maps/search/?api=1&query=';
+
+const toCoordinateNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const getMapsLink = (shipment: LocalShipment) => {
+  const meta = shipment.orderItems?.meta;
+  const explicitLink =
+    typeof meta?.mapsLink === 'string' && meta.mapsLink.trim() ? meta.mapsLink.trim() : null;
+  if (explicitLink) {
+    return explicitLink;
+  }
+
+  const metaRecord = meta as Record<string, unknown> | undefined;
+  const lat =
+    toCoordinateNumber(meta?.shipToLatitude) ??
+    toCoordinateNumber(metaRecord?.latitude) ??
+    toCoordinateNumber(metaRecord?.lat);
+  const lng =
+    toCoordinateNumber(meta?.shipToLongitude) ??
+    toCoordinateNumber(metaRecord?.longitude) ??
+    toCoordinateNumber(metaRecord?.lng);
+
+  if (lat !== null && lng !== null) {
+    return `${MAPS_SEARCH_BASE}${lat},${lng}`;
+  }
+
+  const queryParts = [
+    meta?.shipToAddressLine,
+    meta?.shipToDistrict,
+    meta?.shipToCity || shipment.shippingCity,
+    meta?.shipToPostalCode,
+    shipment.shippingAddress,
+    shipment.shippingCity,
+  ]
+    .map((value) => (typeof value === 'string' ? sanitizeAddressSegment(value) : ''))
+    .filter((value, index, array) => value && array.indexOf(value) === index);
+
+  if (queryParts.length === 0) {
+    return null;
+  }
+
+  return `${MAPS_SEARCH_BASE}${encodeURIComponent(queryParts.join('، '))}`;
 };
 
 const normalizePhoneNumber = (phone: string) => phone.replace(/[^\d]/g, '');
@@ -955,6 +1015,7 @@ export default function MyDeliveriesPage() {
                   {activeAssignments.map((assignment) => {
                     const fullAddress = getFullAddressLabel(assignment.shipment);
                     const whatsappLink = getWhatsAppLink(assignment.shipment);
+                    const mapsLink = getMapsLink(assignment.shipment);
 
                     return (
                       <div
@@ -1030,9 +1091,24 @@ export default function MyDeliveriesPage() {
                         </div>
                       </div>
 
-                      <div className="mb-3 text-sm">
-                        <span className="text-gray-600">العنوان الكامل:</span>{' '}
-                        <span className="font-medium whitespace-pre-line">{fullAddress}</span>
+                      <div className="mb-3 text-sm space-y-1">
+                        <div>
+                          <span className="text-gray-600">العنوان الكامل:</span>{' '}
+                          <span className="font-medium whitespace-pre-line">{fullAddress}</span>
+                        </div>
+                        {mapsLink && (
+                          <div>
+                            <a
+                              href={mapsLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 hover:text-emerald-600"
+                            >
+                              <MapPin className="h-4 w-4" />
+                              فتح الموقع على خرائط قوقل
+                            </a>
+                          </div>
+                        )}
                       </div>
 
                       {renderExchangeReminder(assignment.exchangeRequest)}
@@ -1122,6 +1198,7 @@ export default function MyDeliveriesPage() {
                     ) : (
                       completedAssignments.map((assignment) => {
                         const fullAddress = getFullAddressLabel(assignment.shipment);
+                        const mapsLink = getMapsLink(assignment.shipment);
                         return (
                           <tr key={assignment.id} className="border-b">
                             <td className="px-3 py-2">
@@ -1140,6 +1217,19 @@ export default function MyDeliveriesPage() {
                               <div className="mt-1 text-xs text-gray-600 whitespace-pre-line">
                                 {fullAddress}
                               </div>
+                              {mapsLink && (
+                                <div className="mt-1 text-xs">
+                                  <a
+                                    href={mapsLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-600"
+                                  >
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    خرائط قوقل
+                                  </a>
+                                </div>
+                              )}
                             </td>
                             <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
                             <td className="px-3 py-2 font-semibold">

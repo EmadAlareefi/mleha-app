@@ -8,6 +8,8 @@ const formatMeta = (meta?: Record<string, unknown>) => {
 };
 
 export const log = {
+  debug: (msg: string, meta?: any) =>
+    console.debug(JSON.stringify({ level: 'debug', msg, ...formatMeta(meta) })),
   info: (msg: string, meta?: any) =>
     console.log(JSON.stringify({ level: 'info', msg, ...formatMeta(meta) })),
   warn: (msg: string, meta?: any) =>
