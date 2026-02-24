@@ -5,6 +5,20 @@ import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
+import { MessageCircle } from 'lucide-react';
+
+interface LocalShipmentMeta {
+  shipToArabicText?: string | null;
+  shipToAddressLine?: string | null;
+  shipToDistrict?: string | null;
+  shipToCity?: string | null;
+  shipToPostalCode?: string | null;
+}
+
+interface LocalShipmentOrderItems {
+  items?: unknown[];
+  meta?: LocalShipmentMeta | null;
+}
 
 interface LocalShipment {
   id: string;
@@ -14,10 +28,13 @@ interface LocalShipment {
   customerPhone: string;
   shippingCity: string;
   shippingAddress: string;
+  shippingCountry?: string | null;
+  shippingPostcode?: string | null;
   orderTotal: number;
   isCOD: boolean;
   status: string;
   createdAt: string;
+  orderItems?: LocalShipmentOrderItems | null;
 }
 
 interface CODCollection {
@@ -99,6 +116,127 @@ interface DeliveryAgentWalletInfo {
   };
   recentTransactions: WalletTransaction[];
 }
+
+const sanitizeAddressSegment = (value?: string | null) => {
+  if (!value) return '';
+  return value.replace(/^\s*مدينة العميل\s*:\s*/iu, '').trim();
+};
+
+const buildStructuredMetaAddress = (shipment: LocalShipment) => {
+  const meta = shipment.orderItems?.meta;
+  if (!meta) return null;
+  const parts = [
+    sanitizeAddressSegment(meta.shipToAddressLine),
+    sanitizeAddressSegment(meta.shipToDistrict),
+    sanitizeAddressSegment(meta.shipToCity || shipment.shippingCity),
+  ]
+    .filter((part, index, array) => part && array.indexOf(part) === index);
+
+  if (meta.shipToPostalCode) {
+    const postal = sanitizeAddressSegment(meta.shipToPostalCode);
+    if (postal) {
+      parts.push(`الرمز البريدي: ${postal}`);
+    }
+  }
+
+  return parts.length > 0 ? parts.join('\n') : null;
+};
+
+const getFullAddressLabel = (shipment: LocalShipment) => {
+  const structuredAddress = buildStructuredMetaAddress(shipment);
+  if (structuredAddress) {
+    return structuredAddress;
+  }
+
+  const fallbackParts = [shipment.shippingAddress, shipment.shippingCity]
+    .map((value) => sanitizeAddressSegment(typeof value === 'string' ? value : ''))
+    .filter((value, index, array) => value && array.indexOf(value) === index);
+  const metaAddress = shipment.orderItems?.meta?.shipToArabicText?.trim();
+
+  if (metaAddress) {
+    const fallback = fallbackParts.filter((part) => part && !metaAddress.includes(part)).join('\n');
+    return fallback ? `${metaAddress}\n${fallback}` : metaAddress;
+  }
+
+  return fallbackParts.join('\n') || 'غير متوفر';
+};
+
+const normalizePhoneNumber = (phone: string) => phone.replace(/[^\d]/g, '');
+
+const SAUDI_KEYWORDS = ['saudi', 'ksa', 'السعودية', 'المملكة العربية السعودية'];
+
+const looksLikeSaudiPhoneNumber = (digits: string) => {
+  if (!digits) return false;
+  let normalized = digits.replace(/^00+/, '');
+  if (normalized.startsWith('9665')) {
+    return true;
+  }
+  if (normalized.startsWith('966')) {
+    normalized = normalized.slice(3);
+  }
+  const withoutLeadingZero = normalized.replace(/^0+/, '');
+  return withoutLeadingZero.length === 9 && withoutLeadingZero.startsWith('5');
+};
+
+const isSaudiShipment = (shipment: LocalShipment) => {
+  const normalizedCountry = shipment.shippingCountry?.trim().toLowerCase();
+  if (normalizedCountry) {
+    if (normalizedCountry === 'sa' || normalizedCountry === 'ksa') {
+      return true;
+    }
+    if (SAUDI_KEYWORDS.some((keyword) => normalizedCountry.includes(keyword))) {
+      return true;
+    }
+  }
+
+  const addressContext = [shipment.shippingAddress, shipment.shippingCity, shipment.orderItems?.meta?.shipToArabicText]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (SAUDI_KEYWORDS.some((keyword) => addressContext.includes(keyword))) {
+    return true;
+  }
+
+  const digits = normalizePhoneNumber(shipment.customerPhone || '');
+  return looksLikeSaudiPhoneNumber(digits);
+};
+
+const buildWhatsAppMessage = (shipment: LocalShipment) =>
+  `مرحبًا ${shipment.customerName}
+انا مندوب مارتينا المسؤول عن توصيل طلبك رقم ${shipment.orderNumber}.
+يرجى تأكيد عنوانكم إما عن طريق مشاركة العنوان الوطني أو أي وسيلة أخرى وتأكيد تواجدكم في مكان التوصيل اليوم.`;
+
+const formatSaudiPhoneNumber = (digits: string) => {
+  if (!digits) return '';
+  let normalized = digits.replace(/^00+/, '');
+  if (normalized.startsWith('966')) {
+    normalized = normalized.slice(3);
+  }
+  normalized = normalized.replace(/^0+/, '');
+  return normalized ? `966${normalized}` : digits;
+};
+
+const getWhatsAppPhoneNumber = (shipment: LocalShipment) => {
+  const digits = normalizePhoneNumber(shipment.customerPhone || '');
+  if (!digits) {
+    return null;
+  }
+  if (isSaudiShipment(shipment)) {
+    const saNumber = formatSaudiPhoneNumber(digits);
+    return saNumber || digits;
+  }
+  return digits;
+};
+
+const getWhatsAppLink = (shipment: LocalShipment) => {
+  const phone = getWhatsAppPhoneNumber(shipment);
+  if (!phone) {
+    return null;
+  }
+  const encodedMessage = encodeURIComponent(buildWhatsAppMessage(shipment));
+  return `https://wa.me/${phone}?text=${encodedMessage}`;
+};
 
 export default function MyDeliveriesPage() {
   const { data: session } = useSession();
@@ -814,55 +952,73 @@ export default function MyDeliveriesPage() {
                 <p className="text-center text-gray-500 py-6">لا توجد شحنات نشطة</p>
               ) : (
                 <div className="space-y-4">
-                  {activeAssignments.map((assignment) => (
-                    <div
-                      key={assignment.id}
-                      className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex flex-wrap justify-between items-start gap-4 mb-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 mb-1">
-                            <span className="font-semibold">#{assignment.shipment.orderNumber}</span>
-                            {getStatusBadge(assignment.status)}
-                            {getShipmentTypeBadge(assignment.shipmentDirection)}
-                            {assignment.exchangeRequest && (
-                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                                طلب استبدال
-                              </span>
-                            )}
-                            {assignment.shipment.isCOD && (
-                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                                COD
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-sm text-gray-600">
-                            رقم التتبع:{' '}
-                            <span className="font-mono">{assignment.shipment.trackingNumber}</span>
-                          </div>
-                        </div>
-                        <div className="text-left">
-                          <div className="font-semibold text-lg">
-                            {formatCurrency(assignment.shipment.orderTotal)}
-                          </div>
-                          {assignment.shipment.isCOD && assignment.shipment.codCollection && (
-                            <div className="text-xs text-gray-600">
-                              {getCODStatusBadge(assignment.shipment.codCollection.status)}
+                  {activeAssignments.map((assignment) => {
+                    const fullAddress = getFullAddressLabel(assignment.shipment);
+                    const whatsappLink = getWhatsAppLink(assignment.shipment);
+
+                    return (
+                      <div
+                        key={assignment.id}
+                        className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex flex-wrap justify-between items-start gap-4 mb-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className="font-semibold">#{assignment.shipment.orderNumber}</span>
+                              {getStatusBadge(assignment.status)}
+                              {getShipmentTypeBadge(assignment.shipmentDirection)}
+                              {assignment.exchangeRequest && (
+                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                  طلب استبدال
+                                </span>
+                              )}
+                              {assignment.shipment.isCOD && (
+                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                  COD
+                                </span>
+                              )}
                             </div>
-                          )}
+                            <div className="text-sm text-gray-600">
+                              رقم التتبع:{' '}
+                              <span className="font-mono">{assignment.shipment.trackingNumber}</span>
+                            </div>
+                          </div>
+                          <div className="text-left">
+                            <div className="font-semibold text-lg">
+                              {formatCurrency(assignment.shipment.orderTotal)}
+                            </div>
+                            {assignment.shipment.isCOD && assignment.shipment.codCollection && (
+                              <div className="text-xs text-gray-600">
+                                {getCODStatusBadge(assignment.shipment.codCollection.status)}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 text-sm">
                         <div>
                           <span className="text-gray-600">العميل:</span>{' '}
                           <span className="font-medium">{assignment.shipment.customerName}</span>
                         </div>
-                        <div>
-                          <span className="text-gray-600">الهاتف:</span>{' '}
-                          <span className="font-medium" dir="ltr">
-                            {assignment.shipment.customerPhone}
-                          </span>
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <span className="text-gray-600">الهاتف:</span>{' '}
+                            <span className="font-medium" dir="ltr">
+                              {assignment.shipment.customerPhone}
+                            </span>
+                          </div>
+                          {whatsappLink && (
+                            <a
+                              href={whatsappLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                              title="التواصل عبر واتساب"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                              <span className="sr-only">إرسال رسالة واتساب</span>
+                            </a>
+                          )}
                         </div>
                         <div>
                           <span className="text-gray-600">المدينة:</span>{' '}
@@ -875,8 +1031,8 @@ export default function MyDeliveriesPage() {
                       </div>
 
                       <div className="mb-3 text-sm">
-                        <span className="text-gray-600">العنوان:</span>{' '}
-                        <span className="font-medium">{assignment.shipment.shippingAddress}</span>
+                        <span className="text-gray-600">العنوان الكامل:</span>{' '}
+                        <span className="font-medium whitespace-pre-line">{fullAddress}</span>
                       </div>
 
                       {renderExchangeReminder(assignment.exchangeRequest)}
@@ -936,7 +1092,8 @@ export default function MyDeliveriesPage() {
                         )}
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               )}
             </Card>
@@ -963,33 +1120,41 @@ export default function MyDeliveriesPage() {
                         </td>
                       </tr>
                     ) : (
-                      completedAssignments.map((assignment) => (
-                        <tr key={assignment.id} className="border-b">
-                          <td className="px-3 py-2">
-                            <div className="font-mono font-semibold">{assignment.shipment.orderNumber}</div>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {getShipmentTypeBadge(assignment.shipmentDirection)}
-                              {assignment.exchangeRequest && (
-                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                                  طلب استبدال
-                                </span>
+                      completedAssignments.map((assignment) => {
+                        const fullAddress = getFullAddressLabel(assignment.shipment);
+                        return (
+                          <tr key={assignment.id} className="border-b">
+                            <td className="px-3 py-2">
+                              <div className="font-mono font-semibold">{assignment.shipment.orderNumber}</div>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {getShipmentTypeBadge(assignment.shipmentDirection)}
+                                {assignment.exchangeRequest && (
+                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                    طلب استبدال
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div>{assignment.shipment.customerName}</div>
+                              <div className="mt-1 text-xs text-gray-600 whitespace-pre-line">
+                                {fullAddress}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
+                            <td className="px-3 py-2 font-semibold">
+                              {formatCurrency(assignment.shipment.orderTotal)}
+                              {assignment.shipment.isCOD && (
+                                <span className="text-xs text-orange-600 ml-1">(COD)</span>
                               )}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2">{assignment.shipment.customerName}</td>
-                          <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
-                          <td className="px-3 py-2 font-semibold">
-                            {formatCurrency(assignment.shipment.orderTotal)}
-                            {assignment.shipment.isCOD && (
-                              <span className="text-xs text-orange-600 ml-1">(COD)</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
-                          <td className="px-3 py-2 text-xs">
-                            {formatDate(assignment.deliveredAt || assignment.assignedAt)}
-                          </td>
-                        </tr>
-                      ))
+                            </td>
+                            <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
+                            <td className="px-3 py-2 text-xs">
+                              {formatDate(assignment.deliveredAt || assignment.assignedAt)}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
