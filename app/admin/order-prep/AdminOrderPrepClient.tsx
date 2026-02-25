@@ -299,6 +299,10 @@ export default function AdminOrderPrepPage() {
   const [orderSearchLoading, setOrderSearchLoading] = useState(false);
   const [orderSearchResult, setOrderSearchResult] = useState<OrderAssignment | null>(null);
   const [orderSearchError, setOrderSearchError] = useState<string | null>(null);
+  const [manualAssignUserId, setManualAssignUserId] = useState('');
+  const [manualAssigning, setManualAssigning] = useState(false);
+  const [manualAssignError, setManualAssignError] = useState<string | null>(null);
+  const [manualAssignSuccess, setManualAssignSuccess] = useState<string | null>(null);
   const [perfPreset, setPerfPreset] = useState<PerformancePreset>('today');
   const [perfCustomFrom, setPerfCustomFrom] = useState('');
   const [perfCustomTo, setPerfCustomTo] = useState('');
@@ -520,6 +524,12 @@ export default function AdminOrderPrepPage() {
     if (!isAuthenticated) return;
     loadPerformanceMetrics();
   }, [isAuthenticated, perfPreset, perfCustomFrom, perfCustomTo, loadPerformanceMetrics]);
+
+  useEffect(() => {
+    setManualAssignUserId('');
+    setManualAssignError(null);
+    setManualAssignSuccess(null);
+  }, [orderSearchResult?.orderId]);
 
   const handleTogglePriority = useCallback(
     async (order: PriorityToggleOrder) => {
@@ -824,6 +834,54 @@ export default function AdminOrderPrepPage() {
     },
     [orderSearchQuery],
   );
+
+  const handleManualAssign = useCallback(async () => {
+    if (!orderSearchResult || !manualAssignUserId) {
+      return;
+    }
+
+    const state = orderSearchResult.assignmentState || 'assigned';
+    if (state !== 'new') {
+      setManualAssignError('هذا الطلب مرتبط بالفعل بمستخدم.');
+      return;
+    }
+
+    setManualAssigning(true);
+    setManualAssignError(null);
+    setManualAssignSuccess(null);
+
+    try {
+      const response = await fetch('/api/admin/order-assignments/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: manualAssignUserId,
+          orderId: orderSearchResult.orderId,
+          orderNumber: orderSearchResult.orderNumber,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'فشل تعيين الطلب');
+      }
+
+      if (data.assignment) {
+        setOrderSearchResult(data.assignment as OrderAssignment);
+      }
+
+      setManualAssignSuccess(data.message || 'تم تعيين الطلب بنجاح');
+      setManualAssignUserId('');
+      await refreshAll({ silent: true });
+    } catch (assignError) {
+      console.error('Manual assignment failed:', assignError);
+      const message =
+        assignError instanceof Error ? assignError.message : 'حدث خطأ أثناء التعيين اليدوي';
+      setManualAssignError(message);
+    } finally {
+      setManualAssigning(false);
+    }
+  }, [manualAssignUserId, orderSearchResult, refreshAll]);
 
   const formatCompletionTime = (ms: number | null) => {
     if (ms === null) return '—';
@@ -1150,6 +1208,49 @@ export default function AdminOrderPrepPage() {
                         )}
                       </div>
                     )}
+                  </div>
+                )}
+                {orderSearchResult.assignmentState === 'new' && (
+                  <div className="mt-4 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/60 p-4">
+                    <div className="flex flex-col gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">تعيين الطلب يدوياً</p>
+                        <p className="text-xs text-gray-600">
+                          اختر مستخدم التحضير الذي ترغب بربط الطلب معه وتحديث حالة سلة مباشرة
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                        <select
+                          value={manualAssignUserId}
+                          onChange={(event) => setManualAssignUserId(event.target.value)}
+                          className="flex-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          disabled={manualAssigning || users.length === 0}
+                        >
+                          <option value="">
+                            {users.length === 0 ? 'لا يوجد مستخدمين نشطين' : 'اختر المستخدم'}
+                          </option>
+                          {users.map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.name} ({user.username})
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          className="md:w-40 bg-emerald-600 hover:bg-emerald-700"
+                          onClick={handleManualAssign}
+                          disabled={manualAssigning || !manualAssignUserId || users.length === 0}
+                        >
+                          {manualAssigning ? 'جاري التعيين...' : 'تعيين الطلب'}
+                        </Button>
+                      </div>
+                      {manualAssignError && (
+                        <p className="text-sm text-rose-600">{manualAssignError}</p>
+                      )}
+                      {manualAssignSuccess && (
+                        <p className="text-sm text-emerald-700">{manualAssignSuccess}</p>
+                      )}
+                    </div>
                   </div>
                 )}
                 {orderSearchResult.notes && (
