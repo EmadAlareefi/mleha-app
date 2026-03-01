@@ -168,7 +168,7 @@ const fetchOrderData = async (
     const remoteOrder = await getSallaOrder(MERCHANT_ID, normalizedOrderId).catch(() => null);
     if (remoteOrder) {
       return {
-        orderId: String(remoteOrder.id ?? remoteOrder.order_id ?? normalizedOrderId),
+        orderId: String(remoteOrder.id ?? normalizedOrderId),
         orderNumber:
           normalizedOrderNumber ||
           String(
@@ -177,7 +177,7 @@ const fetchOrderData = async (
               remoteOrder.id ??
               normalizedOrderId,
           ),
-        orderData: remoteOrder as Record<string, unknown>,
+        orderData: remoteOrder as unknown as Record<string, unknown>,
         statusSlug: extractStatusSlug(remoteOrder as unknown as Record<string, unknown>),
       };
     }
@@ -191,11 +191,11 @@ const fetchOrderData = async (
 
     if (remoteOrder) {
       return {
-        orderId: String(remoteOrder.id ?? remoteOrder.order_id ?? remoteOrder.reference_id),
+        orderId: String(remoteOrder.id ?? remoteOrder.reference_id),
         orderNumber:
           normalizedOrderNumber ||
           String(remoteOrder.order_number ?? remoteOrder.reference_id ?? remoteOrder.id),
-        orderData: remoteOrder as Record<string, unknown>,
+        orderData: remoteOrder as unknown as Record<string, unknown>,
         statusSlug: extractStatusSlug(remoteOrder as unknown as Record<string, unknown>),
       };
     }

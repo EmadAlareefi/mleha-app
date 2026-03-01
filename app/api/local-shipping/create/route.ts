@@ -19,7 +19,7 @@ import {
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
-  '1': 75006700,
+  '1': 75062490,
   '15': 75062490,
 };
 

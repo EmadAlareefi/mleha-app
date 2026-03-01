@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import {
-  buildAvailabilityTemplateArgs,
+  buildAvailabilityNotificationMessage,
   listAvailabilityRequestsByIds,
   updateAvailabilityRequestStatus,
   type AvailabilityRequestRecord,
 } from '@/app/lib/salla-availability-requests';
-import { sendWhatsAppButtonTemplate } from '@/app/lib/zoko';
+import { sendMsegatSms } from '@/app/lib/msegat';
 
 export const runtime = 'nodejs';
 
@@ -37,24 +37,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const templateId =
-    typeof body?.templateId === 'string' && body.templateId.trim().length > 0
-      ? body.templateId.trim()
-      : '';
-  if (!templateId) {
-    return NextResponse.json(
-      { success: false, error: 'معرف قالب واتساب مطلوب' },
-      { status: 400 }
-    );
-  }
-
-  const templateLanguage =
-    typeof body?.templateLanguage === 'string' && body.templateLanguage.trim().length > 0
-      ? body.templateLanguage.trim()
-      : undefined;
-
   const message =
-    typeof body?.message === 'string' && body.message.trim().length > 0 ? body.message : ' ';
+    typeof body?.message === 'string' && body.message.trim().length > 0
+      ? body.message.trim()
+      : null;
 
   const requests = await listAvailabilityRequestsByIds(requestIds);
   const actorName = (session.user as any)?.name || session.user?.email || 'عضو فريق سلة';
@@ -64,12 +50,10 @@ export async function POST(request: NextRequest) {
 
   for (const requestRecord of requests) {
     try {
-      await sendWhatsAppButtonTemplate({
+      const smsBody = message || buildAvailabilityNotificationMessage(requestRecord);
+      await sendMsegatSms({
         to: requestRecord.customerPhone,
-        templateId,
-        lang: templateLanguage,
-        templateArgs: buildAvailabilityTemplateArgs(requestRecord),
-        message,
+        body: smsBody,
       });
       const updated = await updateAvailabilityRequestStatus({
         id: requestRecord.id,

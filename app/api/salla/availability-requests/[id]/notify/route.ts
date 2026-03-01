@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import {
-  buildAvailabilityTemplateArgs,
+  buildAvailabilityNotificationMessage,
   getAvailabilityRequestById,
   updateAvailabilityRequestStatus,
 } from '@/app/lib/salla-availability-requests';
-import { sendWhatsAppButtonTemplate } from '@/app/lib/zoko';
+import { sendMsegatSms } from '@/app/lib/msegat';
 
 export const runtime = 'nodejs';
 
@@ -26,15 +26,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const body = await request.json().catch(() => null);
   const markOnly = body?.markOnly === true;
   const message =
-    typeof body?.message === 'string' && body.message.trim().length > 0 ? body.message : ' ';
-  const templateId =
-    typeof body?.templateId === 'string' && body.templateId.trim().length > 0
-      ? body.templateId.trim()
-      : 'notify_available';
-  const templateLanguage =
-    typeof body?.templateLanguage === 'string' && body.templateLanguage.trim().length > 0
-      ? body.templateLanguage.trim()
-      : undefined;
+    typeof body?.message === 'string' && body.message.trim().length > 0
+      ? body.message.trim()
+      : null;
 
   try {
     const requestRecord = await getAvailabilityRequestById(requestId);
@@ -46,12 +40,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (!markOnly) {
-      await sendWhatsAppButtonTemplate({
+      const smsBody = message || buildAvailabilityNotificationMessage(requestRecord);
+      await sendMsegatSms({
         to: requestRecord.customerPhone,
-        templateId,
-        lang: templateLanguage,
-        templateArgs: buildAvailabilityTemplateArgs(requestRecord),
-        message,
+        body: smsBody,
       });
     }
 

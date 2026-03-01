@@ -155,15 +155,24 @@ export async function listAvailabilityRequestsByIds(
   });
 }
 
-export function buildAvailabilityTemplateArgs(
-  request: AvailabilityRequestRecord
-): (string | number)[] {
-  if (!request.productImageUrl) {
-    throw new Error('لا تتوفر صورة للمنتج المرتبط بالطلب');
-  }
-  if (!request.productName) {
-    throw new Error('اسم المنتج غير متوفر لهذا الطلب');
-  }
-  const productLink = `https://mleha.com/ar/products/p${request.productId}`;
-  return [request.productImageUrl, request.productName, productLink];
+export function buildAvailabilityNotificationMessage(request: AvailabilityRequestRecord): string {
+  const productName = request.productName?.trim() || 'المنتج المطلوب';
+  const variationLabel = request.variationName?.trim();
+  const sizeLabel = request.requestedSize?.trim();
+  const extraInfo =
+    variationLabel && variationLabel !== productName
+      ? variationLabel
+      : sizeLabel
+      ? `المقاس ${sizeLabel}`
+      : '';
+  const productLink = request.productId
+    ? `https://mleha.com/ar/products/p${request.productId}`
+    : 'https://mleha.com/ar';
+  const parts = [
+    'عميلنا العزيز،',
+    `منتج ${productName}${extraInfo ? ` (${extraInfo})` : ''} أصبح متوفر الآن في متجر ملحاء.`,
+    `يمكنك الطلب عبر الرابط: ${productLink}`,
+    'شكراً لاختيارك ملحاء.',
+  ];
+  return parts.filter(Boolean).join(' ');
 }

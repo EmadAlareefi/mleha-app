@@ -252,7 +252,7 @@ export default function PrinterSettingsPage() {
                   type="text"
                   value={formData.printerId}
                   onChange={(e) => handleFormChange('printerId', e.target.value)}
-                  placeholder="مثال: 75006700"
+                  placeholder="مثال: 75062490"
                   className="mt-1 rounded-2xl border-slate-200"
                 />
               </div>

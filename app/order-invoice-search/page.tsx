@@ -14,8 +14,8 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 
 const LABEL_PRINTER_OPTIONS = [
-  { id: 75006700, label: 'الطابعة الرئيسية (75006700)' },
-  { id: 75062490, label: 'الطابعة الاحتياطية (75062490)' },
+  { id: 75062490, label: 'الطابعة الرئيسية (75062490)' },
+  { id: 75006700, label: 'الطابعة الاحتياطية (75006700)' },
 ] as const;
 
 interface ShipmentInfo {

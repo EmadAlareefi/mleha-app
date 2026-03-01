@@ -17,8 +17,6 @@ import type {
 } from '@/app/lib/salla-api';
 
 const PAGE_SIZE = 60;
-const DEFAULT_TEMPLATE_ID = 'notify_available';
-const DEFAULT_TEMPLATE_LANGUAGE = 'ar';
 
 type AvailabilityRequestRecord = {
   id: string;
@@ -669,21 +667,17 @@ export default function SallaNotifyPage() {
     [upsertAvailabilityRequest]
   );
 
-  const handleSendZokoMessage = useCallback(
+  const handleSendNotification = useCallback(
     async (requestId: string): Promise<ActionResult> => {
       try {
         const response = await fetch(`/api/salla/availability-requests/${requestId}/notify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            templateId: DEFAULT_TEMPLATE_ID,
-            templateLanguage: DEFAULT_TEMPLATE_LANGUAGE,
-            message: ' ',
-          }),
+          body: JSON.stringify({}),
         });
         const data = await response.json();
         if (!response.ok || !data.success) {
-          throw new Error(data?.error || 'تعذر إرسال رسالة واتساب');
+          throw new Error(data?.error || 'تعذر إرسال الرسالة النصية');
         }
         const updated: AvailabilityRequestRecord | undefined = data.request;
         if (updated) {
@@ -693,7 +687,7 @@ export default function SallaNotifyPage() {
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'تعذر إرسال رسالة واتساب',
+          error: error instanceof Error ? error.message : 'تعذر إرسال الرسالة النصية',
         };
       }
     },
@@ -741,14 +735,11 @@ export default function SallaNotifyPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           requestIds: ids,
-          templateId: DEFAULT_TEMPLATE_ID,
-          templateLanguage: DEFAULT_TEMPLATE_LANGUAGE,
-          message: ' ',
         }),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data?.error || 'تعذر إرسال الرسائل');
+        throw new Error(data?.error || 'تعذر إرسال الرسائل النصية');
       }
       const updatedRecords: AvailabilityRequestRecord[] = Array.isArray(data.updatedRequests)
         ? data.updatedRequests
@@ -784,7 +775,7 @@ export default function SallaNotifyPage() {
     } catch (error) {
       setBulkFeedback({
         type: 'error',
-        message: error instanceof Error ? error.message : 'تعذر إرسال الرسائل المحددة',
+        message: error instanceof Error ? error.message : 'تعذر إرسال الرسائل النصية المحددة',
       });
     } finally {
       setBulkSending(false);
@@ -985,7 +976,7 @@ export default function SallaNotifyPage() {
                 </form>
               ) : (
                 <div className="space-y-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-slate-700">
-                  <p>اعرض كل المشتركين وحددهم لإرسال رسالة واتساب لهم دفعة واحدة.</p>
+                  <p>اعرض كل المشتركين وحددهم لإرسال رسالة نصية عبر مسجات لهم دفعة واحدة.</p>
                   <p>استخدم فلاتر الحالة أو اسم المنتج لتضييق القائمة.</p>
                 </div>
               )}
@@ -1136,7 +1127,7 @@ export default function SallaNotifyPage() {
                 availabilityError={availabilityError}
                 onCreateRequest={handleCreateAvailabilityRequest}
                 statusFilter={requestStatusFilter}
-                onSendZokoMessage={handleSendZokoMessage}
+                onSendNotification={handleSendNotification}
                 onMarkRequestNotified={handleMarkRequestNotified}
               />
             ))}
@@ -1171,7 +1162,7 @@ export default function SallaNotifyPage() {
                   <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <p>
-                        سيتم إرسال قالب واتساب الافتراضي إلى{' '}
+                        سيتم إرسال رسالة نصية افتراضية عبر مسجات إلى{' '}
                         <span className="font-semibold">{selectedCount}</span> من المشتركين المختارين.
                       </p>
                       <div className="flex flex-wrap gap-2">
@@ -1464,7 +1455,7 @@ type ProductNotifyCardProps = {
     payload: NewAvailabilityRequestPayload
   ) => Promise<ActionResult>;
   statusFilter: AvailabilityStatusFilter;
-  onSendZokoMessage: (requestId: string) => Promise<ActionResult>;
+  onSendNotification: (requestId: string) => Promise<ActionResult>;
   onMarkRequestNotified: (requestId: string) => Promise<ActionResult>;
 };
 
@@ -1479,7 +1470,7 @@ function ProductNotifyCard({
   availabilityError,
   onCreateRequest,
   statusFilter,
-  onSendZokoMessage,
+  onSendNotification,
   onMarkRequestNotified,
 }: ProductNotifyCardProps) {
   const [form, setForm] = useState({
@@ -1765,7 +1756,7 @@ function ProductNotifyCard({
                 <AvailabilityRequestCard
                   key={request.id}
                   request={request}
-                  onSendMessage={onSendZokoMessage}
+                  onSendMessage={onSendNotification}
                   onMarkNotified={onMarkRequestNotified}
                 />
               ))}
@@ -1817,7 +1808,7 @@ function AvailabilityRequestCard({
     if (!result.success) {
       setActionError(result.error);
     } else {
-      setActionSuccess('تم إرسال رسالة الإشعار عبر زوكو.');
+      setActionSuccess('تم إرسال رسالة الإشعار عبر مسجات.');
     }
     setSending(false);
   };
@@ -1870,7 +1861,7 @@ function AvailabilityRequestCard({
       {request.status === 'pending' && (
         <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
           <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
-            سيتم إرسال قالب واتساب تلقائياً باستخدام صورة ورابط المنتج المسجل في الطلب.
+            سيتم إرسال رسالة نصية تحتوي على اسم المنتج ورابط الشراء عبر خدمة مسجات.
           </div>
           <Button
             type="button"

@@ -7,7 +7,7 @@ const PRINTNODE_API_KEY = 'qnwXXDzp3JhLS5w1bBWy_F9aIWZgSys1LtMNN4tQcbU';
 const PRINTNODE_BASE_URL = 'https://api.printnode.com';
 const PRINTNODE_PRINTJOBS_URL = `${PRINTNODE_BASE_URL}/printjobs`;
 const PRINTNODE_PRINTERS_URL = `${PRINTNODE_BASE_URL}/printers`;
-export const PRINTNODE_LABEL_PRINTER_ID = 75006700;
+export const PRINTNODE_LABEL_PRINTER_ID = 75062490;
 export const PRINTNODE_INVOICE_PRINTER_ID = 75006701;
 export const PRINTNODE_ORDER_NUMBER_PRINTER_ID = 75062492;
 export const PRINTNODE_LABEL_PAPER_NAME = 'LABEL(100mm x 150mm)';
@@ -16,7 +16,7 @@ export const PRINTNODE_DEFAULT_DPI = '203x203';
 const DEFAULT_LABEL_PAPER_MM = { width: 100, height: 150 } as const;
 const PRINTNODE_FETCH_TIMEOUT_MS = 7000;
 const LABEL_PRINTER_SIZE_OVERRIDES: Record<number, LabelPrinterSizing> = {
-  [PRINTNODE_LABEL_PRINTER_ID]: {
+  75006700: {
     fitToPage: true,
   },
   75062490: {
