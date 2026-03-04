@@ -170,9 +170,9 @@ export function buildAvailabilityNotificationMessage(request: AvailabilityReques
     : 'https://mleha.com/ar';
   const parts = [
     'عميلنا العزيز،',
-    `منتج ${productName}${extraInfo ? ` (${extraInfo})` : ''} أصبح متوفر الآن في متجر ملحاء.`,
+    `منتج ${productName}${extraInfo ? ` (${extraInfo})` : ''} أصبح متوفر الآن في متجر مليحة.`,
     `يمكنك الطلب عبر الرابط: ${productLink}`,
-    'شكراً لاختيارك ملحاء.',
+    'شكراً لاختيارك مليحة.',
   ];
   return parts.filter(Boolean).join(' ');
 }
