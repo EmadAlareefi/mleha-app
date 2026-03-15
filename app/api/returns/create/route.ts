@@ -8,6 +8,10 @@ import { log } from '@/app/lib/logger';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
 import { extractOrderDate } from '@/lib/returns/order-date';
+import {
+  extractSmsaLabelBase64,
+  buildSmsaLabelDataUrl,
+} from '@/lib/returns/smsa-label';
 
 export const runtime = 'nodejs';
 
@@ -393,6 +397,9 @@ export async function POST(request: NextRequest) {
       // Continue with return request creation even if Salla update fails
     }
 
+    const smsaLabelBase64 = extractSmsaLabelBase64(smsaResult.rawResponse);
+    const smsaLabelDataUrl = buildSmsaLabelDataUrl(smsaLabelBase64);
+
     // Store return request in database
     log.info('Storing return request in database', {
       orderId: body.orderId,
@@ -452,6 +459,7 @@ export async function POST(request: NextRequest) {
         type: returnRequest.type,
         status: returnRequest.status,
         smsaTrackingNumber: returnRequest.smsaTrackingNumber,
+        smsaLabelDataUrl,
         totalRefundAmount: returnRequest.totalRefundAmount,
         createdAt: returnRequest.createdAt,
       },

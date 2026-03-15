@@ -19,24 +19,15 @@ import {
   resolveReturnItemImage,
   extractOrderItemImage,
 } from '@/app/lib/returns/item-images';
+import {
+  extractSmsaLabelBase64,
+  buildSmsaLabelDataUrl,
+} from '@/lib/returns/smsa-label';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CopyPhoneButton } from '@/components/CopyPhoneButton';
 
 export const revalidate = 0;
-
-const extractSmsaLabel = (payload: any): string | null => {
-  if (!payload) return null;
-  const awbFile =
-    payload?.waybills?.[0]?.awbFile ??
-    payload?.waybill?.awbFile ??
-    payload?.awbFile ??
-    null;
-  if (typeof awbFile === 'string' && awbFile.trim()) {
-    return awbFile.trim();
-  }
-  return null;
-};
 
 const gregorianDateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
   day: '2-digit',
@@ -85,12 +76,12 @@ async function getReturnRequestWithOrder(id: string) {
     console.error('Failed to fetch Salla order for details page', { error });
   }
 
-  let smsaLabelBase64 = extractSmsaLabel(returnRequest.smsaResponse);
+  let smsaLabelBase64 = extractSmsaLabelBase64(returnRequest.smsaResponse);
 
   if (!smsaLabelBase64 && returnRequest.smsaAwbNumber) {
     try {
       const latestLabel = await trackC2BShipment(returnRequest.smsaAwbNumber);
-      smsaLabelBase64 = extractSmsaLabel(latestLabel);
+      smsaLabelBase64 = extractSmsaLabelBase64(latestLabel);
     } catch (error) {
       console.error('Failed to fetch SMSA return label', {
         returnRequestId: returnRequest.id,
@@ -100,9 +91,7 @@ async function getReturnRequestWithOrder(id: string) {
     }
   }
 
-  const smsaLabelDataUrl = smsaLabelBase64
-    ? `data:application/pdf;base64,${smsaLabelBase64}`
-    : null;
+  const smsaLabelDataUrl = buildSmsaLabelDataUrl(smsaLabelBase64);
 
   return { returnRequest, sallaOrder, smsaLabelDataUrl };
 }

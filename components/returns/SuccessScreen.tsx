@@ -10,6 +10,7 @@ interface SuccessScreenProps {
     type: 'return' | 'exchange';
     status: string;
     smsaTrackingNumber?: string;
+    smsaLabelDataUrl?: string | null;
     totalRefundAmount?: number;
     createdAt: string;
   };
@@ -17,6 +18,9 @@ interface SuccessScreenProps {
 }
 
 export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenProps) {
+  const hasLabel = Boolean(returnRequest.smsaLabelDataUrl);
+  const downloadFileName = `smsa-return-label-${returnRequest.smsaTrackingNumber || returnRequest.orderNumber}.pdf`;
+
   return (
     <div className="max-w-2xl mx-auto">
       <Card className="p-8">
@@ -68,6 +72,45 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
               <p className="text-xs text-gray-500 mt-2">
                 استخدم هذا الرقم لتتبع شحنة الإرجاع
               </p>
+            </div>
+          )}
+
+          {hasLabel && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">ملصق شحنة الإرجاع</p>
+                  <p className="text-xs text-gray-500">
+                    اطبع الملصق وضعه على الطرد قبل تسليم الشحنة لشركة الشحن
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button asChild size="sm" variant="outline">
+                    <a
+                      href={returnRequest.smsaLabelDataUrl || undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      فتح في نافذة جديدة
+                    </a>
+                  </Button>
+                  <Button asChild size="sm">
+                    <a
+                      href={returnRequest.smsaLabelDataUrl || undefined}
+                      download={downloadFileName}
+                    >
+                      تحميل الملصق
+                    </a>
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+                <iframe
+                  title="ملصق شحنة الإرجاع"
+                  src={returnRequest.smsaLabelDataUrl || undefined}
+                  className="w-full h-96"
+                />
+              </div>
             </div>
           )}
 
