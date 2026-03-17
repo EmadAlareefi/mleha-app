@@ -5,6 +5,7 @@ import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { recordDeliveryAgentWalletPayout } from '@/app/lib/delivery-agent-wallet';
+import { getAuditUser } from '@/app/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -360,13 +361,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'المندوب غير موجود' }, { status: 404 });
     }
 
+    const auditUser = getAuditUser(user);
+
     const transaction = await recordDeliveryAgentWalletPayout({
       deliveryAgentId,
       amount: payoutAmount,
       paymentMethod,
       notes,
-      createdById: user.id,
-      createdByName: user.name || user.username,
+      createdById: auditUser.id || undefined,
+      createdByName: auditUser.name || user.name || user.username,
     });
 
     let settledCod: { count: number; amount: number } | null = null;

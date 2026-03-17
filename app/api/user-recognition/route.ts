@@ -4,6 +4,7 @@ import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { Prisma, RewardPenaltyType } from '@prisma/client';
+import { getAuditUser } from '@/app/lib/audit';
 
 const MAX_LIMIT = 200;
 
@@ -219,7 +220,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const createdBy = session.user as any;
+    const currentUser = session.user as any;
+    const createdBy = getAuditUser(currentUser);
 
     const record = await prisma.userRecognition.create({
       data: {
@@ -229,9 +231,9 @@ export async function POST(request: NextRequest) {
         description,
         points: parsedPoints,
         effectiveDate: effectiveDateValue,
-        createdById: createdBy?.id || null,
-        createdByName: createdBy?.name || null,
-        createdByUsername: createdBy?.username || null,
+        createdById: createdBy.id,
+        createdByName: createdBy.name || currentUser?.name || currentUser?.username || null,
+        createdByUsername: createdBy.username,
       },
       include: {
         user: {

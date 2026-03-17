@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { getAuditUser } from '@/app/lib/audit';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const DEFAULT_REASON = 'تم تحديده من لوحة إدارة التحضير';
@@ -51,7 +52,8 @@ export async function POST(request: NextRequest) {
     }
 
     const user = check.session?.user as any;
-    const actorName = user?.name || user?.username || null;
+    const auditUser = getAuditUser(user);
+    const actorName = auditUser.name || user?.name || user?.username || null;
 
     const record = await prisma.highPriorityOrder.upsert({
       where: {
@@ -65,9 +67,9 @@ export async function POST(request: NextRequest) {
         customerName: customerName || null,
         reason,
         notes: notes || null,
-        createdById: user?.id || null,
+        createdById: auditUser.id,
         createdByName: actorName,
-        createdByUsername: user?.username || null,
+        createdByUsername: auditUser.username || user?.username || null,
       },
       create: {
         merchantId: MERCHANT_ID,
@@ -76,9 +78,9 @@ export async function POST(request: NextRequest) {
         customerName: customerName || null,
         reason,
         notes: notes || null,
-        createdById: user?.id || null,
+        createdById: auditUser.id,
         createdByName: actorName,
-        createdByUsername: user?.username || null,
+        createdByUsername: auditUser.username || user?.username || null,
       },
     });
 

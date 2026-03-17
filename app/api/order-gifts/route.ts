@@ -4,6 +4,7 @@ import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import type { OrderGiftFlag } from '@prisma/client';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { getAuditUser } from '@/app/lib/audit';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
   if (!auth.authorized) {
     return auth.response;
   }
+  const auditUser = getAuditUser(auth.user);
 
   const { searchParams } = new URL(request.url);
   const orderId = (searchParams.get('orderId') || '').trim();
@@ -148,17 +150,17 @@ export async function POST(request: NextRequest) {
       orderNumber,
       reason,
       notes,
-      createdById: auth.user.id || null,
-      createdByName: auth.user.name || null,
-      createdByUsername: auth.user.username || null,
+      createdById: auditUser.id,
+      createdByName: auditUser.name || auth.user.name || auth.user.username || null,
+      createdByUsername: auditUser.username,
     },
     update: {
       orderNumber,
       reason,
       notes,
-      createdById: auth.user.id || null,
-      createdByName: auth.user.name || null,
-      createdByUsername: auth.user.username || null,
+      createdById: auditUser.id,
+      createdByName: auditUser.name || auth.user.name || auth.user.username || null,
+      createdByUsername: auditUser.username,
     },
   });
 

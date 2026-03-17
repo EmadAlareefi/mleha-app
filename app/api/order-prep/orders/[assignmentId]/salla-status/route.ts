@@ -5,6 +5,7 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 import { prisma } from '@/lib/prisma';
 import { createSallaOrderHistoryEntry, updateSallaOrderStatus } from '@/app/lib/salla-order-status';
 import { log } from '@/app/lib/logger';
+import { getAuditUser } from '@/app/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -47,6 +48,7 @@ export async function POST(
   }
 
   const user = session.user as any;
+  const auditUser = getAuditUser(user);
   const { assignmentId } = await context.params;
 
   try {
@@ -126,8 +128,9 @@ export async function POST(
         reason: target === 'under_review_x4' ? 'missing_items' : 'manual_review',
         statusTarget: target,
         notes: note || null,
-        createdById: user.id || null,
+        createdById: auditUser.id,
         createdByName:
+          auditUser.name ||
           user.name ||
           (user as any)?.username ||
           user.email ||

@@ -7,6 +7,7 @@ import {
   ensureShipmentWalletCredit,
   removeShipmentWalletCredit,
 } from '@/app/lib/delivery-agent-wallet';
+import { getAuditUser } from '@/app/lib/audit';
 
 export const runtime = 'nodejs';
 
@@ -26,6 +27,7 @@ export async function PATCH(
     }
 
     const user = session.user as any;
+    const auditUser = getAuditUser(user);
     const { id: assignmentId } = await params;
     const body = await request.json();
 
@@ -163,8 +165,8 @@ export async function PATCH(
         assignmentId,
         orderNumber: updatedAssignment.shipment?.orderNumber,
         trackingNumber: updatedAssignment.shipment?.trackingNumber,
-        createdById: user.id,
-        createdByName: user.name || user.username,
+        createdById: auditUser.id || undefined,
+        createdByName: auditUser.name || user.name || user.username,
       });
     } else if (
       previousStatus === 'delivered' &&

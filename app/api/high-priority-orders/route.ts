@@ -7,6 +7,7 @@ import { log } from '@/app/lib/logger';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
 import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { getAuditUser } from '@/app/lib/audit';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
@@ -142,6 +143,8 @@ export async function POST(request: NextRequest) {
       || order.customer?.name
       || '';
 
+    const auditUser = getAuditUser(session.user as any);
+
     const record = await prisma.highPriorityOrder.upsert({
       where: {
         merchantId_orderId: {
@@ -162,9 +165,9 @@ export async function POST(request: NextRequest) {
         customerName,
         reason: reason || null,
         notes: notes || null,
-        createdById: (session.user as any)?.id || null,
-        createdByName: session.user.name || null,
-        createdByUsername: (session.user as any)?.username || null,
+        createdById: auditUser.id,
+        createdByName: auditUser.name || session.user.name || null,
+        createdByUsername: auditUser.username || (session.user as any)?.username || null,
       },
     });
 
