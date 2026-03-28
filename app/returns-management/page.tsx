@@ -14,17 +14,6 @@ import {
   STATUS_COLORS,
   INSPECTION_BADGE_STYLES,
 } from '@/app/lib/returns/status';
-import {
-  Ban,
-  CircleCheck,
-  ClipboardList,
-  PackageCheck,
-  RefreshCcw,
-  ShieldCheck,
-  Truck,
-  XCircle,
-  type LucideIcon,
-} from 'lucide-react';
 
 interface ReturnItem {
   id: string;
@@ -181,65 +170,21 @@ const formatPrice = (value: number | string) => {
   return '0.00';
 };
 
-type StatusFilterOption = {
-  value: string;
-  label: string;
-  description?: string;
-  icon: LucideIcon;
-  accent?: 'green';
-};
+const resolveRefundAmount = (request: ReturnRequest): number | null => {
+  if (request.totalRefundAmount == null) {
+    return null;
+  }
+  const amount =
+    typeof request.totalRefundAmount === 'number'
+      ? request.totalRefundAmount
+      : Number(request.totalRefundAmount);
 
-const STATUS_FILTERS: StatusFilterOption[] = [
-  {
-    value: 'delivered',
-    label: 'تم التسليم',
-    description: 'تركيز على الطلبات المسلَّمة',
-    icon: PackageCheck,
-    accent: 'green',
-  },
-  {
-    value: '',
-    label: 'الكل',
-    description: 'عرض جميع الطلبات',
-    icon: ClipboardList,
-  },
-  {
-    value: 'pending_review',
-    label: 'قيد المراجعة',
-    description: 'بانتظار المراجعة',
-    icon: RefreshCcw,
-  },
-  {
-    value: 'approved',
-    label: 'مقبول',
-    description: 'تمت الموافقة',
-    icon: ShieldCheck,
-  },
-  {
-    value: 'rejected',
-    label: 'مرفوض',
-    description: 'تم رفض الطلب',
-    icon: XCircle,
-  },
-  {
-    value: 'shipped',
-    label: 'تم الشحن',
-    description: 'تم إرساله للعميل',
-    icon: Truck,
-  },
-  {
-    value: 'completed',
-    label: 'مكتمل',
-    description: 'جميع الإجراءات تمت',
-    icon: CircleCheck,
-  },
-  {
-    value: 'cancelled',
-    label: 'ملغي',
-    description: 'تم إلغاء الطلب',
-    icon: Ban,
-  },
-];
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
+
+  return amount;
+};
 
 export default function ReturnsManagementPage() {
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
@@ -250,10 +195,6 @@ export default function ReturnsManagementPage() {
   const [trackingStatusesLoading, setTrackingStatusesLoading] = useState(false);
   const trackingFetchId = useRef(0);
 
-  // Filters
-  const [typeFilter, setTypeFilter] = useState<'all' | 'return' | 'exchange'>('all');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [viewMode, setViewMode] = useState<'active' | 'completed'>('active');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Pagination
@@ -285,19 +226,13 @@ export default function ReturnsManagementPage() {
     return range;
   }, [page, totalPages]);
   const [total, setTotal] = useState(0);
-  useEffect(() => {
-    setPage(1);
-    if (viewMode === 'completed') {
-      setStatusFilter('');
-    }
-  }, [viewMode]);
 
   // Selected request for modal
   const [selectedRequest, setSelectedRequest] = useState<ReturnRequest | null>(null);
 
   useEffect(() => {
     loadReturnRequests();
-  }, [typeFilter, statusFilter, searchQuery, page, viewMode]);
+  }, [searchQuery, page]);
 
   const fetchTrackingStatuses = async (requests: ReturnRequest[]) => {
     const pendingTrackingNumbers = Array.from(
@@ -365,21 +300,8 @@ export default function ReturnsManagementPage() {
     try {
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: '20',
+        limit: '100',
       });
-
-      if (typeFilter !== 'all') {
-        params.append('type', typeFilter);
-      }
-
-      if (viewMode === 'completed') {
-        params.append('status', 'completed');
-      } else if (statusFilter) {
-        params.append('status', statusFilter);
-      }
-      if (viewMode === 'active') {
-        params.append('excludeStatus', 'completed');
-      }
 
       if (searchQuery.trim()) {
         params.append('search', searchQuery.trim());
@@ -529,7 +451,11 @@ export default function ReturnsManagementPage() {
     }
   }
 
-  const createCoupon = async (requestId: string, amount: number) => {
+  const createCoupon = async (
+    requestId: string,
+    amount: number,
+    options: { autoComplete?: boolean } = {},
+  ) => {
     try {
       const response = await fetch('/api/returns/create-coupon', {
         method: 'POST',
@@ -554,7 +480,7 @@ export default function ReturnsManagementPage() {
           );
 
           if (manualCode && manualCode.trim()) {
-            await assignManualCoupon(requestId, manualCode.trim());
+            await assignManualCoupon(requestId, manualCode.trim(), options);
             return;
           }
         }
@@ -564,13 +490,21 @@ export default function ReturnsManagementPage() {
 
       const notificationMessage = describeNotificationResult(data.notification);
       alert(`تم إنشاء الكوبون بنجاح: ${data.coupon.code}${notificationMessage}`);
-      loadReturnRequests();
+      if (options.autoComplete) {
+        await updateStatus(requestId, 'completed');
+      } else {
+        loadReturnRequests();
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'حدث خطأ');
     }
   };
 
-  const assignManualCoupon = async (requestId: string, couponCode: string) => {
+  const assignManualCoupon = async (
+    requestId: string,
+    couponCode: string,
+    options: { autoComplete?: boolean } = {},
+  ) => {
     try {
       const response = await fetch('/api/returns/manual-coupon', {
         method: 'POST',
@@ -589,10 +523,64 @@ export default function ReturnsManagementPage() {
 
       const notificationMessage = describeNotificationResult(data.notification);
       alert(`تم تعيين الكوبون بنجاح: ${couponCode}${notificationMessage}`);
-      loadReturnRequests();
+      if (options.autoComplete) {
+        await updateStatus(requestId, 'completed');
+      } else {
+        loadReturnRequests();
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'حدث خطأ');
     }
+  };
+
+  const handleRefundCompletion = async (request: ReturnRequest) => {
+    const amount = resolveRefundAmount(request);
+    if (amount == null) {
+      alert('يرجى تحديد مبلغ الاسترداد قبل إنهاء الطلب.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `هل تم صرف مبلغ ${formatPrice(amount)} ر.س للعميل؟ سيتم تعليم الطلب كمكتمل.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    await updateStatus(request.id, 'completed');
+  };
+
+  const handleExchangeCompletion = async (request: ReturnRequest) => {
+    const amount = resolveRefundAmount(request);
+    if (amount == null) {
+      alert('يرجى تحديد قيمة الكوبون قبل الإنشاء.');
+      return;
+    }
+
+    await createCoupon(request.id, amount, { autoComplete: true });
+  };
+
+  const handleExchangeFinalize = async (request: ReturnRequest) => {
+    if (!request.couponCode) {
+      alert('لا يوجد كوبون مرتبط بالطلب، قم بإنشائه أولاً.');
+      return;
+    }
+
+    const confirmed = window.confirm('سيتم تعليم الطلب كمكتمل بعد تسليم الكوبون للعميل. المتابعة؟');
+    if (!confirmed) {
+      return;
+    }
+
+    await updateStatus(request.id, 'completed');
+  };
+
+  const handleReopenRequest = async (request: ReturnRequest) => {
+    const confirmed = window.confirm('سيتم إعادة الطلب للمراجعة. هل تريد المتابعة؟');
+    if (!confirmed) {
+      return;
+    }
+
+    await updateStatus(request.id, 'pending_review');
   };
 
   return (
@@ -618,115 +606,25 @@ export default function ReturnsManagementPage() {
           </div>
         </div>
 
-        <div className="mb-6 flex flex-wrap gap-3">
-          <Button
-            variant={viewMode === 'active' ? 'default' : 'outline'}
-            onClick={() => setViewMode('active')}
-          >
-            الطلبات الحالية
-          </Button>
-          <Button
-            variant={viewMode === 'completed' ? 'default' : 'outline'}
-            onClick={() => setViewMode('completed')}
-          >
-            الطلبات المكتملة
-          </Button>
-        </div>
-
-        {/* Filters */}
-        <Card className="p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Search */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-2">بحث</label>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setPage(1);
-                }}
-                placeholder="رقم الطلب، اسم العميل، رقم التتبع..."
-                className="w-full px-4 py-2 border rounded-lg"
-              />
-            </div>
-
-            {/* Type Filter */}
-            <div>
-              <label className="block text-sm font-medium mb-2">النوع</label>
-              <select
-                value={typeFilter}
-                onChange={(e) => {
-                  setTypeFilter(e.target.value as any);
-                  setPage(1);
-                }}
-                className="w-full px-4 py-2 border rounded-lg"
-              >
-                <option value="all">الكل</option>
-                <option value="return">إرجاع</option>
-                <option value="exchange">استبدال</option>
-              </select>
-            </div>
-
-            {/* Status Filter */}
-            <div className="md:col-span-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium">الحالة</label>
-                {viewMode === 'completed' && (
-                  <span className="text-xs text-gray-500">
-                    عرض الطلبات المكتملة يوقف تصفية الحالات النشطة
-                  </span>
-                )}
-              </div>
-              <div
-                className={`grid grid-cols-2 lg:grid-cols-4 gap-3 ${
-                  viewMode === 'completed' ? 'opacity-60 pointer-events-none' : ''
-                }`}
-              >
-                {STATUS_FILTERS.map((option) => {
-                  const Icon = option.icon;
-                  const isActive = statusFilter === option.value;
-                  const isGreen = option.accent === 'green';
-                  const cardClasses = isGreen
-                    ? isActive
-                      ? 'border-green-500 bg-green-100 text-green-900 shadow-sm'
-                      : 'border-green-200 bg-green-50 text-green-800 hover:border-green-400'
-                    : isActive
-                      ? 'border-blue-500 bg-blue-50 text-blue-900 shadow-sm'
-                      : 'border-gray-200 hover:border-blue-300 text-gray-700';
-                  const iconWrapperClasses = isGreen
-                    ? isActive
-                      ? 'bg-white text-green-600'
-                      : 'bg-green-100 text-green-700'
-                    : isActive
-                      ? 'bg-white text-blue-600'
-                      : 'bg-gray-100 text-gray-600';
-                  return (
-                    <button
-                      key={option.value || 'all'}
-                      type="button"
-                      onClick={() => {
-                        setStatusFilter(option.value);
-                        setPage(1);
-                      }}
-                      className={`flex items-start gap-3 rounded-2xl border p-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${cardClasses}`}
-                    >
-                      <span
-                        className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${iconWrapperClasses}`}
-                      >
-                        <Icon className="h-5 w-5" aria-hidden="true" />
-                      </span>
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-semibold">{option.label}</p>
-                        {option.description && (
-                          <p className="text-xs text-gray-500">{option.description}</p>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+        <Card className="p-6 mb-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold mb-1">تدفق مبسط للطلبات</h2>
+            <p className="text-sm text-gray-600">
+              تحقق من الطلب، حدّد نوعه، ثم قم بإصدار الاسترداد أو إنشاء كوبون الاستبدال لإنهائه دون المرور بحالات متعددة.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">بحث سريع</label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              placeholder="رقم الطلب، اسم العميل، رقم التتبع..."
+              className="w-full px-4 py-2 border rounded-lg"
+            />
           </div>
         </Card>
 
@@ -898,46 +796,67 @@ export default function ReturnsManagementPage() {
                       </div>
 
                       {/* Actions */}
-                      <div className="space-y-2">
-                        <select
-                          value={request.type}
-                          onChange={(e) => updateRequestType(request.id, e.target.value as 'return' | 'exchange')}
-                          className="w-full px-3 py-2 border rounded-lg text-sm"
-                          aria-label="نوع طلب الإرجاع"
-                        >
-                          <option value="return">طلب إرجاع</option>
-                          <option value="exchange">طلب استبدال</option>
-                        </select>
-
-                        <select
-                          value={request.status}
-                          onChange={(e) => updateStatus(request.id, e.target.value)}
-                          className="w-full px-3 py-2 border rounded-lg text-sm"
-                        >
-                          <option value="pending_review">قيد المراجعة</option>
-                          <option value="approved">مقبول</option>
-                          <option value="rejected">مرفوض</option>
-                          <option value="shipped">تم الشحن</option>
-                          <option value="delivered">تم التسليم</option>
-                          <option value="completed">مكتمل</option>
-                          <option value="cancelled">ملغي</option>
-                        </select>
-
-                        {request.type === 'exchange' && !request.couponCode && request.totalRefundAmount && (
-                          <Button
-                            onClick={() => createCoupon(request.id, Number(request.totalRefundAmount))}
-                            className="w-full"
-                            variant="outline"
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">
+                            نوع المعالجة
+                          </label>
+                          <select
+                            value={request.type}
+                            onChange={(e) =>
+                              updateRequestType(request.id, e.target.value as 'return' | 'exchange')
+                            }
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                            aria-label="نوع طلب الإرجاع"
                           >
-                            إنشاء كوبون
+                            <option value="return">استرداد مبلغ</option>
+                            <option value="exchange">استبدال بكوبون</option>
+                          </select>
+                        </div>
+
+                        {request.status !== 'completed' ? (
+                          <>
+                            {request.type === 'return' && (
+                              <Button className="w-full" onClick={() => handleRefundCompletion(request)}>
+                                تأكيد الاسترداد وإنهاء الطلب
+                              </Button>
+                            )}
+
+                            {request.type === 'exchange' && (
+                              <>
+                                {!request.couponCode ? (
+                                  <Button
+                                    className="w-full"
+                                    variant="outline"
+                                    onClick={() => handleExchangeCompletion(request)}
+                                  >
+                                    إنشاء كوبون وإنهاء الطلب
+                                  </Button>
+                                ) : (
+                                  <Button className="w-full" onClick={() => handleExchangeFinalize(request)}>
+                                    إنهاء الطلب بعد إرسال الكوبون
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <div className="rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm px-3 py-2 text-center">
+                            تم إنهاء الطلب
+                          </div>
+                        )}
+
+                        {request.status === 'completed' && (
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => handleReopenRequest(request)}
+                          >
+                            إعادة للمراجعة
                           </Button>
                         )}
 
-                        <Button
-                          onClick={() => setSelectedRequest(request)}
-                          variant="outline"
-                          className="w-full"
-                        >
+                        <Button onClick={() => setSelectedRequest(request)} variant="outline" className="w-full">
                           التفاصيل
                         </Button>
                       </div>

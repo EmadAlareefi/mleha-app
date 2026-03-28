@@ -50,26 +50,73 @@ get_env_value() {
   done < <(sed $'s/\r$//' "$ENV_FILE")
 }
 
-SOURCE_URL="$(get_env_value "NEON_DATABASE_URL")"
-[[ -z "$SOURCE_URL" ]] && SOURCE_URL="$(get_env_value "DATABASE_URL")"
-TARGET_URL="$(get_env_value "SUPABASE_DATABASE_URL")"
+get_first_env_value() {
+  local value
+  for key in "$@"; do
+    value="$(get_env_value "$key")"
+    if [[ -n "$value" ]]; then
+      printf '%s\n' "$value"
+      return
+    fi
+  done
+}
+
+SOURCE_URL="$(get_first_env_value "NEON_DATABASE_URL_UNPOOLED" "NEON_DATABASE_URL" "DATABASE_URL")"
+TARGET_URL="$(get_first_env_value "SUPABASE_DIRECT_URL" "SUPABASE_DATABASE_URL" "SUPABASE_DATABASE_POOL_URL")"
 
 if [[ -z "$SOURCE_URL" ]]; then
-  echo "❌ Missing NEON_DATABASE_URL or DATABASE_URL in ${ENV_FILE}" >&2
+  echo "❌ Missing NEON_DATABASE_URL_UNPOOLED / NEON_DATABASE_URL / DATABASE_URL in ${ENV_FILE}" >&2
   exit 1
 fi
 
 if [[ -z "$TARGET_URL" ]]; then
-  echo "❌ Missing SUPABASE_DATABASE_URL in ${ENV_FILE}" >&2
+  echo "❌ Missing SUPABASE_DIRECT_URL / SUPABASE_DATABASE_URL / SUPABASE_DATABASE_POOL_URL in ${ENV_FILE}" >&2
   exit 1
 fi
 
-if ! command -v pg_dump >/dev/null 2>&1; then
-  echo "❌ pg_dump not found. Install PostgreSQL client tools and retry." >&2
+PG_DUMP_BIN="${PG_DUMP_BIN:-pg_dump}"
+PSQL_BIN="${PSQL_BIN:-psql}"
+
+normalize_win_path() {
+  local path="$1"
+  if [[ -z "$path" ]]; then
+    return
+  fi
+
+  # Strip wrapping quotes from Windows-style paths
+  if [[ "${path:0:1}" == "\"" && "${path: -1}" == "\"" ]]; then
+    path="${path:1:-1}"
+  fi
+
+  # Convert C:\foo\bar paths to /mnt/c/foo/bar for bash
+  if [[ "$path" =~ ^([A-Za-z]):\\ ]]; then
+    local drive_letter="${BASH_REMATCH[1]}"
+    local drive_lower="$(tr '[:upper:]' '[:lower:]' <<<"$drive_letter")"
+    local rest="${path:2}"
+    rest="${rest//\\//}"
+    rest="${rest#/}"
+
+    if [[ -d "/mnt/${drive_lower}" ]]; then
+      # WSL path format (/mnt/c/...)
+      path="/mnt/${drive_lower}/${rest}"
+    else
+      # Git Bash/MSYS path format (/c/...)
+      path="/${drive_lower}/${rest}"
+    fi
+  fi
+
+  printf '%s\n' "$path"
+}
+
+PG_DUMP_BIN="$(normalize_win_path "$PG_DUMP_BIN")"
+PSQL_BIN="$(normalize_win_path "$PSQL_BIN")"
+
+if ! command -v "$PG_DUMP_BIN" >/dev/null 2>&1; then
+  echo "❌ ${PG_DUMP_BIN} not found. Install PostgreSQL client tools and retry (set PG_DUMP_BIN to the full path if needed)." >&2
   exit 1
 fi
 
-PG_DUMP_VERSION="$(pg_dump --version | awk '{print $3}')"
+PG_DUMP_VERSION="$("$PG_DUMP_BIN" --version | awk '{print $3}')"
 if [[ "$PG_DUMP_VERSION" =~ ^([0-9]+)\. ]]; then
   PG_DUMP_MAJOR="${BASH_REMATCH[1]}"
 else
@@ -77,26 +124,26 @@ else
 fi
 
 if [[ "$PG_DUMP_MAJOR" -lt 17 ]]; then
-  echo "❌ pg_dump is version ${PG_DUMP_VERSION}. Neon currently runs Postgres 17, so install pg_dump 17+ (e.g., 'sudo apt install postgresql-client-17')." >&2
+  echo "❌ ${PG_DUMP_BIN} is version ${PG_DUMP_VERSION}. Neon currently runs Postgres 17, so install pg_dump 17+ (e.g., 'sudo apt install postgresql-client-17') or point PG_DUMP_BIN at a newer binary." >&2
   exit 1
 fi
 
-if ! command -v psql >/dev/null 2>&1; then
-  echo "❌ psql not found. Install PostgreSQL client tools and retry." >&2
+if ! command -v "$PSQL_BIN" >/dev/null 2>&1; then
+  echo "❌ ${PSQL_BIN} not found. Install PostgreSQL client tools and retry (set PSQL_BIN to the full path if needed)." >&2
   exit 1
 fi
 
 mkdir -p "$TMP_DIR"
 
 echo "${BOLD}Creating Neon dump:${RESET} $DUMP_FILE"
-pg_dump \
+"$PG_DUMP_BIN" \
   --no-owner \
   --no-privileges \
   --format=plain \
   "$SOURCE_URL" > "$DUMP_FILE"
 
 echo "${BOLD}Restoring dump into Supabase...${RESET}"
-if ! psql "$TARGET_URL" < "$DUMP_FILE"; then
+if ! "$PSQL_BIN" "$TARGET_URL" < "$DUMP_FILE"; then
   echo "❌ Restore failed. Leaving dump at $DUMP_FILE for manual inspection." >&2
   exit 1
 fi
