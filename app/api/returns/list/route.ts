@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     // Filters
-    const type = searchParams.get('type'); // 'return' | 'exchange' | null (all)
+    const typeParams = searchParams.getAll('type').filter(Boolean); // 'return' | 'exchange'
     const statusParams = searchParams.getAll('status').filter(Boolean); // allow multiple statuses
     const search = searchParams.get('search'); // search by order number, customer name, tracking number
     const excludeStatusParams = searchParams.getAll('excludeStatus'); // statuses to exclude
@@ -26,8 +26,16 @@ export async function GET(request: NextRequest) {
     // Build where clause
     const where: Prisma.ReturnRequestWhereInput = {};
 
-    if (type && (type === 'return' || type === 'exchange')) {
-      where.type = type;
+    if (typeParams.length === 1) {
+      const [singleType] = typeParams;
+      if (singleType === 'return' || singleType === 'exchange') {
+        where.type = singleType;
+      }
+    } else if (typeParams.length > 1) {
+      const validTypes = typeParams.filter((value) => value === 'return' || value === 'exchange');
+      if (validTypes.length > 0) {
+        where.type = { in: validTypes };
+      }
     }
 
     if (statusParams.length === 1) {

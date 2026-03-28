@@ -193,6 +193,13 @@ const STATUS_FILTER_OPTIONS = [
 
 type StatusFilterKey = (typeof STATUS_FILTER_OPTIONS)[number]['key'];
 
+const TYPE_FILTER_OPTIONS = [
+  { key: 'return', label: 'طلبات استرداد' },
+  { key: 'exchange', label: 'طلبات استبدال' },
+] as const;
+
+type TypeFilterKey = (typeof TYPE_FILTER_OPTIONS)[number]['key'];
+
 export default function ReturnsManagementPage() {
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,6 +217,10 @@ export default function ReturnsManagementPage() {
   const [statusFilters, setStatusFilters] = useState<Record<StatusFilterKey, boolean>>({
     pending_review: true,
     completed: false,
+  });
+  const [typeFilters, setTypeFilters] = useState<Record<TypeFilterKey, boolean>>({
+    return: true,
+    exchange: true,
   });
 
   // Pagination
@@ -247,7 +258,7 @@ export default function ReturnsManagementPage() {
 
   useEffect(() => {
     loadReturnRequests();
-  }, [searchQuery, page, inspectionFilters, statusFilters]);
+  }, [searchQuery, page, inspectionFilters, statusFilters, typeFilters]);
 
   const handleInspectionFilterChange = (key: 'inspected' | 'review') => {
     setInspectionFilters((prev) => ({
@@ -259,6 +270,14 @@ export default function ReturnsManagementPage() {
 
   const handleStatusFilterChange = (key: StatusFilterKey) => {
     setStatusFilters((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+    setPage(1);
+  };
+
+  const handleTypeFilterChange = (key: TypeFilterKey) => {
+    setTypeFilters((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
@@ -333,6 +352,13 @@ export default function ReturnsManagementPage() {
         page: page.toString(),
         limit: '100',
       });
+
+      const activeTypes = TYPE_FILTER_OPTIONS.filter((option) => typeFilters[option.key]).map(
+        (option) => option.key,
+      );
+      if (activeTypes.length > 0 && activeTypes.length < TYPE_FILTER_OPTIONS.length) {
+        activeTypes.forEach((typeKey) => params.append('type', typeKey));
+      }
 
       const activeStatuses = STATUS_FILTER_OPTIONS.filter((option) => statusFilters[option.key]).map(
         (option) => option.key,
@@ -688,6 +714,25 @@ export default function ReturnsManagementPage() {
                     className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     checked={inspectionFilters[option.key]}
                     onChange={() => handleInspectionFilterChange(option.key)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">تصفية حسب نوع الطلب</label>
+            <div className="flex flex-wrap gap-4">
+              {TYPE_FILTER_OPTIONS.map((option) => (
+                <label
+                  key={option.key}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    checked={typeFilters[option.key]}
+                    onChange={() => handleTypeFilterChange(option.key)}
                   />
                   <span>{option.label}</span>
                 </label>
