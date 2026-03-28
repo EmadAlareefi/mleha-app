@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 
@@ -14,22 +15,25 @@ export async function GET(request: NextRequest) {
 
     // Filters
     const type = searchParams.get('type'); // 'return' | 'exchange' | null (all)
-    const status = searchParams.get('status'); // status filter
+    const statusParams = searchParams.getAll('status').filter(Boolean); // allow multiple statuses
     const search = searchParams.get('search'); // search by order number, customer name, tracking number
     const excludeStatusParams = searchParams.getAll('excludeStatus'); // statuses to exclude
+    const inspectionParams = searchParams.getAll('inspection'); // inspection filters
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: any = {};
+    const where: Prisma.ReturnRequestWhereInput = {};
 
     if (type && (type === 'return' || type === 'exchange')) {
       where.type = type;
     }
 
-    if (status) {
-      where.status = status;
+    if (statusParams.length === 1) {
+      where.status = statusParams[0];
+    } else if (statusParams.length > 1) {
+      where.status = { in: statusParams };
     }
     if (excludeStatusParams.length > 0) {
       where.status = {
@@ -46,6 +50,51 @@ export async function GET(request: NextRequest) {
         { customerPhone: { contains: search.trim(), mode: 'insensitive' } },
         { smsaTrackingNumber: { contains: search.trim(), mode: 'insensitive' } },
       ];
+    }
+
+    const inspectionFilters: Prisma.ReturnRequestWhereInput[] = [];
+    const includeInspected = inspectionParams.includes('inspected');
+    const includeReview = inspectionParams.includes('review');
+
+    if (includeInspected) {
+      inspectionFilters.push({
+        items: {
+          some: {
+            conditionStatus: { not: null },
+          },
+        },
+      });
+    }
+
+    if (includeReview) {
+      inspectionFilters.push({
+        OR: [
+          { status: 'pending_review' },
+          {
+            items: {
+              none: {
+                conditionStatus: { not: null },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    if (inspectionFilters.length > 0) {
+      const existingAnd = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : [];
+
+      if (inspectionFilters.length === 1) {
+        existingAnd.push(inspectionFilters[0]);
+      } else {
+        existingAnd.push({ OR: inspectionFilters });
+      }
+
+      where.AND = existingAnd;
     }
 
     // Get total count

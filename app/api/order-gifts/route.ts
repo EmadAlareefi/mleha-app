@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
   if (!auth.authorized) {
     return auth.response;
   }
+  const auditUser = getAuditUser(auth.user);
 
   const body = await parseJson(request);
 

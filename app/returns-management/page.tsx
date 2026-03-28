@@ -186,6 +186,13 @@ const resolveRefundAmount = (request: ReturnRequest): number | null => {
   return amount;
 };
 
+const STATUS_FILTER_OPTIONS = [
+  { key: 'pending_review', label: 'تحت المراجعة' },
+  { key: 'completed', label: 'مكتمل' },
+] as const;
+
+type StatusFilterKey = (typeof STATUS_FILTER_OPTIONS)[number]['key'];
+
 export default function ReturnsManagementPage() {
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,6 +203,14 @@ export default function ReturnsManagementPage() {
   const trackingFetchId = useRef(0);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [inspectionFilters, setInspectionFilters] = useState<{ inspected: boolean; review: boolean }>({
+    inspected: true,
+    review: false,
+  });
+  const [statusFilters, setStatusFilters] = useState<Record<StatusFilterKey, boolean>>({
+    pending_review: true,
+    completed: false,
+  });
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -232,7 +247,23 @@ export default function ReturnsManagementPage() {
 
   useEffect(() => {
     loadReturnRequests();
-  }, [searchQuery, page]);
+  }, [searchQuery, page, inspectionFilters, statusFilters]);
+
+  const handleInspectionFilterChange = (key: 'inspected' | 'review') => {
+    setInspectionFilters((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+    setPage(1);
+  };
+
+  const handleStatusFilterChange = (key: StatusFilterKey) => {
+    setStatusFilters((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+    setPage(1);
+  };
 
   const fetchTrackingStatuses = async (requests: ReturnRequest[]) => {
     const pendingTrackingNumbers = Array.from(
@@ -302,6 +333,21 @@ export default function ReturnsManagementPage() {
         page: page.toString(),
         limit: '100',
       });
+
+      const activeStatuses = STATUS_FILTER_OPTIONS.filter((option) => statusFilters[option.key]).map(
+        (option) => option.key,
+      );
+      activeStatuses.forEach((status) => {
+        params.append('status', status);
+      });
+
+      if (inspectionFilters.inspected) {
+        params.append('inspection', 'inspected');
+      }
+
+      if (inspectionFilters.review) {
+        params.append('inspection', 'review');
+      }
 
       if (searchQuery.trim()) {
         params.append('search', searchQuery.trim());
@@ -626,6 +672,47 @@ export default function ReturnsManagementPage() {
               className="w-full px-4 py-2 border rounded-lg"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">تصفية حسب حالة الفحص</label>
+            <div className="flex flex-wrap gap-4">
+              {[
+                { key: 'review' as const, label: 'تحت المراجعة' },
+                { key: 'inspected' as const, label: 'تم فحص القطع' },
+              ].map((option) => (
+                <label
+                  key={option.key}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    checked={inspectionFilters[option.key]}
+                    onChange={() => handleInspectionFilterChange(option.key)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">تصفية حسب حالة الطلب</label>
+            <div className="flex flex-wrap gap-4">
+              {STATUS_FILTER_OPTIONS.map((option) => (
+                <label
+                  key={option.key}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    checked={statusFilters[option.key]}
+                    onChange={() => handleStatusFilterChange(option.key)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
         </Card>
 
         {/* Error */}
@@ -695,6 +782,18 @@ export default function ReturnsManagementPage() {
                           >
                             طلب #{request.orderNumber}
                           </Link>
+                          {request.orderId && (
+                            <div className="text-sm mt-1">
+                              <a
+                                href={`https://s.salla.sa/orders/order/${request.orderId}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-indigo-600 hover:text-indigo-800 underline"
+                              >
+                                فتح الطلب في سلة
+                              </a>
+                            </div>
+                          )}
                         </h3>
 
                         <div className="text-sm text-gray-600 space-y-1">
@@ -722,6 +821,18 @@ export default function ReturnsManagementPage() {
                               )}
                               {!(hasTrackingLookup(awbNumber) || hasTrackingLookup(trackingNumber)) && trackingStatusesLoading && (
                                 <p className="text-xs text-gray-500 mt-1">جاري تحديث حالة سمسا...</p>
+                              )}
+                              {trackingLookupKey && (
+                                <p className="text-xs mt-1">
+                                  <a
+                                    href={`https://www.smsaexpress.com/sa/ar/trackingdetails?tracknumbers%5B0%5D=${trackingLookupKey}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-indigo-600 hover:text-indigo-800 underline"
+                                  >
+                                    فتح تتبع سمسا
+                                  </a>
+                                </p>
                               )}
                             </div>
                           )}
