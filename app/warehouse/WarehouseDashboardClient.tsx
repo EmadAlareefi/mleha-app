@@ -71,6 +71,7 @@ export default function WarehouseDashboardClient({
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [scannerTab, setScannerTab] = useState<'primary' | 'handover'>('primary');
+  const [isMobile, setIsMobile] = useState(false);
 
   const sessionWarehouseList = useMemo(
     () => (Array.isArray(sessionWarehouses) ? sessionWarehouses : []),
@@ -106,6 +107,8 @@ export default function WarehouseDashboardClient({
 
   const formattedDate = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
   const selectedWarehouseId = selectedWarehouse?.id || '';
+  const showHandoverOnly = isMobile;
+  const activeScannerTab = showHandoverOnly ? 'handover' : scannerTab;
   const scannerDisabledMessage = useMemo(() => {
     if (availableWarehouses.length === 0) {
       return isAdmin
@@ -117,6 +120,22 @@ export default function WarehouseDashboardClient({
     }
     return undefined;
   }, [availableWarehouses.length, isAdmin, selectedWarehouse]);
+
+  useEffect(() => {
+    const updateIsMobile = () => {
+      if (typeof window === 'undefined') return;
+      setIsMobile(window.matchMedia('(max-width: 768px)').matches);
+    };
+    updateIsMobile();
+    window.addEventListener('resize', updateIsMobile);
+    return () => window.removeEventListener('resize', updateIsMobile);
+  }, []);
+
+  useEffect(() => {
+    if (showHandoverOnly) {
+      setScannerTab('handover');
+    }
+  }, [showHandoverOnly]);
 
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
@@ -415,77 +434,81 @@ export default function WarehouseDashboardClient({
             </div>
 
             {/* Date navigation */}
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={(e) => { e.preventDefault(); handlePreviousDay(); }}
-                className="rounded-xl"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <span className="text-sm font-medium text-slate-700">
-                {format(selectedDate, 'EEEE، d MMMM yyyy', { locale: ar })}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={(e) => { e.preventDefault(); handleNextDay(); }}
-                className="rounded-xl"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Input
-                type="date"
-                value={formattedDate}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  if (value) handleDateChange(new Date(value));
-                }}
-                className="w-auto rounded-xl text-sm"
-              />
-              {loading && <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />}
-              <div className="mr-auto flex items-center gap-4 text-sm">
-                <span className="text-slate-500">الإجمالي: <strong className="text-slate-900">{stats.total}</strong></span>
-                <span className="text-green-600">وارد: <strong>{stats.incoming}</strong></span>
-                <span className="text-blue-600">صادر: <strong>{stats.outgoing}</strong></span>
+            {!showHandoverOnly && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => { e.preventDefault(); handlePreviousDay(); }}
+                  className="rounded-xl"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <span className="text-sm font-medium text-slate-700">
+                  {format(selectedDate, 'EEEE، d MMMM yyyy', { locale: ar })}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => { e.preventDefault(); handleNextDay(); }}
+                  className="rounded-xl"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Input
+                  type="date"
+                  value={formattedDate}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value) handleDateChange(new Date(value));
+                  }}
+                  className="w-auto rounded-xl text-sm"
+                />
+                {loading && <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />}
+                <div className="mr-auto flex items-center gap-4 text-sm">
+                  <span className="text-slate-500">الإجمالي: <strong className="text-slate-900">{stats.total}</strong></span>
+                  <span className="text-green-600">وارد: <strong>{stats.incoming}</strong></span>
+                  <span className="text-blue-600">صادر: <strong>{stats.outgoing}</strong></span>
+                </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Scanner + Search */}
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-4">
-            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1 text-sm font-medium text-slate-600 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setScannerTab('primary')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-2 transition-all ${
-                  scannerTab === 'primary'
-                    ? 'bg-indigo-600 text-white shadow'
-                    : 'hover:text-indigo-600'
-                }`}
-              >
-                <Scan className="w-4 h-4" />
-                المسح الأساسي
-              </button>
-              <button
-                type="button"
-                onClick={() => setScannerTab('handover')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-2 transition-all ${
-                  scannerTab === 'handover'
-                    ? 'bg-emerald-600 text-white shadow'
-                    : 'hover:text-emerald-600'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                تسليم شركة الشحن
-              </button>
-            </div>
-            {scannerTab === 'primary' ? (
+            {!showHandoverOnly && (
+              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1 text-sm font-medium text-slate-600 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setScannerTab('primary')}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-2 transition-all ${
+                    scannerTab === 'primary'
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'hover:text-indigo-600'
+                  }`}
+                >
+                  <Scan className="w-4 h-4" />
+                  المسح الأساسي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScannerTab('handover')}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-2 transition-all ${
+                    scannerTab === 'handover'
+                      ? 'bg-emerald-600 text-white shadow'
+                      : 'hover:text-emerald-600'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  تسليم شركة الشحن
+                </button>
+              </div>
+            )}
+            {activeScannerTab === 'primary' ? (
               <ScannerInput
                 onScan={handleScan}
                 selectedWarehouseName={selectedWarehouse?.name}
@@ -502,68 +525,72 @@ export default function WarehouseDashboardClient({
               />
             )}
           </div>
-          <Card className="rounded-2xl">
-            <CardContent className="py-5 space-y-4">
-              <p className="text-sm font-medium text-slate-700">بحث عن شحنة</p>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <div className="relative flex-1">
-                  <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-slate-400" />
-                  <Input
-                    type="text"
-                    placeholder="رقم التتبع..."
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setSearchError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSearch();
-                    }}
-                    className="pr-10 text-right rounded-xl"
-                    disabled={searching || !selectedWarehouse}
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => { setSearchQuery(''); setSearchError(null); }}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                      disabled={searching}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
+          {!showHandoverOnly && (
+            <Card className="rounded-2xl">
+              <CardContent className="py-5 space-y-4">
+                <p className="text-sm font-medium text-slate-700">بحث عن شحنة</p>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <div className="relative flex-1">
+                    <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-slate-400" />
+                    <Input
+                      type="text"
+                      placeholder="رقم التتبع..."
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setSearchError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSearch();
+                      }}
+                      className="pr-10 text-right rounded-xl"
+                      disabled={searching || !selectedWarehouse}
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => { setSearchQuery(''); setSearchError(null); }}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        disabled={searching}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <Button
+                    onClick={handleSearch}
+                    disabled={searching || !selectedWarehouse || !searchQuery.trim()}
+                    className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+                  >
+                    {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'بحث'}
+                  </Button>
                 </div>
-                <Button
-                  onClick={handleSearch}
-                  disabled={searching || !selectedWarehouse || !searchQuery.trim()}
-                  className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
-                >
-                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'بحث'}
-                </Button>
-              </div>
-              {searchError && (
-                <p className="text-sm text-red-600">{searchError}</p>
-              )}
-              {!selectedWarehouse && (
-                <p className="text-sm text-amber-700">يرجى اختيار مستودع لتفعيل البحث.</p>
-              )}
-            </CardContent>
-          </Card>
+                {searchError && (
+                  <p className="text-sm text-red-600">{searchError}</p>
+                )}
+                {!selectedWarehouse && (
+                  <p className="text-sm text-amber-700">يرجى اختيار مستودع لتفعيل البحث.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </section>
 
-        {/* Print Report (above shipments table) */}
-        <DailyReport
-          shipments={shipments}
-          stats={stats}
-          date={selectedDate}
-          warehouseName={selectedWarehouse?.name}
-        />
+        {!showHandoverOnly && (
+          <>
+            <DailyReport
+              shipments={shipments}
+              stats={stats}
+              date={selectedDate}
+              warehouseName={selectedWarehouse?.name}
+            />
 
-        {/* Shipments Table */}
-        <ShipmentsTable
-          shipments={shipments}
-          onDelete={handleDelete}
-          highlightedId={highlightedShipmentId}
-        />
+            <ShipmentsTable
+              shipments={shipments}
+              onDelete={handleDelete}
+              highlightedId={highlightedShipmentId}
+            />
+          </>
+        )}
       </main>
 
       <ShipmentDetailsDialog

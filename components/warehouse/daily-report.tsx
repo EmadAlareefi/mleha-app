@@ -94,7 +94,7 @@ export function DailyReport({ shipments, stats, date, warehouseName }: DailyRepo
                   ))}
                 </Select>
               </div>
-              <Button onClick={() => handlePrint()}>
+              <Button onClick={() => handlePrint()} className="hidden sm:inline-flex">
                 <Printer className="w-4 h-4 ml-2" />
                 طباعة التقرير
               </Button>
