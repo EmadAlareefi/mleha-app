@@ -12,8 +12,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import AppNavbar from '@/components/AppNavbar';
-import { ChevronRight, ChevronLeft, Loader2, RefreshCcw, Search, X } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Loader2, RefreshCcw, Search, X, Scan, CheckCircle2 } from 'lucide-react';
 import { ShipmentDetailsDialog } from '@/components/warehouse/shipment-details-dialog';
+import { HandoverScanner } from '@/components/warehouse/handover-scanner';
 
 interface Stats {
   total: number;
@@ -69,6 +70,7 @@ export default function WarehouseDashboardClient({
   const [searchedShipment, setSearchedShipment] = useState<Shipment | null>(null);
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [scannerTab, setScannerTab] = useState<'primary' | 'handover'>('primary');
 
   const sessionWarehouseList = useMemo(
     () => (Array.isArray(sessionWarehouses) ? sessionWarehouses : []),
@@ -104,6 +106,17 @@ export default function WarehouseDashboardClient({
 
   const formattedDate = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
   const selectedWarehouseId = selectedWarehouse?.id || '';
+  const scannerDisabledMessage = useMemo(() => {
+    if (availableWarehouses.length === 0) {
+      return isAdmin
+        ? 'لا يوجد مستودعات متاحة. قم بإنشائها أولاً.'
+        : 'لم يتم ربط أي مستودع بحسابك.';
+    }
+    if (!selectedWarehouse) {
+      return 'يرجى اختيار مستودع من القائمة أعلاه قبل تسجيل الشحنات.';
+    }
+    return undefined;
+  }, [availableWarehouses.length, isAdmin, selectedWarehouse]);
 
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
@@ -445,21 +458,50 @@ export default function WarehouseDashboardClient({
 
         {/* Scanner + Search */}
         <section className="grid gap-6 lg:grid-cols-2">
-          <ScannerInput
-            onScan={handleScan}
-            selectedWarehouseName={selectedWarehouse?.name}
-            disabled={!selectedWarehouse}
-            disabledMessage={
-              availableWarehouses.length === 0
-                ? isAdmin
-                  ? 'لا يوجد مستودعات متاحة. قم بإنشائها أولاً.'
-                  : 'لم يتم ربط أي مستودع بحسابك.'
-                : !selectedWarehouse
-                  ? 'يرجى اختيار مستودع من القائمة أعلاه قبل تسجيل الشحنات.'
-                  : undefined
-            }
-          />
-
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1 text-sm font-medium text-slate-600 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setScannerTab('primary')}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-2 transition-all ${
+                  scannerTab === 'primary'
+                    ? 'bg-indigo-600 text-white shadow'
+                    : 'hover:text-indigo-600'
+                }`}
+              >
+                <Scan className="w-4 h-4" />
+                المسح الأساسي
+              </button>
+              <button
+                type="button"
+                onClick={() => setScannerTab('handover')}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-2 transition-all ${
+                  scannerTab === 'handover'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'hover:text-emerald-600'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                تسليم شركة الشحن
+              </button>
+            </div>
+            {scannerTab === 'primary' ? (
+              <ScannerInput
+                onScan={handleScan}
+                selectedWarehouseName={selectedWarehouse?.name}
+                disabled={!selectedWarehouse}
+                disabledMessage={scannerDisabledMessage}
+              />
+            ) : (
+              <HandoverScanner
+                warehouseId={selectedWarehouse?.id}
+                warehouseName={selectedWarehouse?.name}
+                disabled={!selectedWarehouse}
+                disabledMessage={scannerDisabledMessage}
+                onSuccess={fetchData}
+              />
+            )}
+          </div>
           <Card className="rounded-2xl">
             <CardContent className="py-5 space-y-4">
               <p className="text-sm font-medium text-slate-700">بحث عن شحنة</p>

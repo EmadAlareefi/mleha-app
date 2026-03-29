@@ -77,11 +77,14 @@ model Shipment {
   type           String // "incoming" or "outgoing"
   scannedAt      DateTime   @default(now())
   scannedBy      String? // Optional: user who scanned
+  handoverScannedAt DateTime?
+  handoverScannedBy String?
   notes          String?    @db.Text
   warehouseId    String?
   warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([scannedAt])
+  @@index([handoverScannedAt])
   @@index([company])
   @@index([type])
   @@index([scannedAt, type])

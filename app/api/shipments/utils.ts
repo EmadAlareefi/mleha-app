@@ -1,3 +1,4 @@
+import { hasServiceAccess } from '@/app/lib/service-access';
 import { prisma } from '@/lib/prisma';
 
 export async function resolveWarehouseIds(session: any): Promise<string[]> {
@@ -40,4 +41,28 @@ export async function resolveWarehouseIds(session: any): Promise<string[]> {
     console.error('Failed to resolve warehouse IDs from DB', error);
     return [];
   }
+}
+
+export function hasWarehouseFeatureAccess(session: any): boolean {
+  if (!session?.user) {
+    return false;
+  }
+
+  if (
+    hasServiceAccess(session, [
+      'warehouse',
+      'local-shipping',
+      'shipment-assignments',
+      'returns-inspection',
+    ])
+  ) {
+    return true;
+  }
+
+  const primaryRole = (session.user as any)?.role;
+  if (primaryRole === 'admin' || primaryRole === 'warehouse') {
+    return true;
+  }
+  const roles = ((session.user as any)?.roles || []) as string[];
+  return roles.includes('admin') || roles.includes('warehouse');
 }

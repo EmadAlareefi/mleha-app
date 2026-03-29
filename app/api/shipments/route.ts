@@ -3,32 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { detectShipmentCompany, isValidTrackingNumber } from '@/lib/shipment-detector';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
-import { hasServiceAccess } from '@/app/lib/service-access';
-import { resolveWarehouseIds } from '@/app/api/shipments/utils';
-
-function hasWarehouseFeatureAccess(session: any) {
-  if (!session?.user) {
-    return false;
-  }
-
-  if (
-    hasServiceAccess(session, [
-      'warehouse',
-      'local-shipping',
-      'shipment-assignments',
-      'returns-inspection',
-    ])
-  ) {
-    return true;
-  }
-
-  const primaryRole = (session.user as any)?.role;
-  if (primaryRole === 'admin' || primaryRole === 'warehouse') {
-    return true;
-  }
-  const roles = ((session.user as any)?.roles || []) as string[];
-  return roles.includes('admin') || roles.includes('warehouse');
-}
+import { resolveWarehouseIds, hasWarehouseFeatureAccess } from '@/app/api/shipments/utils';
 
 // GET /api/shipments - Get all shipments with optional filtering
 export async function GET(request: NextRequest) {

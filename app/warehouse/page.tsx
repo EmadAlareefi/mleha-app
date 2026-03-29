@@ -202,6 +202,10 @@ async function loadWarehouseSnapshot({
       type: shipment.type as 'incoming' | 'outgoing',
       scannedAt: shipment.scannedAt.toISOString(),
       scannedBy: shipment.scannedBy || null,
+      handoverScannedAt: shipment.handoverScannedAt
+        ? shipment.handoverScannedAt.toISOString()
+        : null,
+      handoverScannedBy: shipment.handoverScannedBy || null,
       notes: shipment.notes,
       warehouse: shipment.warehouse
         ? {

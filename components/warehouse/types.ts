@@ -17,6 +17,8 @@ export interface Shipment {
   company: string;
   type: 'incoming' | 'outgoing';
   scannedAt: string;
+  handoverScannedAt?: string | null;
+  handoverScannedBy?: string | null;
   notes?: string | null;
   scannedBy?: string | null;
   warehouse?: ShipmentWarehouseDetails | null;

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
-import { Trash2, Package } from 'lucide-react';
+import { Trash2, Package, CheckCircle, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import type { Shipment } from '@/components/warehouse/types';
@@ -67,6 +67,7 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                   {showWarehouseColumn && <TableHead>المستودع</TableHead>}
                   <TableHead>النوع</TableHead>
                   <TableHead>وقت المسح</TableHead>
+                  <TableHead>تسليم شركة الشحن</TableHead>
                   <TableHead>ملاحظات</TableHead>
                   <TableHead className="w-[100px]">إجراءات</TableHead>
                 </TableRow>
@@ -112,6 +113,19 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                       </TableCell>
                       <TableCell className="text-sm">
                         {format(new Date(shipment.scannedAt), 'HH:mm:ss', { locale: ar })}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {shipment.handoverScannedAt ? (
+                          <div className="flex items-center gap-2 text-green-700 font-medium">
+                            <CheckCircle className="w-4 h-4" />
+                            {format(new Date(shipment.handoverScannedAt), 'HH:mm:ss', { locale: ar })}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-red-600 font-medium">
+                            <XCircle className="w-4 h-4" />
+                            لم يتم
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {shipment.notes || '-'}
