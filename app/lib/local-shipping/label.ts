@@ -4,6 +4,7 @@ import path from 'node:path';
 import fontkit from '@pdf-lib/fontkit';
 import type { LocalShipment } from '@prisma/client';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import type { PDFPage } from 'pdf-lib';
 import { ArabicShaper } from 'arabic-persian-reshaper';
 
 import type { LocalShipmentMeta } from './serializer';
@@ -34,6 +35,53 @@ const FONT_CANDIDATE_PATHS = [
   path.join(process.cwd(), 'app', 'lib', 'local-shipping', 'fonts', FONT_FILENAME),
 ];
 let cachedFontData: Promise<Uint8Array> | null = null;
+
+const CODE39_PATTERNS: Record<string, string> = {
+  '0': 'nnnwwnwnn',
+  '1': 'wnnwnnnnw',
+  '2': 'nnwwnnnnw',
+  '3': 'wnwwnnnnn',
+  '4': 'nnnwwnnnw',
+  '5': 'wnnwwnnnn',
+  '6': 'nnwwwnnnn',
+  '7': 'nnnwnnwnw',
+  '8': 'wnnwnnwnn',
+  '9': 'nnwwnnwnn',
+  A: 'wnnnnwnnw',
+  B: 'nnwnnwnnw',
+  C: 'wnwnnwnnn',
+  D: 'nnnnwwnnw',
+  E: 'wnnnwwnnn',
+  F: 'nnwnwwnnn',
+  G: 'nnnnnwwnw',
+  H: 'wnnnnwwnn',
+  I: 'nnwnnwwnn',
+  J: 'nnnnwwwnn',
+  K: 'wnnnnnnww',
+  L: 'nnwnnnnww',
+  M: 'wnwnnnnwn',
+  N: 'nnnnwnnww',
+  O: 'wnnnwnnwn',
+  P: 'nnwnwnnwn',
+  Q: 'nnnnnnwww',
+  R: 'wnnnnnwwn',
+  S: 'nnwnnnwwn',
+  T: 'nnnnwnwwn',
+  U: 'wwnnnnnnw',
+  V: 'nwwnnnnnw',
+  W: 'wwwnnnnnn',
+  X: 'nwnnwnnnw',
+  Y: 'wwnnwnnnn',
+  Z: 'nwwnwnnnn',
+  '-': 'nwnnnnwnw',
+  '.': 'wwnnnnnwn',
+  ' ': 'nwwnnwnnn',
+  '$': 'nwnwnwnnn',
+  '/': 'nwnwnnnwn',
+  '+': 'nwnnnwnwn',
+  '%': 'nnnwnwnwn',
+  '*': 'nwnnwnwnn',
+};
 
 export interface MerchantLabelInfo {
   name: string;
@@ -313,6 +361,23 @@ async function buildLocalShipmentLabel(args: LocalLabelArgs, merchant: MerchantL
   drawHeader();
 
   let cursorY = headerBottom - 14;
+  const barcodeHeight = 36;
+  const barcodeBottom = cursorY - barcodeHeight;
+  drawCode39Barcode(page, args.orderNo, {
+    x: contentLeft,
+    y: barcodeBottom,
+    width: contentWidth,
+    height: barcodeHeight,
+    color: textColor,
+  });
+  page.drawText(args.orderNo, {
+    x: contentLeft,
+    y: barcodeBottom - 12,
+    font: latinFont,
+    size: 10,
+    color: textColor,
+  });
+  cursorY = barcodeBottom - 24;
 
   const senderAddressLines = formatArabicAddressLines(senderAddress, 24);
   const recipientAddressLines = formatRecipientAddressLines(args.addressLines, 22);
@@ -553,4 +618,56 @@ async function loadArabicFont(): Promise<Uint8Array> {
     })();
   }
   return cachedFontData;
+}
+
+function drawCode39Barcode(
+  page: PDFPage,
+  value: string,
+  opts: { x: number; y: number; width: number; height: number; color?: ReturnType<typeof rgb> },
+) {
+  const normalizedValue = `*${sanitizeCode39Value(value)}*`;
+  const modules: Array<{ type: 'bar' | 'space'; units: number }> = [];
+  let totalUnits = 0;
+
+  normalizedValue.split('').forEach((char) => {
+    const pattern = CODE39_PATTERNS[char] || CODE39_PATTERNS['-'];
+    for (let index = 0; index < pattern.length; index += 1) {
+      const type: 'bar' | 'space' = index % 2 === 0 ? 'bar' : 'space';
+      const units = pattern[index] === 'w' ? 3 : 1;
+      modules.push({ type, units });
+      totalUnits += units;
+    }
+    modules.push({ type: 'space', units: 1 });
+    totalUnits += 1;
+  });
+
+  modules.pop();
+  totalUnits -= 1;
+  const moduleWidth = opts.width / totalUnits;
+  let cursor = opts.x;
+
+  modules.forEach((module) => {
+    const width = module.units * moduleWidth;
+    if (module.type === 'bar') {
+      page.drawRectangle({
+        x: cursor,
+        y: opts.y,
+        width,
+        height: opts.height,
+        color: opts.color ?? rgb(0, 0, 0),
+      });
+    }
+    cursor += width;
+  });
+}
+
+function sanitizeCode39Value(value: string): string {
+  if (!value) {
+    return '-';
+  }
+  return value
+    .toUpperCase()
+    .split('')
+    .map((char) => (CODE39_PATTERNS[char] ? char : '-'))
+    .join('');
 }
