@@ -69,39 +69,67 @@ export async function GET(request: NextRequest) {
     // If stats requested, get assignment counts
     let agentsWithStats = deliveryAgents;
 
-    if (includeStats) {
-      const statsPromises = deliveryAgents.map(async (agent) => {
-        const [total, assigned, inTransit, delivered, failed] = await Promise.all([
-          prisma.shipmentAssignment.count({
-            where: { deliveryAgentId: agent.id },
-          }),
-          prisma.shipmentAssignment.count({
-            where: { deliveryAgentId: agent.id, status: 'assigned' },
-          }),
-          prisma.shipmentAssignment.count({
-            where: { deliveryAgentId: agent.id, status: 'in_transit' },
-          }),
-          prisma.shipmentAssignment.count({
-            where: { deliveryAgentId: agent.id, status: 'delivered' },
-          }),
-          prisma.shipmentAssignment.count({
-            where: { deliveryAgentId: agent.id, status: 'failed' },
-          }),
-        ]);
-
-        return {
-          ...agent,
-          stats: {
-            total,
-            assigned,
-            inTransit,
-            delivered,
-            failed,
-          },
-        };
+    if (includeStats && deliveryAgents.length > 0) {
+      const agentIds = deliveryAgents.map((agent) => agent.id);
+      const groupedAssignments = await prisma.shipmentAssignment.groupBy({
+        where: {
+          deliveryAgentId: { in: agentIds },
+        },
+        by: ['deliveryAgentId', 'status'],
+        _count: { _all: true },
       });
 
-      agentsWithStats = await Promise.all(statsPromises);
+      const statsByAgent = groupedAssignments.reduce<
+        Record<
+          string,
+          { total: number; assigned: number; inTransit: number; delivered: number; failed: number }
+        >
+      >((acc, entry) => {
+        if (!acc[entry.deliveryAgentId]) {
+          acc[entry.deliveryAgentId] = {
+            total: 0,
+            assigned: 0,
+            inTransit: 0,
+            delivered: 0,
+            failed: 0,
+          };
+        }
+
+        const stats = acc[entry.deliveryAgentId];
+        const count = entry._count._all || 0;
+        stats.total += count;
+
+        switch (entry.status) {
+          case 'assigned':
+            stats.assigned += count;
+            break;
+          case 'in_transit':
+            stats.inTransit += count;
+            break;
+          case 'delivered':
+            stats.delivered += count;
+            break;
+          case 'failed':
+            stats.failed += count;
+            break;
+          default:
+            break;
+        }
+
+        return acc;
+      }, {});
+
+      agentsWithStats = deliveryAgents.map((agent) => ({
+        ...agent,
+        stats:
+          statsByAgent[agent.id] ?? {
+            total: 0,
+            assigned: 0,
+            inTransit: 0,
+            delivered: 0,
+            failed: 0,
+          },
+      }));
     }
 
     return NextResponse.json({

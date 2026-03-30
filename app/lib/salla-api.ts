@@ -38,6 +38,7 @@ export interface SallaOrder {
     email: string;
     city?: string;
     full_name?: string;
+    location?: string | null;
   };
   items: SallaOrderItem[];
   shipping?: {

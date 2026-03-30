@@ -97,6 +97,13 @@ export async function POST(request: NextRequest) {
     const messengerShipments = detectMessengerShipments(order);
     const primaryShipTo = extractPrimaryShipTo(order);
     const shipToArabicText = buildShipToArabicLabel(primaryShipTo);
+    const customerLocation =
+      typeof order.customer?.location === 'string' ? order.customer.location.trim() : '';
+    const locationShortCodeCandidate = customerLocation.split(',')[0]?.trim();
+    const locationShortCode =
+      locationShortCodeCandidate && /^[A-Za-z0-9]+$/.test(locationShortCodeCandidate)
+        ? locationShortCodeCandidate
+        : null;
 
     const fallbackShippingAddress =
       (order as any).shipping_address?.street_address ||
@@ -236,7 +243,14 @@ export async function POST(request: NextRequest) {
           messengerCourierLabel: messengerShipments[0]?.courierLabel || null,
           shipToLatitude: primaryShipTo?.raw?.latitude || primaryShipTo?.raw?.lat || null,
           shipToLongitude: primaryShipTo?.raw?.longitude || primaryShipTo?.raw?.lng || null,
-          mapsLink: primaryShipTo?.raw?.maps_link || primaryShipTo?.raw?.map_link || null,
+          mapsLink:
+            primaryShipTo?.raw?.maps_link ||
+            primaryShipTo?.raw?.map_link ||
+            (locationShortCode
+              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(locationShortCode)}`
+              : null),
+          shipToLocationText: customerLocation || null,
+          shipToLocationCode: locationShortCode || null,
           hasExchangeCoupon: hasExchangeCoupon || undefined,
           exchangeCouponCode: exchangeCouponCode || undefined,
         }),

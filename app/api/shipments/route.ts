@@ -4,6 +4,83 @@ import { detectShipmentCompany, isValidTrackingNumber } from '@/lib/shipment-det
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { resolveWarehouseIds, hasWarehouseFeatureAccess } from '@/app/api/shipments/utils';
+import { markSallaOrderDelivering } from '@/app/lib/local-shipping/salla-status';
+
+interface AutoMarkAssignmentResult {
+  updated: boolean;
+  localShipment?: {
+    merchantId: string;
+    orderId: string;
+    orderNumber: string;
+    trackingNumber: string;
+  };
+}
+
+async function autoMarkAssignmentPickedUp(trackingNumber: string): Promise<AutoMarkAssignmentResult> {
+  if (!trackingNumber) {
+    return { updated: false };
+  }
+
+  const localShipment = await prisma.localShipment.findUnique({
+    where: { trackingNumber },
+    include: {
+      assignment: true,
+    },
+  });
+
+  if (!localShipment?.assignment) {
+    return { updated: false };
+  }
+
+  if (localShipment.assignment.status !== 'assigned') {
+    return { updated: false };
+  }
+
+  const now = new Date();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const assignmentUpdate = await tx.shipmentAssignment.updateMany({
+      where: {
+        id: localShipment.assignment!.id,
+        status: 'assigned',
+      },
+      data: {
+        status: 'picked_up',
+        pickedUpAt: now,
+      },
+    });
+
+    if (assignmentUpdate.count === 0) {
+      return false;
+    }
+
+    await tx.localShipment.updateMany({
+      where: {
+        id: localShipment.id,
+        status: 'assigned',
+      },
+      data: {
+        status: 'picked_up',
+      },
+    });
+
+    return true;
+  });
+
+  if (!updated) {
+    return { updated: false };
+  }
+
+  return {
+    updated: true,
+    localShipment: {
+      merchantId: localShipment.merchantId,
+      orderId: localShipment.orderId,
+      orderNumber: localShipment.orderNumber,
+      trackingNumber: localShipment.trackingNumber,
+    },
+  };
+}
 
 // GET /api/shipments - Get all shipments with optional filtering
 export async function GET(request: NextRequest) {
@@ -122,9 +199,11 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { trackingNumber, type, scannedBy, notes, warehouseId } = body;
+    const normalizedTrackingNumber =
+      typeof trackingNumber === 'string' ? trackingNumber.trim() : '';
 
     // Validate tracking number
-    if (!trackingNumber || !isValidTrackingNumber(trackingNumber)) {
+    if (!normalizedTrackingNumber || !isValidTrackingNumber(normalizedTrackingNumber)) {
       return NextResponse.json(
         { error: 'رقم التتبع غير صالح' },
         { status: 400 }
@@ -172,7 +251,7 @@ export async function POST(request: NextRequest) {
 
     // Check if tracking number already exists
     const existing = await prisma.shipment.findUnique({
-      where: { trackingNumber: trackingNumber.trim() },
+      where: { trackingNumber: normalizedTrackingNumber },
     });
 
     if (existing) {
@@ -186,12 +265,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Detect company
-    const company = detectShipmentCompany(trackingNumber);
+    const company = detectShipmentCompany(normalizedTrackingNumber);
 
     // Create shipment
     const shipment = await prisma.shipment.create({
       data: {
-        trackingNumber: trackingNumber.trim(),
+        trackingNumber: normalizedTrackingNumber,
         company: company.id,
         type,
         warehouseId,
@@ -217,7 +296,7 @@ export async function POST(request: NextRequest) {
     // If this is an incoming shipment, check if it's linked to a return request
     if (type === 'incoming') {
       const returnRequest = await prisma.returnRequest.findUnique({
-        where: { smsaTrackingNumber: trackingNumber.trim() },
+        where: { smsaTrackingNumber: normalizedTrackingNumber },
       });
 
       if (returnRequest) {
@@ -261,6 +340,27 @@ export async function POST(request: NextRequest) {
           console.error('Error updating Salla order status to restoring:', error);
           // Continue even if Salla update fails
         }
+      }
+    } else if (type === 'outgoing') {
+      try {
+        const autoMarkResult = await autoMarkAssignmentPickedUp(normalizedTrackingNumber);
+        if (autoMarkResult.updated) {
+          console.info('Auto-marked assignment as picked up from warehouse scan', {
+            trackingNumber: normalizedTrackingNumber,
+            warehouseId,
+          });
+          if (autoMarkResult.localShipment) {
+            await markSallaOrderDelivering({
+              merchantId: autoMarkResult.localShipment.merchantId,
+              orderId: autoMarkResult.localShipment.orderId,
+              orderNumber: autoMarkResult.localShipment.orderNumber,
+              trackingNumber: autoMarkResult.localShipment.trackingNumber,
+              action: 'warehouse-scan',
+            });
+          }
+        }
+      } catch (autoError) {
+        console.error('Failed to auto mark assignment as picked up', autoError);
       }
     }
 

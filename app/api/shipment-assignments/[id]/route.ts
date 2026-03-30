@@ -8,6 +8,8 @@ import {
   removeShipmentWalletCredit,
 } from '@/app/lib/delivery-agent-wallet';
 import { getAuditUser } from '@/app/lib/audit';
+import { hashDeliveryOtp } from '@/app/lib/delivery-otp';
+import { markSallaOrderDelivered } from '@/app/lib/local-shipping/salla-status';
 
 export const runtime = 'nodejs';
 
@@ -39,6 +41,7 @@ export async function PATCH(
       recipientSignature,
       failureReason,
       cancellationReason,
+      deliveryOtpCode,
     } = body;
 
     // Get assignment
@@ -91,6 +94,59 @@ export async function PATCH(
     if (cancellationReason !== undefined) updateData.cancellationReason = cancellationReason;
 
     // Handle status changes
+    const requiresDeliveryOtp = Boolean(
+      status === 'delivered' && user.roles?.includes('delivery_agent')
+    );
+
+    if (requiresDeliveryOtp) {
+      const providedCode = typeof deliveryOtpCode === 'string' ? deliveryOtpCode.trim() : '';
+      if (!providedCode) {
+        return NextResponse.json(
+          { error: 'رمز التحقق مطلوب لإتمام عملية التسليم' },
+          { status: 400 }
+        );
+      }
+
+      if (!assignment.deliveryOtpCodeHash || !assignment.deliveryOtpRequestedAt) {
+        return NextResponse.json(
+          { error: 'يجب إرسال رمز التحقق إلى العميل قبل تأكيد التسليم' },
+          { status: 400 }
+        );
+      }
+
+      if (
+        !assignment.deliveryOtpExpiresAt ||
+        assignment.deliveryOtpExpiresAt.getTime() < Date.now()
+      ) {
+        return NextResponse.json(
+          { error: 'انتهت صلاحية رمز التحقق، يرجى طلب رمز جديد' },
+          { status: 400 }
+        );
+      }
+
+      const hashed = hashDeliveryOtp(providedCode);
+      if (hashed !== assignment.deliveryOtpCodeHash) {
+        await prisma.shipmentAssignment.update({
+          where: { id: assignmentId },
+          data: {
+            deliveryOtpAttemptCount: {
+              increment: 1,
+            },
+          },
+        });
+        return NextResponse.json(
+          { error: 'رمز التحقق غير صحيح، حاول مرة أخرى' },
+          { status: 400 }
+        );
+      }
+
+      updateData.deliveryOtpVerifiedAt = new Date();
+      updateData.deliveryOtpRequestedAt = null;
+      updateData.deliveryOtpExpiresAt = null;
+      updateData.deliveryOtpCodeHash = null;
+      updateData.deliveryOtpAttemptCount = 0;
+    }
+
     if (status) {
       updateData.status = status;
 
@@ -168,6 +224,20 @@ export async function PATCH(
         createdById: auditUser.id || undefined,
         createdByName: auditUser.name || user.name || user.username,
       });
+
+      if (
+        updatedAssignment.shipment?.merchantId &&
+        updatedAssignment.shipment?.orderId
+      ) {
+        await markSallaOrderDelivered({
+          merchantId: updatedAssignment.shipment.merchantId,
+          orderId: updatedAssignment.shipment.orderId,
+          shipmentId: assignment.shipmentId,
+          orderNumber: updatedAssignment.shipment.orderNumber,
+          trackingNumber: updatedAssignment.shipment.trackingNumber,
+          action: 'assignment-delivered',
+        });
+      }
     } else if (
       previousStatus === 'delivered' &&
       status &&

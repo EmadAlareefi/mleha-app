@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/use-toast';
 
 interface LocalShipment {
   id: string;
@@ -44,6 +45,7 @@ interface Assignment {
 
 export default function ShipmentAssignmentsPage() {
   const { data: session } = useSession();
+  const { toast } = useToast();
   const [pendingShipments, setPendingShipments] = useState<LocalShipment[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgent[]>([]);
@@ -53,6 +55,11 @@ export default function ShipmentAssignmentsPage() {
   const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [assignmentNotes, setAssignmentNotes] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [transferSourceAgentId, setTransferSourceAgentId] = useState('');
+  const [transferTargetAgentId, setTransferTargetAgentId] = useState('');
+  const [selectedTransferAssignments, setSelectedTransferAssignments] = useState<string[]>([]);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const primaryRole = (session?.user as any)?.role as string | undefined;
   const userRoles: string[] = (session?.user as any)?.roles || (primaryRole ? [primaryRole] : []);
   const isAdmin = primaryRole === 'admin';
@@ -90,6 +97,29 @@ export default function ShipmentAssignmentsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!transferSourceAgentId) {
+      if (selectedTransferAssignments.length > 0) {
+        setSelectedTransferAssignments([]);
+      }
+      return;
+    }
+
+    const validIdSet = new Set(
+      assignments
+        .filter(
+          (assignment) =>
+            assignment.deliveryAgent.id === transferSourceAgentId && assignment.status === 'assigned'
+        )
+        .map((assignment) => assignment.id)
+    );
+
+    setSelectedTransferAssignments((prev) => {
+      const filtered = prev.filter((id) => validIdSet.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [assignments, transferSourceAgentId, selectedTransferAssignments.length]);
 
   const handleAssign = async () => {
     if (!selectedShipment || !selectedAgent) {
@@ -151,11 +181,165 @@ export default function ShipmentAssignmentsPage() {
     }
   };
 
+  const selectableAssignmentsForSource = useMemo(
+    () =>
+      assignments.filter((assignment) =>
+        Boolean(
+          transferSourceAgentId &&
+            assignment.deliveryAgent.id === transferSourceAgentId &&
+            assignment.status === 'assigned'
+        )
+      ),
+    [assignments, transferSourceAgentId]
+  );
+
+  const canSelectAssignment = (assignment: Assignment) =>
+    Boolean(
+      transferSourceAgentId &&
+        assignment.deliveryAgent.id === transferSourceAgentId &&
+        assignment.status === 'assigned'
+    );
+
+  const getSelectionDisabledReason = (assignment: Assignment) => {
+    if (!transferSourceAgentId) {
+      return 'اختر المندوب الحالي أولاً';
+    }
+    if (assignment.status !== 'assigned') {
+      return 'لا يمكن نقل الشحنات التي تم استلامها أو إغلاقها';
+    }
+    if (assignment.deliveryAgent.id !== transferSourceAgentId) {
+      return 'هذه الشحنة لا تخص المندوب المحدد';
+    }
+    return undefined;
+  };
+
+  const toggleAssignmentSelection = (assignment: Assignment) => {
+    if (!canSelectAssignment(assignment)) {
+      return;
+    }
+
+    setSelectedTransferAssignments((prev) =>
+      prev.includes(assignment.id)
+        ? prev.filter((id) => id !== assignment.id)
+        : [...prev, assignment.id]
+    );
+  };
+
+  const handleSelectAllForSource = () => {
+    if (!transferSourceAgentId) {
+      toast({
+        title: 'اختر المندوب الحالي',
+        description: 'حدد المندوب الذي ترغب بنقل شحناته أولاً.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSelectedTransferAssignments(selectableAssignmentsForSource.map((assignment) => assignment.id));
+  };
+
+  const handleToggleSelectAllCheckbox = () => {
+    if (!transferSourceAgentId) {
+      toast({
+        title: 'اختر المندوب الحالي',
+        description: 'حدد المندوب الذي ترغب بنقل شحناته.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (bulkSelectableCount === 0) {
+      return;
+    }
+
+    if (allSelectableChosen) {
+      setSelectedTransferAssignments([]);
+      return;
+    }
+
+    setSelectedTransferAssignments(selectableAssignmentsForSource.map((assignment) => assignment.id));
+  };
+
+  const handleBulkTransfer = async () => {
+    if (!transferSourceAgentId) {
+      toast({
+        title: 'اختر المندوب الحالي',
+        description: 'حدد المندوب الذي ترغب بنقل شحناته.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!transferTargetAgentId) {
+      toast({
+        title: 'اختر المندوب الجديد',
+        description: 'حدد المندوب الذي ستُنقل إليه الشحنات.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (transferSourceAgentId === transferTargetAgentId) {
+      toast({
+        title: 'لا يمكن النقل لنفس المندوب',
+        description: 'اختر مندوبًا مختلفًا لنقل الشحنات إليه.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (selectedTransferAssignments.length === 0) {
+      toast({
+        title: 'لم يتم اختيار شحنات',
+        description: 'حدد شحنات هذا المندوب قبل تنفيذ النقل.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setTransferLoading(true);
+      const response = await fetch('/api/shipment-assignments/bulk-transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentIds: selectedTransferAssignments,
+          targetAgentId: transferTargetAgentId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'فشل نقل الشحنات');
+      }
+
+      const targetAgent = deliveryAgents.find((agent) => agent.id === transferTargetAgentId);
+
+      toast({
+        title: 'تم نقل الشحنات',
+        description: `تم نقل ${data.transferredCount} شحنة إلى ${targetAgent?.name || 'المندوب الجديد'}.`,
+      });
+
+      setSelectedTransferAssignments([]);
+      setTransferTargetAgentId('');
+      await fetchData();
+    } catch (err) {
+      toast({
+        title: 'فشل نقل الشحنات',
+        description: err instanceof Error ? err.message : 'حدث خطأ أثناء نقل الشحنات',
+        variant: 'destructive',
+      });
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
   const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(value);
+    new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'SAR' }).format(value);
 
   const formatDate = (value: string) =>
-    new Date(value).toLocaleString('ar-SA', {
+    new Date(value).toLocaleString('en-GB', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -182,6 +366,21 @@ export default function ShipmentAssignmentsPage() {
       </span>
     );
   };
+
+  const selectedSourceAgent = transferSourceAgentId
+    ? deliveryAgents.find((agent) => agent.id === transferSourceAgentId)
+    : null;
+  const bulkSelectionCount = selectedTransferAssignments.length;
+  const bulkSelectableCount = selectableAssignmentsForSource.length;
+  const allSelectableChosen = bulkSelectableCount > 0 && bulkSelectionCount === bulkSelectableCount;
+  const hasPartialSelection =
+    bulkSelectionCount > 0 && bulkSelectionCount < bulkSelectableCount;
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = hasPartialSelection;
+    }
+  }, [hasPartialSelection]);
 
   if (loading) {
     return (
@@ -334,10 +533,105 @@ export default function ShipmentAssignmentsPage() {
         {/* Current Assignments */}
         <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4">الشحنات المُعيّنة</h2>
+
+          <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50/60 p-4 space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-blue-900 mb-1">
+                  المندوب الحالي
+                </label>
+                <select
+                  value={transferSourceAgentId}
+                  onChange={(e) => setTransferSourceAgentId(e.target.value)}
+                  className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">اختر المندوب الحالي</option>
+                  {deliveryAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-blue-900 mb-1">
+                  المندوب الجديد
+                </label>
+                <select
+                  value={transferTargetAgentId}
+                  onChange={(e) => setTransferTargetAgentId(e.target.value)}
+                  className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">اختر المندوب الجديد</option>
+                  {deliveryAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-sm text-blue-900">
+              <span>
+                {transferSourceAgentId
+                  ? `شحنات ${selectedSourceAgent?.name || 'المندوب'} القابلة للنقل: ${bulkSelectableCount}`
+                  : 'اختر المندوب الحالي لإظهار الشحنات القابلة للنقل'}
+              </span>
+              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-900">
+                محدد حالياً: {bulkSelectionCount}
+              </span>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSelectAllForSource}
+                  disabled={!transferSourceAgentId || bulkSelectableCount === 0}
+                >
+                  تحديد كل الشحنات
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedTransferAssignments([])}
+                  disabled={bulkSelectionCount === 0}
+                >
+                  مسح التحديد
+                </Button>
+              </div>
+              <div className="ml-auto">
+                <Button
+                  onClick={handleBulkTransfer}
+                  disabled={
+                    transferLoading ||
+                    !transferSourceAgentId ||
+                    !transferTargetAgentId ||
+                    bulkSelectionCount === 0
+                  }
+                >
+                  {transferLoading ? 'جاري النقل...' : 'نقل الشحنات المحددة'}
+                </Button>
+              </div>
+            </div>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="text-right bg-gray-100">
+                  <th className="px-3 py-2 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <input
+                        ref={selectAllCheckboxRef}
+                        type="checkbox"
+                        aria-label="تحديد كل الشحنات القابلة للنقل"
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+                        checked={bulkSelectableCount > 0 && allSelectableChosen}
+                        onChange={handleToggleSelectAllCheckbox}
+                      />
+                      <span className="text-xs font-semibold text-gray-600">تحديد</span>
+                    </div>
+                  </th>
                   <th className="px-3 py-2">رقم الطلب</th>
                   <th className="px-3 py-2">رقم التتبع</th>
                   <th className="px-3 py-2">العميل</th>
@@ -352,39 +646,59 @@ export default function ShipmentAssignmentsPage() {
               <tbody>
                 {assignments.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="text-center text-gray-500 py-6">
+                    <td colSpan={10} className="text-center text-gray-500 py-6">
                       لا توجد شحنات مُعيّنة
                     </td>
                   </tr>
                 ) : (
-                  assignments.map((assignment) => (
-                    <tr key={assignment.id} className="border-b">
-                      <td className="px-3 py-2 font-mono">{assignment.shipment.orderNumber}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{assignment.shipment.trackingNumber}</td>
-                      <td className="px-3 py-2">{assignment.shipment.customerName}</td>
-                      <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
-                      <td className="px-3 py-2 font-semibold">
-                        {formatCurrency(assignment.shipment.orderTotal)}
-                        {assignment.shipment.isCOD && (
-                          <span className="text-xs text-orange-600 ml-1">(COD)</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">{assignment.deliveryAgent.name}</td>
-                      <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
-                      <td className="px-3 py-2 text-xs">{formatDate(assignment.assignedAt)}</td>
-                      <td className="px-3 py-2">
-                        {assignment.status === 'assigned' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleUnassign(assignment.id)}
-                          >
-                            إلغاء
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                  assignments.map((assignment) => {
+                    const isSelected = selectedTransferAssignments.includes(assignment.id);
+                    const selectable = canSelectAssignment(assignment);
+                    const disabledReason = selectable ? undefined : getSelectionDisabledReason(assignment);
+
+                    return (
+                      <tr
+                        key={assignment.id}
+                        className={`border-b ${isSelected ? 'bg-blue-50' : ''}`}
+                      >
+                        <td className="px-3 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label="تحديد الشحنة للنقل"
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+                            checked={isSelected}
+                            disabled={!selectable}
+                            title={disabledReason}
+                            onChange={() => toggleAssignmentSelection(assignment)}
+                          />
+                        </td>
+                        <td className="px-3 py-2 font-mono">{assignment.shipment.orderNumber}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{assignment.shipment.trackingNumber}</td>
+                        <td className="px-3 py-2">{assignment.shipment.customerName}</td>
+                        <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
+                        <td className="px-3 py-2 font-semibold">
+                          {formatCurrency(assignment.shipment.orderTotal)}
+                          {assignment.shipment.isCOD && (
+                            <span className="text-xs text-orange-600 ml-1">(COD)</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">{assignment.deliveryAgent.name}</td>
+                        <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
+                        <td className="px-3 py-2 text-xs">{formatDate(assignment.assignedAt)}</td>
+                        <td className="px-3 py-2">
+                          {assignment.status === 'assigned' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleUnassign(assignment.id)}
+                            >
+                              إلغاء
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

@@ -898,6 +898,13 @@ model ShipmentAssignment {
   // Notes
   notes String? @db.Text
 
+  // Delivery OTP verification
+  deliveryOtpCodeHash     String?
+  deliveryOtpRequestedAt  DateTime?
+  deliveryOtpExpiresAt    DateTime?
+  deliveryOtpVerifiedAt   DateTime?
+  deliveryOtpAttemptCount Int      @default(0)
+
   updatedAt DateTime @updatedAt
 
   @@index([deliveryAgentId])

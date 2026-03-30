@@ -20,6 +20,8 @@ export interface LocalShipmentMeta {
   shipToLatitude?: string | number | null;
   shipToLongitude?: string | number | null;
   mapsLink?: string | null;
+  shipToLocationText?: string | null;
+  shipToLocationCode?: string | null;
   hasExchangeCoupon?: boolean;
   exchangeCouponCode?: string | null;
 }
@@ -108,6 +110,12 @@ const sanitizeMeta = (meta: LocalShipmentMeta): Prisma.JsonObject => {
   if (typeof meta.mapsLink === 'string') {
     payload.mapsLink = meta.mapsLink;
   }
+  if (typeof meta.shipToLocationText === 'string') {
+    payload.shipToLocationText = meta.shipToLocationText;
+  }
+  if (typeof meta.shipToLocationCode === 'string') {
+    payload.shipToLocationCode = meta.shipToLocationCode;
+  }
   if (typeof meta.hasExchangeCoupon === 'boolean') {
     payload.hasExchangeCoupon = meta.hasExchangeCoupon;
   }
@@ -163,6 +171,10 @@ export const normalizeOrderItems = (raw: any): NormalizedOrderItems => {
             ? meta.shipToLongitude
             : undefined,
         mapsLink: typeof meta.mapsLink === 'string' ? meta.mapsLink : undefined,
+        shipToLocationText:
+          typeof meta.shipToLocationText === 'string' ? meta.shipToLocationText : undefined,
+        shipToLocationCode:
+          typeof meta.shipToLocationCode === 'string' ? meta.shipToLocationCode : undefined,
         hasExchangeCoupon:
           typeof meta.hasExchangeCoupon === 'boolean' ? meta.hasExchangeCoupon : undefined,
         exchangeCouponCode:

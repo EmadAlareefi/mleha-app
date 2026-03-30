@@ -70,6 +70,7 @@ interface DeliveryAgentOption {
   name: string;
   username: string;
   phone?: string | null;
+  isActive?: boolean;
 }
 
 interface ConfirmationState {
@@ -401,8 +402,9 @@ export default function OrderShippingPage() {
       }
 
       const agents = Array.isArray(data.deliveryAgents) ? data.deliveryAgents : [];
-      setDeliveryAgents(agents);
-      return agents;
+      const activeAgents = agents.filter((agent) => agent?.isActive !== false);
+      setDeliveryAgents(activeAgents);
+      return activeAgents;
     } catch (error) {
       console.error('Failed to load delivery agents', error);
       setDeliveryAgents([]);

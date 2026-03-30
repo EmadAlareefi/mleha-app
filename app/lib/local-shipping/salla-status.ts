@@ -1,7 +1,7 @@
 import { log } from '@/app/lib/logger';
 import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
 
-interface MarkSallaOrderCompletedOptions {
+interface MarkOrderStatusOptions {
   merchantId: string;
   orderId: string;
   shipmentId?: string | null;
@@ -10,8 +10,9 @@ interface MarkSallaOrderCompletedOptions {
   action?: string;
 }
 
-export async function markSallaOrderCompletedAfterLocalShipment(
-  options: MarkSallaOrderCompletedOptions
+async function markSallaOrderStatusWithSlug(
+  slug: string,
+  options: MarkOrderStatusOptions
 ): Promise<{ success: boolean; error?: string }> {
   const {
     merchantId,
@@ -42,11 +43,11 @@ export async function markSallaOrderCompletedAfterLocalShipment(
   };
 
   try {
-    const result = await updateSallaOrderStatus(merchantId, orderId, { slug: 'completed' });
+    const result = await updateSallaOrderStatus(merchantId, orderId, { slug });
     if (result.success) {
-      log.info('Salla order status set to completed after local shipment action', logContext);
+      log.info(`Salla order status set to ${slug} after local shipment action`, logContext);
     } else {
-      log.warn('Failed to set Salla order status to completed after local shipment action', {
+      log.warn(`Failed to set Salla order status to ${slug} after local shipment action`, {
         ...logContext,
         error: result.error,
       });
@@ -59,4 +60,18 @@ export async function markSallaOrderCompletedAfterLocalShipment(
     });
     return { success: false, error: error instanceof Error ? error.message : 'unknown_error' };
   }
+}
+
+export function markSallaOrderCompletedAfterLocalShipment(
+  options: MarkOrderStatusOptions
+) {
+  return markSallaOrderStatusWithSlug('completed', options);
+}
+
+export function markSallaOrderDelivered(options: MarkOrderStatusOptions) {
+  return markSallaOrderStatusWithSlug('delivered', options);
+}
+
+export function markSallaOrderDelivering(options: MarkOrderStatusOptions) {
+  return markSallaOrderStatusWithSlug('delivering', options);
 }

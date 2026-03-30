@@ -11,6 +11,7 @@ type DeliveryAgent = {
   id: string;
   name: string;
   username: string;
+  isActive?: boolean;
   phone?: string;
   stats?: {
     total: number;
@@ -134,7 +135,8 @@ export default function DeliveryAgentTasksPage() {
       if (!response.ok) {
         throw new Error(data.error || 'فشل تحميل المناديب');
       }
-      setDeliveryAgents(data.deliveryAgents || []);
+      const agents = Array.isArray(data.deliveryAgents) ? data.deliveryAgents : [];
+      setDeliveryAgents(agents.filter((agent: DeliveryAgent) => agent?.isActive !== false));
     } catch (error) {
       console.error(error);
       toast({
