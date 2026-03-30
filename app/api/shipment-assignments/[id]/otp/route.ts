@@ -117,12 +117,12 @@ export async function POST(
     });
 
     const orderLabel = assignment.shipment.orderNumber
-      ? `رقم الطلب ${assignment.shipment.orderNumber}`
+      ? `طلب ${assignment.shipment.orderNumber}`
       : assignment.shipment.trackingNumber
-        ? `الشحنة ${assignment.shipment.trackingNumber}`
-        : 'طلبكم';
+        ? `شحنة ${assignment.shipment.trackingNumber}`
+        : 'طلبك';
 
-    const smsBody = `رمز التحقق لتسليم ${orderLabel} هو ${otp}. يرجى مشاركة الرمز مع مندوب مليحة لإتمام التسليم.`;
+    const smsBody = `رمز تسليم ${orderLabel}: ${otp}. شاركه مع مندوب مليحة.`;
 
     try {
       await sendMsegatSms({
