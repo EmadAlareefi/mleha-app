@@ -28,15 +28,11 @@ const PAGE_WIDTH = mmToPt(101.6); // 4 inches
 const PAGE_HEIGHT = mmToPt(152.4); // 6 inches
 const PAGE_PADDING = 18;
 
-const FONT_PATH = path.join(
-  process.cwd(),
-  'app',
-  'lib',
-  'local-shipping',
-  'fonts',
-  'NotoNaskhArabic-Regular.ttf',
-);
-
+const FONT_FILENAME = 'NotoNaskhArabic-Regular.ttf';
+const FONT_CANDIDATE_PATHS = [
+  path.join(process.cwd(), 'public', 'fonts', 'local-shipping', FONT_FILENAME),
+  path.join(process.cwd(), 'app', 'lib', 'local-shipping', 'fonts', FONT_FILENAME),
+];
 let cachedFontData: Promise<Uint8Array> | null = null;
 
 export interface MerchantLabelInfo {
@@ -551,7 +547,16 @@ function mmToPt(value: number): number {
 
 async function loadArabicFont(): Promise<Uint8Array> {
   if (!cachedFontData) {
-    cachedFontData = fs.readFile(FONT_PATH);
+    cachedFontData = (async () => {
+      for (const candidate of FONT_CANDIDATE_PATHS) {
+        try {
+          return await fs.readFile(candidate);
+        } catch {
+          // Ignore and try the next candidate
+        }
+      }
+      throw new Error(`Arabic font not found. Expected one of: ${FONT_CANDIDATE_PATHS.join(', ')}`);
+    })();
   }
   return cachedFontData;
 }

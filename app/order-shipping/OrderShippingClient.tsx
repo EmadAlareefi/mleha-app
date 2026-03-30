@@ -89,6 +89,33 @@ interface SearchFeedback {
 const ACTION_BUTTON_BASE = 'w-full py-3 text-sm sm:py-4 sm:text-base';
 const UNDER_REVIEW_X4_STATUS_ID = '2046404155';
 
+const normalizeAgentText = (value: string | null | undefined): string => {
+  if (!value) {
+    return '';
+  }
+  return value.toString().replace(/\s+/g, '').toLowerCase();
+};
+
+const PREFERRED_AGENT_ID = '11';
+const PREFERRED_AGENT_USERNAME = '11';
+const PREFERRED_AGENT_NAME = 'سعيد';
+const PREFERRED_AGENT_NAME_NORMALIZED = normalizeAgentText(PREFERRED_AGENT_NAME);
+
+const isPreferredDeliveryAgent = (agent: DeliveryAgentOption): boolean => {
+  const normalizedName = normalizeAgentText(agent.name);
+  return (
+    agent.id === PREFERRED_AGENT_ID ||
+    agent.username === PREFERRED_AGENT_USERNAME ||
+    (normalizedName ? normalizedName.includes(PREFERRED_AGENT_NAME_NORMALIZED) : false)
+  );
+};
+
+const findPreferredDeliveryAgent = (
+  agents: DeliveryAgentOption[],
+): DeliveryAgentOption | null => {
+  return agents.find((agent) => isPreferredDeliveryAgent(agent)) ?? null;
+};
+
 const parseJsonResponse = async <T = any>(response: Response, context: string): Promise<T> => {
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
@@ -328,6 +355,10 @@ export default function OrderShippingPage() {
   const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgentOption[]>([]);
   const [deliveryAgentsError, setDeliveryAgentsError] = useState<string | null>(null);
   const [creatingLocalShipment, setCreatingLocalShipment] = useState(false);
+  const [agentSelectionDialogOpen, setAgentSelectionDialogOpen] = useState(false);
+  const [agentSelectionOptions, setAgentSelectionOptions] = useState<DeliveryAgentOption[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [loadingAgentSelection, setLoadingAgentSelection] = useState(false);
 
   const applyShipmentFromAssignment = useCallback(
     (assignment: OrderAssignment | null, options: { resetWhenMissing?: boolean } = {}) => {
@@ -498,72 +529,6 @@ export default function OrderShippingPage() {
     () => buildShipToArabicLabel(primaryMessengerShipTo),
     [primaryMessengerShipTo],
   );
-  const autoSelectDeliveryAgent = useCallback(
-    (agents: DeliveryAgentOption[]): DeliveryAgentOption | null => {
-      if (!agents.length) {
-        return null;
-      }
-
-      const normalizeText = (value: string | null | undefined) => {
-        if (!value) {
-          return null;
-        }
-        return value.toString().replace(/\s+/g, '').toLowerCase();
-      };
-
-      const normalizePhone = (value: string | null | undefined) => {
-        if (!value) {
-          return null;
-        }
-        const digits = value.replace(/\D+/g, '');
-        return digits || null;
-      };
-
-      const labelCandidates = [primaryMessengerCourierLabel, resolvedShippingCompanyName];
-      for (const candidate of labelCandidates) {
-        const normalizedLabel = normalizeText(candidate);
-        if (!normalizedLabel) {
-          continue;
-        }
-        const match = agents.find((agent) => {
-          const normalizedName = normalizeText(agent.name);
-          const normalizedUsername = normalizeText(agent.username);
-          return (
-            (normalizedName && normalizedLabel.includes(normalizedName)) ||
-            (normalizedUsername && normalizedLabel.includes(normalizedUsername))
-          );
-        });
-        if (match) {
-          return match;
-        }
-      }
-
-      const phoneCandidates = [primaryMessengerShipTo?.phone];
-      for (const phone of phoneCandidates) {
-        const normalizedPhone = normalizePhone(phone);
-        if (!normalizedPhone) {
-          continue;
-        }
-        const match = agents.find((agent) => {
-          const agentPhone = normalizePhone(agent.phone);
-          if (!agentPhone) {
-            return false;
-          }
-          return (
-            agentPhone.endsWith(normalizedPhone) ||
-            normalizedPhone.endsWith(agentPhone)
-          );
-        });
-        if (match) {
-          return match;
-        }
-      }
-
-      return agents[0];
-    },
-    [primaryMessengerCourierLabel, primaryMessengerShipTo, resolvedShippingCompanyName],
-  );
-
 const currentOrderSkus = useMemo(() => {
     if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
       return [] as string[];
@@ -1106,10 +1071,10 @@ const handleRefreshItems = async () => {
   };
  
   const createLocalShipmentForAgent = useCallback(
-    async (agent: DeliveryAgentOption) => {
+    async (agent: DeliveryAgentOption): Promise<boolean> => {
       if (!currentOrder || !resolvedMerchantId) {
         alert('لا يمكن تحديد الطلب أو التاجر لإنشاء شحنة محلية.');
-        return;
+        return false;
       }
 
       try {
@@ -1196,17 +1161,46 @@ const handleRefreshItems = async () => {
             : '\n\n⚠️ تعذر تحديث حالة الطلب في سلة تلقائياً.';
         alert(`${baseMessage}${autoPrintMessage}${sallaStatusMessage}`);
         await reloadCurrentOrder();
+        return true;
       } catch (error) {
         console.error('Local shipment creation failed', error);
         const message =
           error instanceof Error ? error.message : 'حدث خطأ أثناء إنشاء الشحنة المحلية';
         alert(message);
+        return false;
       } finally {
         setCreatingLocalShipment(false);
       }
     },
     [currentOrder, resolvedMerchantId, user, reloadCurrentOrder],
   );
+
+  const handleConfirmAgentSelection = useCallback(async () => {
+    if (!selectedAgentId) {
+      alert('يرجى اختيار المندوب الذي سيتولى الشحنة المحلية.');
+      return;
+    }
+
+    const agent = agentSelectionOptions.find((option) => option.id === selectedAgentId);
+    if (!agent) {
+      alert('المندوب المحدد غير موجود في القائمة الحالية.');
+      return;
+    }
+
+    const created = await createLocalShipmentForAgent(agent);
+    if (created) {
+      setAgentSelectionDialogOpen(false);
+      setSelectedAgentId(null);
+    }
+  }, [selectedAgentId, agentSelectionOptions, createLocalShipmentForAgent]);
+
+  const handleCloseAgentSelectionDialog = useCallback(() => {
+    if (creatingLocalShipment) {
+      return;
+    }
+    setAgentSelectionDialogOpen(false);
+    setSelectedAgentId(null);
+  }, [creatingLocalShipment]);
 
   const handleCreateLocalShipment = useCallback(async () => {
     if (!currentOrder) {
@@ -1217,34 +1211,45 @@ const handleRefreshItems = async () => {
       return;
     }
 
-    let agents = deliveryAgents;
-    if (agents.length === 0) {
-      agents = await fetchDeliveryAgents();
-    }
-
-    if (agents.length === 0) {
-      alert(
-        deliveryAgentsError ||
-          'لا يوجد مناديب متاحون حالياً لتعيين الشحنة المحلية. يرجى التواصل مع مسؤول المستودع.',
-      );
+    if (agentSelectionDialogOpen) {
       return;
     }
 
-    const selectedAgent = autoSelectDeliveryAgent(agents);
-    if (!selectedAgent) {
-      alert('تعذر تحديد المندوب المناسب لتعيين الشحنة المحلية.');
+    if (loadingAgentSelection) {
       return;
     }
 
-    await createLocalShipmentForAgent(selectedAgent);
+    setLoadingAgentSelection(true);
+    try {
+      let agents = deliveryAgents;
+      if (agents.length === 0) {
+        agents = await fetchDeliveryAgents();
+      }
+
+      if (agents.length === 0) {
+        alert(
+          deliveryAgentsError ||
+            'لا يوجد مناديب متاحون حالياً لتعيين الشحنة المحلية. يرجى التواصل مع مسؤول المستودع.',
+        );
+        return;
+      }
+
+      const defaultAgent = findPreferredDeliveryAgent(agents) ?? agents[0];
+      setAgentSelectionOptions(agents);
+      setSelectedAgentId(defaultAgent?.id ?? null);
+      setAgentSelectionDialogOpen(true);
+    } finally {
+      setLoadingAgentSelection(false);
+    }
   }, [
     currentOrder,
     resolvedMerchantId,
+    agentSelectionDialogOpen,
     deliveryAgents,
     fetchDeliveryAgents,
     deliveryAgentsError,
-    autoSelectDeliveryAgent,
-    createLocalShipmentForAgent,
+    loadingAgentSelection,
+    findPreferredDeliveryAgent,
   ]);
 
   if (status === 'loading') {
@@ -1903,21 +1908,22 @@ const handleRefreshItems = async () => {
                     )}
                     <Button
                       type="button"
-                      onClick={() =>
-                        openConfirmationDialog({
-                          title: 'تأكيد إنشاء الشحنة المحلية',
-                          message:
-                            'سيتم إنشاء شحنة محلية جديدة، وإرسال البوليصة للطابعة، وتعيين الشحنة تلقائياً لأحد المناديب المتاحين.',
-                          confirmLabel: 'نعم، أنشئ الشحنة',
-                          onConfirm: () => {
-                            void handleCreateLocalShipment();
-                          },
-                        })
+                      onClick={() => {
+                        void handleCreateLocalShipment();
+                      }}
+                      disabled={
+                        !canCreateLocalShipment ||
+                        creatingLocalShipment ||
+                        loadingAgentSelection ||
+                        agentSelectionDialogOpen
                       }
-                      disabled={!canCreateLocalShipment || creatingLocalShipment}
                       className={`${ACTION_BUTTON_BASE} bg-amber-500 hover:bg-amber-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
                     >
-                      {creatingLocalShipment ? 'جاري إنشاء الشحنة المحلية...' : 'إنشاء شحنة محلية'}
+                      {creatingLocalShipment
+                        ? 'جاري إنشاء الشحنة المحلية...'
+                        : loadingAgentSelection
+                          ? 'جاري تحميل قائمة المناديب...'
+                          : 'إنشاء شحنة محلية'}
                     </Button>
                     <Button
                       type="button"
@@ -1953,6 +1959,62 @@ const handleRefreshItems = async () => {
         </div>
       </div>
 
+      <ConfirmationDialog
+        open={agentSelectionDialogOpen}
+        title="اختيار المندوب للشحنة المحلية"
+        message="اختر المندوب النشط الذي سيتولى تسليم الشحنة المحلية الحالية."
+        confirmLabel={creatingLocalShipment ? 'جاري إنشاء الشحنة...' : 'تأكيد وإنشاء الشحنة'}
+        confirmDisabled={creatingLocalShipment || !selectedAgentId || agentSelectionOptions.length === 0}
+        onConfirm={() => {
+          void handleConfirmAgentSelection();
+        }}
+        onCancel={handleCloseAgentSelectionDialog}
+        content={
+          <div className="mt-4">
+            {agentSelectionOptions.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                لا يوجد مناديب نشطون متاحون حالياً. يرجى التواصل مع مسؤول المستودع.
+              </p>
+            ) : (
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1 mt-2">
+                {agentSelectionOptions.map((agent) => {
+                  const isPreferred = isPreferredDeliveryAgent(agent);
+                  return (
+                    <label
+                      key={agent.id}
+                      className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="local-shipment-agent"
+                        className="h-4 w-4 text-blue-600 border-gray-300"
+                        value={agent.id}
+                        checked={selectedAgentId === agent.id}
+                        onChange={() => setSelectedAgentId(agent.id)}
+                        disabled={creatingLocalShipment}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">
+                          {agent.name || agent.username || 'مندوب بدون اسم'}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {agent.username ? `معرف المستخدم: ${agent.username}` : 'بدون معرف'}
+                          {agent.phone ? ` • ${agent.phone}` : ''}
+                        </p>
+                      </div>
+                      {isPreferred && (
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                          الافتراضي
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        }
+      />
       <ConfirmationDialog
         open={Boolean(confirmationDialog)}
         title={confirmationDialog?.title || ''}
