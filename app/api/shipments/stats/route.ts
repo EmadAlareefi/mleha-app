@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
     const requestedWarehouseId = searchParams.get('warehouseId') || undefined;
 
     const where: any = {};
+    let dateRange: { gte: Date; lte: Date } | undefined;
 
     if (date) {
       const startOfDay = new Date(date);
@@ -30,10 +31,12 @@ export async function GET(request: NextRequest) {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
-      where.scannedAt = {
+      dateRange = {
         gte: startOfDay,
         lte: endOfDay,
       };
+
+      where.scannedAt = dateRange;
     }
 
     if (requestedWarehouseId) {
@@ -45,12 +48,24 @@ export async function GET(request: NextRequest) {
     }
 
     // Get counts by type
-    const [incoming, outgoing] = await Promise.all([
+    const handoverWhere = {
+      ...where,
+      handoverScannedAt: dateRange
+        ? dateRange
+        : {
+            not: null,
+          },
+    };
+
+    const [incoming, outgoing, handoverConfirmed] = await Promise.all([
       prisma.shipment.count({
         where: { ...where, type: 'incoming' },
       }),
       prisma.shipment.count({
         where: { ...where, type: 'outgoing' },
+      }),
+      prisma.shipment.count({
+        where: handoverWhere,
       }),
     ]);
 
@@ -76,6 +91,7 @@ export async function GET(request: NextRequest) {
       total: incoming + outgoing,
       incoming,
       outgoing,
+      handoverConfirmed,
       byCompany: byCompany.map(item => ({
         company: item.company,
         count: item._count.company,

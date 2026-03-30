@@ -11,15 +11,18 @@ import type { Shipment, WarehouseInfo } from '@/components/warehouse/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import AppNavbar from '@/components/AppNavbar';
 import { ChevronRight, ChevronLeft, Loader2, RefreshCcw, Search, X, Scan, CheckCircle2 } from 'lucide-react';
 import { ShipmentDetailsDialog } from '@/components/warehouse/shipment-details-dialog';
 import { HandoverScanner } from '@/components/warehouse/handover-scanner';
+import { SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
 
 interface Stats {
   total: number;
   incoming: number;
   outgoing: number;
+  handoverConfirmed: number;
   byCompany: Array<{ company: string; count: number }>;
 }
 
@@ -39,6 +42,7 @@ const EMPTY_STATS: Stats = {
   total: 0,
   incoming: 0,
   outgoing: 0,
+  handoverConfirmed: 0,
   byCompany: [],
 };
 
@@ -72,6 +76,7 @@ export default function WarehouseDashboardClient({
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [scannerTab, setScannerTab] = useState<'primary' | 'handover'>('primary');
   const [isMobile, setIsMobile] = useState(false);
+  const [companyFilter, setCompanyFilter] = useState('all');
 
   const sessionWarehouseList = useMemo(
     () => (Array.isArray(sessionWarehouses) ? sessionWarehouses : []),
@@ -121,6 +126,55 @@ export default function WarehouseDashboardClient({
     return undefined;
   }, [availableWarehouses.length, isAdmin, selectedWarehouse]);
 
+  const availableCompanies = useMemo(() => {
+    const unique = new Set<string>();
+    shipments.forEach((shipment) => {
+      if (shipment.company) {
+        unique.add(shipment.company);
+      }
+    });
+    return Array.from(unique).sort((a, b) => {
+      const nameA = SHIPMENT_COMPANIES[a]?.nameAr || a;
+      const nameB = SHIPMENT_COMPANIES[b]?.nameAr || b;
+      return nameA.localeCompare(nameB, 'ar');
+    });
+  }, [shipments]);
+
+  const filteredShipments = useMemo(() => {
+    if (companyFilter === 'all') {
+      return shipments;
+    }
+    return shipments.filter((shipment) => shipment.company === companyFilter);
+  }, [companyFilter, shipments]);
+
+  const filteredStats = useMemo(() => {
+    if (companyFilter === 'all') {
+      return stats;
+    }
+
+    const incoming = filteredShipments.filter((shipment) => shipment.type === 'incoming').length;
+    const outgoing = filteredShipments.length - incoming;
+    const handoverConfirmed = filteredShipments.filter(
+      (shipment) => shipment.handoverScannedAt
+    ).length;
+
+    return {
+      total: filteredShipments.length,
+      incoming,
+      outgoing,
+      handoverConfirmed,
+      byCompany:
+        filteredShipments.length > 0
+          ? [
+              {
+                company: companyFilter,
+                count: filteredShipments.length,
+              },
+            ]
+          : [],
+    };
+  }, [companyFilter, filteredShipments, stats]);
+
   useEffect(() => {
     const updateIsMobile = () => {
       if (typeof window === 'undefined') return;
@@ -136,6 +190,12 @@ export default function WarehouseDashboardClient({
       setScannerTab('handover');
     }
   }, [showHandoverOnly]);
+
+  useEffect(() => {
+    if (companyFilter !== 'all' && !availableCompanies.includes(companyFilter)) {
+      setCompanyFilter('all');
+    }
+  }, [availableCompanies, companyFilter]);
 
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
@@ -231,7 +291,11 @@ export default function WarehouseDashboardClient({
         const contentType = statsRes.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
           const statsData = await statsRes.json();
-          setStats(statsData);
+          setStats({
+            ...EMPTY_STATS,
+            ...statsData,
+            handoverConfirmed: statsData.handoverConfirmed ?? EMPTY_STATS.handoverConfirmed,
+          });
         } else {
           console.warn('Stats response is not JSON, resetting stats');
           setStats(EMPTY_STATS);
@@ -468,10 +532,48 @@ export default function WarehouseDashboardClient({
                 />
                 {loading && <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />}
                 <div className="mr-auto flex items-center gap-4 text-sm">
-                  <span className="text-slate-500">الإجمالي: <strong className="text-slate-900">{stats.total}</strong></span>
-                  <span className="text-green-600">وارد: <strong>{stats.incoming}</strong></span>
-                  <span className="text-blue-600">صادر: <strong>{stats.outgoing}</strong></span>
+                  <span className="text-slate-500">
+                    الإجمالي: <strong className="text-slate-900">{filteredStats.total}</strong>
+                  </span>
+                  <span className="text-green-600">وارد: <strong>{filteredStats.incoming}</strong></span>
+                  <span className="text-blue-600">صادر: <strong>{filteredStats.outgoing}</strong></span>
                 </div>
+              </div>
+            )}
+
+            {!showHandoverOnly && (
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <label htmlFor="shipment-company-filter" className="font-medium text-slate-600">
+                  تصفية حسب شركة الشحن
+                </label>
+                <Select
+                  id="shipment-company-filter"
+                  value={companyFilter}
+                  onChange={(e) => setCompanyFilter(e.target.value)}
+                  className="w-48 rounded-xl"
+                  disabled={availableCompanies.length === 0}
+                >
+                  <option value="all">جميع الشركات</option>
+                  {availableCompanies.map((companyId) => (
+                    <option key={companyId} value={companyId}>
+                      {SHIPMENT_COMPANIES[companyId]?.nameAr || companyId}
+                    </option>
+                  ))}
+                </Select>
+                {companyFilter !== 'all' && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCompanyFilter('all')}
+                    className="text-slate-500 hover:text-indigo-600"
+                  >
+                    إعادة التعيين
+                  </Button>
+                )}
+                {availableCompanies.length === 0 && (
+                  <span className="text-slate-500">لا توجد شحنات مسجلة اليوم.</span>
+                )}
               </div>
             )}
           </CardContent>
@@ -522,6 +624,12 @@ export default function WarehouseDashboardClient({
                 disabled={!selectedWarehouse}
                 disabledMessage={scannerDisabledMessage}
                 onSuccess={fetchData}
+                handoverCount={showHandoverOnly ? filteredStats.handoverConfirmed : stats.handoverConfirmed}
+                companyFilter={showHandoverOnly ? companyFilter : undefined}
+                availableCompanies={showHandoverOnly ? availableCompanies : undefined}
+                onCompanyFilterChange={
+                  showHandoverOnly ? (value) => setCompanyFilter(value) : undefined
+                }
               />
             )}
           </div>
@@ -578,14 +686,14 @@ export default function WarehouseDashboardClient({
         {!showHandoverOnly && (
           <>
             <DailyReport
-              shipments={shipments}
-              stats={stats}
+              shipments={filteredShipments}
+              stats={filteredStats}
               date={selectedDate}
               warehouseName={selectedWarehouse?.name}
             />
 
             <ShipmentsTable
-              shipments={shipments}
+              shipments={filteredShipments}
               onDelete={handleDelete}
               highlightedId={highlightedShipmentId}
             />

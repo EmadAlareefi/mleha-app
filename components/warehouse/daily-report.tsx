@@ -26,6 +26,7 @@ interface DailyReportProps {
     total: number;
     incoming: number;
     outgoing: number;
+    handoverConfirmed?: number;
     byCompany: Array<{ company: string; count: number }>;
   };
   date: Date;

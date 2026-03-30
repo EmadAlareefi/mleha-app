@@ -15,6 +15,7 @@ interface Stats {
   total: number;
   incoming: number;
   outgoing: number;
+  handoverConfirmed: number;
   byCompany: Array<{ company: string; count: number }>;
 }
 
@@ -22,6 +23,7 @@ const EMPTY_STATS: Stats = {
   total: 0,
   incoming: 0,
   outgoing: 0,
+  handoverConfirmed: 0,
   byCompany: [],
 };
 
@@ -179,7 +181,15 @@ async function loadWarehouseSnapshot({
       },
     });
 
-    const [incoming, outgoing, byCompany] = await Promise.all([
+    const handoverWhere = {
+      ...where,
+      handoverScannedAt: {
+        gte: startOfDay,
+        lte: endOfDay,
+      },
+    };
+
+    const [incoming, outgoing, byCompany, handoverConfirmed] = await Promise.all([
       prisma.shipment.count({
         where: { ...where, type: 'incoming' },
       }),
@@ -192,6 +202,9 @@ async function loadWarehouseSnapshot({
         _count: {
           company: true,
         },
+      }),
+      prisma.shipment.count({
+        where: handoverWhere,
       }),
     ]);
 
@@ -220,6 +233,7 @@ async function loadWarehouseSnapshot({
       total: incoming + outgoing,
       incoming,
       outgoing,
+      handoverConfirmed,
       byCompany: byCompany.map((item) => ({
         company: item.company,
         count: item._count.company,

@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Camera, CheckCircle, Scan, Smartphone, XCircle } from 'lucide-react';
+import { SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
 
 type BarcodeDetection = { rawValue?: string };
 type BarcodeDetectorInstance = {
@@ -20,6 +22,10 @@ interface HandoverScannerProps {
   disabled?: boolean;
   disabledMessage?: string;
   onSuccess?: () => void | Promise<void>;
+  handoverCount?: number;
+  companyFilter?: string;
+  availableCompanies?: string[];
+  onCompanyFilterChange?: (company: string) => void;
 }
 
 interface ScanResult {
@@ -35,6 +41,10 @@ export function HandoverScanner({
   disabled = false,
   disabledMessage,
   onSuccess,
+  handoverCount,
+  companyFilter,
+  availableCompanies = [],
+  onCompanyFilterChange,
 }: HandoverScannerProps) {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -270,6 +280,49 @@ export function HandoverScanner({
             <strong>المستودع:</strong> {warehouseName || '—'} | <strong>اليوم:</strong>{' '}
             يتم قبول الشحنات التي تم تسجيلها اليوم فقط
           </div>
+          {typeof handoverCount === 'number' && (
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-center shadow-sm">
+              <p className="text-sm font-medium text-emerald-800">الشحنات المسلمة اليوم</p>
+              <p className="mt-1 text-4xl font-bold text-emerald-900">{handoverCount}</p>
+              <p className="text-xs text-emerald-700">يتم التحديث تلقائياً بعد كل مسح ناجح</p>
+            </div>
+          )}
+          {onCompanyFilterChange && availableCompanies.length > 0 && (
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-sm">
+              <label htmlFor="handover-company-filter" className="font-medium text-slate-700">
+                تصفية العد حسب شركة الشحن
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Select
+                  id="handover-company-filter"
+                  value={companyFilter || 'all'}
+                  onChange={(e) => onCompanyFilterChange(e.target.value)}
+                  className="rounded-xl"
+                >
+                  <option value="all">جميع الشركات</option>
+                  {availableCompanies.map((companyId) => (
+                    <option key={companyId} value={companyId}>
+                      {SHIPMENT_COMPANIES[companyId]?.nameAr || companyId}
+                    </option>
+                  ))}
+                </Select>
+                {companyFilter && companyFilter !== 'all' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onCompanyFilterChange('all')}
+                    className="rounded-xl"
+                  >
+                    إعادة التعيين
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                يعرض العداد الشحنات المسلمة لليوم حسب الشركة المحددة.
+              </p>
+            </div>
+          )}
           {disabled && disabledMessage && (
             <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
               {disabledMessage}
