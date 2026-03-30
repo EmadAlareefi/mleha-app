@@ -306,13 +306,7 @@ async function buildLocalShipmentLabel(args: LocalLabelArgs, merchant: MerchantL
       color: borderColor,
       thickness: 0.8,
     });
-    page.drawText(footerLabel, {
-      x: PAGE_PADDING,
-      y: footerY - 4,
-      font: latinFont,
-      size: 8,
-      color: subtleText,
-    });
+    drawDirectionalValue(footerLabel, PAGE_PADDING, footerY - 4, 8, subtleText, 'left');
     drawDirectionalValue('Thank you for shopping with us', PAGE_WIDTH - PAGE_PADDING, footerY - 4, 8, subtleText, 'right', 'ltr');
   };
 
