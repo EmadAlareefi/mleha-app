@@ -33,6 +33,15 @@ const TASK_INCLUDE = {
 };
 
 const REQUEST_TYPES = new Set(['purchase', 'pickup', 'support', 'other', 'custom']);
+const DEFAULT_TASK_ORDER = [
+  { dueDate: 'asc' as const },
+  { createdAt: 'desc' as const },
+];
+const STATUS_PRIORITY_GROUPS = [
+  ['pending', 'in_progress'],
+  ['agent_completed'],
+  ['completed', 'cancelled'],
+] as const;
 
 /**
  * GET /api/delivery-agent-tasks
@@ -81,16 +90,54 @@ export async function GET(request: NextRequest) {
       tasksWhere.status = { in: ['pending', 'in_progress', 'agent_completed'] };
     }
 
-    const tasks = await prisma.deliveryAgentTask.findMany({
-      where: tasksWhere,
-      include: TASK_INCLUDE,
-      orderBy: [
-        { status: 'asc' },
-        { dueDate: 'asc' },
-        { createdAt: 'desc' },
-      ],
-      take: limit,
-    });
+    type DeliveryAgentTaskResult = Awaited<
+      ReturnType<typeof prisma.deliveryAgentTask.findMany>
+    >;
+    const shouldPrioritizeActive = includeCompleted && !statusParam;
+    let tasks: DeliveryAgentTaskResult;
+
+    if (shouldPrioritizeActive) {
+      const prioritizedTasks: DeliveryAgentTaskResult = [];
+      let remaining = limit;
+
+      for (const statusGroup of STATUS_PRIORITY_GROUPS) {
+        if (remaining <= 0) break;
+
+        const groupStatuses = [...statusGroup];
+        const statusFilter =
+          groupStatuses.length === 1 ? groupStatuses[0] : { in: groupStatuses };
+        const groupWhere = {
+          ...tasksWhere,
+          status: statusFilter,
+        };
+
+        const groupTasks = await prisma.deliveryAgentTask.findMany({
+          where: groupWhere,
+          include: TASK_INCLUDE,
+          orderBy: DEFAULT_TASK_ORDER,
+          take: remaining,
+        });
+
+        if (groupTasks.length === 0) {
+          continue;
+        }
+
+        prioritizedTasks.push(...groupTasks);
+        remaining -= groupTasks.length;
+      }
+
+      tasks = prioritizedTasks;
+    } else {
+      tasks = await prisma.deliveryAgentTask.findMany({
+        where: tasksWhere,
+        include: TASK_INCLUDE,
+        orderBy: [
+          { status: includeCompleted ? 'desc' : 'asc' },
+          ...DEFAULT_TASK_ORDER,
+        ],
+        take: limit,
+      });
+    }
 
     const summaryCounts = await prisma.deliveryAgentTask.groupBy({
       where: baseWhere,

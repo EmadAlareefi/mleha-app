@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { MapPin, MessageCircle } from 'lucide-react';
 
@@ -469,6 +470,7 @@ export default function MyDeliveriesPage() {
   const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null);
   const [tasksTab, setTasksTab] = useState<'active' | 'completed'>('active');
   const [assignmentsTab, setAssignmentsTab] = useState<'active' | 'completed'>('active');
+  const [assignmentSearchQuery, setAssignmentSearchQuery] = useState('');
   const [walletInfo, setWalletInfo] = useState<DeliveryAgentWalletInfo | null>(null);
   const [walletLoading, setWalletLoading] = useState(true);
   const [walletError, setWalletError] = useState('');
@@ -485,6 +487,11 @@ export default function MyDeliveriesPage() {
     [assignments]
   );
   const adminSelectionCount = adminSelectedAssignmentIds.length;
+  const trimmedAssignmentSearch = assignmentSearchQuery.trim();
+  const normalizedAssignmentSearch = trimmedAssignmentSearch.toLowerCase();
+  const normalizedAssignmentDigits = trimmedAssignmentSearch.replace(/[^\d]/g, '');
+  const hasAssignmentSearch =
+    normalizedAssignmentSearch.length > 0 || normalizedAssignmentDigits.length > 0;
 
   const parseJsonResponse = async (response: Response) => {
     const contentType = response.headers.get('content-type') || '';
@@ -505,6 +512,47 @@ export default function MyDeliveriesPage() {
           : fallbackText || 'تعذر التواصل مع الخادم'
     );
   };
+
+  const matchesAssignmentSearch = useCallback(
+    (assignment: Assignment) => {
+      if (!hasAssignmentSearch) {
+        return true;
+      }
+
+      const { shipment } = assignment;
+      const searchTargets = [
+        shipment.orderNumber,
+        shipment.trackingNumber,
+        shipment.customerName,
+        shipment.orderItems?.meta?.shipToName,
+        shipment.orderItems?.meta?.shipToPhone,
+        shipment.customerPhone,
+      ];
+
+      if (
+        normalizedAssignmentSearch &&
+        searchTargets.some(
+          (value) =>
+            typeof value === 'string' &&
+            value.toLowerCase().includes(normalizedAssignmentSearch)
+        )
+      ) {
+        return true;
+      }
+
+      if (normalizedAssignmentDigits) {
+        const phoneCandidates = [shipment.customerPhone, shipment.orderItems?.meta?.shipToPhone].map(
+          (value) => (typeof value === 'string' ? normalizePhoneNumber(value) : '')
+        );
+        if (phoneCandidates.some((phone) => phone.includes(normalizedAssignmentDigits))) {
+          return true;
+        }
+      }
+
+      return false;
+    },
+    [hasAssignmentSearch, normalizedAssignmentSearch, normalizedAssignmentDigits]
+  );
 
   useEffect(() => {
     fetchAssignments();
@@ -1055,6 +1103,18 @@ export default function MyDeliveriesPage() {
   const completedAssignments = assignments.filter((a) =>
     ['delivered', 'failed', 'cancelled'].includes(a.status)
   );
+  const filteredActiveAssignments = useMemo(
+    () =>
+      hasAssignmentSearch ? activeAssignments.filter(matchesAssignmentSearch) : activeAssignments,
+    [activeAssignments, hasAssignmentSearch, matchesAssignmentSearch]
+  );
+  const filteredCompletedAssignments = useMemo(
+    () =>
+      hasAssignmentSearch
+        ? completedAssignments.filter(matchesAssignmentSearch)
+        : completedAssignments,
+    [completedAssignments, hasAssignmentSearch, matchesAssignmentSearch]
+  );
   const activeAgentTasks = agentTasks.filter(
     (task) => !['agent_completed', 'completed', 'cancelled'].includes(task.status)
   );
@@ -1427,26 +1487,36 @@ export default function MyDeliveriesPage() {
 
         {activeTab === 'shipments' && (
           <div className="space-y-4 mb-6">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">شحناتي</h2>
-              <p className="text-sm text-gray-500">استعرض الشحنات الحالية أو نتائجك المكتملة</p>
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">شحناتي</h2>
+                <p className="text-sm text-gray-500">استعرض الشحنات الحالية أو نتائجك المكتملة</p>
+              </div>
+              <div className="flex w-full flex-col gap-2 md:max-w-xl md:flex-row md:items-center md:justify-end">
+                <Input
+                  type="search"
+                  value={assignmentSearchQuery}
+                  onChange={(event) => setAssignmentSearchQuery(event.target.value)}
+                  placeholder="ابحث برقم الطلب، رقم التتبع، رقم الهاتف أو اسم العميل"
+                  aria-label="بحث الشحنات"
+                  className="w-full md:w-72"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={assignmentsTab === 'active' ? 'default' : 'outline'}
+                    onClick={() => setAssignmentsTab('active')}
+                  >
+                    الشحنات النشطة
+                  </Button>
+                  <Button
+                    variant={assignmentsTab === 'completed' ? 'default' : 'outline'}
+                    onClick={() => setAssignmentsTab('completed')}
+                  >
+                    الشحنات المكتملة
+                  </Button>
+                </div>
+              </div>
             </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant={assignmentsTab === 'active' ? 'default' : 'outline'}
-              onClick={() => setAssignmentsTab('active')}
-            >
-                الشحنات النشطة
-              </Button>
-              <Button
-                variant={assignmentsTab === 'completed' ? 'default' : 'outline'}
-                onClick={() => setAssignmentsTab('completed')}
-              >
-                الشحنات المكتملة
-              </Button>
-            </div>
-          </div>
 
           {assignmentsTab === 'active' && isAdminUser && (
             <Card className="p-4 border border-emerald-200 bg-white">
@@ -1506,11 +1576,15 @@ export default function MyDeliveriesPage() {
           {assignmentsTab === 'active' ? (
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">الشحنات النشطة</h3>
-              {activeAssignments.length === 0 ? (
-                <p className="text-center text-gray-500 py-6">لا توجد شحنات نشطة</p>
+              {filteredActiveAssignments.length === 0 ? (
+                <p className="text-center text-gray-500 py-6">
+                  {activeAssignments.length === 0
+                    ? 'لا توجد شحنات نشطة'
+                    : 'لا توجد شحنات مطابقة لبحثك'}
+                </p>
               ) : (
                 <div className="space-y-4">
-                  {activeAssignments.map((assignment) => {
+                  {filteredActiveAssignments.map((assignment) => {
                     const fullAddress = getFullAddressLabel(assignment.shipment);
                     const whatsappLink = getWhatsAppLink(assignment.shipment);
                     const mapsLink = getMapsLink(assignment.shipment);
@@ -1742,14 +1816,16 @@ export default function MyDeliveriesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {completedAssignments.length === 0 ? (
+                    {filteredCompletedAssignments.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="text-center text-gray-500 py-6">
-                          لا توجد شحنات مكتملة
+                          {completedAssignments.length === 0
+                            ? 'لا توجد شحنات مكتملة'
+                            : 'لا توجد شحنات مطابقة لبحثك'}
                         </td>
                       </tr>
                     ) : (
-                      completedAssignments.map((assignment) => {
+                      filteredCompletedAssignments.map((assignment) => {
                         const fullAddress = getFullAddressLabel(assignment.shipment);
                         const mapsLink = getMapsLink(assignment.shipment);
                         const hasExchangeCoupon = hasExchangeCouponFlag(assignment.shipment);
