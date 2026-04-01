@@ -167,6 +167,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [error, setError] = useState('');
   const [returnFee, setReturnFee] = useState(0);
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
+  const [saleCategoryProducts, setSaleCategoryProducts] = useState<Record<string, boolean>>({});
   const shippingTotal = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
   const appliedReturnFee = getEffectiveReturnFee(returnFee, shippingTotal);
   const getNumericValue = (value: unknown): number => {
@@ -196,12 +197,13 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         return;
       }
       const categoryName = itemCategories[productId];
-      if (categoryName?.trim() === SALE_CATEGORY_NAME) {
+      const isSaleProduct = saleCategoryProducts[productId] || categoryName?.trim() === SALE_CATEGORY_NAME;
+      if (isSaleProduct) {
         ids.add(item.id);
       }
     });
     return ids;
-  }, [order, itemCategories]);
+  }, [order, itemCategories, saleCategoryProducts]);
 
   // Load return fee setting on mount
   useEffect(() => {
@@ -229,10 +231,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     const fetchCategories = async () => {
       if (!order.items || order.items.length === 0) {
         setItemCategories({});
+        setSaleCategoryProducts({});
         return;
       }
 
       const categories: Record<string, string> = {};
+      const saleCategories: Record<string, boolean> = {};
       const productIds = new Set<string>();
 
       // Get unique product IDs
@@ -245,6 +249,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
       if (productIds.size === 0) {
         setItemCategories({});
+        setSaleCategoryProducts({});
         return;
       }
 
@@ -257,8 +262,30 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
             );
             if (response.ok) {
               const data = await response.json();
-              if (data.category) {
-                categories[productId] = data.category;
+              const availableCategories: string[] = [];
+              if (Array.isArray(data.categories)) {
+                for (const categoryEntry of data.categories) {
+                  if (categoryEntry?.name && typeof categoryEntry.name === 'string') {
+                    const normalized = categoryEntry.name.trim();
+                    if (normalized) {
+                      availableCategories.push(normalized);
+                    }
+                  }
+                }
+              }
+              const hasSaleCategory = availableCategories.some(
+                (name) => name === SALE_CATEGORY_NAME
+              );
+              if (hasSaleCategory) {
+                saleCategories[productId] = true;
+              }
+              if (data.category && typeof data.category === 'string') {
+                const normalizedCategory = data.category.trim();
+                if (normalizedCategory) {
+                  categories[productId] = normalizedCategory;
+                }
+              } else if (availableCategories[0]) {
+                categories[productId] = availableCategories[0];
               }
             }
           } catch (err) {
@@ -268,6 +295,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       );
 
       setItemCategories(categories);
+      setSaleCategoryProducts(saleCategories);
     };
 
     fetchCategories();
@@ -447,7 +475,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const maxQuantity = item.quantity || 1;
               const productIdForCategory = getOrderItemProductId(item);
               const category = productIdForCategory ? itemCategories[productIdForCategory] : undefined;
-              const isSaleCategory = category?.trim() === SALE_CATEGORY_NAME || saleCategoryItemIds.has(item.id);
+              const isSaleProduct = productIdForCategory ? saleCategoryProducts[productIdForCategory] : false;
+              const isSaleCategory =
+                isSaleProduct || category?.trim() === SALE_CATEGORY_NAME || saleCategoryItemIds.has(item.id);
               const isReturnBlocked = type === 'return' && isSaleCategory;
               const { color, size } = getItemAttributes(item);
 

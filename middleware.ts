@@ -6,6 +6,7 @@ const PUBLIC_PATHS = [
   '/returns',
   '/api/returns',
   '/api/orders/lookup',
+  '/api/products/category',
   '/api/order-users',
   '/api/order-assignments',
   '/api/order-prep',

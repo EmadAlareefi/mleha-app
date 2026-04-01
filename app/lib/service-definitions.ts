@@ -317,6 +317,17 @@ const serviceDefinitionsData = [
     grantsRoles: ['accountant'],
   },
   {
+    key: 'smsa-webhook',
+    title: 'ويب هوك سمسا',
+    description: 'شرح خطوات التسجيل وطلبات التتبع',
+    icon: '🛰️',
+    href: '/smsa-webhook',
+    color: 'from-indigo-500 to-sky-500',
+    defaultRoles: ['admin'],
+    grantsRoles: [],
+    assignable: false,
+  },
+  {
     key: 'invoices',
     title: 'الفواتير',
     description: 'عرض ومزامنة فواتير سلة مع نظام ERP',

@@ -70,6 +70,45 @@ model WebhookLog {
   @@index([orderId, status])
 }
 
+model SmsaWebhookShipment {
+  id                 String   @id @default(cuid())
+  awb                String   @unique
+  reference          String?
+  pieces             Int?
+  codAmount          Decimal? @db.Decimal(12, 2)
+  contentDesc        String?  @db.Text
+  recipientName      String?
+  originCity         String?
+  originCountry      String?
+  destinationCity    String?
+  destinationCountry String?
+  isDelivered        Boolean?
+  rawPayload         Json?
+  lastScanDateTime   String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  scans              SmsaWebhookScan[]
+
+  @@index([reference])
+  @@index([createdAt])
+}
+
+model SmsaWebhookScan {
+  id              String   @id @default(cuid())
+  shipmentId      String
+  shipment        SmsaWebhookShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  referenceId     Int?
+  city            String?
+  scanType        String?
+  scanDescription String?
+  scanDateTime    String?
+  scanTimeZone    String?
+  receivedBy      String?
+  createdAt       DateTime @default(now())
+
+  @@index([shipmentId])
+}
+
 model Shipment {
   id             String     @id @default(cuid())
   trackingNumber String     @unique
