@@ -70,6 +70,94 @@ model WebhookLog {
   @@index([orderId, status])
 }
 
+model ZokoAgent {
+  id        String   @id
+  email     String?
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments ZokoChatAssignment[]
+  closures    ZokoChatClosure[]
+}
+
+model ZokoChat {
+  id               String   @id
+  customerName     String?
+  platform         String?
+  platformSenderId String?
+  chatType         String?
+  status           String   @default("open")
+  openedAt         DateTime @default(now())
+  closedAt         DateTime?
+  lastMessageAt    DateTime?
+  lastDirection    String?
+  lastMessageText  String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  messages     ZokoMessage[]
+  assignments  ZokoChatAssignment[]
+  closures     ZokoChatClosure[]
+
+  @@index([status])
+  @@index([lastMessageAt])
+}
+
+model ZokoMessage {
+  id                String   @id
+  chatId            String
+  chat              ZokoChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  event             String?
+  direction         String?
+  type              String?
+  text              String?  @db.Text
+  deliveryStatus    String?
+  platform          String?
+  platformSenderId  String?
+  senderName        String?
+  agentEmail        String?
+  platformTimestamp DateTime?
+  payload           Json?
+  createdAt         DateTime @default(now())
+
+  @@index([chatId])
+  @@index([platformTimestamp])
+  @@index([direction])
+}
+
+model ZokoChatAssignment {
+  id         String   @id @default(cuid())
+  chatId     String
+  chat       ZokoChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  agentId    String?
+  agent      ZokoAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  status     String
+  eventAt    DateTime
+  rawPayload Json?
+  createdAt  DateTime @default(now())
+
+  @@index([chatId])
+  @@index([agentId])
+  @@unique([chatId, status, eventAt])
+}
+
+model ZokoChatClosure {
+  id         String   @id @default(cuid())
+  chatId     String
+  chat       ZokoChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  agentId    String?
+  agent      ZokoAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  status     String
+  eventAt    DateTime
+  rawPayload Json?
+  createdAt  DateTime @default(now())
+
+  @@index([chatId])
+  @@index([agentId])
+  @@unique([chatId, status, eventAt])
+}
+
 model SmsaWebhookShipment {
   id                 String   @id @default(cuid())
   awb                String   @unique
