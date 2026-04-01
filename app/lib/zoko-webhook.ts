@@ -309,15 +309,19 @@ async function persistAssignment(event: NormalizedZokoAssignmentEvent) {
     },
   });
 
+  const assignmentId = [
+    event.chatId,
+    event.agent?.id ?? "unassigned",
+    event.status,
+    event.eventAt.toISOString(),
+  ].join(":");
+
   await prisma.zokoChatAssignment.upsert({
     where: {
-      chatId_status_eventAt: {
-        chatId: event.chatId,
-        status: event.status,
-        eventAt: event.eventAt,
-      },
+      id: assignmentId,
     },
     create: {
+      id: assignmentId,
       chatId: event.chatId,
       agentId: event.agent?.id ?? undefined,
       status: event.status,
@@ -360,15 +364,19 @@ async function persistClosure(event: NormalizedZokoClosureEvent) {
     },
   });
 
+  const closureId = [
+    event.chatId,
+    event.agent?.id ?? "unassigned",
+    event.status,
+    event.eventAt.toISOString(),
+  ].join(":");
+
   await prisma.zokoChatClosure.upsert({
     where: {
-      chatId_status_eventAt: {
-        chatId: event.chatId,
-        status: event.status,
-        eventAt: event.eventAt,
-      },
+      id: closureId,
     },
     create: {
+      id: closureId,
       chatId: event.chatId,
       agentId: event.agent?.id ?? null,
       status: event.status,
