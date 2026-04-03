@@ -1,9 +1,18 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { rootCertificates } from 'node:tls';
+import { Agent, Dispatcher } from 'undici';
+
 import { prisma } from '@/lib/prisma';
 import { log } from './logger';
 
 const SALLA_OAUTH_URL = 'https://accounts.salla.sa/oauth2/token';
 const TOKEN_REFRESH_BEFORE_EXPIRY_MS = 2 * 24 * 60 * 60 * 1000; // Refresh 2 days before expiry
 const FORCED_REFRESH_INTERVAL_MS = 10 * 24 * 60 * 60 * 1000; // Force refresh every 10 days (Salla tokens expire every 14 days)
+const SALLA_CA_BUNDLE_PATH =
+  process.env.SALLA_CA_BUNDLE_PATH || path.join(process.cwd(), 'certs/salla-chain.pem');
+
+type SallaRequestOptions = RequestInit & { dispatcher?: Dispatcher };
 
 interface SallaTokenResponse {
   access_token: string;
@@ -274,13 +283,43 @@ export async function refreshExpiringTokens(): Promise<void> {
   log.info('Scheduled token refresh check completed');
 }
 
+let sallaDispatcher: Dispatcher | null | undefined;
+
+function getSallaDispatcher(): Dispatcher | null {
+  if (sallaDispatcher !== undefined) {
+    return sallaDispatcher;
+  }
+
+  try {
+    if (!SALLA_CA_BUNDLE_PATH || !fs.existsSync(SALLA_CA_BUNDLE_PATH)) {
+      log.warn('Salla CA bundle not found on disk', { caPath: SALLA_CA_BUNDLE_PATH });
+      sallaDispatcher = null;
+      return null;
+    }
+
+    const caBundle = fs.readFileSync(SALLA_CA_BUNDLE_PATH, 'utf8');
+    const caChain = [...rootCertificates, caBundle];
+    sallaDispatcher = new Agent({
+      connect: {
+        ca: caChain,
+      },
+    });
+    log.info('Initialized custom Salla TLS dispatcher', { caPath: SALLA_CA_BUNDLE_PATH });
+  } catch (error) {
+    log.error('Failed to initialize Salla TLS dispatcher', { caPath: SALLA_CA_BUNDLE_PATH, error });
+    sallaDispatcher = null;
+  }
+
+  return sallaDispatcher;
+}
+
 /**
  * Makes an authenticated request to Salla API
  */
 export async function sallaMakeRequest<T>(
   merchantId: string,
   endpoint: string,
-  options?: RequestInit
+  options?: SallaRequestOptions
 ): Promise<T | null> {
   const accessToken = await getSallaAccessToken(merchantId);
 
@@ -294,8 +333,10 @@ export async function sallaMakeRequest<T>(
     const baseUrl = 'https://api.salla.dev/admin/v2';
     const url = endpoint.startsWith('/') ? `${baseUrl}${endpoint}` : `${baseUrl}/${endpoint}`;
 
+    const dispatcher = options?.dispatcher ?? getSallaDispatcher() ?? undefined;
     const response = await fetch(url, {
       ...options,
+      dispatcher,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
