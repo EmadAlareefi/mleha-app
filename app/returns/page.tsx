@@ -17,6 +17,20 @@ const MERCHANT_CONFIG = {
   city: process.env.NEXT_PUBLIC_MERCHANT_CITY || 'الرياض',
 };
 
+const buildWhatsappSupportAction = (orderNumber?: string) => {
+  const trimmedOrderNumber = orderNumber?.toString().trim();
+  if (!trimmedOrderNumber) {
+    return undefined;
+  }
+
+  const message = `مرحبًا، واجهت مشكلة في تقديم طلب إرجاع للطلب رقم ${trimmedOrderNumber}. الرجاء المساعدة.`;
+  return {
+    label: 'التواصل عبر واتساب',
+    href: `https://wa.me/966531349631?text=${encodeURIComponent(message)}`,
+    target: '_blank',
+  };
+};
+
 type Step = 'lookup' | 'existing' | 'form' | 'success';
 
 const DATE_OBJECT_KEYS = ['date', 'datetime', 'value', 'timestamp'] as const;
@@ -270,6 +284,12 @@ export default function ReturnsPage() {
     message: string;
     description?: string;
     variant?: 'error' | 'warning' | 'info';
+    action?: {
+      label: string;
+      href: string;
+      target?: string;
+      rel?: string;
+    };
   } | null>(null);
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
 
@@ -341,8 +361,10 @@ export default function ReturnsPage() {
         setErrorDetails({
           title: 'لم يتم العثور على الطلب',
           message: errorMessage,
-          description: 'يرجى التحقق من رقم الطلب والمحاولة مرة أخرى. يمكنك العثور على رقم الطلب في رسالة التأكيد المرسلة إليك عبر البريد الإلكتروني أو الرسائل النصية.',
+          description:
+            'يرجى التحقق من رقم الطلب والمحاولة مرة أخرى. يمكنك العثور على رقم الطلب في رسالة التأكيد المرسلة إليك عبر البريد الإلكتروني أو الرسائل النصية.',
           variant: 'error',
+          action: orderResponse.status >= 500 ? buildWhatsappSupportAction(orderNumber) : undefined,
         });
         setErrorDialogOpen(true);
         setLoading(false);
@@ -521,6 +543,7 @@ export default function ReturnsPage() {
         message: errorMessage,
         description: 'حدث خطأ أثناء البحث عن الطلب. يرجى المحاولة مرة أخرى.',
         variant: 'error',
+        action: buildWhatsappSupportAction(orderNumber),
       });
       setErrorDialogOpen(true);
     } finally {
@@ -854,6 +877,7 @@ export default function ReturnsPage() {
             message={errorDetails.message}
             description={errorDetails.description}
             variant={errorDetails.variant}
+            action={errorDetails.action}
           />
         )}
       </div>

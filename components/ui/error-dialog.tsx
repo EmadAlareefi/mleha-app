@@ -4,6 +4,13 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
 
+interface ErrorDialogAction {
+  label: string;
+  href: string;
+  target?: string;
+  rel?: string;
+}
+
 interface ErrorDialogProps {
   open: boolean;
   onClose: () => void;
@@ -11,6 +18,7 @@ interface ErrorDialogProps {
   message: string;
   description?: string;
   variant?: 'error' | 'warning' | 'info';
+  action?: ErrorDialogAction;
 }
 
 export function ErrorDialog({
@@ -20,6 +28,7 @@ export function ErrorDialog({
   message,
   description,
   variant = 'error',
+  action,
 }: ErrorDialogProps) {
   const variantStyles = {
     error: {
@@ -153,6 +162,17 @@ export function ErrorDialog({
 
           {/* Actions */}
           <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+            {action && (
+              <Button asChild variant="outline" className="min-w-32">
+                <a
+                  href={action.href}
+                  target={action.target || '_blank'}
+                  rel={action.rel || 'noopener noreferrer'}
+                >
+                  {action.label}
+                </a>
+              </Button>
+            )}
             <Button onClick={onClose} className="min-w-24">
               حسناً
             </Button>
