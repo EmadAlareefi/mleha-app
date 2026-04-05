@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { rootCertificates } from 'node:tls';
-import { Agent, Dispatcher } from 'undici';
+import { Agent, Dispatcher, fetch as undiciFetch } from 'undici';
+import type { RequestInit as UndiciRequestInit } from 'undici';
 
 import { prisma } from '@/lib/prisma';
 import { log } from './logger';
@@ -12,7 +13,7 @@ const FORCED_REFRESH_INTERVAL_MS = 10 * 24 * 60 * 60 * 1000; // Force refresh ev
 const SALLA_CA_BUNDLE_PATH =
   process.env.SALLA_CA_BUNDLE_PATH || path.join(process.cwd(), 'certs/salla-chain.pem');
 
-type SallaRequestOptions = RequestInit & { dispatcher?: Dispatcher };
+type SallaRequestOptions = UndiciRequestInit & { dispatcher?: Dispatcher };
 
 interface SallaTokenResponse {
   access_token: string;
@@ -154,7 +155,7 @@ export async function refreshSallaToken(merchantId: string): Promise<string | nu
         refresh_token: auth.refreshToken,
       });
 
-      const response = await fetch(SALLA_OAUTH_URL, {
+      const response = await undiciFetch(SALLA_OAUTH_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -182,7 +183,7 @@ export async function refreshSallaToken(merchantId: string): Promise<string | nu
         return null;
       }
 
-      const data: SallaTokenResponse = await response.json();
+      const data = await response.json() as SallaTokenResponse;
 
       // Store the new tokens and release the lock
       await storeSallaTokens(
@@ -333,14 +334,17 @@ export async function sallaMakeRequest<T>(
     const baseUrl = 'https://api.salla.dev/admin/v2';
     const url = endpoint.startsWith('/') ? `${baseUrl}${endpoint}` : `${baseUrl}/${endpoint}`;
 
-    const dispatcher = options?.dispatcher ?? getSallaDispatcher() ?? undefined;
-    const response = await fetch(url, {
-      ...options,
+    const requestOptions: SallaRequestOptions = options ?? {};
+    const { dispatcher: requestDispatcher, ...restOptions } = requestOptions;
+    const dispatcher = requestDispatcher ?? getSallaDispatcher() ?? undefined;
+
+    const response = await undiciFetch(url, {
+      ...restOptions,
       dispatcher,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        ...options?.headers,
+        ...restOptions.headers,
       },
     });
 

@@ -204,6 +204,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['warehouse'],
   },
   {
+    key: 'returns-analytics',
+    title: 'تحليل المرتجعات',
+    description: 'لوحة لتتبع أسباب الإرجاع وأعلى المنتجات تكراراً',
+    icon: '📈',
+    href: '/returns-analytics',
+    color: 'from-indigo-500 to-violet-600',
+    defaultRoles: ['admin', 'store_manager'],
+    grantsRoles: ['store_manager'],
+  },
+  {
     key: 'agents-live-monitor',
     title: 'مراقبة المحادثات',
     description: 'متابعة المحادثات النشطة على زوكو وأحمال الوكلاء',

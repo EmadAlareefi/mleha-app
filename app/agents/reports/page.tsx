@@ -89,11 +89,10 @@ export default async function AgentsReportsPage({
                 </TableRow>
               )}
               {report.agents.map((agent) => (
-                <TableRow key={agent.agentId ?? agent.agentName}>
+                <TableRow key={agent.agentId ?? agent.agentEmail ?? agent.agentName ?? "agent"}>
                   <TableCell>
-                    <div className="font-semibold">{agent.agentName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {agent.agentEmail ?? "بدون بريد مسجل"}
+                    <div className="font-semibold">
+                      {agent.agentEmail ?? agent.agentName ?? "بدون بريد مسجل"}
                     </div>
                   </TableCell>
                   <TableCell>{agent.assignedChats}</TableCell>
@@ -149,7 +148,7 @@ function Filters({
           <option value="all">الكل</option>
           {agents.map((agent) => (
             <option key={agent.id} value={agent.id}>
-              {agent.name ?? agent.email ?? agent.id}
+              {agent.email ?? agent.name ?? agent.id}
             </option>
           ))}
         </select>
