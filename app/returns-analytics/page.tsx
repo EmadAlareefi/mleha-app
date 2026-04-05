@@ -91,6 +91,13 @@ const TIMEFRAME_CONFIG: Record<TimeframeKey, { label: string; days: number }> = 
 };
 
 const FALLBACK_REASON = 'أسباب غير مصنفة';
+const REASON_LABELS: Record<string, string> = {
+  defective: 'معيب / تالف',
+  wrong_item: 'منتج خاطئ',
+  size_issue: 'مشكلة في المقاس',
+  changed_mind: 'تغيير في الرأي',
+  other: 'أخرى',
+};
 const numberFormatter = new Intl.NumberFormat('ar-SA');
 const currencyFormatter = new Intl.NumberFormat('ar-SA', {
   style: 'currency',
@@ -105,6 +112,15 @@ const dateFormatter = new Intl.DateTimeFormat('ar-SA', {
 const normalizeReason = (value?: string | null): string => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : FALLBACK_REASON;
+};
+
+const getReasonLabel = (value: string): string => {
+  const trimmed = value?.trim() || '';
+  if (!trimmed) {
+    return FALLBACK_REASON;
+  }
+  const lowered = trimmed.toLowerCase();
+  return REASON_LABELS[trimmed] || REASON_LABELS[lowered] || trimmed;
 };
 
 const parseAmount = (value: number | string | null | undefined): number => {
@@ -236,7 +252,7 @@ export default function ReturnsAnalyticsPage() {
         const prevCount = previousCounts.get(reason) || 0;
         return {
           id: reason,
-          label: reason,
+          label: getReasonLabel(reason),
           total: count,
           percentage: Math.round((count / total) * 100),
           trend: computeTrend(count, prevCount),
@@ -624,7 +640,7 @@ export default function ReturnsAnalyticsPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="flex flex-col gap-6">
           <Card className="border-slate-100">
             <CardHeader>
               <CardTitle className="text-lg">أكثر المنتجات إرجاعاً</CardTitle>
@@ -661,14 +677,17 @@ export default function ReturnsAnalyticsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
-                            {item.reasons.map((reason) => (
-                              <span
-                                key={`refund-reason-${item.sku}-${reason}`}
-                                className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
-                              >
-                                {reason}
-                              </span>
-                            ))}
+                            {item.reasons.map((reason) => {
+                              const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
+                              return (
+                                <span
+                                  key={`refund-reason-${item.sku}-${reason}`}
+                                  className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
+                                >
+                                  {displayReason}
+                                </span>
+                              );
+                            })}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -717,14 +736,17 @@ export default function ReturnsAnalyticsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
-                            {item.reasons.map((reason) => (
-                              <span
-                                key={`exchange-reason-${item.sku}-${reason}`}
-                                className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
-                              >
-                                {reason}
-                              </span>
-                            ))}
+                            {item.reasons.map((reason) => {
+                              const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
+                              return (
+                                <span
+                                  key={`exchange-reason-${item.sku}-${reason}`}
+                                  className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
+                                >
+                                  {displayReason}
+                                </span>
+                              );
+                            })}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -825,7 +847,7 @@ export default function ReturnsAnalyticsPage() {
                         </TableCell>
                         <TableCell>
                           <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
-                            {row.reason}
+                            {reasonLabelMap[row.reason] || getReasonLabel(row.reason)}
                           </span>
                         </TableCell>
                         <TableCell className="font-medium text-slate-900">
