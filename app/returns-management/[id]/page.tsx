@@ -418,6 +418,11 @@ export default async function ReturnOrderDetailsPage({
                     {item.conditionNotes && (
                       <p className="text-xs text-gray-500 mt-1">{item.conditionNotes}</p>
                     )}
+                    {item.preInspectionNotes && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        ملاحظة للمفتش: {item.preInspectionNotes}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

@@ -41,6 +41,7 @@ interface ReturnRequestItem {
   price: string | number;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
+  preInspectionNotes?: string | null;
   inspectedBy?: string | null;
   inspectedAt?: string | null;
 }
@@ -153,6 +154,7 @@ const normalizeInspectableItems = (
     ...item,
     conditionStatus: item.conditionStatus ?? null,
     conditionNotes: item.conditionNotes ?? '',
+    preInspectionNotes: item.preInspectionNotes ?? null,
     imageUrl:
       resolveReturnItemImage(item, order?.items) ??
       (previousImageMap ? previousImageMap.get(item.id) ?? null : null),
@@ -609,13 +611,20 @@ export default function ReturnInspectionPage() {
                           </p>
                         </div>
                       </div>
-                      <div className="text-sm text-gray-600 md:text-right">
-                        <p>الكمية: x{item.quantity}</p>
-                        <p>السعر: {formatPrice(item.price)}</p>
-                      </div>
+                    <div className="text-sm text-gray-600 md:text-right">
+                      <p>الكمية: x{item.quantity}</p>
+                      <p>السعر: {formatPrice(item.price)}</p>
                     </div>
+                  </div>
 
-                    <div className="flex flex-wrap gap-2">
+                  {item.preInspectionNotes && item.preInspectionNotes.trim().length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="font-semibold text-amber-900">ملاحظة من فريق المرتجعات</p>
+                      <p>{item.preInspectionNotes.trim()}</p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
                       {CONDITION_ORDER.map((status) => (
                         <Button
                           key={status}

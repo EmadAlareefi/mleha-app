@@ -557,10 +557,11 @@ model ReturnItem {
   variantName String?
   quantity    Int
   price       Decimal @db.Decimal(10, 2)
-  conditionStatus String?   // good, worn, missing_parts, damaged
-  conditionNotes  String?   @db.Text
-  inspectedBy     String?
-  inspectedAt     DateTime?
+  conditionStatus     String?   // good, worn, missing_parts, damaged
+  conditionNotes      String?   @db.Text
+  preInspectionNotes  String?   @db.Text
+  inspectedBy         String?
+  inspectedAt         DateTime?
 
   createdAt DateTime @default(now())
 

@@ -24,6 +24,7 @@ interface ReturnItem {
   price: number | string;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
+  preInspectionNotes?: string | null;
   inspectedBy?: string | null;
   inspectedAt?: string | null;
 }
@@ -200,6 +201,15 @@ const TYPE_FILTER_OPTIONS = [
 
 type TypeFilterKey = (typeof TYPE_FILTER_OPTIONS)[number]['key'];
 
+type NoteEditorState = {
+  requestId: string;
+  orderNumber: string;
+  items: ReturnItem[];
+  notes: Record<string, string>;
+  saving: boolean;
+  error: string;
+};
+
 export default function ReturnsManagementPage() {
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -255,6 +265,7 @@ export default function ReturnsManagementPage() {
 
   // Selected request for modal
   const [selectedRequest, setSelectedRequest] = useState<ReturnRequest | null>(null);
+  const [noteEditor, setNoteEditor] = useState<NoteEditorState | null>(null);
 
   useEffect(() => {
     loadReturnRequests();
@@ -395,6 +406,92 @@ export default function ReturnsManagementPage() {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openPreInspectionNotes = (request: ReturnRequest) => {
+    const pendingItems = request.items.filter((item) => !item.conditionStatus);
+    if (pendingItems.length === 0) {
+      alert('تم فحص جميع العناصر بالفعل.');
+      return;
+    }
+
+    const notes = pendingItems.reduce<Record<string, string>>((acc, item) => {
+      acc[item.id] = item.preInspectionNotes || '';
+      return acc;
+    }, {});
+
+    setNoteEditor({
+      requestId: request.id,
+      orderNumber: request.orderNumber,
+      items: pendingItems,
+      notes,
+      saving: false,
+      error: '',
+    });
+  };
+
+  const closePreInspectionNotes = () => {
+    setNoteEditor(null);
+  };
+
+  const updatePreInspectionNote = (itemId: string, value: string) => {
+    setNoteEditor((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        notes: {
+          ...prev.notes,
+          [itemId]: value,
+        },
+      };
+    });
+  };
+
+  const savePreInspectionNotes = async () => {
+    if (!noteEditor) {
+      return;
+    }
+    if (noteEditor.items.length === 0) {
+      setNoteEditor((prev) => (prev ? { ...prev, error: 'لا توجد عناصر لتحديثها' } : prev));
+      return;
+    }
+
+    const payload = noteEditor.items.map((item) => ({
+      itemId: item.id,
+      note: noteEditor.notes[item.id] ?? '',
+    }));
+
+    setNoteEditor((prev) => (prev ? { ...prev, saving: true, error: '' } : prev));
+
+    try {
+      const response = await fetch('/api/returns/pre-inspection-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          returnRequestId: noteEditor.requestId,
+          notes: payload,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'تعذر حفظ الملاحظات');
+      }
+
+      setNoteEditor(null);
+      loadReturnRequests();
+    } catch (err) {
+      setNoteEditor((prev) =>
+        prev
+          ? {
+              ...prev,
+              saving: false,
+              error: err instanceof Error ? err.message : 'حدث خطأ غير متوقع',
+            }
+          : prev,
+      );
     }
   };
 
@@ -796,6 +893,11 @@ export default function ReturnsManagementPage() {
                 const formattedTrackingTimestamp =
                   trackingInfo?.timestamp ? formatTrackingTimestamp(trackingInfo.timestamp) : null;
                 const majorTrackingLabel = resolveMajorSmsaStatus(trackingInfo);
+                const canAddInspectorNotes = request.items.some((item) => !item.conditionStatus);
+                const inspectorNotesCount = request.items.filter(
+                  (item) => item.preInspectionNotes?.trim(),
+                ).length;
+                const hasPendingInspectorNotes = inspectorNotesCount > 0;
                 return (
                   <Card key={request.id} className="p-6 hover:shadow-lg transition-shadow">
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -924,6 +1026,13 @@ export default function ReturnsManagementPage() {
                           ))}
                         </div>
 
+                        {hasPendingInspectorNotes && (
+                          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                            تم تسجيل ملاحظات للمفتش لـ {inspectorNotesCount} عنصر
+                            {inspectorNotesCount > 1 ? '، يمكن تعديلها قبل الفحص.' : '، ويمكن تعديلها قبل الفحص.'}
+                          </div>
+                        )}
+
                         {request.totalRefundAmount != null && (
                           <div className="mt-3 pt-3 border-t">
                             <div className="flex justify-between font-semibold">
@@ -953,6 +1062,16 @@ export default function ReturnsManagementPage() {
 
                       {/* Actions */}
                       <div className="space-y-3">
+                        {canAddInspectorNotes && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => openPreInspectionNotes(request)}
+                          >
+                            إضافة ملاحظات للمفتش
+                          </Button>
+                        )}
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">
                             نوع المعالجة
@@ -1121,6 +1240,11 @@ export default function ReturnsManagementPage() {
                       {item.conditionNotes && (
                         <p className="text-xs text-gray-500 mt-1">{item.conditionNotes}</p>
                       )}
+                      {item.preInspectionNotes && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          ملاحظة للمفتش: {item.preInspectionNotes}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1136,6 +1260,90 @@ export default function ReturnsManagementPage() {
               <div className="mt-6 flex gap-3">
                 <Button onClick={() => setSelectedRequest(null)} className="flex-1">
                   إغلاق
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Pre-Inspection Notes Modal */}
+        {noteEditor && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-semibold">ملاحظات للمفتش</h2>
+                  <p className="text-sm text-gray-500">طلب #{noteEditor.orderNumber}</p>
+                </div>
+                <button
+                  onClick={closePreInspectionNotes}
+                  className="text-gray-500 hover:text-gray-700"
+                  aria-label="إغلاق"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-600 mb-4">
+                اكتب ملاحظات حول العيوب التي اكتشفها فريق خدمة العملاء ليطلع عليها فريق الفحص عند وصول الشحنة.
+              </p>
+
+              {noteEditor.error && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {noteEditor.error}
+                </div>
+              )}
+
+              {noteEditor.items.length > 0 ? (
+                <div className="space-y-4">
+                  {noteEditor.items.map((item) => (
+                    <div key={item.id} className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                      <div className="flex flex-wrap justify-between gap-3 text-sm">
+                        <div>
+                          <p className="font-semibold text-gray-900">
+                            {item.productName} {item.variantName ? `(${item.variantName})` : ''}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            SKU: {item.productSku || '—'}
+                          </p>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          الكمية: x{item.quantity}
+                        </div>
+                      </div>
+                      <textarea
+                        rows={3}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="اشرح ما لاحظه العميل أو فريق خدمة العملاء"
+                        value={noteEditor.notes[item.id] ?? ''}
+                        onChange={(e) => updatePreInspectionNote(item.id, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+                  تم فحص جميع العناصر في هذا الطلب.
+                </div>
+              )}
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={closePreInspectionNotes}
+                  disabled={noteEditor.saving}
+                >
+                  إلغاء
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1"
+                  onClick={savePreInspectionNotes}
+                  disabled={noteEditor.saving || noteEditor.items.length === 0}
+                >
+                  {noteEditor.saving ? 'جاري الحفظ...' : 'حفظ الملاحظات'}
                 </Button>
               </div>
             </Card>
