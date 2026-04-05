@@ -595,7 +595,7 @@ export default function ReturnsAnalyticsPage() {
                       variant="outline"
                       aria-pressed={isSelected}
                       onClick={() => toggleReason(reason.id)}
-                      className={`flex flex-col items-start rounded-2xl border-2 px-4 py-3 text-right ${
+                      className={`!h-auto w-full flex flex-col items-start justify-start rounded-2xl border-2 px-4 py-3 text-right ${
                         isSelected
                           ? 'border-indigo-500 bg-indigo-50 text-indigo-900 shadow-sm'
                           : 'border-slate-200 bg-white text-slate-900'
@@ -849,4 +849,3 @@ export default function ReturnsAnalyticsPage() {
     </div>
   );
 }
-
