@@ -335,7 +335,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       return;
     }
 
-    if ((reason === 'other' || reason === 'defective') && !reasonDetails.trim()) {
+    if ((reason === 'other' || reason === 'defective' || reason === 'wrong_item') && !reasonDetails.trim()) {
       setError('الرجاء تقديم تفاصيل السبب');
       return;
     }
@@ -384,7 +384,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
           orderId: order.id.toString(),
           type,
           reason,
-          reasonDetails: (reason === 'other' || reason === 'defective') ? reasonDetails : undefined,
+          reasonDetails: (reason === 'other' || reason === 'defective' || reason === 'wrong_item') ? reasonDetails : undefined,
           items,
           merchantName: merchantInfo.name,
           merchantPhone: merchantInfo.phone,
@@ -653,11 +653,17 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
             ))}
           </select>
 
-          {(reason === 'other' || reason === 'defective') && (
+          {(reason === 'other' || reason === 'defective' || reason === 'wrong_item') && (
             <textarea
               value={reasonDetails}
               onChange={(e) => setReasonDetails(e.target.value)}
-              placeholder={reason === 'defective' ? 'الرجاء وصف العيب أو التلف بالتفصيل...' : 'الرجاء كتابة السبب...'}
+              placeholder={
+                reason === 'defective'
+                  ? 'الرجاء وصف العيب أو التلف بالتفصيل...'
+                  : reason === 'wrong_item'
+                    ? 'الرجاء توضيح المنتج الذي تم استلامه بدلاً من المطلوب...'
+                    : 'الرجاء كتابة السبب...'
+              }
               className="w-full px-4 py-3 border rounded-lg resize-none"
               rows={4}
               required
