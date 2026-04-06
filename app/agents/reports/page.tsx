@@ -91,8 +91,16 @@ export default async function AgentsReportsPage({
               {report.agents.map((agent) => (
                 <TableRow key={agent.agentId ?? agent.agentEmail ?? agent.agentName ?? "agent"}>
                   <TableCell>
-                    <div className="font-semibold">
-                      {agent.agentEmail ?? agent.agentName ?? "بدون بريد مسجل"}
+                    <div className="flex flex-col">
+                      <span className="font-semibold">
+                        {agent.agentName ?? agent.agentEmail ?? "بدون اسم مسجل"}
+                      </span>
+                      {agent.agentEmail && (
+                        <span className="text-sm text-muted-foreground">{agent.agentEmail}</span>
+                      )}
+                      {!agent.agentEmail && (
+                        <span className="text-sm text-muted-foreground">بدون بريد مسجل</span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>{agent.assignedChats}</TableCell>

@@ -241,10 +241,11 @@ export async function getAgentPerformanceReport(
   ]);
 
   const summaryMap = new Map<string, SummaryMutable>();
+  const summaryEntries: SummaryMutable[] = [];
   const assignmentStartMap = new Map<string, Date>();
 
   agents.forEach((agent) => {
-    const entry = ensureSummaryEntry(summaryMap, {
+    const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       agentId: agent.id,
       email: agent.email,
       name: agent.name,
@@ -253,7 +254,7 @@ export async function getAgentPerformanceReport(
   });
 
   assignments.forEach((assignment) => {
-    const entry = ensureSummaryEntry(summaryMap, {
+    const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       agentId: assignment.agentId ?? undefined,
       email: assignment.agent?.email,
       name: assignment.agent?.name,
@@ -274,7 +275,7 @@ export async function getAgentPerformanceReport(
   });
 
   closures.forEach((closure) => {
-    const entry = ensureSummaryEntry(summaryMap, {
+    const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       agentId: closure.agentId ?? undefined,
       email: closure.agent?.email,
       name: closure.agent?.name,
@@ -293,14 +294,14 @@ export async function getAgentPerformanceReport(
 
   outgoingCounts.forEach((group) => {
     if (!group.agentEmail) return;
-    const entry = ensureSummaryEntry(summaryMap, {
+    const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       email: group.agentEmail,
       name: group.agentEmail,
     });
     entry.outgoingMessages += group._count._all;
   });
 
-  const agentsList = Array.from(summaryMap.values()).map<AgentReportRow>((entry) => ({
+  const agentsList = summaryEntries.map<AgentReportRow>((entry) => ({
     agentId: entry.agentId,
     agentName: entry.agentName,
     agentEmail: entry.agentEmail,
@@ -373,11 +374,24 @@ interface SummaryMutable {
 
 function ensureSummaryEntry(
   map: Map<string, SummaryMutable>,
+  entries: SummaryMutable[],
   identity: { agentId?: string; email?: string | null; name?: string | null },
 ) {
-  const key = identity.agentId ?? (identity.email ? `email:${identity.email.toLowerCase()}` : "unassigned");
-  if (!map.has(key)) {
-    map.set(key, {
+  const normalizedEmail = identity.email?.toLowerCase() ?? null;
+  const emailKey = normalizedEmail ? `email:${normalizedEmail}` : null;
+  const agentKey = identity.agentId ?? null;
+  const fallbackKey =
+    agentKey ??
+    emailKey ??
+    (identity.name ? `name:${identity.name}` : "unassigned");
+
+  let entry =
+    (agentKey ? map.get(agentKey) : undefined) ??
+    (emailKey ? map.get(emailKey) : undefined) ??
+    (fallbackKey ? map.get(fallbackKey) : undefined);
+
+  if (!entry) {
+    entry = {
       agentId: identity.agentId ?? null,
       agentName:
         identity.name ||
@@ -392,9 +406,34 @@ function ensureSummaryEntry(
       lastClosureAt: null,
       resolutionMinutesTotal: 0,
       resolutionSamples: 0,
-    });
+    };
+    entries.push(entry);
+  } else {
+    if (!entry.agentId && identity.agentId) {
+      entry.agentId = identity.agentId;
+    }
+    if (!entry.agentEmail && identity.email) {
+      entry.agentEmail = identity.email;
+    }
+    if (identity.name) {
+      const trimmedName = identity.name.trim();
+      const currentName = entry.agentName?.trim();
+      const isFallbackName =
+        !currentName ||
+        currentName === entry.agentEmail ||
+        currentName === "بلا تعيين" ||
+        currentName?.startsWith("Agent ") === true;
+      if (trimmedName && (isFallbackName || trimmedName === entry.agentEmail)) {
+        entry.agentName = trimmedName;
+      }
+    }
   }
-  return map.get(key)!;
+
+  if (fallbackKey) map.set(fallbackKey, entry);
+  if (agentKey) map.set(agentKey, entry);
+  if (emailKey) map.set(emailKey, entry);
+
+  return entry;
 }
 
 function pickEarlier(current: string | null, next: Date) {
