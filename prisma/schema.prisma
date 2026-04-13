@@ -247,6 +247,57 @@ model SallaShipment {
   @@index([createdAt])
 }
 
+model ManualSmsaShipment {
+  id             String   @id @default(cuid())
+  merchantId     String
+  orderId        String?
+  orderNumber    String
+
+  customerName   String
+  customerPhone  String
+  customerEmail  String?
+  addressLine1   String
+  addressLine2   String?
+  city           String
+  country        String?
+  district       String?
+  postalCode     String?
+  shortCode      String?
+
+  declaredValue  Decimal? @db.Decimal(10, 2)
+  currency       String   @default("SAR")
+  parcels        Int      @default(1)
+  weight         Decimal? @db.Decimal(8, 2)
+  weightUnit     String   @default("KG")
+  contentDescription String?
+  codAmount      Decimal? @db.Decimal(10, 2)
+
+  shipmentItems  Json?
+  orderSnapshot  Json?
+  consigneeAddress Json?
+  shipperAddress Json?
+
+  status         String   @default("created")
+  smsaAwbNumber  String?  @unique
+  smsaTrackingNumber String? @unique
+  smsaResponse   Json?
+  smsaLabelDataUrl String?
+
+  createdById    String?
+  createdByName  String?
+  cancelledAt    DateTime?
+  cancellationReason String? @db.Text
+  cancellationResponse Json?
+  deletedAt      DateTime?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([merchantId, orderNumber])
+  @@index([orderId])
+  @@index([createdAt])
+}
+
 model SallaAuth {
   id           String   @id @default(cuid())
   merchantId   String   @unique // Salla merchant ID

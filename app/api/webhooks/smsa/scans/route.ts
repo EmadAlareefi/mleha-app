@@ -292,16 +292,16 @@ const persistLiveStatus = async (shipment: NormalizedShipment) => {
     },
   ]);
 
-  const operations: Parameters<typeof prisma.$transaction>[0] = [];
+  const operations: Prisma.PrismaPromise<unknown>[] = [];
 
   if (shipmentFilters.length > 0) {
     operations.push(
       prisma.shipment.updateMany({
         where: { OR: shipmentFilters },
         data: {
-          smsaLiveStatus: liveStatus,
+          smsaLiveStatus: liveStatus as Prisma.InputJsonValue,
           smsaLiveStatusUpdatedAt: updatedAt,
-        },
+        } as any,
       })
     );
   }
@@ -311,7 +311,7 @@ const persistLiveStatus = async (shipment: NormalizedShipment) => {
       prisma.returnRequest.updateMany({
         where: { OR: returnRequestFilters },
         data: {
-          smsaLiveStatus: liveStatus,
+          smsaLiveStatus: liveStatus as Prisma.InputJsonValue,
           smsaLiveStatusUpdatedAt: updatedAt,
         },
       })

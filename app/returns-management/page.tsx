@@ -188,9 +188,6 @@ export default function ReturnsManagementPage() {
   const [selectedRequest, setSelectedRequest] = useState<ReturnRequest | null>(null);
   const [noteEditor, setNoteEditor] = useState<NoteEditorState | null>(null);
 
-  useEffect(() => {
-    loadReturnRequests();
-  }, [loadReturnRequests]);
 
   const handleInspectionFilterChange = (key: 'inspected' | 'review') => {
     setInspectionFilters((prev) => ({
@@ -215,6 +212,62 @@ export default function ReturnsManagementPage() {
     }));
     setPage(1);
   };
+
+  const autoUpdateStatus = useCallback(async (requestId: string, newStatus: string) => {
+    try {
+      const response = await fetch('/api/returns/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: requestId,
+          status: newStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        console.warn('Failed to auto update status', data);
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Auto status update failed', err);
+      return false;
+    }
+  }, []);
+
+  const checkAndAutoCompleteFromSalla = useCallback(async (requests: ReturnRequest[]) => {
+    if (autoCompleting) {
+      return false;
+    }
+
+    const toComplete = requests.filter((req) => {
+      const statusName = req.sallaStatus?.name?.trim();
+      const statusSlug = req.sallaStatus?.slug?.trim();
+      return (
+        (statusName === 'مسترجع' || statusSlug === 'returned') &&
+        req.status !== 'completed'
+      );
+    });
+
+    if (toComplete.length === 0) {
+      return false;
+    }
+
+    setAutoCompleting(true);
+    let hasUpdates = false;
+
+    for (const request of toComplete) {
+      const success = await autoUpdateStatus(request.id, 'completed');
+      if (success) {
+        hasUpdates = true;
+      }
+    }
+
+    setAutoCompleting(false);
+    return hasUpdates;
+  }, [autoCompleting, autoUpdateStatus]);
 
   const loadReturnRequests = useCallback(async () => {
     setLoading(true);
@@ -273,6 +326,10 @@ export default function ReturnsManagementPage() {
       setLoading(false);
     }
   }, [checkAndAutoCompleteFromSalla, inspectionFilters, page, searchQuery, statusFilters, typeFilters]);
+
+  useEffect(() => {
+    loadReturnRequests();
+  }, [loadReturnRequests]);
 
   const openPreInspectionNotes = (request: ReturnRequest) => {
     const pendingItems = request.items.filter((item) => !item.conditionStatus);
@@ -427,61 +484,6 @@ export default function ReturnsManagementPage() {
     }
   };
 
-  const autoUpdateStatus = useCallback(async (requestId: string, newStatus: string) => {
-    try {
-      const response = await fetch('/api/returns/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: requestId,
-          status: newStatus,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        console.warn('Failed to auto update status', data);
-        return false;
-      }
-
-      return true;
-    } catch (err) {
-      console.error('Auto status update failed', err);
-      return false;
-    }
-  }, []);
-
-  const checkAndAutoCompleteFromSalla = useCallback(async (requests: ReturnRequest[]) => {
-    if (autoCompleting) {
-      return false;
-    }
-
-    const toComplete = requests.filter((req) => {
-      const statusName = req.sallaStatus?.name?.trim();
-      const statusSlug = req.sallaStatus?.slug?.trim();
-      return (
-        (statusName === 'مسترجع' || statusSlug === 'returned') &&
-        req.status !== 'completed'
-      );
-    });
-
-    if (toComplete.length === 0) {
-      return false;
-    }
-
-    setAutoCompleting(true);
-    let hasUpdates = false;
-
-    for (const request of toComplete) {
-      const success = await autoUpdateStatus(request.id, 'completed');
-      if (success) {
-        hasUpdates = true;
-      }
-    }
-
-    setAutoCompleting(false);
-    return hasUpdates;
-  }, [autoCompleting, autoUpdateStatus]);
 
   const createCoupon = async (
     requestId: string,

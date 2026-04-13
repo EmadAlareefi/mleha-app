@@ -369,6 +369,68 @@ export async function cancelC2BShipment(awbNumber: string): Promise<{
   }
 }
 
+/**
+ * Cancels a B2C shipment by AWB number
+ */
+export async function cancelB2CShipment(awbNumber: string): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  if (!SMSA_API_KEY) {
+    log.error('SMSA credentials not configured for B2C cancellation');
+    return {
+      success: false,
+      error: 'SMSA API credentials not configured',
+    };
+  }
+
+  try {
+    log.info('Cancelling SMSA B2C shipment', { awbNumber });
+
+    const response = await fetch(buildSmsaUrl(`/b2c/cancel/${encodeURIComponent(awbNumber)}`), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        ApiKey: SMSA_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      log.error('SMSA B2C cancel request failed', {
+        status: response.status,
+        awbNumber,
+        error: errorText,
+      });
+
+      let errorMessage = `Failed to cancel shipment: ${response.status}`;
+      if (response.status === 404) {
+        errorMessage = 'لم يتم العثور على الشحنة في نظام سمسا.';
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+
+    const text = await response.text();
+    log.info('SMSA B2C shipment cancelled successfully', { awbNumber, response: text });
+
+    return {
+      success: true,
+      message: text || 'تم إلغاء الشحنة بنجاح',
+    };
+  } catch (error) {
+    log.error('Error cancelling SMSA B2C shipment', { awbNumber, error });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
 export interface SMSAB2CRequest {
   OrderNumber: string;
   DeclaredValue: number;
