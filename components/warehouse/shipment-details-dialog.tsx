@@ -13,9 +13,11 @@ import {
   MapPin,
   NotebookText,
   PackageSearch,
+  SatelliteDish,
   User,
   X,
 } from 'lucide-react';
+import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
 
 interface ShipmentDetailsDialogProps {
   open: boolean;
@@ -48,6 +50,13 @@ export function ShipmentDetailsDialog({
     ? `${shipment.warehouse.name}${shipment.warehouse.code ? ` (${shipment.warehouse.code})` : ''}`
     : 'غير مرتبط بمستودع';
   const hasMultipleMatches = matchCount > 1;
+  const smsaStatus = shipment.smsaLiveStatus || null;
+  const smsaStatusLabel =
+    resolveMajorSmsaStatus(smsaStatus) || smsaStatus?.description || smsaStatus?.code || null;
+  const smsaStatusTimestamp =
+    smsaStatus?.timestamp && !Number.isNaN(Date.parse(smsaStatus.timestamp))
+      ? format(new Date(smsaStatus.timestamp), 'EEEE، d MMMM yyyy HH:mm', { locale: ar })
+      : null;
 
   return (
     <div
@@ -130,6 +139,25 @@ export function ShipmentDetailsDialog({
                 value={shipment.trackingNumber}
               />
             </div>
+
+            {smsaStatus ? (
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-indigo-900">
+                  <SatelliteDish className="h-5 w-5" />
+                  أحدث حالة من سمسا
+                </div>
+                <p className="mt-3 text-base font-bold text-indigo-900">
+                  {smsaStatusLabel || '—'}
+                </p>
+                {(smsaStatus.city || smsaStatusTimestamp) && (
+                  <p className="mt-1 text-sm text-indigo-800">
+                    {smsaStatus.city || ''}
+                    {smsaStatus.city && smsaStatusTimestamp ? ' • ' : ''}
+                    {smsaStatusTimestamp || ''}
+                  </p>
+                )}
+              </div>
+            ) : null}
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">

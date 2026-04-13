@@ -12,10 +12,29 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
+import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
 import { Trash2, Package, CheckCircle, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import type { Shipment } from '@/components/warehouse/types';
+
+const statusTimestampFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+const formatStatusTimestamp = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return statusTimestampFormatter.format(date);
+};
 
 interface ShipmentsTableProps {
   shipments: Shipment[];
@@ -68,6 +87,7 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                   <TableHead>النوع</TableHead>
                   <TableHead>وقت المسح</TableHead>
                   <TableHead>تسليم شركة الشحن</TableHead>
+                  <TableHead>حالة سمسا</TableHead>
                   <TableHead>ملاحظات</TableHead>
                   <TableHead className="w-[100px]">إجراءات</TableHead>
                 </TableRow>
@@ -76,6 +96,9 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                 {shipments.map((shipment) => {
                   const company = getCompanyInfo(shipment.company);
                   const isHighlighted = highlightedId === shipment.id;
+                  const smsaStatus = shipment.smsaLiveStatus || null;
+                  const statusLabel = resolveMajorSmsaStatus(smsaStatus);
+                  const statusTimestamp = formatStatusTimestamp(smsaStatus?.timestamp);
                   return (
                     <TableRow
                       key={shipment.id}
@@ -125,6 +148,24 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                             <XCircle className="w-4 h-4" />
                             لم يتم
                           </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        {smsaStatus ? (
+                          <div className="space-y-0.5">
+                            <div className="font-medium text-slate-900">
+                              {statusLabel || smsaStatus.description || smsaStatus.code || '—'}
+                            </div>
+                            {(smsaStatus.city || statusTimestamp) && (
+                              <div className="text-[11px] text-slate-500">
+                                {smsaStatus.city || ''}
+                                {smsaStatus.city && statusTimestamp ? ' • ' : ''}
+                                {statusTimestamp || ''}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">

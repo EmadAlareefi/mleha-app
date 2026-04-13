@@ -1,3 +1,5 @@
+import type { SmsaLiveStatus } from '@/types/smsa';
+
 export interface WarehouseInfo {
   id: string;
   name: string;
@@ -22,4 +24,6 @@ export interface Shipment {
   notes?: string | null;
   scannedBy?: string | null;
   warehouse?: ShipmentWarehouseDetails | null;
+  smsaLiveStatus?: SmsaLiveStatus | null;
+  smsaLiveStatusUpdatedAt?: string | null;
 }

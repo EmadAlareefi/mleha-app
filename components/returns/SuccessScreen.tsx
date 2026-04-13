@@ -47,9 +47,6 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
         <h2 className="text-2xl font-bold text-center mb-2">
           تم استلام طلب {returnRequest.type === 'return' ? 'الإرجاع' : 'الاستبدال'} بنجاح!
         </h2>
-        <p className="text-center text-gray-600 mb-8">
-          سيتم مراجعة طلبك والتواصل معك قريباً
-        </p>
 
         {/* Reference Numbers */}
         <div className="space-y-4 mb-8">
@@ -81,7 +78,7 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
                 <div>
                   <p className="text-sm text-gray-600">ملصق شحنة الإرجاع</p>
                   <p className="text-xs text-gray-500">
-                    اطبع الملصق وضعه على الطرد قبل تسليم الشحنة لشركة الشحن
+                    اطبع الملصق وضعه على الطرد قبل تسليم الشحنة لشركة الشحن (اختياري)
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -134,6 +131,11 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
             <li>بعد استلام المنتجات ومراجعتها، سيتم معالجة الاسترداد</li>
           </ol>
         </div>
+
+        <p className="text-center text-red-600 text-sm mb-6 leading-6">
+          سيتم التواصل معكم من قبل مندوب شركة الشحن خلال يومين لاستلام الشحنة، وفي حال عدم التواصل نأمل
+          تسليمها لأقرب فرع خلال مدة أقصاها 3 أيام، وفي حال التأخر سيتم إلغاء طلب الاستبدال أو الاسترجاع
+        </p>
 
         {/* Status */}
         <div className="text-center mb-6">

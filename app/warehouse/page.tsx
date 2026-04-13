@@ -220,6 +220,10 @@ async function loadWarehouseSnapshot({
         : null,
       handoverScannedBy: shipment.handoverScannedBy || null,
       notes: shipment.notes,
+      smsaLiveStatus: (shipment.smsaLiveStatus as any) || null,
+      smsaLiveStatusUpdatedAt: shipment.smsaLiveStatusUpdatedAt
+        ? shipment.smsaLiveStatusUpdatedAt.toISOString()
+        : null,
       warehouse: shipment.warehouse
         ? {
             id: shipment.warehouse.id,

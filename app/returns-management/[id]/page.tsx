@@ -26,6 +26,8 @@ import {
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CopyPhoneButton } from '@/components/CopyPhoneButton';
+import type { SmsaLiveStatus } from '@/types/smsa';
+import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
 
 export const revalidate = 0;
 
@@ -140,6 +142,13 @@ export default async function ReturnOrderDetailsPage({
     ...item,
     imageUrl: extractOrderItemImage(item),
   }));
+  const smsaStatus = (returnRequest.smsaLiveStatus as SmsaLiveStatus | null) || null;
+  const smsaStatusLabel =
+    resolveMajorSmsaStatus(smsaStatus) || smsaStatus?.description || smsaStatus?.code || null;
+  const smsaStatusTimestamp =
+    smsaStatus?.timestamp && !Number.isNaN(Date.parse(smsaStatus.timestamp))
+      ? gregorianDateFormatter.format(new Date(smsaStatus.timestamp))
+      : null;
 
   const statusClass =
     STATUS_COLORS[returnRequest.status] || 'bg-gray-100 text-gray-800 border-gray-300';
@@ -234,6 +243,21 @@ export default async function ReturnOrderDetailsPage({
                   <dt>AWB</dt>
                   <dd>{returnRequest.smsaAwbNumber || '—'}</dd>
                 </div>
+                {smsaStatus ? (
+                  <div className="flex justify-between">
+                    <dt>حالة سمسا</dt>
+                    <dd className="text-left">
+                      <span className="font-medium">{smsaStatusLabel || '—'}</span>
+                      {(smsaStatus.city || smsaStatusTimestamp) && (
+                        <span className="block text-xs text-gray-500">
+                          {smsaStatus.city || ''}
+                          {smsaStatus.city && smsaStatusTimestamp ? ' • ' : ''}
+                          {smsaStatusTimestamp || ''}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                ) : null}
                 <div className="flex justify-between">
                   <dt>الرسوم</dt>
                   <dd>{returnRequest.returnFee ? formatPrice(returnRequest.returnFee) : '—'}</dd>

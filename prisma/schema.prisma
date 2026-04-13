@@ -507,6 +507,8 @@ model ReturnRequest {
   smsaTrackingNumber String? @unique
   smsaAwbNumber      String?
   smsaResponse       Json? // Raw SMSA API response
+  smsaLiveStatus     Json?
+  smsaLiveStatusUpdatedAt DateTime?
 
   // Financial details
   totalRefundAmount Decimal? @db.Decimal(10, 2)
@@ -613,6 +615,8 @@ model LocalShipment {
   trackingNumber String     @unique // Generated local tracking number
   generatedBy    String? // User who generated the label
   notes          String?    @db.Text
+  smsaLiveStatus Json?
+  smsaLiveStatusUpdatedAt DateTime?
   warehouseId    String?
   warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 

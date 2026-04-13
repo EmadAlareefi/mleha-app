@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import type { SmsaLiveStatus } from '@/types/smsa';
 
 export const runtime = 'nodejs';
 
@@ -155,6 +156,178 @@ const computeLastScanDateTime = (scans: NormalizedScan[]): string | null => {
   }
 
   return latest;
+};
+
+const pickLatestScan = (scans: NormalizedScan[]): NormalizedScan | null => {
+  let latest: NormalizedScan | null = null;
+  let latestTimestamp = -Infinity;
+
+  for (const scan of scans) {
+    if (!scan.scanDateTime) {
+      if (!latest) {
+        latest = scan;
+      }
+      continue;
+    }
+
+    const timestamp = Date.parse(scan.scanDateTime);
+    if (Number.isNaN(timestamp)) {
+      if (!latest) {
+        latest = scan;
+      }
+      continue;
+    }
+
+    if (timestamp > latestTimestamp) {
+      latestTimestamp = timestamp;
+      latest = scan;
+    }
+  }
+
+  return latest;
+};
+
+const normalizeIdentifier = (value: string | null | undefined): string | null => {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const collectTrackingMatches = (shipment: NormalizedShipment): string[] => {
+  const values = new Set<string>();
+  const awb = normalizeIdentifier(shipment.awb);
+  if (awb) {
+    values.add(awb);
+  }
+  const reference = normalizeIdentifier(shipment.reference);
+  if (reference) {
+    values.add(reference);
+  }
+  return Array.from(values);
+};
+
+const deriveDeliveredFlag = (
+  explicitFlag: boolean | null | undefined,
+  code: string | null,
+  description: string | null
+): boolean | null => {
+  if (typeof explicitFlag === 'boolean') {
+    return explicitFlag;
+  }
+
+  const normalizedCode = code?.trim().toUpperCase();
+  if (normalizedCode === 'DL') {
+    return true;
+  }
+
+  const normalizedDescription = description?.toLowerCase() || '';
+  if (normalizedDescription.includes('delivered') || normalizedDescription.includes('تم التسليم')) {
+    return true;
+  }
+
+  return null;
+};
+
+const buildSmsaLiveStatus = (shipment: NormalizedShipment): SmsaLiveStatus | null => {
+  const latestScan = pickLatestScan(shipment.scans);
+  const timestamp = latestScan?.scanDateTime ?? shipment.lastScanDateTime ?? null;
+  const status: SmsaLiveStatus = {
+    awb: shipment.awb,
+    reference: shipment.reference,
+    code: latestScan?.scanType ?? null,
+    description: latestScan?.scanDescription ?? null,
+    city: latestScan?.city ?? null,
+    timestamp,
+    timezone: latestScan?.scanTimeZone ?? null,
+    receivedBy: latestScan?.receivedBy ?? null,
+    delivered: deriveDeliveredFlag(shipment.isDelivered, latestScan?.scanType ?? null, latestScan?.scanDescription ?? null),
+    source: 'webhook',
+  };
+
+  const hasMeaningfulData =
+    Boolean(
+      status.code ||
+        status.description ||
+        status.city ||
+        status.timestamp ||
+        status.timezone ||
+        status.receivedBy
+    ) || typeof status.delivered === 'boolean';
+
+  return hasMeaningfulData ? status : null;
+};
+
+const persistLiveStatus = async (shipment: NormalizedShipment) => {
+  const liveStatus = buildSmsaLiveStatus(shipment);
+  if (!liveStatus) {
+    return;
+  }
+
+  const identifiers = collectTrackingMatches(shipment);
+  if (identifiers.length === 0) {
+    return;
+  }
+
+  const updatedAt = new Date();
+  const shipmentFilters = identifiers.map((value) => ({
+    trackingNumber: {
+      equals: value,
+      mode: 'insensitive',
+    } as const,
+  }));
+  const returnRequestFilters = identifiers.flatMap((value) => [
+    {
+      smsaTrackingNumber: {
+        equals: value,
+        mode: 'insensitive',
+      } as const,
+    },
+    {
+      smsaAwbNumber: {
+        equals: value,
+        mode: 'insensitive',
+      } as const,
+    },
+  ]);
+
+  const operations: Parameters<typeof prisma.$transaction>[0] = [];
+
+  if (shipmentFilters.length > 0) {
+    operations.push(
+      prisma.shipment.updateMany({
+        where: { OR: shipmentFilters },
+        data: {
+          smsaLiveStatus: liveStatus,
+          smsaLiveStatusUpdatedAt: updatedAt,
+        },
+      })
+    );
+  }
+
+  if (returnRequestFilters.length > 0) {
+    operations.push(
+      prisma.returnRequest.updateMany({
+        where: { OR: returnRequestFilters },
+        data: {
+          smsaLiveStatus: liveStatus,
+          smsaLiveStatusUpdatedAt: updatedAt,
+        },
+      })
+    );
+  }
+
+  if (operations.length > 0) {
+    try {
+      await prisma.$transaction(operations);
+    } catch (error) {
+      log.error('Failed to persist SMSA live status on related records', {
+        identifiers,
+        error,
+      });
+    }
+  }
 };
 
 const normalizeShipments = (payload: unknown): NormalizedShipment[] => {
@@ -314,6 +487,8 @@ export async function POST(request: NextRequest) {
           })),
         });
       }
+
+      await persistLiveStatus(shipment);
 
       processed.push({
         awb: shipment.awb,
