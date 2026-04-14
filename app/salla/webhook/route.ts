@@ -142,6 +142,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, parsed: false, reason: "invalid json, logged" });
   }
 
+  if (event === "customer.login") {
+    return NextResponse.json({
+      ok: true,
+      verified,
+      skipped: "customer_login_template_disabled",
+    });
+  }
+
   const result = await processSallaWebhook(payload, {
     orderId,
     status,

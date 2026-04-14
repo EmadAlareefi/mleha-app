@@ -207,6 +207,8 @@ model Shipment {
   handoverScannedAt DateTime?
   handoverScannedBy String?
   notes          String?    @db.Text
+  smsaLiveStatus Json?
+  smsaLiveStatusUpdatedAt DateTime?
   warehouseId    String?
   warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 

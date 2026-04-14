@@ -420,6 +420,15 @@ async function sendTpl(
     return { skipped: "no_recipient" };
   }
 
+  const hasEmptyArgs = args.some(
+    (arg) => arg === "" || arg === null || typeof arg === "undefined"
+  );
+
+  if (hasEmptyArgs && templateId) {
+    log.warn("Skipping template with empty arguments", { templateId, args });
+    return { skipped: "empty_template_args" };
+  }
+
   const responses: any[] = [];
   for (const recipient of recipients) {
     if (!templateId) {

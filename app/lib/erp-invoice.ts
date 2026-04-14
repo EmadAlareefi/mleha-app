@@ -50,6 +50,22 @@ export interface ERPInvoiceResult {
   message?: string;
 }
 
+interface ERPBarcodeResult {
+  barcode: string;
+  itemNoUsed: string;
+  isFallback: boolean;
+}
+
+class BarcodeNotFoundError extends Error {
+  itemNo: string;
+
+  constructor(itemNo: string) {
+    super(`لم يتم العثور على الباركود في استجابة ERP للمنتج ${itemNo}`);
+    this.name = 'BarcodeNotFoundError';
+    this.itemNo = itemNo;
+  }
+}
+
 /**
  * Normalize SKU before sending to ERP.
  * Removes any X/x characters Salla uses for size markers.
@@ -60,9 +76,9 @@ function normalizeSkuForERP(rawSku: string): string {
 }
 
 /**
- * Fetch barcode from ERP API for a given item number (cmbkey)
+ * Perform the actual ERP barcode lookup without fallback handling
  */
-async function fetchBarcodeFromERP(itemNo: string): Promise<string> {
+async function lookupBarcodeFromERP(itemNo: string): Promise<string> {
   const barcodeApiUrl = process.env.ERP_BARCODE_API_URL;
   const apiKey = process.env.ERP_API_KEY;
 
@@ -82,6 +98,10 @@ async function fetchBarcodeFromERP(itemNo: string): Promise<string> {
         'ApiKey': apiKey,
       },
     });
+
+    if (response.status === 404) {
+      throw new BarcodeNotFoundError(itemNo);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -109,7 +129,7 @@ async function fetchBarcodeFromERP(itemNo: string): Promise<string> {
       (responseText.trim() ? responseText.trim() : null);
 
     if (!barcode) {
-      throw new Error(`لم يتم العثور على الباركود في استجابة ERP للمنتج ${itemNo}`);
+      throw new BarcodeNotFoundError(itemNo);
     }
 
     logger.info('Fetched barcode from ERP', {
@@ -124,6 +144,56 @@ async function fetchBarcodeFromERP(itemNo: string): Promise<string> {
       error: error.message,
     });
     throw error; // Re-throw the error instead of falling back
+  }
+}
+
+/**
+ * Fetch barcode from ERP API for a given item number (cmbkey) with fallback handling.
+ * Falls back to SKU 2020 (or ERP_FALLBACK_SKU env override) when the target SKU is missing.
+ */
+async function fetchBarcodeFromERP(itemNo: string): Promise<ERPBarcodeResult> {
+  const fallbackSku = (process.env.ERP_FALLBACK_SKU || '2020').trim();
+
+  try {
+    const barcode = await lookupBarcodeFromERP(itemNo);
+    return {
+      barcode,
+      itemNoUsed: itemNo,
+      isFallback: false,
+    };
+  } catch (error: any) {
+    const canFallback = error instanceof BarcodeNotFoundError && itemNo !== fallbackSku;
+
+    if (canFallback) {
+      logger.warn('Barcode not found for SKU, falling back to default SKU', {
+        requestedItemNo: itemNo,
+        fallbackSku,
+      });
+
+      try {
+        const fallbackBarcode = await lookupBarcodeFromERP(fallbackSku);
+
+        logger.info('Using fallback SKU barcode for missing item', {
+          requestedItemNo: itemNo,
+          fallbackSku,
+        });
+
+        return {
+          barcode: fallbackBarcode,
+          itemNoUsed: fallbackSku,
+          isFallback: true,
+        };
+      } catch (fallbackError: any) {
+        logger.error('Fallback SKU barcode lookup failed', {
+          requestedItemNo: itemNo,
+          fallbackSku,
+          error: fallbackError.message,
+        });
+        throw fallbackError;
+      }
+    }
+
+    throw error;
   }
 }
 
@@ -318,14 +388,17 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
       }
     }
 
-    // Fetch barcode from ERP
-    const barcode = await fetchBarcodeFromERP(sku);
+    // Fetch barcode from ERP (with fallback for missing SKUs)
+    const { barcode, itemNoUsed, isFallback } = await fetchBarcodeFromERP(sku);
+    const erpSku = itemNoUsed;
 
     logger.info('Extracted item for ERP', {
       orderId: order.orderId,
-      sku,
+      requestedSku: sku,
+      erpSku,
       rawSku,
       barcode,
+      usedFallbackBarcode: isFallback,
       qty,
       price,
       discpc,
@@ -333,7 +406,7 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
     });
 
     items.push({
-      cmbkey: sku,
+      cmbkey: erpSku,
       barcode: barcode,
       qty: qty,
       fqty: 0,
