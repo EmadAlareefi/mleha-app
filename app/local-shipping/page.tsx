@@ -33,6 +33,18 @@ const formatDateTime = (value: string) =>
     minute: '2-digit',
   });
 
+const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
+  assigned: 'تم الإسناد',
+  picked_up: 'مستلمة من المتجر',
+  in_transit: 'قيد التوصيل',
+  delivered: 'تم التسليم',
+  failed: 'فشل التسليم',
+  cancelled: 'ألغيت',
+};
+
+const getAssignmentStatusLabel = (status?: string | null) =>
+  status ? ASSIGNMENT_STATUS_LABELS[status] || status : '';
+
 export default function LocalShippingPage() {
   const [orderNumber, setOrderNumber] = useState('');
   const [shipment, setShipment] = useState<any>(null);
@@ -270,6 +282,24 @@ export default function LocalShippingPage() {
                     </span>
                   </p>
                 )}
+                {shipment.assignedAgentName && (
+                  <p className="text-sm text-gray-600 mt-3">
+                    المندوب المسؤول:
+                    <span className="font-semibold text-gray-900 ml-1">
+                      {shipment.assignedAgentName}
+                    </span>
+                    {shipment.assignedAgentPhone && (
+                      <span className="ml-1 text-xs text-gray-500" dir="ltr">
+                        {shipment.assignedAgentPhone}
+                      </span>
+                    )}
+                    {shipment.assignmentStatus && (
+                      <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 ml-2">
+                        {getAssignmentStatusLabel(shipment.assignmentStatus)}
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-4 justify-center mb-6">
@@ -357,6 +387,7 @@ export default function LocalShippingPage() {
                     <th className="px-3 py-2">رقم الطلب</th>
                     <th className="px-3 py-2">العميل</th>
                     <th className="px-3 py-2">المدينة</th>
+                    <th className="px-3 py-2">المندوب</th>
                     <th className="px-3 py-2">مبلغ التحصيل</th>
                     <th className="px-3 py-2">رقم التتبع</th>
                     <th className="px-3 py-2 text-center">إجراءات</th>
@@ -365,7 +396,7 @@ export default function LocalShippingPage() {
                 <tbody>
                   {history.length === 0 && !historyLoading && (
                     <tr>
-                      <td colSpan={7} className="text-center text-gray-500 py-6">
+                      <td colSpan={8} className="text-center text-gray-500 py-6">
                         لا توجد شحنات في هذا التاريخ
                       </td>
                     </tr>
@@ -376,6 +407,25 @@ export default function LocalShippingPage() {
                       <td className="px-3 py-2 font-mono">{record.orderNumber}</td>
                       <td className="px-3 py-2">{record.customerName}</td>
                       <td className="px-3 py-2">{record.shippingCity}</td>
+                      <td className="px-3 py-2">
+                        {record.assignedAgentName ? (
+                          <div className="space-y-1 text-sm">
+                            <p className="font-semibold text-gray-900">{record.assignedAgentName}</p>
+                            {record.assignedAgentPhone && (
+                              <p className="text-xs text-gray-500" dir="ltr">
+                                {record.assignedAgentPhone}
+                              </p>
+                            )}
+                            {record.assignmentStatus && (
+                              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                                {getAssignmentStatusLabel(record.assignmentStatus)}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">لم يُحدد</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-semibold">
                         {formatCurrency(record.collectionAmount ?? 0)}
                       </td>

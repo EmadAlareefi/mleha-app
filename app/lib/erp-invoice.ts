@@ -76,6 +76,38 @@ function normalizeSkuForERP(rawSku: string): string {
 }
 
 /**
+ * Resolve the original Salla order date for ERP payloads.
+ * Prefers the raw `date.created` field, falling back to stored timestamps.
+ */
+function getSallaOrderDate(order: SallaOrder): Date {
+  const rawOrder = order.rawOrder as any;
+
+  const candidates: Array<string | Date | null | undefined> = [
+    rawOrder?.date?.created,
+    rawOrder?.date?.updated,
+    order.placedAt,
+    order.updatedAtRemote,
+    order.createdAt,
+    order.updatedAt,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+
+    const date =
+      candidate instanceof Date
+        ? candidate
+        : new Date(candidate);
+
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+
+  return new Date();
+}
+
+/**
  * Perform the actual ERP barcode lookup without fallback handling
  */
 async function lookupBarcodeFromERP(itemNo: string): Promise<string> {
@@ -655,8 +687,8 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     ? `مرتجع رقم ${order.orderNumber || order.orderId}`
     : `فاتورة رقم ${order.orderNumber || order.orderId}`;
 
-  // Use current sync date
-  const syncDate = new Date();
+  // Use the original Salla order date if available
+  const orderDate = getSallaOrderDate(order);
 
   return {
     ltrtype: invoiceType,
@@ -669,7 +701,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     hinvdspc: Math.round(discountPercentage * 100) / 100,
     hvat_amt_rcvd: taxAmount,
     htaxfree_sales: 0,
-    datetime_stamp: syncDate.toISOString(),
+    datetime_stamp: orderDate.toISOString(),
     Description: description,
     Taxno: '',
     remarks2: order.orderNumber || order.orderId,

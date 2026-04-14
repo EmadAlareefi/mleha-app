@@ -5,37 +5,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { Prisma } from '@prisma/client';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
+import { calculateNetAmount, decimalToNumber, isDelivered } from '@/app/lib/affiliate-metrics';
 
 export const runtime = 'nodejs';
-const TAX_RATE = 0.15;
-
-function decimalToNumber(value: Prisma.Decimal | number | null | undefined): number {
-  if (value === null || value === undefined) {
-    return 0;
-  }
-  if (typeof value === 'number') {
-    return value;
-  }
-  return Number(value);
-}
-
-function calculateNetAmount(totalAmount: Prisma.Decimal | number | null, shippingAmount: Prisma.Decimal | number | null): number {
-  const total = decimalToNumber(totalAmount);
-  const shipping = decimalToNumber(shippingAmount);
-  const taxableBase = Math.max(total - shipping, 0);
-  const tax = taxableBase * TAX_RATE;
-  const netAmount = Math.max(taxableBase - tax, 0);
-  return netAmount;
-}
-
-function isDelivered(statusSlug: string | null | undefined, statusName: string | null | undefined): boolean {
-  const normalizedSlug = statusSlug?.toLowerCase();
-  if (normalizedSlug === 'delivered') {
-    return true;
-  }
-  const normalizedName = statusName?.trim();
-  return normalizedName === 'تم التوصيل';
-}
 
 /**
  * GET /api/affiliate-stats

@@ -79,6 +79,10 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     'delivery-agent-wallets',
     [/^\/delivery-agent-wallets(\/.*)?$/, /^\/api\/delivery-agent-wallets(\/.*)?$/],
   ],
+  [
+    'affiliate-management',
+    [/^\/affiliate-management(\/.*)?$/, /^\/api\/affiliate-management(\/.*)?$/],
+  ],
   ['order-invoice-search', [/^\/order-invoice-search(\/.*)?$/]],
   ['cod-tracker', [/^\/cod-tracker(\/.*)?$/]],
   [

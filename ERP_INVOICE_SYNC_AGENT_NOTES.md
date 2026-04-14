@@ -56,6 +56,9 @@ Other helpers live in `app/lib/settings.ts` (`erp_auto_sync_*` keys) and `prisma
 3. **Adding new ingestion filters:** extend the `SyncOptions` + query building inside `app/lib/salla-invoices-v2.ts` and mirror the CLI flags if you still need the Node script.
 4. **Automating sync triggers:** `app/lib/erp-webhook-sync.ts` plus settings keys `erp_auto_sync_enabled`, `erp_auto_sync_on_status`, `erp_sync_delay_seconds` control webhook behavior. Update `shouldAutoSyncForStatus` if new statuses arrive.
 
+## Cleanup Utilities
+- `npm run cleanup:erp-2026` → Clears `erpSyncedAt`, `erpInvoiceId`, and `erpSyncError` for any `SallaOrder` whose `placedAt`/`updatedAtRemote` falls in 2026, and unmarks related `SallaInvoice` rows. Use this if future-dated orders accidentally synced to ERP; the script logs every affected record before nulling the sync markers.
+
 ## Known Pitfalls & Follow-Ups
 - **Dual ingestion implementations:** the CLI uses `app/lib/salla-invoices.ts` while the API uses `app/lib/salla-invoices-v2.ts`. If you patch one, patch or delete the other to avoid running two divergent pipelines (`scripts/sync-salla-invoices.ts:3`, `app/api/salla/sync-invoices/route.ts:3`).
 - **Already-synced orders look “fresh”:** `syncOrderToERP` returns a success message when `erpSyncedAt` is already set (`app/lib/erp-invoice.ts:673-685`), and `/api/erp/sync-order` rewrites `erpSyncedAt`/`erpInvoiceId` regardless (`app/api/erp/sync-order/route.ts:48-58`). Consider short-circuiting the update or surfacing a “skipped” status so ops can tell whether a resend actually hit the ERP.

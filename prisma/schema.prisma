@@ -743,9 +743,40 @@ model OrderUser {
   createdDeliveryTasks DeliveryAgentTask[] @relation("CreatedDeliveryAgentTasks")
   walletTransactions   DeliveryAgentWalletTransaction[] @relation("AgentWalletTransactions")
   walletTransactionsCreated DeliveryAgentWalletTransaction[] @relation("WalletTransactionsCreated")
+  affiliatePayouts     AffiliatePayout[] @relation("AffiliatePayoutAffiliate")
+  affiliatePayoutsRecorded AffiliatePayout[] @relation("AffiliatePayoutRecorder")
 
   @@index([username])
   @@index([isActive])
+}
+
+enum AffiliatePayoutStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+model AffiliatePayout {
+  id           String                  @id @default(cuid())
+  affiliateId  String
+  affiliate    OrderUser               @relation("AffiliatePayoutAffiliate", fields: [affiliateId], references: [id], onDelete: Cascade)
+  amount       Decimal                 @db.Decimal(12, 2)
+  currency     String                  @default("SAR")
+  status       AffiliatePayoutStatus   @default(PENDING)
+  reference    String?
+  memo         String?
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  paidAt       DateTime?
+  recordedById String?
+  recordedBy   OrderUser?              @relation("AffiliatePayoutRecorder", fields: [recordedById], references: [id])
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@index([affiliateId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model UserRecognition {

@@ -73,9 +73,9 @@ const normalizeOrderItem = (item: SallaOrderItem, quantity: number): ManualSmsaS
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const shipmentId = params.id;
+  const { id: shipmentId } = await params;
   if (!shipmentId) {
     return NextResponse.json({ error: 'معرف الشحنة مطلوب' }, { status: 400 });
   }

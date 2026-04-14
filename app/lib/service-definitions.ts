@@ -154,6 +154,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['warehouse'],
   },
   {
+    key: 'affiliate-management',
+    title: 'تقارير المسوقين',
+    description: 'إدارة العمولات وتقارير المحافظ والدفعات للمسوقين',
+    icon: '🤝',
+    href: '/affiliate-management',
+    color: 'from-violet-500 to-indigo-600',
+    defaultRoles: ['admin', 'store_manager', 'accountant'],
+    grantsRoles: ['store_manager', 'accountant'],
+  },
+  {
     key: 'order-invoice-search',
     title: 'البحث عن الطلبات',
     description: 'البحث عن الطلبات وطباعة الفواتير التجارية',

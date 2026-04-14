@@ -69,10 +69,36 @@ export async function GET(request: NextRequest) {
     const shipments = await prisma.localShipment.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      include: {
+        assignment: {
+          include: {
+            deliveryAgent: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                phone: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     return NextResponse.json({
-      shipments: shipments.map((shipment) => serializeLocalShipment(shipment)),
+      shipments: shipments.map((shipment) => {
+        const serialized = serializeLocalShipment(shipment);
+        const agent = shipment.assignment?.deliveryAgent;
+        return {
+          ...serialized,
+          assignedAgentId: agent?.id ?? null,
+          assignedAgentName: agent?.name || agent?.username || null,
+          assignedAgentUsername: agent?.username ?? null,
+          assignedAgentPhone: agent?.phone ?? null,
+          assignmentStatus: shipment.assignment?.status ?? null,
+          assignmentUpdatedAt: shipment.assignment?.updatedAt?.toISOString() ?? null,
+        };
+      }),
     });
   } catch (error) {
     log.error('Failed to fetch local shipments', { error });

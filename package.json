@@ -15,7 +15,8 @@
     "refresh:salla-tokens": "node scripts/run-refresh-tokens.js",
     "check:salla-tokens": "node scripts/run-check-token-status.js",
     "db:migrate:supabase": "bash scripts/migrate-neon-to-supabase.sh",
-    "test:zoko": "node --test --import tsx app/lib/__tests__/zoko-webhook.test.ts"
+    "test:zoko": "node --test --import tsx app/lib/__tests__/zoko-webhook.test.ts",
+    "cleanup:erp-2026": "node scripts/run-remove-2026-erp-invoices.js"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
