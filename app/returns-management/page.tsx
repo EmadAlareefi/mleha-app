@@ -113,6 +113,7 @@ const resolveRefundAmount = (request: ReturnRequest): number | null => {
 
 const STATUS_FILTER_OPTIONS = [
   { key: 'pending_review', label: 'تحت المراجعة' },
+  { key: 'delivered', label: 'تم التسليم' },
   { key: 'completed', label: 'مكتمل' },
 ] as const;
 
@@ -146,7 +147,8 @@ export default function ReturnsManagementPage() {
     review: false,
   });
   const [statusFilters, setStatusFilters] = useState<Record<StatusFilterKey, boolean>>({
-    pending_review: true,
+    pending_review: false,
+    delivered: true,
     completed: false,
   });
   const [typeFilters, setTypeFilters] = useState<Record<TypeFilterKey, boolean>>({
