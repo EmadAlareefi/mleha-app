@@ -147,7 +147,7 @@ export default function ReturnsManagementPage() {
     review: false,
   });
   const [statusFilters, setStatusFilters] = useState<Record<StatusFilterKey, boolean>>({
-    pending_review: false,
+    pending_review: true,
     delivered: true,
     completed: false,
   });

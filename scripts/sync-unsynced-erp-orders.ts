@@ -2,10 +2,11 @@ import { loadEnvConfig } from '@next/env';
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
+import { createInterface } from 'readline/promises';
 import { prisma } from '@/lib/prisma';
 import { syncOrderToERP } from '@/app/lib/erp-invoice';
 import { log as logger } from '@/app/lib/logger';
-import type { SallaOrder } from '@prisma/client';
+import type { Prisma, SallaOrder } from '@prisma/client';
 
 loadEnvConfig(process.cwd());
 
@@ -14,6 +15,9 @@ interface CliOptions {
   force: boolean;
   once: boolean;
   delayMs: number;
+  startDate?: string;
+  endDate?: string;
+  promptForDateRange: boolean;
 }
 
 interface BatchSummary {
@@ -26,24 +30,34 @@ interface BatchSummary {
 const skuLogFilePath = path.resolve(__dirname, 'erp-sync-missing-skus.txt');
 const missingSkuEntries = new Map<string, { orderRef: string; sku: string; message: string }>();
 const SKU_REGEX = /\bsku\b[^A-Za-z0-9]*([A-Za-z0-9_-]+)/gi;
+const DATE_INPUT_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function printUsage(): void {
   console.log(`
-ERP Unsynced Orders Sync
-========================
+ERP Orders Sync
+===============
 
-Syncs unsynced Salla orders to the ERP system using the same logic as
-the ERP settings page (POST /api/erp/sync-orders-batch).
+Syncs unsynced Salla orders to the ERP system using the same core logic as
+the frontend ERP sync flow. Date filters use the same placedAt boundaries as
+/order-reports.
 
 Usage:
   npm run sync:erp-orders -- [options]
+  npm run sync:erp-orders-range -- [options]
 
 Options:
   -b, --batch-size <number>  Number of orders per batch (default: 1000)
   -f, --force                Force re-sync even if an order is already synced
   -o, --once                 Run a single batch (frontend behavior)
   -d, --delay <ms>           Delay between orders in milliseconds (default: 100)
+  --start-date <YYYY-MM-DD>  Filter orders placed on/after this date
+  --end-date <YYYY-MM-DD>    Filter orders placed on/before this date
+  -p, --prompt               Prompt for a start/end date range in the terminal
   -h, --help                 Show this help message
+
+Examples:
+  npm run sync:erp-orders -- --start-date 2026-04-01 --end-date 2026-04-15
+  npm run sync:erp-orders-range
 `.trim());
 }
 
@@ -54,6 +68,7 @@ function parseCliArgs(): CliOptions {
     force: false,
     once: false,
     delayMs: 100,
+    promptForDateRange: false,
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -95,6 +110,22 @@ function parseCliArgs(): CliOptions {
         options.delayMs = parsed;
         break;
       }
+      case '--start-date': {
+        const value = args[++i];
+        if (!value) throw new Error('Missing value for --start-date');
+        options.startDate = value;
+        break;
+      }
+      case '--end-date': {
+        const value = args[++i];
+        if (!value) throw new Error('Missing value for --end-date');
+        options.endDate = value;
+        break;
+      }
+      case '--prompt':
+      case '-p':
+        options.promptForDateRange = true;
+        break;
       default:
         if (arg.startsWith('--batch-size=')) {
           const parsed = Number.parseInt(arg.split('=')[1] ?? '', 10);
@@ -108,10 +139,16 @@ function parseCliArgs(): CliOptions {
             throw new Error('Delay must be a non-negative integer.');
           }
           options.delayMs = parsed;
+        } else if (arg.startsWith('--start-date=')) {
+          options.startDate = arg.split('=')[1] ?? '';
+        } else if (arg.startsWith('--end-date=')) {
+          options.endDate = arg.split('=')[1] ?? '';
         } else if (arg === '--force=true') {
           options.force = true;
         } else if (arg === '--once=true') {
           options.once = true;
+        } else if (arg === '--prompt=true') {
+          options.promptForDateRange = true;
         } else {
           throw new Error(`Unknown option "${arg}". Use --help to view usage.`);
         }
@@ -120,6 +157,99 @@ function parseCliArgs(): CliOptions {
   }
 
   return options;
+}
+
+function normalizeDateInput(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!DATE_INPUT_REGEX.test(trimmed)) {
+    throw new Error(`${label} must be in YYYY-MM-DD format.`);
+  }
+
+  const parsed = new Date(`${trimmed}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== trimmed) {
+    throw new Error(`${label} is not a valid calendar date.`);
+  }
+
+  return trimmed;
+}
+
+function validateDateRange(options: CliOptions): CliOptions {
+  const startDate = options.startDate
+    ? normalizeDateInput(options.startDate, 'Start date')
+    : undefined;
+  const endDate = options.endDate
+    ? normalizeDateInput(options.endDate, 'End date')
+    : undefined;
+
+  if (startDate && endDate && startDate > endDate) {
+    throw new Error('Start date must be on or before end date.');
+  }
+
+  return {
+    ...options,
+    startDate,
+    endDate,
+  };
+}
+
+async function promptForDateRange(options: CliOptions): Promise<CliOptions> {
+  if (!options.promptForDateRange || (options.startDate && options.endDate)) {
+    return validateDateRange(options);
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Interactive date prompts require a TTY. Pass --start-date and --end-date when running non-interactively.'
+    );
+  }
+
+  const readline = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    const startDateInput = options.startDate
+      ?? await readline.question('Start date (YYYY-MM-DD): ');
+    const endDateInput = options.endDate
+      ?? await readline.question('End date (YYYY-MM-DD): ');
+
+    if (!startDateInput.trim() || !endDateInput.trim()) {
+      throw new Error('Both start date and end date are required in prompt mode.');
+    }
+
+    return validateDateRange({
+      ...options,
+      startDate: startDateInput,
+      endDate: endDateInput,
+    });
+  } finally {
+    readline.close();
+  }
+}
+
+function buildOrderWhereClause(options: CliOptions): Prisma.SallaOrderWhereInput {
+  const whereClause: Prisma.SallaOrderWhereInput = {
+    erpSyncedAt: null,
+  };
+
+  if (options.startDate || options.endDate) {
+    whereClause.placedAt = {
+      // Match /api/order-history/admin so the CLI selects the same date range as /order-reports.
+      gte: options.startDate ? new Date(`${options.startDate}T00:00:00.000Z`) : undefined,
+      lte: options.endDate ? new Date(`${options.endDate}T23:59:59.999Z`) : undefined,
+    };
+  }
+
+  return whereClause;
+}
+
+function formatDateRange(options: CliOptions): string {
+  if (!options.startDate && !options.endDate) {
+    return 'all dates';
+  }
+
+  return `${options.startDate ?? '...'} → ${options.endDate ?? '...'}`;
 }
 
 async function delay(ms: number): Promise<void> {
@@ -172,18 +302,25 @@ async function flushMissingSkuLog(): Promise<void> {
   console.log(`Logged ${missingSkuEntries.size} SKU issue(s) to ${path.relative(process.cwd(), skuLogFilePath)}`);
 }
 
-async function processBatch(limit: number, force: boolean, delayMs: number): Promise<BatchSummary> {
+async function processBatch(options: CliOptions): Promise<BatchSummary> {
+  const whereClause = buildOrderWhereClause(options);
   const orders = await prisma.sallaOrder.findMany({
-    where: { erpSyncedAt: null },
-    orderBy: { placedAt: 'desc' },
-    take: limit,
+    where: whereClause,
+    orderBy: [{ placedAt: 'desc' }, { id: 'desc' }],
+    take: options.batchSize,
   });
 
   if (orders.length === 0) {
     return { total: 0, successful: 0, failed: 0, skipped: 0 };
   }
 
-  logger.info('Starting ERP CLI batch sync', { orders: orders.length, limit, force });
+  logger.info('Starting ERP CLI batch sync', {
+    orders: orders.length,
+    limit: options.batchSize,
+    force: options.force,
+    startDate: options.startDate,
+    endDate: options.endDate,
+  });
 
   let successful = 0;
   let failed = 0;
@@ -191,7 +328,7 @@ async function processBatch(limit: number, force: boolean, delayMs: number): Pro
 
   for (const order of orders) {
     try {
-      const result = await syncOrderToERP(order, force);
+      const result = await syncOrderToERP(order, options.force);
       const wasSkipped = result.success && result.message?.includes('already synced');
 
       if (result.success && !wasSkipped) {
@@ -234,7 +371,7 @@ async function processBatch(limit: number, force: boolean, delayMs: number): Pro
       trackMissingSkus(order, error.message ?? String(error));
     }
 
-    await delay(delayMs);
+    await delay(options.delayMs);
   }
 
   logger.info('ERP CLI batch sync completed', {
@@ -254,14 +391,21 @@ async function processBatch(limit: number, force: boolean, delayMs: number): Pro
 
 async function main() {
   try {
-    const options = parseCliArgs();
+    const options = await promptForDateRange(parseCliArgs());
+    const whereClause = buildOrderWhereClause(options);
+    const totalMatchingOrders = await prisma.sallaOrder.count({
+      where: whereClause,
+    });
+
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(' ERP Unsynced Orders Sync');
+    console.log(' ERP Orders Sync');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`Batch size : ${options.batchSize}`);
     console.log(`Force sync : ${options.force ? 'enabled' : 'disabled'}`);
     console.log(`Delay      : ${options.delayMs}ms between orders`);
+    console.log(`Date range : ${formatDateRange(options)}`);
     console.log(`Mode       : ${options.once ? 'single batch' : 'until all unsynced orders are processed'}`);
+    console.log(`Matched    : ${totalMatchingOrders} unsynced order(s)`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     const aggregate: BatchSummary = { total: 0, successful: 0, failed: 0, skipped: 0 };
@@ -269,12 +413,12 @@ async function main() {
 
     while (true) {
       console.log(`Starting batch #${batchNumber}...`);
-      const batch = await processBatch(options.batchSize, options.force, options.delayMs);
+      const batch = await processBatch(options);
       if (batch.total === 0) {
         if (batchNumber === 1) {
-          console.log('No unsynced orders found.');
+          console.log(`No unsynced orders found for ${formatDateRange(options)}.`);
         } else {
-          console.log('All unsynced orders processed.');
+          console.log(`All unsynced orders processed for ${formatDateRange(options)}.`);
         }
         break;
       }
