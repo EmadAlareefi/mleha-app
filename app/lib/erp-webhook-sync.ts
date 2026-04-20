@@ -10,6 +10,7 @@ import { syncOrderToERP } from './erp-invoice';
 import { shouldAutoSyncForStatus } from './settings';
 import { prisma } from '@/lib/prisma';
 import { log as logger } from './logger';
+import { hasSuccessfulERPSync, isNegativeERPInvoiceId } from '@/lib/erp-order-sync';
 
 /**
  * Handle order webhook event and sync to ERP if conditions are met
@@ -24,7 +25,7 @@ export async function handleOrderWebhookSync(
 ): Promise<{ success: boolean; message: string; synced: boolean }> {
   try {
     // Check if order is already synced
-    if (order.erpSyncedAt) {
+    if (hasSuccessfulERPSync(order)) {
       logger.info('Order already synced to ERP, skipping webhook sync', {
         orderId: order.orderId,
         orderNumber: order.orderNumber,
@@ -34,6 +35,14 @@ export async function handleOrderWebhookSync(
         message: 'Order already synced',
         synced: false,
       };
+    }
+
+    if (order.erpSyncedAt && isNegativeERPInvoiceId(order.erpInvoiceId)) {
+      logger.warn('Retrying webhook ERP sync for order with negative invoice ID', {
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        erpInvoiceId: order.erpInvoiceId,
+      });
     }
 
     // Check if we should auto-sync for this status
@@ -89,6 +98,7 @@ export async function handleOrderWebhookSync(
         where: { id: order.id },
         data: {
           erpSyncError: result.error || result.message || 'Unknown error',
+          erpSyncedAt: isNegativeERPInvoiceId(order.erpInvoiceId) ? null : undefined,
           erpSyncAttempts: { increment: 1 },
         },
       });

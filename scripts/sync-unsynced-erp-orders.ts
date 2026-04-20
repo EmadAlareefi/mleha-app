@@ -7,12 +7,16 @@ import { prisma } from '@/lib/prisma';
 import { syncOrderToERP } from '@/app/lib/erp-invoice';
 import { log as logger } from '@/app/lib/logger';
 import type { Prisma, SallaOrder } from '@prisma/client';
+import {
+  NEGATIVE_ERP_INVOICE_ID_PREFIX,
+  hasSuccessfulERPSync,
+  isNegativeERPInvoiceId,
+} from '@/lib/erp-order-sync';
 
 loadEnvConfig(process.cwd());
 
 interface CliOptions {
   batchSize: number;
-  force: boolean;
   once: boolean;
   delayMs: number;
   startDate?: string;
@@ -47,7 +51,6 @@ Usage:
 
 Options:
   -b, --batch-size <number>  Number of orders per batch (default: 1000)
-  -f, --force                Force re-sync even if an order is already synced
   -o, --once                 Run a single batch (frontend behavior)
   -d, --delay <ms>           Delay between orders in milliseconds (default: 100)
   --start-date <YYYY-MM-DD>  Filter orders placed on/after this date
@@ -65,7 +68,6 @@ function parseCliArgs(): CliOptions {
   const args = process.argv.slice(2);
   const options: CliOptions = {
     batchSize: 1000,
-    force: false,
     once: false,
     delayMs: 100,
     promptForDateRange: false,
@@ -91,10 +93,6 @@ function parseCliArgs(): CliOptions {
         options.batchSize = parsed;
         break;
       }
-      case '--force':
-      case '-f':
-        options.force = true;
-        break;
       case '--once':
       case '-o':
         options.once = true;
@@ -143,8 +141,8 @@ function parseCliArgs(): CliOptions {
           options.startDate = arg.split('=')[1] ?? '';
         } else if (arg.startsWith('--end-date=')) {
           options.endDate = arg.split('=')[1] ?? '';
-        } else if (arg === '--force=true') {
-          options.force = true;
+        } else if (arg === '--force' || arg === '-f' || arg === '--force=true') {
+          console.warn('Ignoring --force: this CLI only syncs orders that are still unsynced.');
         } else if (arg === '--once=true') {
           options.once = true;
         } else if (arg === '--prompt=true') {
@@ -230,7 +228,10 @@ async function promptForDateRange(options: CliOptions): Promise<CliOptions> {
 
 function buildOrderWhereClause(options: CliOptions): Prisma.SallaOrderWhereInput {
   const whereClause: Prisma.SallaOrderWhereInput = {
-    erpSyncedAt: null,
+    OR: [
+      { erpSyncedAt: null },
+      { erpInvoiceId: { startsWith: NEGATIVE_ERP_INVOICE_ID_PREFIX } },
+    ],
   };
 
   if (options.startDate || options.endDate) {
@@ -317,7 +318,6 @@ async function processBatch(options: CliOptions): Promise<BatchSummary> {
   logger.info('Starting ERP CLI batch sync', {
     orders: orders.length,
     limit: options.batchSize,
-    force: options.force,
     startDate: options.startDate,
     endDate: options.endDate,
   });
@@ -328,12 +328,28 @@ async function processBatch(options: CliOptions): Promise<BatchSummary> {
 
   for (const order of orders) {
     try {
-      const result = await syncOrderToERP(order, options.force);
+      const freshOrder = await prisma.sallaOrder.findUnique({
+        where: { id: order.id },
+      });
+
+      if (!freshOrder) {
+        failed += 1;
+        console.error(`✖ Failed order ${order.orderNumber ?? order.orderId}: order not found during sync.`);
+        continue;
+      }
+
+      if (hasSuccessfulERPSync(freshOrder)) {
+        skipped += 1;
+        console.log(`↷ Skipped order ${freshOrder.orderNumber ?? freshOrder.orderId}: already synced.`);
+        continue;
+      }
+
+      const result = await syncOrderToERP(freshOrder, false);
       const wasSkipped = result.success && result.message?.includes('already synced');
 
       if (result.success && !wasSkipped) {
         await prisma.sallaOrder.update({
-          where: { id: order.id },
+          where: { id: freshOrder.id },
           data: {
             erpSyncedAt: new Date(),
             erpInvoiceId: result.erpInvoiceId ? String(result.erpInvoiceId) : null,
@@ -342,27 +358,29 @@ async function processBatch(options: CliOptions): Promise<BatchSummary> {
           },
         });
         successful += 1;
-        console.log(`✔ Synced order ${order.orderNumber ?? order.orderId} → Invoice ${result.erpInvoiceId ?? 'n/a'}`);
+        console.log(`✔ Synced order ${freshOrder.orderNumber ?? freshOrder.orderId} → Invoice ${result.erpInvoiceId ?? 'n/a'}`);
       } else if (wasSkipped) {
         skipped += 1;
-        console.log(`↷ Skipped order ${order.orderNumber ?? order.orderId}: ${result.message}`);
+        console.log(`↷ Skipped order ${freshOrder.orderNumber ?? freshOrder.orderId}: ${result.message}`);
       } else {
         await prisma.sallaOrder.update({
-          where: { id: order.id },
+          where: { id: freshOrder.id },
           data: {
             erpSyncError: result.error || result.message || 'Unknown error',
+            erpSyncedAt: isNegativeERPInvoiceId(freshOrder.erpInvoiceId) ? null : undefined,
             erpSyncAttempts: { increment: 1 },
           },
         });
         failed += 1;
-        console.error(`✖ Failed order ${order.orderNumber ?? order.orderId}: ${result.error || result.message}`);
-        trackMissingSkus(order, result.error, result.message);
+        console.error(`✖ Failed order ${freshOrder.orderNumber ?? freshOrder.orderId}: ${result.error || result.message}`);
+        trackMissingSkus(freshOrder, result.error, result.message);
       }
     } catch (error: any) {
       await prisma.sallaOrder.update({
         where: { id: order.id },
         data: {
           erpSyncError: error.message || 'Unknown error',
+          erpSyncedAt: isNegativeERPInvoiceId(order.erpInvoiceId) ? null : undefined,
           erpSyncAttempts: { increment: 1 },
         },
       });
@@ -401,7 +419,7 @@ async function main() {
     console.log(' ERP Orders Sync');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`Batch size : ${options.batchSize}`);
-    console.log(`Force sync : ${options.force ? 'enabled' : 'disabled'}`);
+    console.log('Sync mode  : unsynced orders only');
     console.log(`Delay      : ${options.delayMs}ms between orders`);
     console.log(`Date range : ${formatDateRange(options)}`);
     console.log(`Mode       : ${options.once ? 'single batch' : 'until all unsynced orders are processed'}`);

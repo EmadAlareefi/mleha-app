@@ -93,7 +93,7 @@ export default async function AgentsReportsPage({
                   <TableCell>
                     <div className="flex flex-col">
                       <span className="font-semibold">
-                        {agent.agentName ?? agent.agentEmail ?? "بدون اسم مسجل"}
+                        {agent.agentName ?? "بدون اسم مسجل"}
                       </span>
                       {agent.agentEmail && (
                         <span className="text-sm text-muted-foreground">{agent.agentEmail}</span>
@@ -156,7 +156,7 @@ function Filters({
           <option value="all">الكل</option>
           {agents.map((agent) => (
             <option key={agent.id} value={agent.id}>
-              {agent.email ?? agent.name ?? agent.id}
+              {agent.name ?? agent.email ?? agent.id}
             </option>
           ))}
         </select>

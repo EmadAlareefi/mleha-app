@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { syncOrderToERP } from '@/app/lib/erp-invoice';
 import { log as logger } from '@/app/lib/logger';
+import { isNegativeERPInvoiceId } from '@/lib/erp-order-sync';
 
 export async function POST(req: NextRequest) {
   try {
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
         where: { id: order.id },
         data: {
           erpSyncError: result.error || result.message || 'Unknown error',
+          erpSyncedAt: isNegativeERPInvoiceId(order.erpInvoiceId) ? null : undefined,
           erpSyncAttempts: { increment: 1 },
         },
       });

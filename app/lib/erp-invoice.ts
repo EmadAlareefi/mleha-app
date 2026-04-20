@@ -8,6 +8,13 @@ import { SallaOrder } from '@prisma/client';
 import { getERPAccessToken } from './erp-auth';
 import { log as logger } from './logger';
 import { sallaMakeRequest } from './salla-oauth';
+import {
+  buildNegativeERPInvoiceIdError,
+  extractERPInvoiceId,
+  extractERPInvoiceIdFromText,
+  hasSuccessfulERPSync,
+  isNegativeERPInvoiceId,
+} from '@/lib/erp-order-sync';
 
 // ERP Invoice payload based on your specifications
 export interface ERPInvoiceItem {
@@ -792,9 +799,33 @@ export async function postInvoiceToERP(payload: ERPInvoicePayload): Promise<ERPI
       erpResponse: parsedResult ?? responseText ?? null,
     });
 
+    const erpInvoiceId =
+      extractERPInvoiceId(parsedResult) ||
+      extractERPInvoiceIdFromText(responseText);
+
+    if (isNegativeERPInvoiceId(erpInvoiceId)) {
+      const errorMessage =
+        parsedResult?.message ||
+        parsedResult?.error ||
+        parsedResult?.status ||
+        buildNegativeERPInvoiceIdError(erpInvoiceId);
+
+      logger.error('ERP API returned a negative invoice ID', {
+        orderNumber: payload.remarks2,
+        erpInvoiceId,
+        erpResponse: parsedResult ?? responseText ?? null,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+        message: errorMessage,
+      };
+    }
+
     return {
       success: true,
-      erpInvoiceId: parsedResult?.id || parsedResult?.invoice_id || parsedResult?.invoiceId,
+      erpInvoiceId: erpInvoiceId || undefined,
       message:
         parsedResult?.message ||
         parsedResult?.status ||
@@ -827,7 +858,7 @@ export async function syncOrderToERP(
 ): Promise<ERPInvoiceResult> {
   try {
     // Check if order is already synced
-    if (order.erpSyncedAt && !force) {
+    if (hasSuccessfulERPSync(order) && !force) {
       logger.info('Order already synced to ERP, skipping', {
         orderId: order.orderId,
         orderNumber: order.orderNumber,
@@ -840,6 +871,15 @@ export async function syncOrderToERP(
         erpInvoiceId: order.erpInvoiceId || undefined,
         message: 'Order already synced to ERP (use force=true to re-sync)',
       };
+    }
+
+    if (order.erpSyncedAt && isNegativeERPInvoiceId(order.erpInvoiceId)) {
+      logger.warn('Order has a negative ERP invoice ID and will be retried', {
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        erpSyncedAt: order.erpSyncedAt,
+        erpInvoiceId: order.erpInvoiceId,
+      });
     }
 
     logger.info('Syncing order to ERP', {

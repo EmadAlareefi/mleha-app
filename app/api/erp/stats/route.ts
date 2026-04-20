@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log as logger } from '@/app/lib/logger';
+import { NEGATIVE_ERP_INVOICE_ID_PREFIX } from '@/lib/erp-order-sync';
 
 export async function GET() {
   try {
@@ -17,6 +18,9 @@ export async function GET() {
     const synced = await prisma.sallaOrder.count({
       where: {
         erpSyncedAt: { not: null },
+        NOT: {
+          erpInvoiceId: { startsWith: NEGATIVE_ERP_INVOICE_ID_PREFIX },
+        },
       },
     });
 
@@ -25,14 +29,24 @@ export async function GET() {
       where: {
         erpSyncedAt: null,
         erpSyncError: null,
+        NOT: {
+          erpInvoiceId: { startsWith: NEGATIVE_ERP_INVOICE_ID_PREFIX },
+        },
       },
     });
 
     // Get failed orders (with errors)
     const failed = await prisma.sallaOrder.count({
       where: {
-        erpSyncedAt: null,
-        erpSyncError: { not: null },
+        OR: [
+          {
+            erpSyncedAt: null,
+            erpSyncError: { not: null },
+          },
+          {
+            erpInvoiceId: { startsWith: NEGATIVE_ERP_INVOICE_ID_PREFIX },
+          },
+        ],
       },
     });
 

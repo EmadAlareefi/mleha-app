@@ -5,6 +5,11 @@ import type { Prisma } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { normalizers } from '@/app/lib/salla-orders';
+import {
+  NEGATIVE_ERP_INVOICE_ID_PREFIX,
+  getERPOrderSyncError,
+  hasSuccessfulERPSync,
+} from '@/lib/erp-order-sync';
 
 export const runtime = 'nodejs';
 
@@ -185,9 +190,19 @@ export async function GET(request: NextRequest) {
     }
 
     if (erpSyncedParam === 'true') {
-      where.erpSyncedAt = { not: null };
+      where.AND = [
+        { erpSyncedAt: { not: null } },
+        {
+          NOT: {
+            erpInvoiceId: { startsWith: NEGATIVE_ERP_INVOICE_ID_PREFIX },
+          },
+        },
+      ];
     } else if (erpSyncedParam === 'false') {
-      where.erpSyncedAt = null;
+      where.OR = [
+        { erpSyncedAt: null },
+        { erpInvoiceId: { startsWith: NEGATIVE_ERP_INVOICE_ID_PREFIX } },
+      ];
     }
 
     const [orders, totalCount, amountStats, statusBreakdown, paymentMethodBreakdown] = await Promise.all([
@@ -260,6 +275,8 @@ export async function GET(request: NextRequest) {
     const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / limit);
 
     const serializedOrders = orders.map((order) => {
+      const hasSuccessfulSync = hasSuccessfulERPSync(order);
+      const effectiveSyncError = getERPOrderSyncError(order);
       const shipments = serializeOrderShipments(order.rawOrder);
       const baseOrder = {
         id: order.id,
@@ -274,9 +291,9 @@ export async function GET(request: NextRequest) {
         currency: order.currency,
         subtotalAmount: order.subtotalAmount ? Number(order.subtotalAmount) : null,
         taxAmount: order.taxAmount ? Number(order.taxAmount) : null,
-        erpSyncedAt: order.erpSyncedAt ? order.erpSyncedAt.toISOString() : null,
+        erpSyncedAt: hasSuccessfulSync && order.erpSyncedAt ? order.erpSyncedAt.toISOString() : null,
         erpInvoiceId: order.erpInvoiceId,
-        erpSyncError: order.erpSyncError,
+        erpSyncError: effectiveSyncError,
         shippingAmount: order.shippingAmount ? Number(order.shippingAmount) : null,
         discountAmount: order.discountAmount ? Number(order.discountAmount) : null,
         totalAmount: order.totalAmount ? Number(order.totalAmount) : null,

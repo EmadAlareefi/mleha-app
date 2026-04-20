@@ -69,7 +69,7 @@ export interface AgentPerformanceSummary {
 
 export interface AgentReportRow {
   agentId: string | null;
-  agentName: string;
+  agentName: string | null;
   agentEmail: string | null;
   assignedChats: number;
   closedChats: number;
@@ -240,6 +240,36 @@ export async function getAgentPerformanceReport(
     }),
   ]);
 
+  const knownAgentEmails = collectKnownAgentEmails(agents, assignments, closures, outgoingCounts);
+  const orderUsers = knownAgentEmails.length
+    ? await prisma.orderUser.findMany({
+        where: {
+          OR: knownAgentEmails.map((email) => ({
+            email: { equals: email, mode: "insensitive" },
+          })),
+        },
+        select: {
+          email: true,
+          name: true,
+          username: true,
+        },
+      })
+    : [];
+
+  const agentNameByEmail = new Map<string, string>();
+  orderUsers.forEach((user) => {
+    setAgentNameByEmail(agentNameByEmail, user.email, user.name ?? user.username);
+  });
+  agents.forEach((agent) => {
+    setAgentNameByEmail(agentNameByEmail, agent.email, agent.name);
+  });
+  assignments.forEach((assignment) => {
+    setAgentNameByEmail(agentNameByEmail, assignment.agent?.email, assignment.agent?.name);
+  });
+  closures.forEach((closure) => {
+    setAgentNameByEmail(agentNameByEmail, closure.agent?.email, closure.agent?.name);
+  });
+
   const summaryMap = new Map<string, SummaryMutable>();
   const summaryEntries: SummaryMutable[] = [];
   const assignmentStartMap = new Map<string, Date>();
@@ -248,7 +278,7 @@ export async function getAgentPerformanceReport(
     const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       agentId: agent.id,
       email: agent.email,
-      name: agent.name,
+      name: resolveAgentName(agent.name, agent.email, agentNameByEmail),
     });
     entry.agentEmail = agent.email ?? null;
   });
@@ -257,7 +287,7 @@ export async function getAgentPerformanceReport(
     const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       agentId: assignment.agentId ?? undefined,
       email: assignment.agent?.email,
-      name: assignment.agent?.name,
+      name: resolveAgentName(assignment.agent?.name, assignment.agent?.email, agentNameByEmail),
     });
     entry.assignedChats += 1;
     entry.firstAssignmentAt = pickEarlier(entry.firstAssignmentAt, assignment.eventAt);
@@ -278,7 +308,7 @@ export async function getAgentPerformanceReport(
     const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       agentId: closure.agentId ?? undefined,
       email: closure.agent?.email,
-      name: closure.agent?.name,
+      name: resolveAgentName(closure.agent?.name, closure.agent?.email, agentNameByEmail),
     });
     entry.closedChats += 1;
     entry.lastClosureAt = pickLater(entry.lastClosureAt, closure.eventAt);
@@ -296,7 +326,7 @@ export async function getAgentPerformanceReport(
     if (!group.agentEmail) return;
     const entry = ensureSummaryEntry(summaryMap, summaryEntries, {
       email: group.agentEmail,
-      name: group.agentEmail,
+      name: resolveAgentName(null, group.agentEmail, agentNameByEmail),
     });
     entry.outgoingMessages += group._count._all;
   });
@@ -352,7 +382,7 @@ export async function getAgentPerformanceReport(
     agents: agentsList.sort((a, b) => b.assignedChats - a.assignedChats),
     availableAgents: agents.map((agent) => ({
       id: agent.id,
-      name: agent.name,
+      name: resolveAgentName(agent.name, agent.email, agentNameByEmail),
       email: agent.email,
     })),
   };
@@ -360,7 +390,7 @@ export async function getAgentPerformanceReport(
 
 interface SummaryMutable {
   agentId: string | null;
-  agentName: string;
+  agentName: string | null;
   agentEmail: string | null;
   assignedChats: number;
   closedChats: number;
@@ -393,10 +423,7 @@ function ensureSummaryEntry(
   if (!entry) {
     entry = {
       agentId: identity.agentId ?? null,
-      agentName:
-        identity.name ||
-        identity.email ||
-        (identity.agentId ? `Agent ${identity.agentId.slice(0, 4)}` : "بلا تعيين"),
+      agentName: normalizeAgentName(identity.name),
       agentEmail: identity.email ?? null,
       assignedChats: 0,
       closedChats: 0,
@@ -415,17 +442,8 @@ function ensureSummaryEntry(
     if (!entry.agentEmail && identity.email) {
       entry.agentEmail = identity.email;
     }
-    if (identity.name) {
-      const trimmedName = identity.name.trim();
-      const currentName = entry.agentName?.trim();
-      const isFallbackName =
-        !currentName ||
-        currentName === entry.agentEmail ||
-        currentName === "بلا تعيين" ||
-        currentName?.startsWith("Agent ") === true;
-      if (trimmedName && (isFallbackName || trimmedName === entry.agentEmail)) {
-        entry.agentName = trimmedName;
-      }
+    if (!entry.agentName) {
+      entry.agentName = normalizeAgentName(identity.name);
     }
   }
 
@@ -450,4 +468,55 @@ function buildAssignmentKey(chatId: string, agentId?: string | null, agentEmail?
   if (agentId) return `${chatId}|${agentId}`;
   if (agentEmail) return `${chatId}|${agentEmail.toLowerCase()}`;
   return `${chatId}|unassigned`;
+}
+
+function collectKnownAgentEmails(
+  agents: { email: string | null }[],
+  assignments: { agent?: { email: string | null } | null }[],
+  closures: { agent?: { email: string | null } | null }[],
+  outgoingCounts: { agentEmail: string | null }[],
+) {
+  const emails = new Set<string>();
+
+  agents.forEach((agent) => {
+    if (agent.email) emails.add(agent.email);
+  });
+  assignments.forEach((assignment) => {
+    if (assignment.agent?.email) emails.add(assignment.agent.email);
+  });
+  closures.forEach((closure) => {
+    if (closure.agent?.email) emails.add(closure.agent.email);
+  });
+  outgoingCounts.forEach((group) => {
+    if (group.agentEmail) emails.add(group.agentEmail);
+  });
+
+  return Array.from(emails);
+}
+
+function resolveAgentName(
+  candidateName: string | null | undefined,
+  email: string | null | undefined,
+  agentNameByEmail: Map<string, string>,
+) {
+  const normalizedName = normalizeAgentName(candidateName);
+  if (normalizedName) return normalizedName;
+  if (!email) return null;
+  return agentNameByEmail.get(email.toLowerCase()) ?? null;
+}
+
+function setAgentNameByEmail(
+  agentNameByEmail: Map<string, string>,
+  email: string | null | undefined,
+  name: string | null | undefined,
+) {
+  const normalizedEmail = email?.trim().toLowerCase();
+  const normalizedName = normalizeAgentName(name);
+  if (!normalizedEmail || !normalizedName) return;
+  agentNameByEmail.set(normalizedEmail, normalizedName);
+}
+
+function normalizeAgentName(name: string | null | undefined) {
+  const normalizedName = name?.trim();
+  return normalizedName ? normalizedName : null;
 }

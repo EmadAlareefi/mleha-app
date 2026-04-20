@@ -23,6 +23,10 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import {
+  getERPOrderSyncError,
+  hasSuccessfulERPSync,
+} from '@/lib/erp-order-sync';
 
 interface OrderShipmentInfo {
   id: string | null;
@@ -343,6 +347,8 @@ export default function OrderReportsPage() {
       }
 
       const rows = allOrders.map<OrderReportRow>((order, index) => {
+        const hasSuccessfulSync = hasSuccessfulERPSync(order);
+        const erpSyncError = getERPOrderSyncError(order);
         const shipments = order.shipments ?? [];
         return {
           '#': index + 1,
@@ -364,10 +370,10 @@ export default function OrderReportsPage() {
           'رقم التتبع': order.trackingNumber ?? '',
           'عدد الشحنات من API': shipments.length ? shipments.length : '',
           'تفاصيل الشحنات من API': formatShipmentDetails(shipments),
-          'متزامن مع ERP': order.erpSyncedAt ? 'نعم' : 'لا',
-          'تاريخ المزامنة': order.erpSyncedAt ? formatDate(order.erpSyncedAt) : '',
+          'متزامن مع ERP': hasSuccessfulSync ? 'نعم' : 'لا',
+          'تاريخ المزامنة': hasSuccessfulSync ? formatDate(order.erpSyncedAt) : '',
           'فاتورة ERP': order.erpInvoiceId ?? '',
-          'خطأ المزامنة': order.erpSyncError ?? '',
+          'خطأ المزامنة': erpSyncError ?? '',
         };
       });
 
@@ -446,7 +452,7 @@ export default function OrderReportsPage() {
         setOrders(prev =>
           prev.map(order =>
             order.orderId === orderId
-              ? { ...order, erpSyncError: data.error || data.message }
+              ? { ...order, erpSyncedAt: null, erpSyncError: data.error || data.message }
               : order
           )
         );
@@ -469,7 +475,7 @@ export default function OrderReportsPage() {
   };
 
   const syncAllUnsyncedOrders = async () => {
-    const unsyncedOrders = orders.filter(order => !order.erpSyncedAt);
+    const unsyncedOrders = orders.filter(order => !hasSuccessfulERPSync(order));
 
     if (unsyncedOrders.length === 0) {
       setSyncMessage({ type: 'error', text: 'لا توجد طلبات غير مزامنة' });
@@ -515,7 +521,7 @@ export default function OrderReportsPage() {
           setOrders(prev =>
             prev.map(o =>
               o.orderId === order.orderId
-                ? { ...o, erpSyncError: data.error || data.message }
+                ? { ...o, erpSyncedAt: null, erpSyncError: data.error || data.message }
                 : o
             )
           );
@@ -1019,7 +1025,7 @@ export default function OrderReportsPage() {
 
                         {/* ERP Sync Status */}
                         <div className="mt-3 pt-3 border-t space-y-2">
-                          {order.erpSyncedAt ? (
+                          {hasSuccessfulERPSync(order) ? (
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 text-sm text-green-600">
                                 <CheckCircle2 className="h-4 w-4" />
@@ -1032,14 +1038,14 @@ export default function OrderReportsPage() {
                                 </div>
                               )}
                             </div>
-                          ) : order.erpSyncError ? (
+                          ) : getERPOrderSyncError(order) ? (
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 text-sm text-red-600">
                                 <XCircle className="h-4 w-4" />
                                 <span>فشل المزامنة</span>
                               </div>
                               <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
-                                {order.erpSyncError}
+                                {getERPOrderSyncError(order)}
                               </div>
                               <Button
                                 size="sm"
