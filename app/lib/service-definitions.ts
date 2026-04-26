@@ -378,6 +378,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
+    key: 'invoice-refunds',
+    title: 'مرتجعات الفواتير',
+    description: 'قراءة ملف invoices.xlsx وإنشاء فواتير مرتجع في ERP مع حفظ رقم المرتجع داخل الملف',
+    icon: '↩️',
+    href: '/invoice-refunds',
+    color: 'from-emerald-500 to-teal-600',
+    defaultRoles: ['admin', 'accountant'],
+    grantsRoles: ['accountant'],
+  },
+  {
     key: 'salla-products',
     title: 'منتجات سلة',
     description: 'استعراض منتجات سلة وجدول توفرها والبحث حسب SKU',

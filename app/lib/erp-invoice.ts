@@ -4,7 +4,7 @@
  * Transforms SallaOrder data to ERP invoice format and posts to ERP system
  */
 
-import { SallaOrder } from '@prisma/client';
+import type { SallaOrder } from '@prisma/client';
 import { getERPAccessToken } from './erp-auth';
 import { log as logger } from './logger';
 import { sallaMakeRequest } from './salla-oauth';
