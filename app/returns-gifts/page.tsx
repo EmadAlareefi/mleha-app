@@ -2,10 +2,16 @@
 
 import { useState, useMemo, FormEvent } from 'react';
 import { useSession } from 'next-auth/react';
-import AppNavbar from '@/components/AppNavbar';
+import { Gift } from 'lucide-react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 type AssignmentSummary = {
   orderId: string;
@@ -254,42 +260,43 @@ export default function GiftFlagManagerPage() {
 
   if (status === 'loading') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-gray-600">جاري التحقق من الصلاحيات...</div>
-      </div>
+      <AppPageShell title="علامات تغليف الهدايا">
+        <LoadingState label="جاري التحقق من الصلاحيات..." />
+      </AppPageShell>
     );
   }
 
   if (status === 'authenticated' && !hasAccess) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <AppNavbar />
-        <main className="mx-auto max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
-          <Card className="border-red-200 bg-red-50 p-6 text-center text-red-700">
-            ليس لديك صلاحية الوصول إلى صفحة علامات الهدايا.
-          </Card>
-        </main>
-      </div>
+      <AppPageShell
+        title="علامات تغليف الهدايا"
+        subtitle="لا تملك صلاحية الوصول إلى هذه الصفحة"
+      >
+        <Alert variant="destructive" className="mx-auto max-w-3xl">
+          <AlertDescription>ليس لديك صلاحية الوصول إلى صفحة علامات الهدايا.</AlertDescription>
+        </Alert>
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <AppNavbar />
-      <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">علامات تغليف الهدايا</h1>
-          <p className="mt-2 text-gray-600">
+    <AppPageShell
+      title="علامات تغليف الهدايا"
+      subtitle="ابحث عن الطلبات وحدد ما إذا كانت تحتاج إلى إظهار تنبيه تغليف هدية لفريق التحضير."
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <div>
+          <h1 className="text-3xl font-bold">علامات تغليف الهدايا</h1>
+          <p className="mt-2 text-muted-foreground">
             ابحث عن الطلبات وحدد ما إذا كانت تحتاج إلى إظهار تنبيه تغليف هدية لفريق التحضير.
           </p>
         </div>
 
-        <Card className="mb-6 p-6">
+        <Card className="p-6">
           <form onSubmit={handleSearch} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                رقم الطلب أو رقم المرجع
-              </label>
+            <Field className="gap-2">
+              <FieldLabel>رقم الطلب أو رقم المرجع</FieldLabel>
               <div className="flex gap-3 flex-col md:flex-row">
                 <Input
                   value={searchQuery}
@@ -306,23 +313,17 @@ export default function GiftFlagManagerPage() {
                   {loading ? 'جاري البحث...' : 'بحث'}
                 </Button>
               </div>
-            </div>
-            <p className="text-sm text-gray-500">
+              <FieldDescription>
               يمكنك البحث برقم الطلب، المرجع، أو رقم تتبع العميل.
-            </p>
+              </FieldDescription>
+            </Field>
           </form>
         </Card>
 
         {feedback && (
-          <div
-            className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
-              feedback.type === 'success'
-                ? 'border-green-200 bg-green-50 text-green-700'
-                : 'border-red-200 bg-red-50 text-red-700'
-            }`}
-          >
-            {feedback.message}
-          </div>
+          <Alert variant={feedback.type === 'error' ? 'destructive' : 'default'}>
+            <AlertDescription>{feedback.message}</AlertDescription>
+          </Alert>
         )}
 
         {assignment && (
@@ -330,36 +331,36 @@ export default function GiftFlagManagerPage() {
             <Card className="p-6">
               <div className="flex flex-col gap-4">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-indigo-700">
+                  <Badge>
                     الطلب #{assignment.orderNumber}
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                  </Badge>
+                  <Badge variant="secondary">
                     {assignment.source === 'history'
                       ? 'من السجل'
                       : assignment.source === 'salla'
                         ? 'من سلة'
                         : 'تعيين نشط'}
-                  </span>
+                  </Badge>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <p className="text-sm text-gray-500">الحالة الحالية</p>
-                    <p className="text-lg font-semibold text-gray-900">{assignment.status}</p>
+                    <p className="text-sm text-muted-foreground">الحالة الحالية</p>
+                    <p className="text-lg font-semibold">{assignment.status}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">المستخدم المسؤول</p>
-                    <p className="text-lg font-semibold text-gray-900">
+                    <p className="text-sm text-muted-foreground">المستخدم المسؤول</p>
+                    <p className="text-lg font-semibold">
                       {assignment.assignedUserName || '—'}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">العميل</p>
-                    <p className="text-lg font-semibold text-gray-900">{customerInfo.name}</p>
-                    <p className="text-sm text-gray-600">{customerInfo.phone}</p>
+                    <p className="text-sm text-muted-foreground">العميل</p>
+                    <p className="text-lg font-semibold">{customerInfo.name}</p>
+                    <p className="text-sm text-muted-foreground">{customerInfo.phone}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">المدينة</p>
-                    <p className="text-lg font-semibold text-gray-900">{customerInfo.city}</p>
+                    <p className="text-sm text-muted-foreground">المدينة</p>
+                    <p className="text-lg font-semibold">{customerInfo.city}</p>
                   </div>
                 </div>
               </div>
@@ -367,17 +368,17 @@ export default function GiftFlagManagerPage() {
 
             <Card className="p-6 space-y-6">
               <div>
-                <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-                  <span>🎁</span>
+                <h2 className="flex items-center gap-2 text-2xl font-semibold">
+                  <Gift className="size-5 text-pink-600" />
                   تنبيه تغليف الهدية
                 </h2>
-                <p className="mt-1 text-sm text-gray-600">
+                <p className="mt-1 text-sm text-muted-foreground">
                   يتم عرض هذا التنبيه فور بدء تحضير الطلب في صفحة تحضير الطلبات.
                 </p>
               </div>
 
               {giftFlag && (
-                <div className="rounded-lg border border-pink-200 bg-pink-50 p-4">
+                <Alert className="border-pink-200 bg-pink-50 text-pink-900">
                   <p className="text-sm font-semibold text-pink-800">
                     تم وضع علامة كهدية بتاريخ {formatDate(giftFlag.createdAt)}
                   </p>
@@ -390,42 +391,35 @@ export default function GiftFlagManagerPage() {
                       {giftFlag.notes && <p>ملاحظات إضافية: {giftFlag.notes}</p>}
                     </div>
                   )}
-                </div>
+                </Alert>
               )}
 
               <div className="space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    السبب الرئيسي
-                  </label>
-                  <textarea
+                <Field className="gap-2">
+                  <FieldLabel>السبب الرئيسي</FieldLabel>
+                  <Textarea
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
                     rows={2}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500"
                     placeholder="مثال: تعليمات العميل أو حالة المنتج."
                     disabled={saving}
                   />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    ملاحظات إضافية
-                  </label>
-                  <textarea
+                </Field>
+                <Field className="gap-2">
+                  <FieldLabel>ملاحظات إضافية</FieldLabel>
+                  <Textarea
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
                     rows={3}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500"
                     placeholder="تفاصيل تساعد فريق التحضير (اختياري)."
                     disabled={saving}
                   />
-                </div>
+                </Field>
                 <div className="flex flex-col gap-3 md:flex-row">
                   <Button
                     type="button"
                     onClick={handleMarkGift}
                     disabled={saving}
-                    className="bg-pink-600 hover:bg-pink-700"
                   >
                     {saving ? 'جاري الحفظ...' : 'حفظ علامة الهدية'}
                   </Button>
@@ -435,7 +429,6 @@ export default function GiftFlagManagerPage() {
                       variant="outline"
                       onClick={handleRemoveFlag}
                       disabled={saving}
-                      className="border-red-200 text-red-700 hover:bg-red-50"
                     >
                       إزالة العلامة
                     </Button>
@@ -445,7 +438,7 @@ export default function GiftFlagManagerPage() {
             </Card>
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

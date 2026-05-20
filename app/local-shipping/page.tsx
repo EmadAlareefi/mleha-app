@@ -2,8 +2,23 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Card } from '@/components/ui/card';
+import { Printer } from 'lucide-react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { useReactToPrint } from 'react-to-print';
 import ShippingLabel from '@/components/local-shipping/ShippingLabel';
 
@@ -187,69 +202,40 @@ export default function LocalShippingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Navigation */}
-        <nav className="flex justify-center gap-3 mb-8">
-          <Link
-            href="/warehouse"
-            prefetch={false}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            المستودع
-          </Link>
-          <Link
-            href="/local-shipping"
-            prefetch={false}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-          >
-            شحن محلي
-          </Link>
+    <AppPageShell title="إنشاء ملصق شحن محلي" subtitle="أدخل رقم الطلب لإنشاء ملصق شحن للمنطقة المحلية">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
+        <nav className="flex flex-wrap gap-3">
+          <Button variant="outline" asChild>
+            <Link href="/warehouse" prefetch={false}>المستودع</Link>
+          </Button>
+          <Button asChild>
+            <Link href="/local-shipping" prefetch={false}>شحن محلي</Link>
+          </Button>
         </nav>
 
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2">إنشاء ملصق شحن محلي</h1>
-          <p className="text-gray-600">
-            أدخل رقم الطلب لإنشاء ملصق شحن للمنطقة المحلية
-          </p>
-        </div>
-
-        {/* Order Input Form */}
         {!shipment && (
-          <Card className="p-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>بيانات الطلب</CardTitle>
+            </CardHeader>
+            <CardContent>
             <form onSubmit={handleGenerateLabel} className="space-y-6">
-              <div>
-                <label
-                  htmlFor="orderNumber"
-                  className="block text-sm font-medium text-gray-700 mb-2"
-                >
-                  رقم الطلب
-                </label>
-                <input
-                  type="text"
+              <Field>
+                <FieldLabel htmlFor="orderNumber">رقم الطلب</FieldLabel>
+                <Input
                   id="orderNumber"
                   value={orderNumber}
                   onChange={(e) => setOrderNumber(e.target.value)}
                   placeholder="أدخل رقم الطلب (مثال: 2095468130)"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                   disabled={loading}
                 />
-              </div>
+              </Field>
 
               {(error || info) && (
-                <div
-                  className={`rounded-lg p-4 border ${
-                    error
-                      ? 'bg-red-50 border-red-200'
-                      : 'bg-blue-50 border-blue-200'
-                  }`}
-                >
-                  <p className={`text-sm ${error ? 'text-red-800' : 'text-blue-800'}`}>
-                    {error || info}
-                  </p>
-                </div>
+                <Alert variant={error ? 'destructive' : 'default'}>
+                  <AlertDescription>{error || info}</AlertDescription>
+                </Alert>
               )}
 
               <Button
@@ -260,16 +246,17 @@ export default function LocalShippingPage() {
                 {loading ? 'جاري الإنشاء...' : 'إنشاء ملصق الشحن'}
               </Button>
             </form>
+            </CardContent>
           </Card>
         )}
 
-        {/* Shipping Label Display */}
         {shipment && (
           <div className="space-y-6">
-            <Card className="p-8">
+            <Card>
+              <CardContent className="p-8">
               <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-green-600 mb-2">
-                  ✓ تم إنشاء ملصق الشحن بنجاح
+                  تم إنشاء ملصق الشحن بنجاح
                 </h2>
                 <p className="text-gray-600">
                   رقم التتبع: <span className="font-mono font-bold">{shipment.trackingNumber}</span>
@@ -294,9 +281,9 @@ export default function LocalShippingPage() {
                       </span>
                     )}
                     {shipment.assignmentStatus && (
-                      <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 ml-2">
+                      <Badge variant="secondary" className="ml-2">
                         {getAssignmentStatusLabel(shipment.assignmentStatus)}
-                      </span>
+                      </Badge>
                     )}
                   </p>
                 )}
@@ -304,21 +291,7 @@ export default function LocalShippingPage() {
 
               <div className="flex gap-4 justify-center mb-6">
                 <Button onClick={handlePrintClick} className="flex items-center gap-2" type="button">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="6 9 6 2 18 2 18 9"></polyline>
-                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-                    <rect x="6" y="14" width="12" height="8"></rect>
-                  </svg>
+                  <Printer className="h-5 w-5" />
                   طباعة الملصق
                 </Button>
 
@@ -326,88 +299,88 @@ export default function LocalShippingPage() {
                   إنشاء ملصق جديد
                 </Button>
               </div>
+              </CardContent>
             </Card>
 
-            {/* Label Preview */}
             <div className="bg-white shadow-lg rounded-lg p-4">
               <ShippingLabel ref={labelRef} shipment={shipment} merchant={MERCHANT_CONFIG} />
             </div>
           </div>
         )}
 
-        {/* History Section */}
-        <section className="mt-10">
-          <Card className="p-6 space-y-6">
+        <section>
+          <Card>
+            <CardHeader>
             <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="text-xl font-semibold">سجل الشحنات المحلية</h2>
+                <CardTitle>سجل الشحنات المحلية</CardTitle>
                 <p className="text-sm text-gray-500">استعرض الشحنات حسب التاريخ</p>
               </div>
               <form
                 onSubmit={handleHistorySubmit}
                 className="flex flex-col gap-3 md:flex-row md:items-center"
               >
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">من تاريخ</label>
-                  <input
+                <Field>
+                  <FieldLabel>من تاريخ</FieldLabel>
+                  <Input
                     type="date"
                     value={dateRange.start}
                     onChange={(e) => handleRangeChange('start', e.target.value)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
                     required
                   />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">إلى تاريخ</label>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>إلى تاريخ</FieldLabel>
+                  <Input
                     type="date"
                     value={dateRange.end}
                     onChange={(e) => handleRangeChange('end', e.target.value)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
                     required
                   />
-                </div>
+                </Field>
                 <Button type="submit" disabled={historyLoading}>
                   {historyLoading ? 'جاري التحميل...' : 'عرض الشحنات'}
                 </Button>
               </form>
             </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
 
             {historyError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
-                {historyError}
-              </div>
+              <Alert variant="destructive">
+                <AlertDescription>{historyError}</AlertDescription>
+              </Alert>
             )}
 
             <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left bg-gray-100">
-                    <th className="px-3 py-2">التاريخ</th>
-                    <th className="px-3 py-2">رقم الطلب</th>
-                    <th className="px-3 py-2">العميل</th>
-                    <th className="px-3 py-2">المدينة</th>
-                    <th className="px-3 py-2">المندوب</th>
-                    <th className="px-3 py-2">مبلغ التحصيل</th>
-                    <th className="px-3 py-2">رقم التتبع</th>
-                    <th className="px-3 py-2 text-center">إجراءات</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>التاريخ</TableHead>
+                    <TableHead>رقم الطلب</TableHead>
+                    <TableHead>العميل</TableHead>
+                    <TableHead>المدينة</TableHead>
+                    <TableHead>المندوب</TableHead>
+                    <TableHead>مبلغ التحصيل</TableHead>
+                    <TableHead>رقم التتبع</TableHead>
+                    <TableHead className="text-center">إجراءات</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {history.length === 0 && !historyLoading && (
-                    <tr>
-                      <td colSpan={8} className="text-center text-gray-500 py-6">
-                        لا توجد شحنات في هذا التاريخ
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colSpan={8}>
+                        <EmptyState title="لا توجد شحنات في هذا التاريخ" />
+                      </TableCell>
+                    </TableRow>
                   )}
                   {history.map((record) => (
-                    <tr key={record.id} className="border-b last:border-none">
-                      <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(record.createdAt)}</td>
-                      <td className="px-3 py-2 font-mono">{record.orderNumber}</td>
-                      <td className="px-3 py-2">{record.customerName}</td>
-                      <td className="px-3 py-2">{record.shippingCity}</td>
-                      <td className="px-3 py-2">
+                    <TableRow key={record.id}>
+                      <TableCell className="whitespace-nowrap">{formatDateTime(record.createdAt)}</TableCell>
+                      <TableCell className="font-mono">{record.orderNumber}</TableCell>
+                      <TableCell>{record.customerName}</TableCell>
+                      <TableCell>{record.shippingCity}</TableCell>
+                      <TableCell>
                         {record.assignedAgentName ? (
                           <div className="space-y-1 text-sm">
                             <p className="font-semibold text-gray-900">{record.assignedAgentName}</p>
@@ -417,32 +390,33 @@ export default function LocalShippingPage() {
                               </p>
                             )}
                             {record.assignmentStatus && (
-                              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                              <Badge variant="secondary">
                                 {getAssignmentStatusLabel(record.assignmentStatus)}
-                              </span>
+                              </Badge>
                             )}
                           </div>
                         ) : (
                           <span className="text-xs text-gray-400">لم يُحدد</span>
                         )}
-                      </td>
-                      <td className="px-3 py-2 font-semibold">
+                      </TableCell>
+                      <TableCell className="font-semibold">
                         {formatCurrency(record.collectionAmount ?? 0)}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">{record.trackingNumber}</td>
-                      <td className="px-3 py-2 text-center">
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{record.trackingNumber}</TableCell>
+                      <TableCell className="text-center">
                         <Button size="sm" type="button" onClick={() => handleHistorySelect(record)}>
                           عرض الملصق
                         </Button>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
+            </CardContent>
           </Card>
         </section>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

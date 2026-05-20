@@ -5,12 +5,15 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Loader2, PackageSearch, RefreshCcw, Search, Users } from 'lucide-react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import AppNavbar from '@/components/AppNavbar';
 import type {
   SallaPaginationMeta,
   SallaProductSummary,
@@ -469,9 +472,9 @@ export default function SallaProductsPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
-      </div>
+      <AppPageShell title="لوحة منتجات سلة" subtitle="عرض منتجات سلة وطلبات الكميات">
+        <LoadingState label="جاري تحميل الجلسة..." />
+      </AppPageShell>
     );
   }
 
@@ -490,87 +493,54 @@ export default function SallaProductsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50">
-      <AppNavbar />
-      <main className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 space-y-10">
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,3fr),minmax(0,2fr)]">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-900 to-indigo-700 p-8 text-white shadow-2xl">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_55%)]" />
-            <div className="absolute -left-10 top-10 h-32 w-32 rounded-full bg-white/10 blur-3xl" />
-            <div className="relative z-10 flex flex-col gap-6">
-              <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
-                <span className="rounded-full bg-white/15 px-3 py-1">سلة</span>
-                <span className="rounded-full bg-white/15 px-3 py-1">الفريق التجاري</span>
-              </div>
-              <div>
-                <h1 className="flex items-center gap-3 text-3xl font-semibold md:text-4xl">
-                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20">
-                    <PackageSearch className="h-6 w-6 text-white" />
+    <AppPageShell
+      title="لوحة منتجات سلة"
+      subtitle="اعرض منتجات سلة مع حالة التوفر والأسعار، ونسّق طلبات الكميات من لوحة واحدة"
+    >
+        <section className="space-y-6">
+          <Card>
+            <CardContent className="space-y-6 p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-muted">
+                    <PackageSearch className="h-5 w-5" />
                   </span>
-                  لوحة منتجات سلة
-                </h1>
-                <p className="mt-4 text-base text-white/80">
-                  اعرض كل منتجات سلة مع حالة التوفر والأسعار، ونسّق طلبات الكميات عبر فريق المستودع
-                  والمتاجر مباشرة من لوحة واحدة حديثة.
-                </p>
-              </div>
-              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                {quickStats.map((stat) => (
-                  <div
-                    key={stat.label}
-                    className="rounded-2xl bg-white/10 px-4 py-3 text-white backdrop-blur"
-                  >
-                    <dt className="text-xs uppercase tracking-wide text-white/70">{stat.label}</dt>
-                    <dd className="text-xl font-semibold">{stat.value}</dd>
+                  <div>
+                    <p className="font-semibold text-foreground">منتجات سلة</p>
+                    <p className="text-sm text-muted-foreground">آخر تحديث: {formattedLastUpdated}</p>
                   </div>
-                ))}
-              </dl>
-              <div className="flex flex-wrap gap-3">
+                </div>
+                <div className="flex flex-wrap gap-3">
                 <Button
                   onClick={handleRefresh}
                   disabled={loading}
-                  className="rounded-2xl bg-white px-6 py-5 text-slate-900 shadow-lg shadow-slate-900/20 hover:bg-white/90"
                 >
                   <RefreshCcw className="h-4 w-4" />
                   تحديث البيانات
                 </Button>
                 <Button
-                  variant="ghost"
-                  onClick={() => router.push('/returns')}
-                  className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-white hover:bg-white/20"
-                >
-                  الانتقال إلى المرتجعات
-                </Button>
-                <Button
-                  variant="ghost"
+                  variant="outline"
                   onClick={() => router.push('/salla/requests')}
-                  className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-white hover:bg-white/20"
                 >
                   لوحة طلبات الكميات
                 </Button>
               </div>
-            </div>
-          </div>
-          <div className="rounded-3xl border border-indigo-100 bg-white/80 p-6 shadow-lg shadow-indigo-100/60 backdrop-blur">
-            <h2 className="text-xl font-semibold text-slate-900">لماذا هذه الصفحة؟</h2>
-            <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-              تزودك هذه الشاشة بنظرة فورية على المنتجات القادمة من واجهة سلة الرسمية، مع إمكانية
-              البحث الفوري عن أي SKU، ومعالجة طلبات الكميات من نفس الجدول دون الحاجة للتنقل بين
-              أنظمة متعددة.
-            </p>
-            <div className="mt-6 rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/70 p-4 text-indigo-900">
-              <p className="text-sm font-medium">نصيحة سريعة</p>
-              <p className="text-sm text-indigo-800 mt-1">
-                استخدم البحث لتحديد المنتج المطلوب ثم حرّك الطلب إلى منسق المستودع لحظياً عن طريق
-                نموذج “طلب كمية”.
-              </p>
-            </div>
-          </div>
+              </div>
+              <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                {quickStats.map((stat) => (
+                  <div key={stat.label} className="rounded-md border bg-muted/30 px-4 py-3">
+                    <dt className="text-xs text-muted-foreground">{stat.label}</dt>
+                    <dd className="text-xl font-semibold text-foreground">{stat.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white/95 shadow-xl shadow-slate-200/60">
-          <Card className="border-none shadow-none">
-            <CardHeader className="border-b border-slate-100 pb-6">
+        <section>
+          <Card>
+            <CardHeader>
               <CardTitle className="text-2xl flex flex-col gap-2 text-slate-900 sm:flex-row sm:items-center sm:justify-between">
                 <span>فلترة المنتجات</span>
                 <span className="text-base font-normal text-slate-500">
@@ -608,18 +578,17 @@ export default function SallaProductsPage() {
                   <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">
                     حالة المنتج
                   </label>
-                  <Select
+                  <NativeSelect
                     id="status-filter"
                     value={statusFilter}
                     onChange={handleStatusChange}
-                    className="h-12 rounded-2xl border-slate-200 bg-slate-50/80 text-base"
                   >
                     {STATUS_OPTIONS.map((option) => (
-                      <option key={option.value || 'all'} value={option.value}>
+                      <NativeSelectOption key={option.value || 'all'} value={option.value}>
                         {option.label}
-                      </option>
+                      </NativeSelectOption>
                     ))}
-                  </Select>
+                  </NativeSelect>
                 </div>
                 <div className="grid flex-1 grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center shadow-inner">
@@ -638,17 +607,17 @@ export default function SallaProductsPage() {
                 </div>
               </form>
               {error && (
-                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {error}
-                </div>
+                <Alert variant="destructive" className="mt-4">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
             </CardContent>
           </Card>
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white/95 p-2 shadow-xl shadow-slate-200/60">
-          <Card className="border-none shadow-none">
-            <CardHeader className="flex flex-col gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-center sm:justify-between">
+        <section>
+          <Card>
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-2xl text-slate-900">جدول المنتجات</CardTitle>
                 <CardDescription className="text-base text-slate-500">
@@ -690,17 +659,14 @@ export default function SallaProductsPage() {
                     {loading && (
                       <TableRow>
                         <TableCell colSpan={6} className="py-10 text-center">
-                          <div className="flex flex-col items-center gap-3 text-slate-500">
-                            <Loader2 className="h-6 w-6 animate-spin" />
-                            <p>جاري تحميل المنتجات من سلة...</p>
-                          </div>
+                          <LoadingState label="جاري تحميل المنتجات من سلة..." />
                         </TableCell>
                       </TableRow>
                     )}
                     {!loading && products.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={6} className="py-10 text-center text-slate-500">
-                          لا توجد منتجات مطابقة لبحثك حالياً.
+                          <EmptyState title="لا توجد منتجات مطابقة لبحثك حالياً" />
                         </TableCell>
                       </TableRow>
                     )}
@@ -727,8 +693,7 @@ export default function SallaProductsPage() {
             </CardContent>
           </Card>
         </section>
-      </main>
-    </div>
+    </AppPageShell>
   );
 }
 
@@ -1024,9 +989,9 @@ function ProductRow({
         )}
       </div>
       {variationMessage ? (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {variationMessage}
-        </div>
+        <Alert className="mt-3">
+          <AlertDescription>{variationMessage}</AlertDescription>
+        </Alert>
       ) : variationList.length === 0 && !rowLoading ? (
         <p className="mt-3 text-sm text-slate-500">لا توجد متغيرات مسجلة لهذا المنتج.</p>
       ) : (
@@ -1157,9 +1122,9 @@ function ProductRow({
           <p className="font-semibold">{formatNumber(product.availableQuantity ?? null)}</p>
         </TableCell>
         <TableCell>
-          <span className="inline-flex items-center rounded-full border bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+          <Badge variant="secondary">
             {product.status || 'غير محدد'}
-          </span>
+          </Badge>
         </TableCell>
         <TableCell>{renderQuantityRequestSection()}</TableCell>
       </TableRow>
@@ -1227,10 +1192,6 @@ type QuantityRequestCardProps = {
 
 function QuantityRequestCard({ request }: QuantityRequestCardProps) {
   const statusLabel = request.status === 'completed' ? 'تم التنفيذ' : 'بانتظار التوفير';
-  const statusClasses =
-    request.status === 'completed'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : 'border-amber-200 bg-amber-50 text-amber-700';
 
   return (
     <div className="rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
@@ -1241,9 +1202,9 @@ function QuantityRequestCard({ request }: QuantityRequestCardProps) {
           </p>
           <p className="text-xs text-slate-500">أضيف بواسطة {request.requestedBy}</p>
         </div>
-        <span className={`rounded-full border px-3 py-0.5 text-xs font-semibold ${statusClasses}`}>
+        <Badge variant={request.status === 'completed' ? 'default' : 'secondary'}>
           {statusLabel}
-        </span>
+        </Badge>
       </div>
       <div className="mt-2 space-y-1 text-xs text-slate-600">
         <p>تاريخ الطلب: {formatDate(request.requestedAt)}</p>

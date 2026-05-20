@@ -388,6 +388,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['accountant'],
   },
   {
+    key: 'invoices-and-refund-invoices',
+    title: 'مزامنة ERP',
+    description: 'مزامنة طلبات البيع والمرتجعات مع ERP حسب اليوم أو النطاق الزمني',
+    icon: '🧾',
+    href: '/erp-sync',
+    color: 'from-emerald-500 to-sky-600',
+    defaultRoles: ['admin', 'accountant'],
+    grantsRoles: ['accountant'],
+  },
+  {
     key: 'salla-products',
     title: 'منتجات سلة',
     description: 'استعراض منتجات سلة وجدول توفرها والبحث حسب SKU',

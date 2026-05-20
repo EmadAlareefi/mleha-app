@@ -11,6 +11,10 @@ type BarcodeDetectorConstructor = new (options?: {
 }) => BarcodeDetectorInstance;
 import Link from 'next/link';
 import Image from 'next/image';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -19,7 +23,9 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   CONDITION_DESCRIPTIONS,
   CONDITION_LABELS,
@@ -411,12 +417,15 @@ export default function ReturnInspectionPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <AppPageShell
+      title="فحص المرتجعات الواردة"
+      subtitle="تحديث حالة كل منتج مرتجع عند الاستلام"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">فحص المرتجعات الواردة</h1>
-            <p className="text-gray-600">
+            <h1 className="text-2xl font-semibold tracking-tight">فحص المرتجعات الواردة</h1>
+            <p className="text-muted-foreground">
               خصص لكل منتج حالة (سليم، ملبوس، ناقص، تالف) ليتم عرضها فوراً للإدارة.
             </p>
           </div>
@@ -432,17 +441,15 @@ export default function ReturnInspectionPage() {
 
         <Card className="p-6">
           <form onSubmit={handleLookup} className="flex flex-col gap-3 md:flex-row">
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2">
-                رقم التتبع أو رقم الطلب
-              </label>
+            <Field className="flex-1">
+              <FieldLabel>رقم التتبع أو رقم الطلب</FieldLabel>
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="مثال: 600123456 أو #15230"
                 disabled={loading}
               />
-            </div>
+            </Field>
             <div className="flex items-end">
               <Button type="submit" className="w-full md:w-auto" disabled={loading}>
                 {loading ? 'جاري البحث...' : 'قراءة الشحنة'}
@@ -450,10 +457,14 @@ export default function ReturnInspectionPage() {
             </div>
           </form>
         {error && (
-          <p className="text-sm text-red-600 mt-3">{error}</p>
+          <Alert variant="destructive" className="mt-3">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
         {successMessage && (
-          <p className="text-sm text-green-600 mt-3">{successMessage}</p>
+          <Alert className="mt-3 border-green-200 bg-green-50 text-green-900">
+            <AlertDescription>{successMessage}</AlertDescription>
+          </Alert>
         )}
         <div className="mt-4 flex flex-col gap-2 md:hidden">
           <Button
@@ -549,18 +560,17 @@ export default function ReturnInspectionPage() {
               <CardContent>
                 <div className="flex flex-wrap gap-2">
                   {inspectionSummary.badges.map((badge, index) => (
-                    <span
+                    <Badge
                       key={`${badge.label}-${index}`}
                       className={cn(
-                        'px-3 py-1 rounded-full text-xs font-medium border',
                         SUMMARY_BADGE_STYLES[badge.tone] || SUMMARY_BADGE_STYLES.muted
                       )}
                     >
                       {badge.label}
-                    </span>
+                    </Badge>
                   ))}
                   {inspectionSummary.badges.length === 0 && (
-                    <span className="text-sm text-gray-500">لا توجد نتائج للعرض بعد.</span>
+                    <span className="text-sm text-muted-foreground">لا توجد نتائج للعرض بعد.</span>
                   )}
                 </div>
               </CardContent>
@@ -583,7 +593,7 @@ export default function ReturnInspectionPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {items.map((item) => (
-                  <div key={item.id} className="p-4 border rounded-lg bg-white space-y-3">
+                  <div key={item.id} className="rounded-lg border bg-card p-4 text-card-foreground space-y-3">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div className="flex gap-4">
                         <div className="relative w-full max-w-[360px] aspect-[9/16] overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
@@ -657,11 +667,10 @@ export default function ReturnInspectionPage() {
                       <label className="block text-xs font-medium text-gray-500 mb-1">
                         ملاحظات إضافية (اختياري)
                       </label>
-                      <textarea
+                      <Textarea
                         value={item.conditionNotes || ''}
                         onChange={(e) => updateItemNotes(item.id, e.target.value)}
                         rows={2}
-                        className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="اكتب ملاحظة توضح سبب الحالة المختارة"
                       />
                     </div>
@@ -682,9 +691,7 @@ export default function ReturnInspectionPage() {
                 ))}
 
                 {items.length === 0 && (
-                  <p className="text-center text-gray-500 text-sm">
-                    لا توجد منتجات مرتبطة بهذا المرتجع.
-                  </p>
+                  <EmptyState title="لا توجد منتجات" description="لا توجد منتجات مرتبطة بهذا المرتجع." />
                 )}
               </CardContent>
             </Card>
@@ -700,7 +707,6 @@ export default function ReturnInspectionPage() {
             </div>
           </>
         )}
-      </div>
       {scannerActive && (
         <div className="md:hidden fixed inset-0 z-40 flex items-center justify-center bg-black/80 px-4 py-8">
           <div className="w-full max-w-sm rounded-2xl bg-gray-900/90 p-4 text-white shadow-lg">
@@ -728,6 +734,6 @@ export default function ReturnInspectionPage() {
           </div>
         </div>
       )}
-    </div>
+    </AppPageShell>
   );
 }

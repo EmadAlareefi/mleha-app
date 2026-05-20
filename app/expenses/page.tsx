@@ -1,11 +1,25 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import AppNavbar from '@/components/AppNavbar';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 type Expense = {
   id: string;
@@ -50,9 +64,9 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const STATUS_OPTIONS = [
-  { value: 'pending', label: 'قيد المراجعة', color: 'bg-yellow-100 text-yellow-800' },
-  { value: 'approved', label: 'معتمد', color: 'bg-green-100 text-green-800' },
-  { value: 'rejected', label: 'مرفوض', color: 'bg-red-100 text-red-800' },
+  { value: 'pending', label: 'قيد المراجعة' },
+  { value: 'approved', label: 'معتمد' },
+  { value: 'rejected', label: 'مرفوض' },
 ];
 
 export default function ExpensesPage() {
@@ -111,7 +125,7 @@ export default function ExpensesPage() {
     });
   };
 
-  const fetchExpenses = async () => {
+  const fetchExpenses = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -133,11 +147,11 @@ export default function ExpensesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [endDate, selectedCategory, selectedStatus, startDate]);
 
   useEffect(() => {
     fetchExpenses();
-  }, [selectedCategory, selectedStatus, startDate, endDate]);
+  }, [fetchExpenses]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,7 +202,7 @@ export default function ExpensesPage() {
         editingExpense ? 'تم تحديث المصروف بنجاح' : 'تم إضافة المصروف بنجاح'
       );
       handleFormCancel();
-      fetchExpenses();
+      void fetchExpenses();
     } catch (error: any) {
       console.error('Error saving expense:', error);
       alert(error.message || 'فشل في حفظ المصروف');
@@ -209,7 +223,7 @@ export default function ExpensesPage() {
       if (editingExpense?.id === id) {
         handleFormCancel();
       }
-      fetchExpenses();
+      void fetchExpenses();
     } catch (error) {
       console.error('Error deleting expense:', error);
       alert('فشل في حذف المصروف');
@@ -227,7 +241,7 @@ export default function ExpensesPage() {
       if (!response.ok) throw new Error('Failed to update status');
 
       alert('تم تحديث الحالة بنجاح');
-      fetchExpenses();
+      void fetchExpenses();
     } catch (error) {
       console.error('Error updating status:', error);
       alert('فشل في تحديث الحالة');
@@ -238,12 +252,14 @@ export default function ExpensesPage() {
     return EXPENSE_CATEGORIES.find((c) => c.value === value)?.label || value;
   };
 
-  const getStatusColor = (status: string) => {
-    return STATUS_OPTIONS.find((s) => s.value === status)?.color || 'bg-gray-100 text-gray-800';
-  };
-
   const getStatusLabel = (status: string) => {
     return STATUS_OPTIONS.find((s) => s.value === status)?.label || status;
+  };
+
+  const getStatusVariant = (status: string) => {
+    if (status === 'approved') return 'default';
+    if (status === 'rejected') return 'destructive';
+    return 'secondary';
   };
 
   const handleExport = () => {
@@ -278,388 +294,343 @@ export default function ExpensesPage() {
   const isAdmin = userRole === 'admin';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <AppNavbar />
-
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            إدارة المصروفات
-          </h1>
-          <p className="text-gray-600">تتبع وإدارة جميع مصروفات المتجر</p>
-        </div>
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="p-6 bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-            <div className="text-sm opacity-90 mb-2">إجمالي المصروفات</div>
-            <div className="text-3xl font-bold">
+    <AppPageShell title="إدارة المصروفات" subtitle="تتبع وإدارة جميع مصروفات المتجر">
+      <div className="space-y-8">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <Card>
+            <CardContent className="p-6">
+              <div className="text-sm text-muted-foreground mb-2">إجمالي المصروفات</div>
+              <div className="text-3xl font-bold text-foreground">
               {totalAmount.toFixed(2)} ر.س
-            </div>
+              </div>
+            </CardContent>
           </Card>
-          <Card className="p-6 bg-gradient-to-br from-green-500 to-green-600 text-white">
-            <div className="text-sm opacity-90 mb-2">عدد المصروفات</div>
-            <div className="text-3xl font-bold">{total}</div>
+          <Card>
+            <CardContent className="p-6">
+              <div className="text-sm text-muted-foreground mb-2">عدد المصروفات</div>
+              <div className="text-3xl font-bold text-foreground">{total}</div>
+            </CardContent>
           </Card>
-          <Card className="p-6 bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-            <div className="text-sm opacity-90 mb-2">متوسط المصروف</div>
-            <div className="text-3xl font-bold">
+          <Card>
+            <CardContent className="p-6">
+              <div className="text-sm text-muted-foreground mb-2">متوسط المصروف</div>
+              <div className="text-3xl font-bold text-foreground">
               {total > 0 ? (totalAmount / total).toFixed(2) : '0.00'} ر.س
-            </div>
+              </div>
+            </CardContent>
           </Card>
         </div>
 
-        {/* Filters and Add Button */}
-        <Card className="p-6 mb-6">
+        <Card>
+          <CardContent className="p-6">
           <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                الفئة
-              </label>
-              <select
+            <Field className="flex-1 min-w-[200px]">
+              <FieldLabel>الفئة</FieldLabel>
+              <NativeSelect
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full p-2 border rounded-lg"
               >
-                <option value="">جميع الفئات</option>
+                <NativeSelectOption value="">جميع الفئات</NativeSelectOption>
                 {EXPENSE_CATEGORIES.map((cat) => (
-                  <option key={cat.value} value={cat.value}>
+                  <NativeSelectOption key={cat.value} value={cat.value}>
                     {cat.label}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
-            </div>
+              </NativeSelect>
+            </Field>
 
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                الحالة
-              </label>
-              <select
+            <Field className="flex-1 min-w-[200px]">
+              <FieldLabel>الحالة</FieldLabel>
+              <NativeSelect
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
-                className="w-full p-2 border rounded-lg"
               >
-                <option value="">جميع الحالات</option>
+                <NativeSelectOption value="">جميع الحالات</NativeSelectOption>
                 {STATUS_OPTIONS.map((status) => (
-                  <option key={status.value} value={status.value}>
+                  <NativeSelectOption key={status.value} value={status.value}>
                     {status.label}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
-            </div>
+              </NativeSelect>
+            </Field>
 
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                من تاريخ
-              </label>
-              <input
+            <Field className="flex-1 min-w-[200px]">
+              <FieldLabel>من تاريخ</FieldLabel>
+              <Input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full p-2 border rounded-lg"
               />
-            </div>
+            </Field>
 
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                إلى تاريخ
-              </label>
-              <input
+            <Field className="flex-1 min-w-[200px]">
+              <FieldLabel>إلى تاريخ</FieldLabel>
+              <Input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full p-2 border rounded-lg"
               />
-            </div>
+            </Field>
 
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 onClick={handleExport}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                📥 تصدير إلى Excel
+                تصدير إلى Excel
               </Button>
               <Button
                 type="button"
                 onClick={toggleFormVisibility}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                variant={showAddForm ? 'secondary' : 'default'}
               >
                 {editingExpense
                   ? 'إلغاء التعديل'
                   : showAddForm
                   ? 'إغلاق النموذج'
-                  : '➕ إضافة مصروف'}
+                  : 'إضافة مصروف'}
               </Button>
             </div>
           </div>
+          </CardContent>
         </Card>
 
-        {/* Add Expense Form */}
         {showAddForm && (
-          <Card className="p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">
-              {editingExpense ? 'تعديل المصروف' : 'إضافة مصروف جديد'}
-            </h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>{editingExpense ? 'تعديل المصروف' : 'إضافة مصروف جديد'}</CardTitle>
+            </CardHeader>
+            <CardContent>
             {editingExpense && (
-              <p className="text-sm text-gray-500 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 يتم تعديل المصروف: {editingExpense.title}
               </p>
             )}
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  العنوان *
-                </label>
-                <input
-                  type="text"
+              <Field>
+                <FieldLabel>العنوان *</FieldLabel>
+                <Input
                   value={formData.title}
                   onChange={(e) =>
                     setFormData({ ...formData, title: e.target.value })
                   }
-                  className="w-full p-2 border rounded-lg"
                   required
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  المبلغ (ر.س) *
-                </label>
-                <input
+              <Field>
+                <FieldLabel>المبلغ (ر.س) *</FieldLabel>
+                <Input
                   type="number"
                   step="0.01"
                   value={formData.amount}
                   onChange={(e) =>
                     setFormData({ ...formData, amount: e.target.value })
                   }
-                  className="w-full p-2 border rounded-lg"
                   required
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  الفئة *
-                </label>
-                <select
+              <Field>
+                <FieldLabel>الفئة *</FieldLabel>
+                <NativeSelect
                   value={formData.category}
                   onChange={(e) =>
                     setFormData({ ...formData, category: e.target.value })
                   }
-                  className="w-full p-2 border rounded-lg"
                   required
                 >
                   {EXPENSE_CATEGORIES.map((cat) => (
-                    <option key={cat.value} value={cat.value}>
+                    <NativeSelectOption key={cat.value} value={cat.value}>
                       {cat.label}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </div>
+                </NativeSelect>
+              </Field>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  التاريخ *
-                </label>
-                <input
+              <Field>
+                <FieldLabel>التاريخ *</FieldLabel>
+                <Input
                   type="date"
                   value={formData.expenseDate}
                   onChange={(e) =>
                     setFormData({ ...formData, expenseDate: e.target.value })
                   }
-                  className="w-full p-2 border rounded-lg"
                   required
                 />
-              </div>
+              </Field>
 
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  الوصف
-                </label>
-                <textarea
+              <Field className="md:col-span-2">
+                <FieldLabel>الوصف</FieldLabel>
+                <Textarea
                   value={formData.description}
                   onChange={(e) =>
                     setFormData({ ...formData, description: e.target.value })
                   }
-                  className="w-full p-2 border rounded-lg"
                   rows={2}
                 />
-              </div>
+              </Field>
 
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  ملاحظات
-                </label>
-                <textarea
+              <Field className="md:col-span-2">
+                <FieldLabel>ملاحظات</FieldLabel>
+                <Textarea
                   value={formData.notes}
                   onChange={(e) =>
                     setFormData({ ...formData, notes: e.target.value })
                   }
-                  className="w-full p-2 border rounded-lg"
                   rows={2}
                 />
-              </div>
+              </Field>
 
               <div className="md:col-span-2 flex gap-2">
-                <Button
-                  type="submit"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
+                <Button type="submit">
                   {editingExpense ? 'تحديث المصروف' : 'حفظ المصروف'}
                 </Button>
                 <Button
                   type="button"
                   onClick={handleFormCancel}
-                  className="bg-gray-500 hover:bg-gray-600 text-white"
+                  variant="outline"
                 >
                   إلغاء
                 </Button>
               </div>
             </form>
+            </CardContent>
           </Card>
         )}
 
-        {/* Expenses List */}
         <Card className="overflow-hidden">
+          <CardContent className="p-0">
           <div className="overflow-x-auto">
             {loading ? (
-              <div className="p-8 text-center text-gray-500">جاري التحميل...</div>
+              <LoadingState label="جاري التحميل..." />
             ) : expenses.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">لا توجد مصروفات</div>
+              <EmptyState title="لا توجد مصروفات" />
             ) : (
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      التاريخ
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      العنوان
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      الفئة
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      المبلغ
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      الحالة
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      بواسطة
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      إجراءات
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>التاريخ</TableHead>
+                    <TableHead>العنوان</TableHead>
+                    <TableHead>الفئة</TableHead>
+                    <TableHead>المبلغ</TableHead>
+                    <TableHead>الحالة</TableHead>
+                    <TableHead>بواسطة</TableHead>
+                    <TableHead>إجراءات</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {expenses.map((expense) => (
-                    <tr key={expense.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <TableRow key={expense.id}>
+                      <TableCell>
                         {new Date(expense.expenseDate).toLocaleDateString('ar-SA')}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
+                      </TableCell>
+                      <TableCell>
                         <div className="font-medium">{expense.title}</div>
                         {expense.description && (
-                          <div className="text-gray-500 text-xs">
+                          <div className="text-muted-foreground text-xs">
                             {expense.description}
                           </div>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      </TableCell>
+                      <TableCell>
                         {getCategoryLabel(expense.category)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      </TableCell>
+                      <TableCell className="font-medium">
                         {Number(expense.amount).toFixed(2)} {expense.currency}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-2 py-1 text-xs rounded-full ${getStatusColor(
-                            expense.status
-                          )}`}
-                        >
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusVariant(expense.status)}>
                           {getStatusLabel(expense.status)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
                         {expense.createdBy}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      </TableCell>
+                      <TableCell>
                         <div className="flex gap-2">
                           {(isAdmin || expense.status === 'pending') && (
-                            <button
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
                               onClick={() => handleEditClick(expense)}
-                              className="text-blue-600 hover:text-blue-900"
                             >
-                              ✎ تعديل
-                            </button>
+                              تعديل
+                            </Button>
                           )}
                           {expense.status === 'pending' && (
                             <>
-                              <button
+                              <Button
+                                type="button"
+                                size="sm"
                                 onClick={() =>
                                   handleStatusChange(expense.id, 'approved')
                                 }
-                                className="text-green-600 hover:text-green-900"
                               >
-                                ✓ اعتماد
-                              </button>
-                              <button
+                                اعتماد
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
                                 onClick={() =>
                                   handleStatusChange(expense.id, 'rejected')
                                 }
-                                className="text-red-600 hover:text-red-900"
                               >
-                                ✗ رفض
-                              </button>
+                                رفض
+                              </Button>
                             </>
                           )}
                           {isAdmin && (
-                            <button
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
                               onClick={() => handleDelete(expense.id)}
-                              className="text-red-600 hover:text-red-900"
                             >
-                              🗑️ حذف
-                            </button>
+                              حذف
+                            </Button>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             )}
           </div>
+          </CardContent>
         </Card>
 
-        {/* Summary by Category */}
         {summary.length > 0 && (
-          <Card className="p-6 mt-6">
-            <h2 className="text-xl font-bold mb-4">ملخص المصروفات حسب الفئة</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>ملخص المصروفات حسب الفئة</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {summary.map((item) => (
                 <div
                   key={item.category}
-                  className="p-4 bg-gray-50 rounded-lg border"
+                  className="p-4 bg-muted/40 rounded-md border"
                 >
-                  <div className="text-sm text-gray-600">
+                  <div className="text-sm text-muted-foreground">
                     {getCategoryLabel(item.category)}
                   </div>
-                  <div className="text-2xl font-bold text-gray-900 mt-1">
+                  <div className="text-2xl font-bold text-foreground mt-1">
                     {Number(item._sum.amount).toFixed(2)} ر.س
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div className="text-xs text-muted-foreground mt-1">
                     {item._count} مصروف
                   </div>
                 </div>
               ))}
             </div>
+            </CardContent>
           </Card>
         )}
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

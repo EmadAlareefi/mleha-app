@@ -1,10 +1,26 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { useToast } from '@/components/ui/use-toast';
 
 interface LocalShipment {
@@ -59,7 +75,6 @@ export default function ShipmentAssignmentsPage() {
   const [transferTargetAgentId, setTransferTargetAgentId] = useState('');
   const [selectedTransferAssignments, setSelectedTransferAssignments] = useState<string[]>([]);
   const [transferLoading, setTransferLoading] = useState(false);
-  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const primaryRole = (session?.user as any)?.role as string | undefined;
   const userRoles: string[] = (session?.user as any)?.roles || (primaryRole ? [primaryRole] : []);
   const isAdmin = primaryRole === 'admin';
@@ -348,23 +363,19 @@ export default function ShipmentAssignmentsPage() {
     });
 
   const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { label: string; className: string }> = {
-      pending: { label: 'قيد الانتظار', className: 'bg-gray-100 text-gray-800' },
-      assigned: { label: 'مُعيّن', className: 'bg-blue-100 text-blue-800' },
-      picked_up: { label: 'تم الاستلام', className: 'bg-purple-100 text-purple-800' },
-      in_transit: { label: 'قيد التوصيل', className: 'bg-yellow-100 text-yellow-800' },
-      delivered: { label: 'تم التوصيل', className: 'bg-green-100 text-green-800' },
-      failed: { label: 'فشل', className: 'bg-red-100 text-red-800' },
-      cancelled: { label: 'ملغي', className: 'bg-gray-100 text-gray-800' },
+    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      pending: { label: 'قيد الانتظار', variant: 'secondary' },
+      assigned: { label: 'مُعيّن', variant: 'outline' },
+      picked_up: { label: 'تم الاستلام', variant: 'secondary' },
+      in_transit: { label: 'قيد التوصيل', variant: 'secondary' },
+      delivered: { label: 'تم التوصيل', variant: 'default' },
+      failed: { label: 'فشل', variant: 'destructive' },
+      cancelled: { label: 'ملغي', variant: 'secondary' },
     };
 
-    const statusInfo = statusMap[status] || { label: status, className: 'bg-gray-100 text-gray-800' };
+    const statusInfo = statusMap[status] || { label: status, variant: 'secondary' as const };
 
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
-        {statusInfo.label}
-      </span>
-    );
+    return <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>;
   };
 
   const selectedSourceAgent = transferSourceAgentId
@@ -376,74 +387,45 @@ export default function ShipmentAssignmentsPage() {
   const hasPartialSelection =
     bulkSelectionCount > 0 && bulkSelectionCount < bulkSelectableCount;
 
-  useEffect(() => {
-    if (selectAllCheckboxRef.current) {
-      selectAllCheckboxRef.current.indeterminate = hasPartialSelection;
-    }
-  }, [hasPartialSelection]);
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12 px-4">
-        <div className="max-w-7xl mx-auto text-center">
-          <p>جاري التحميل...</p>
-        </div>
-      </div>
+      <AppPageShell title="تعيين الشحنات للمناديب" subtitle="قم بتعيين الشحنات المحلية لمناديب التوصيل">
+        <LoadingState />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Navigation */}
-        <nav className="flex justify-center gap-3 mb-8">
-          <Link
-            href="/warehouse"
-            prefetch={false}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            المستودع
-          </Link>
-          <Link
-            href="/local-shipping"
-            prefetch={false}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            شحن محلي
-          </Link>
-          <Link
-            href="/shipment-assignments"
-            prefetch={false}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-          >
-            تعيين الشحنات
-          </Link>
+    <AppPageShell title="تعيين الشحنات للمناديب" subtitle="قم بتعيين الشحنات المحلية لمناديب التوصيل">
+      <div className="space-y-6">
+        <nav className="flex flex-wrap gap-3">
+          <Button variant="outline" asChild>
+            <Link href="/warehouse" prefetch={false}>المستودع</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/local-shipping" prefetch={false}>شحن محلي</Link>
+          </Button>
+          <Button asChild>
+            <Link href="/shipment-assignments" prefetch={false}>تعيين الشحنات</Link>
+          </Button>
           {canAccessCodTracker && (
-            <Link
-              href="/cod-tracker"
-              prefetch={false}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-            >
-              تتبع التحصيل
-            </Link>
+            <Button variant="outline" asChild>
+              <Link href="/cod-tracker" prefetch={false}>تتبع التحصيل</Link>
+            </Button>
           )}
         </nav>
 
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2">تعيين الشحنات للمناديب</h1>
-          <p className="text-gray-600">قم بتعيين الشحنات المحلية لمناديب التوصيل</p>
-        </div>
-
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
-        {/* Delivery Agents Stats */}
-        <Card className="p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">مناديب التوصيل</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>مناديب التوصيل</CardTitle>
+          </CardHeader>
+          <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {deliveryAgents.map((agent) => (
               <div key={agent.id} className="border rounded-lg p-4">
@@ -462,61 +444,54 @@ export default function ShipmentAssignmentsPage() {
               </div>
             ))}
           </div>
+          </CardContent>
         </Card>
 
-        {/* Assignment Form */}
-        <Card className="p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">تعيين شحنة جديدة</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>تعيين شحنة جديدة</CardTitle>
+          </CardHeader>
+          <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                الشحنة
-              </label>
-              <select
+            <Field>
+              <FieldLabel>الشحنة</FieldLabel>
+              <NativeSelect
                 value={selectedShipment || ''}
                 onChange={(e) => setSelectedShipment(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">اختر شحنة</option>
+                <NativeSelectOption value="">اختر شحنة</NativeSelectOption>
                 {pendingShipments.map((shipment) => (
-                  <option key={shipment.id} value={shipment.id}>
+                  <NativeSelectOption key={shipment.id} value={shipment.id}>
                     {shipment.orderNumber} - {shipment.customerName} ({shipment.shippingCity})
                     {shipment.isCOD && ' - COD'}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
-            </div>
+              </NativeSelect>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                المندوب
-              </label>
-              <select
+            <Field>
+              <FieldLabel>المندوب</FieldLabel>
+              <NativeSelect
                 value={selectedAgent}
                 onChange={(e) => setSelectedAgent(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">اختر مندوب</option>
+                <NativeSelectOption value="">اختر مندوب</NativeSelectOption>
                 {deliveryAgents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
+                  <NativeSelectOption key={agent.id} value={agent.id}>
                     {agent.name} (المعين: {agent.stats?.assigned || 0})
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
-            </div>
+              </NativeSelect>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                ملاحظات (اختياري)
-              </label>
-              <input
-                type="text"
+            <Field>
+              <FieldLabel>ملاحظات (اختياري)</FieldLabel>
+              <Input
                 value={assignmentNotes}
                 onChange={(e) => setAssignmentNotes(e.target.value)}
                 placeholder="ملاحظات للمندوب"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
-            </div>
+            </Field>
           </div>
 
           <div className="mt-4">
@@ -528,59 +503,54 @@ export default function ShipmentAssignmentsPage() {
               {assigning ? 'جاري التعيين...' : 'تعيين الشحنة'}
             </Button>
           </div>
+          </CardContent>
         </Card>
 
-        {/* Current Assignments */}
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">الشحنات المُعيّنة</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>الشحنات المُعيّنة</CardTitle>
+          </CardHeader>
+          <CardContent>
 
-          <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50/60 p-4 space-y-4">
+          <div className="mb-6 rounded-lg border bg-muted/40 p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-blue-900 mb-1">
-                  المندوب الحالي
-                </label>
-                <select
+              <Field>
+                <FieldLabel>المندوب الحالي</FieldLabel>
+                <NativeSelect
                   value={transferSourceAgentId}
                   onChange={(e) => setTransferSourceAgentId(e.target.value)}
-                  className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">اختر المندوب الحالي</option>
+                  <NativeSelectOption value="">اختر المندوب الحالي</NativeSelectOption>
                   {deliveryAgents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
+                    <NativeSelectOption key={agent.id} value={agent.id}>
                       {agent.name}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-blue-900 mb-1">
-                  المندوب الجديد
-                </label>
-                <select
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>المندوب الجديد</FieldLabel>
+                <NativeSelect
                   value={transferTargetAgentId}
                   onChange={(e) => setTransferTargetAgentId(e.target.value)}
-                  className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">اختر المندوب الجديد</option>
+                  <NativeSelectOption value="">اختر المندوب الجديد</NativeSelectOption>
                   {deliveryAgents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
+                    <NativeSelectOption key={agent.id} value={agent.id}>
                       {agent.name}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </div>
+                </NativeSelect>
+              </Field>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-sm text-blue-900">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               <span>
                 {transferSourceAgentId
                   ? `شحنات ${selectedSourceAgent?.name || 'المندوب'} القابلة للنقل: ${bulkSelectableCount}`
                   : 'اختر المندوب الحالي لإظهار الشحنات القابلة للنقل'}
               </span>
-              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-900">
-                محدد حالياً: {bulkSelectionCount}
-              </span>
+              <Badge variant="secondary">محدد حالياً: {bulkSelectionCount}</Badge>
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
@@ -616,40 +586,37 @@ export default function ShipmentAssignmentsPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-right bg-gray-100">
-                  <th className="px-3 py-2 text-center">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-center">
                     <div className="flex flex-col items-center gap-1">
-                      <input
-                        ref={selectAllCheckboxRef}
-                        type="checkbox"
+                      <Checkbox
                         aria-label="تحديد كل الشحنات القابلة للنقل"
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
-                        checked={bulkSelectableCount > 0 && allSelectableChosen}
-                        onChange={handleToggleSelectAllCheckbox}
+                        checked={hasPartialSelection ? 'indeterminate' : bulkSelectableCount > 0 && allSelectableChosen}
+                        onCheckedChange={handleToggleSelectAllCheckbox}
                       />
                       <span className="text-xs font-semibold text-gray-600">تحديد</span>
                     </div>
-                  </th>
-                  <th className="px-3 py-2">رقم الطلب</th>
-                  <th className="px-3 py-2">رقم التتبع</th>
-                  <th className="px-3 py-2">العميل</th>
-                  <th className="px-3 py-2">المدينة</th>
-                  <th className="px-3 py-2">المبلغ</th>
-                  <th className="px-3 py-2">المندوب</th>
-                  <th className="px-3 py-2">الحالة</th>
-                  <th className="px-3 py-2">تاريخ التعيين</th>
-                  <th className="px-3 py-2">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>
+                  <TableHead>رقم الطلب</TableHead>
+                  <TableHead>رقم التتبع</TableHead>
+                  <TableHead>العميل</TableHead>
+                  <TableHead>المدينة</TableHead>
+                  <TableHead>المبلغ</TableHead>
+                  <TableHead>المندوب</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead>تاريخ التعيين</TableHead>
+                  <TableHead>إجراءات</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {assignments.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="text-center text-gray-500 py-6">
-                      لا توجد شحنات مُعيّنة
-                    </td>
-                  </tr>
+                  <TableRow>
+                    <TableCell colSpan={10}>
+                      <EmptyState title="لا توجد شحنات مُعيّنة" />
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   assignments.map((assignment) => {
                     const isSelected = selectedTransferAssignments.includes(assignment.id);
@@ -657,35 +624,30 @@ export default function ShipmentAssignmentsPage() {
                     const disabledReason = selectable ? undefined : getSelectionDisabledReason(assignment);
 
                     return (
-                      <tr
-                        key={assignment.id}
-                        className={`border-b ${isSelected ? 'bg-blue-50' : ''}`}
-                      >
-                        <td className="px-3 py-2 text-center">
-                          <input
-                            type="checkbox"
+                      <TableRow key={assignment.id} className={isSelected ? 'bg-muted/60' : undefined}>
+                        <TableCell className="text-center">
+                          <Checkbox
                             aria-label="تحديد الشحنة للنقل"
-                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
                             checked={isSelected}
                             disabled={!selectable}
                             title={disabledReason}
-                            onChange={() => toggleAssignmentSelection(assignment)}
+                            onCheckedChange={() => toggleAssignmentSelection(assignment)}
                           />
-                        </td>
-                        <td className="px-3 py-2 font-mono">{assignment.shipment.orderNumber}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{assignment.shipment.trackingNumber}</td>
-                        <td className="px-3 py-2">{assignment.shipment.customerName}</td>
-                        <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
-                        <td className="px-3 py-2 font-semibold">
+                        </TableCell>
+                        <TableCell className="font-mono">{assignment.shipment.orderNumber}</TableCell>
+                        <TableCell className="font-mono text-xs">{assignment.shipment.trackingNumber}</TableCell>
+                        <TableCell>{assignment.shipment.customerName}</TableCell>
+                        <TableCell>{assignment.shipment.shippingCity}</TableCell>
+                        <TableCell className="font-semibold">
                           {formatCurrency(assignment.shipment.orderTotal)}
                           {assignment.shipment.isCOD && (
                             <span className="text-xs text-orange-600 ml-1">(COD)</span>
                           )}
-                        </td>
-                        <td className="px-3 py-2">{assignment.deliveryAgent.name}</td>
-                        <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
-                        <td className="px-3 py-2 text-xs">{formatDate(assignment.assignedAt)}</td>
-                        <td className="px-3 py-2">
+                        </TableCell>
+                        <TableCell>{assignment.deliveryAgent.name}</TableCell>
+                        <TableCell>{getStatusBadge(assignment.status)}</TableCell>
+                        <TableCell className="text-xs">{formatDate(assignment.assignedAt)}</TableCell>
+                        <TableCell>
                           {assignment.status === 'assigned' && (
                             <Button
                               size="sm"
@@ -695,16 +657,17 @@ export default function ShipmentAssignmentsPage() {
                               إلغاء
                             </Button>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
+          </CardContent>
         </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

@@ -1,4 +1,9 @@
+import { AppPageShell } from "@/components/dashboard/app-page-shell";
+import { PageHeader } from "@/components/dashboard/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import {
   Table,
   TableBody,
@@ -30,13 +35,14 @@ export default async function AgentsReportsPage({
   });
 
   return (
-    <div className="space-y-6 p-6">
-      <section>
-        <h1 className="text-2xl font-bold">تقارير أداء الوكلاء</h1>
-        <p className="text-sm text-muted-foreground">
-          اطّلع على حجم المحادثات المغلقة، سرعة الحل، ورسائل واتساب لكل وكيل
-        </p>
-      </section>
+    <AppPageShell
+      title="تقارير أداء الوكلاء"
+      subtitle="اطّلع على حجم المحادثات المغلقة، سرعة الحل، ورسائل واتساب لكل وكيل"
+    >
+      <PageHeader
+        title="تقارير أداء الوكلاء"
+        description="اطّلع على حجم المحادثات المغلقة، سرعة الحل، ورسائل واتساب لكل وكيل"
+      />
 
       <Filters
         fromValue={formatDateInput(fromDate)}
@@ -60,7 +66,7 @@ export default async function AgentsReportsPage({
         />
       </section>
 
-      <Card>
+      <Card className="rounded-lg">
         <CardHeader>
           <CardTitle>تفاصيل الوكلاء</CardTitle>
           <CardDescription>
@@ -115,7 +121,7 @@ export default async function AgentsReportsPage({
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </AppPageShell>
   );
 }
 
@@ -131,45 +137,36 @@ function Filters({
   agents: { id: string; name: string | null; email: string | null }[];
 }) {
   return (
-    <form className="grid gap-4 rounded-xl border bg-card p-4 shadow-sm md:grid-cols-4" method="get">
-      <label className="text-sm">
-        <span className="mb-1 block text-muted-foreground">من تاريخ</span>
-        <input
-          type="date"
-          name="from"
-          defaultValue={fromValue}
-          className="w-full rounded-lg border px-3 py-2"
-        />
-      </label>
-      <label className="text-sm">
-        <span className="mb-1 block text-muted-foreground">إلى تاريخ</span>
-        <input
-          type="date"
-          name="to"
-          defaultValue={toValue}
-          className="w-full rounded-lg border px-3 py-2"
-        />
-      </label>
-      <label className="text-sm">
-        <span className="mb-1 block text-muted-foreground">الوكيل</span>
-        <select name="agent" defaultValue={agentId} className="w-full rounded-lg border px-3 py-2">
-          <option value="all">الكل</option>
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name ?? agent.email ?? agent.id}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="flex items-end">
-        <button
-          type="submit"
-          className="w-full rounded-lg bg-primary px-4 py-2 text-white transition hover:bg-primary/90"
-        >
-          عرض التقارير
-        </button>
-      </div>
-    </form>
+    <Card className="rounded-lg">
+      <CardContent className="p-4">
+        <form className="grid gap-4 md:grid-cols-4" method="get">
+          <label className="text-sm">
+            <span className="mb-1 block text-muted-foreground">من تاريخ</span>
+            <Input type="date" name="from" defaultValue={fromValue} />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-muted-foreground">إلى تاريخ</span>
+            <Input type="date" name="to" defaultValue={toValue} />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-muted-foreground">الوكيل</span>
+            <NativeSelect name="agent" defaultValue={agentId}>
+              <NativeSelectOption value="all">الكل</NativeSelectOption>
+              {agents.map((agent) => (
+                <NativeSelectOption key={agent.id} value={agent.id}>
+                  {agent.name ?? agent.email ?? agent.id}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </label>
+          <div className="flex items-end">
+            <Button type="submit" className="w-full">
+              عرض التقارير
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 

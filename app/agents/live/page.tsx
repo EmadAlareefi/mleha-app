@@ -1,4 +1,7 @@
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { AppPageShell } from "@/components/dashboard/app-page-shell";
+import { PageHeader } from "@/components/dashboard/page-header";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -23,14 +26,15 @@ export default async function LiveMonitorPage() {
   const generatedAt = new Date(snapshot.generatedAt);
 
   return (
-    <div className="space-y-6 p-6">
+    <AppPageShell
+      title="مراقبة أداء وكلاء المحادثات"
+      subtitle={`آخر تحديث عند ${formatDateTime(generatedAt)} - يتم التحديث كل 20 ثانية تلقائيًا`}
+    >
       <AutoRefresh interval={20000} />
-      <section>
-        <h1 className="text-2xl font-bold">مراقبة أداء وكلاء المحادثات</h1>
-        <p className="text-sm text-muted-foreground">
-          آخر تحديث عند {formatDateTime(generatedAt)} - يتم التحديث كل 20 ثانية تلقائيًا
-        </p>
-      </section>
+      <PageHeader
+        title="مراقبة أداء وكلاء المحادثات"
+        description={`آخر تحديث عند ${formatDateTime(generatedAt)} - يتم التحديث كل 20 ثانية تلقائيًا`}
+      />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard title="محادثات مفتوحة" value={snapshot.totals.openChats.toString()} hint="عدد المحادثات النشطة الآن" />
@@ -104,7 +108,7 @@ export default async function LiveMonitorPage() {
                 <li className="text-sm text-muted-foreground">لا توجد رسائل بعد</li>
               )}
               {snapshot.recentMessages.map((message) => (
-                <li key={message.id} className="rounded-xl border bg-card p-3">
+                <li key={message.id} className="rounded-lg border bg-card p-3">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>{directionLabel(message.direction)}</span>
                     <span>{formatRelativeTime(message.platformTimestamp)}</span>
@@ -168,9 +172,9 @@ export default async function LiveMonitorPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className="rounded-full bg-secondary px-2 py-1 text-xs">
+                    <Badge variant="secondary">
                       {chat.status === "closed" ? "مغلقة" : "نشطة"}
-                    </span>
+                    </Badge>
                   </TableCell>
                 </TableRow>
               ))}
@@ -178,7 +182,7 @@ export default async function LiveMonitorPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </AppPageShell>
   );
 }
 

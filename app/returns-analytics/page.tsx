@@ -1,7 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -11,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { NativeSelect } from '@/components/ui/native-select';
 import {
   Table,
   TableBody,
@@ -441,13 +444,12 @@ export default function ReturnsAnalyticsPage() {
   const clearReasons = () => setSelectedReasons([]);
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
-      <AppNavbar
+    <AppPageShell
         title="تحليل المرتجعات"
         subtitle="فلترة الأسباب، مراقبة المنتجات الحرجة، والبحث بالـ SKU اعتماداً على بيانات ReturnRequest"
-      />
-      <main className="mx-auto mt-6 flex w-full max-w-6xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
-        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+      >
+        <section className="rounded-lg border bg-card p-6 text-card-foreground shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-slate-400">تقرير الملخص</p>
@@ -463,22 +465,21 @@ export default function ReturnsAnalyticsPage() {
                 <p className="font-medium text-slate-700">الفترة الزمنية</p>
                 <p>{TIMEFRAME_CONFIG[timeframe].label}</p>
               </div>
-              <Select
+              <NativeSelect
                 value={timeframe}
                 onChange={(event) => setTimeframe(event.target.value as TimeframeKey)}
-                className="w-full rounded-2xl border-slate-200 text-sm sm:w-44"
+                className="w-full sm:w-44"
               >
                 <option value="7d">آخر ٧ أيام</option>
                 <option value="30d">آخر ٣٠ يوماً</option>
                 <option value="90d">آخر ٩٠ يوماً</option>
-              </Select>
+              </NativeSelect>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 disabled={loading || refreshing}
                 onClick={() => loadRequests({ silent: true })}
-                className="rounded-2xl border-slate-200 text-slate-600 hover:text-slate-900"
               >
                 <RefreshCcw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
                 تحديث البيانات
@@ -488,15 +489,11 @@ export default function ReturnsAnalyticsPage() {
           {(loading || error) && (
             <div className="mt-4 flex flex-col gap-2">
               {error && (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                  {error}
-                </div>
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
-              {loading && (
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
-                  جاري تحميل بيانات المرتجعات...
-                </div>
-              )}
+              {loading && <LoadingState label="جاري تحميل بيانات المرتجعات..." />}
             </div>
           )}
           <div className="mt-6 grid gap-4 md:grid-cols-3">
@@ -591,9 +588,10 @@ export default function ReturnsAnalyticsPage() {
           </CardHeader>
           <CardContent className="pt-4">
             {reasonStats.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                لا توجد أسباب مسجلة ضمن الفترة الحالية. جرّب اختيار فترة زمنية أطول أو تحديث البيانات.
-              </p>
+              <EmptyState
+                title="لا توجد أسباب مسجلة"
+                description="جرّب اختيار فترة زمنية أطول أو تحديث البيانات."
+              />
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
                 {reasonStats.map((reason) => {
@@ -680,12 +678,12 @@ export default function ReturnsAnalyticsPage() {
                             {item.reasons.map((reason) => {
                               const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
                               return (
-                                <span
+                                <Badge
                                   key={`refund-reason-${item.sku}-${reason}`}
-                                  className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
+                                  variant="outline"
                                 >
                                   {displayReason}
-                                </span>
+                                </Badge>
                               );
                             })}
                           </div>
@@ -739,12 +737,12 @@ export default function ReturnsAnalyticsPage() {
                             {item.reasons.map((reason) => {
                               const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
                               return (
-                                <span
+                                <Badge
                                   key={`exchange-reason-${item.sku}-${reason}`}
-                                  className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
+                                  variant="outline"
                                 >
                                   {displayReason}
-                                </span>
+                                </Badge>
                               );
                             })}
                           </div>
@@ -803,11 +801,14 @@ export default function ReturnsAnalyticsPage() {
           </CardHeader>
           <CardContent className="pt-4">
             {filteredReports.length === 0 ? (
-              <p className="text-center text-sm text-slate-500">
-                {loading
-                  ? 'نقوم بتحميل بيانات المرتجعات، يرجى الانتظار لحظات.'
-                  : 'لا توجد طلبات تطابق SKU أو أسباب التصفية الحالية. جرّب رمزاً آخر أو أزل بعض الفلاتر.'}
-              </p>
+              loading ? (
+                <LoadingState label="نقوم بتحميل بيانات المرتجعات، يرجى الانتظار لحظات." />
+              ) : (
+                <EmptyState
+                  title="لا توجد نتائج"
+                  description="لا توجد طلبات تطابق SKU أو أسباب التصفية الحالية. جرّب رمزاً آخر أو أزل بعض الفلاتر."
+                />
+              )
             ) : (
               <Table>
                 <TableHeader>
@@ -835,7 +836,7 @@ export default function ReturnsAnalyticsPage() {
                           <p className="text-xs text-slate-500">{row.resolution}</p>
                         </TableCell>
                         <TableCell>
-                          <span
+                          <Badge
                             className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                               row.type === 'return'
                                 ? 'border border-rose-100 bg-rose-50 text-rose-700'
@@ -843,20 +844,20 @@ export default function ReturnsAnalyticsPage() {
                             }`}
                           >
                             {row.type === 'return' ? 'إرجاع' : 'استبدال'}
-                          </span>
+                          </Badge>
                         </TableCell>
                         <TableCell>
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
+                          <Badge variant="outline">
                             {reasonLabelMap[row.reason] || getReasonLabel(row.reason)}
-                          </span>
+                          </Badge>
                         </TableCell>
                         <TableCell className="font-medium text-slate-900">
                           {formatCurrency(row.amount)}
                         </TableCell>
                         <TableCell>
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
+                          <Badge className={statusClass}>
                             {statusLabel}
-                          </span>
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">{formatDate(row.createdAt)}</TableCell>
                       </TableRow>
@@ -867,7 +868,6 @@ export default function ReturnsAnalyticsPage() {
             )}
           </CardContent>
         </Card>
-      </main>
-    </div>
+    </AppPageShell>
   );
 }

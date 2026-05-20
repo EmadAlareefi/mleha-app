@@ -2,11 +2,16 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Award, Loader2, RefreshCcw, ShieldAlert, UserPlus2 } from 'lucide-react';
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
   TableBody,
@@ -46,11 +51,6 @@ const kindLabels: Record<RecognitionKind, string> = {
   PENALTY: 'مخالفة',
 };
 
-const kindColors: Record<RecognitionKind, string> = {
-  REWARD: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  PENALTY: 'bg-rose-50 text-rose-700 border-rose-200',
-};
-
 const dateInputValue = (value: string) => value.split('T')[0];
 
 export default function UserRecognitionAdminPage() {
@@ -73,6 +73,7 @@ export default function UserRecognitionAdminPage() {
     effectiveDate: new Date().toISOString().split('T')[0],
   });
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -168,8 +169,9 @@ export default function UserRecognitionAdminPage() {
 
   const handleFormSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    setFormError(null);
     if (!formData.userId || !formData.title) {
-      alert('يرجى اختيار المستخدم وكتابة عنوان السجل');
+      setFormError('يرجى اختيار المستخدم وكتابة عنوان السجل');
       return;
     }
 
@@ -204,7 +206,7 @@ export default function UserRecognitionAdminPage() {
       fetchRecords();
     } catch (error: any) {
       console.error('Failed to create recognition record', error);
-      alert(error?.message || 'تعذر إنشاء السجل');
+      setFormError(error?.message || 'تعذر إنشاء السجل');
     } finally {
       setSubmitting(false);
     }
@@ -221,9 +223,8 @@ export default function UserRecognitionAdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <AppNavbar title="سجل المخالفات والمكافآت" subtitle="إدارة السجل التحفيزي للموظفين" />
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8 space-y-8">
+    <AppPageShell title="سجل المخالفات والمكافآت" subtitle="إدارة السجل التحفيزي للموظفين">
+      <div className="space-y-8">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="bg-white/90 border-emerald-100 shadow-lg">
             <CardHeader className="pb-2">
@@ -286,36 +287,30 @@ export default function UserRecognitionAdminPage() {
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">
-                    تصفية حسب المستخدم
-                  </label>
-                  <Select
+                  <FieldLabel>تصفية حسب المستخدم</FieldLabel>
+                  <NativeSelect
                     value={filters.userId}
                     onChange={(event) => handleFilterChange('userId', event.target.value)}
                     disabled={usersLoading}
-                    className="rounded-2xl"
                   >
-                    <option value="">جميع المستخدمين</option>
+                    <NativeSelectOption value="">جميع المستخدمين</NativeSelectOption>
                     {users.map((user) => (
-                      <option key={user.id} value={user.id}>
+                      <NativeSelectOption key={user.id} value={user.id}>
                         {user.name} ({user.username})
-                      </option>
+                      </NativeSelectOption>
                     ))}
-                  </Select>
+                  </NativeSelect>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">
-                    نوع السجل
-                  </label>
-                  <Select
+                  <FieldLabel>نوع السجل</FieldLabel>
+                  <NativeSelect
                     value={filters.kind}
                     onChange={(event) => handleFilterChange('kind', event.target.value)}
-                    className="rounded-2xl"
                   >
-                    <option value="all">الكل</option>
-                    <option value="reward">مكافآت فقط</option>
-                    <option value="penalty">مخالفات فقط</option>
-                  </Select>
+                    <NativeSelectOption value="all">الكل</NativeSelectOption>
+                    <NativeSelectOption value="reward">مكافآت فقط</NativeSelectOption>
+                    <NativeSelectOption value="penalty">مخالفات فقط</NativeSelectOption>
+                  </NativeSelect>
                 </div>
                 <div className="flex items-end justify-end">
                   <Button
@@ -331,9 +326,9 @@ export default function UserRecognitionAdminPage() {
               </div>
 
               {recordsError && (
-                <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-2xl px-3 py-2">
-                  {recordsError}
-                </p>
+                <Alert variant="destructive">
+                  <AlertDescription>{recordsError}</AlertDescription>
+                </Alert>
               )}
 
               <div className="rounded-2xl border border-slate-100 bg-white overflow-hidden">
@@ -361,7 +356,7 @@ export default function UserRecognitionAdminPage() {
                     ) : records.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="py-8 text-center text-slate-500">
-                          لا توجد سجلات لعرضها حالياً
+                          <EmptyState title="لا توجد سجلات لعرضها حالياً" />
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -374,12 +369,10 @@ export default function UserRecognitionAdminPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <span
-                              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${kindColors[record.kind]}`}
-                            >
+                            <Badge variant={record.kind === 'REWARD' ? 'secondary' : 'destructive'}>
                               {record.kind === 'REWARD' ? <Award className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
                               {kindLabels[record.kind]}
-                            </span>
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             <div className="space-y-1">
@@ -423,14 +416,20 @@ export default function UserRecognitionAdminPage() {
             </CardHeader>
             <CardContent>
               {usersError && (
-                <p className="mb-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-2 text-sm text-rose-600">
-                  {usersError}
-                </p>
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{usersError}</AlertDescription>
+                </Alert>
+              )}
+              {formError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{formError}</AlertDescription>
+                </Alert>
               )}
               <form onSubmit={handleFormSubmit} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-slate-600">اختر المستخدم</label>
-                  <Select
+                <FieldGroup>
+                <Field>
+                  <FieldLabel>اختر المستخدم</FieldLabel>
+                  <NativeSelect
                     value={formData.userId}
                     disabled={usersLoading}
                     onChange={(event) =>
@@ -439,21 +438,20 @@ export default function UserRecognitionAdminPage() {
                         userId: event.target.value,
                       }))
                     }
-                    className="rounded-2xl"
                     required
                   >
-                    <option value="">-</option>
+                    <NativeSelectOption value="">-</NativeSelectOption>
                     {users.map((user) => (
-                      <option key={user.id} value={user.id}>
+                      <NativeSelectOption key={user.id} value={user.id}>
                         {user.name} ({user.username})
-                      </option>
+                      </NativeSelectOption>
                     ))}
-                  </Select>
-                </div>
+                  </NativeSelect>
+                </Field>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <label className="text-sm font-semibold text-slate-600">نوع السجل</label>
-                    <Select
+                  <Field>
+                    <FieldLabel>نوع السجل</FieldLabel>
+                    <NativeSelect
                       value={formData.kind}
                       onChange={(event) =>
                         setFormData((prev) => ({
@@ -461,14 +459,13 @@ export default function UserRecognitionAdminPage() {
                           kind: event.target.value as RecognitionKind,
                         }))
                       }
-                      className="rounded-2xl"
                     >
-                      <option value="REWARD">مكافأة</option>
-                      <option value="PENALTY">مخالفة</option>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-sm font-semibold text-slate-600">النقاط</label>
+                      <NativeSelectOption value="REWARD">مكافأة</NativeSelectOption>
+                      <NativeSelectOption value="PENALTY">مخالفة</NativeSelectOption>
+                    </NativeSelect>
+                  </Field>
+                  <Field>
+                    <FieldLabel>النقاط</FieldLabel>
                     <Input
                       type="number"
                       inputMode="numeric"
@@ -480,12 +477,11 @@ export default function UserRecognitionAdminPage() {
                           points: event.target.value,
                         }))
                       }
-                      className="rounded-2xl"
                     />
-                  </div>
+                  </Field>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-slate-600">عنوان السجل</label>
+                <Field>
+                  <FieldLabel>عنوان السجل</FieldLabel>
                   <Input
                     placeholder="مثال: مكافأة على سرعة إنجاز الطلبات"
                     value={formData.title}
@@ -495,13 +491,12 @@ export default function UserRecognitionAdminPage() {
                         title: event.target.value,
                       }))
                     }
-                    className="rounded-2xl"
                     required
                   />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-slate-600">الوصف</label>
-                  <textarea
+                </Field>
+                <Field>
+                  <FieldLabel>الوصف</FieldLabel>
+                  <Textarea
                     value={formData.description}
                     onChange={(event) =>
                       setFormData((prev) => ({
@@ -510,12 +505,11 @@ export default function UserRecognitionAdminPage() {
                       }))
                     }
                     rows={4}
-                    className="w-full rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                     placeholder="تفاصيل إضافية تظهر للمستخدم"
                   />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-slate-600">تاريخ التطبيق</label>
+                </Field>
+                <Field>
+                  <FieldLabel>تاريخ التطبيق</FieldLabel>
                   <Input
                     type="date"
                     value={dateInputValue(formData.effectiveDate)}
@@ -525,13 +519,12 @@ export default function UserRecognitionAdminPage() {
                         effectiveDate: event.target.value,
                       }))
                     }
-                    className="rounded-2xl"
                   />
-                </div>
+                </Field>
                 <Button
                   type="submit"
                   disabled={submitting || !formData.userId}
-                  className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-700"
+                  className="w-full"
                 >
                   {submitting ? (
                     <>
@@ -545,11 +538,12 @@ export default function UserRecognitionAdminPage() {
                     </>
                   )}
                 </Button>
+                </FieldGroup>
               </form>
             </CardContent>
           </Card>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

@@ -15,6 +15,11 @@ import {
   hasSuccessfulERPSync,
   isNegativeERPInvoiceId,
 } from '@/lib/erp-order-sync';
+import {
+  buildUnsupportedERPCurrencyMessage,
+  isSupportedERPCurrency,
+} from '@/lib/erp-currency';
+import { isPotentialRefundStatus } from '@/lib/refund-status';
 
 // ERP Invoice payload based on your specifications
 export interface ERPInvoiceItem {
@@ -63,6 +68,11 @@ interface ERPBarcodeResult {
   isFallback: boolean;
 }
 
+interface ExtractOrderItemsResult {
+  items: ERPInvoiceItem[];
+  explicitOptionNetTotal: number;
+}
+
 class BarcodeNotFoundError extends Error {
   itemNo: string;
 
@@ -80,6 +90,110 @@ class BarcodeNotFoundError extends Error {
 function normalizeSkuForERP(rawSku: string): string {
   const sanitized = rawSku.replace(/x/gi, '').trim();
   return sanitized || rawSku;
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function toHalalas(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100);
+}
+
+function fromHalalas(value: number): number {
+  return value / 100;
+}
+
+function parseMoney(value: unknown): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/,/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if ('amount' in record) {
+      return parseMoney(record.amount);
+    }
+    if ('value' in record) {
+      return parseMoney(record.value);
+    }
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function calculateERPLineTotalHalalas(item: ERPInvoiceItem): number {
+  const grossHalalas = toHalalas(item.price) * item.qty;
+  const discountHalalas = Math.round(grossHalalas * (item.discpc / 100));
+  return grossHalalas - discountHalalas;
+}
+
+function calculateERPItemsTotalHalalas(items: ERPInvoiceItem[]): number {
+  return items.reduce((total, item) => total + calculateERPLineTotalHalalas(item), 0);
+}
+
+function calculateERPLineDiscountHalalas(item: ERPInvoiceItem): number {
+  const grossHalalas = toHalalas(item.price) * item.qty;
+  return Math.round(grossHalalas * (item.discpc / 100));
+}
+
+function deriveDiscountPercentageForExactHalalas(
+  grossHalalas: number,
+  discountHalalas: number
+): number {
+  if (grossHalalas <= 0 || discountHalalas <= 0) {
+    return 0;
+  }
+
+  const boundedDiscountHalalas = Math.min(Math.max(discountHalalas, 0), grossHalalas);
+  const exactPercentage = (boundedDiscountHalalas / grossHalalas) * 100;
+
+  for (const decimals of [2, 3, 4, 5, 6]) {
+    const candidate = Number(exactPercentage.toFixed(decimals));
+    if (Math.round(grossHalalas * (candidate / 100)) === boundedDiscountHalalas) {
+      return candidate;
+    }
+  }
+
+  return Number(exactPercentage.toFixed(6));
+}
+
+function tryAdjustItemDiscountToMatchTotal(items: ERPInvoiceItem[], deltaHalalas: number): boolean {
+  const candidateIndexes = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.qty > 0 && toHalalas(item.price) > 0)
+    .sort((left, right) => {
+      const leftDiscount = calculateERPLineDiscountHalalas(left.item);
+      const rightDiscount = calculateERPLineDiscountHalalas(right.item);
+      return rightDiscount - leftDiscount;
+    })
+    .map(({ index }) => index);
+
+  for (const index of candidateIndexes) {
+    const item = items[index];
+    const grossHalalas = toHalalas(item.price) * item.qty;
+    const currentDiscountHalalas = calculateERPLineDiscountHalalas(item);
+    const targetDiscountHalalas = currentDiscountHalalas - deltaHalalas;
+
+    if (targetDiscountHalalas < 0 || targetDiscountHalalas > grossHalalas) {
+      continue;
+    }
+
+    item.discpc = deriveDiscountPercentageForExactHalalas(grossHalalas, targetDiscountHalalas);
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -262,12 +376,10 @@ function getSalesCenterCode(order: SallaOrder): string {
  * Determine invoice type based on order status
  */
 function getInvoiceType(order: SallaOrder): '06' | '26' {
-  const statusSlug = order.statusSlug?.toLowerCase() || '';
-
-  // Refund/return statuses
-  if (statusSlug.includes('refund') ||
-      statusSlug.includes('return') ||
-      statusSlug.includes('cancelled')) {
+  if (
+    isPotentialRefundStatus(order.statusSlug) ||
+    isPotentialRefundStatus(order.statusName)
+  ) {
     return '26'; // Refund invoice
   }
 
@@ -359,8 +471,9 @@ async function fetchOrderItemsFromSalla(merchantId: string, orderId: string): Pr
 /**
  * Extract items from raw order JSON or Salla API
  */
-async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
+async function extractOrderItems(order: SallaOrder): Promise<ExtractOrderItemsResult> {
   const items: ERPInvoiceItem[] = [];
+  let explicitOptionNetTotal = 0;
 
   // Try to fetch items from Salla API first
   let orderItems = await fetchOrderItemsFromSalla(order.merchantId, order.orderId);
@@ -417,13 +530,24 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
       price = parseFloat(item.price || item.amount || '0');
     }
 
-    // Calculate discount percentage
+    // Calculate discount percentage from exact line halalas, not rounded unit percentages.
     let discpc = 0;
-    if (item.amounts?.total_discount?.amount) {
-      const discountAmount = parseFloat(item.amounts.total_discount.amount);
-      if (price > 0 && discountAmount > 0) {
-        // Discount percentage based on single item price
-        discpc = (discountAmount / price) * 100;
+    const grossLineHalalas = toHalalas(price) * qty;
+    if (grossLineHalalas > 0) {
+      const discountAmount = parseMoney(item.amounts?.total_discount?.amount ?? item.amounts?.total_discount);
+      let discountHalalas = toHalalas(discountAmount);
+
+      if (discountHalalas <= 0) {
+        const lineTotalAmount = parseMoney(item.amounts?.total?.amount ?? item.amounts?.total);
+        const desiredNetHalalas = toHalalas(lineTotalAmount);
+
+        if (lineTotalAmount > 0 && desiredNetHalalas <= grossLineHalalas) {
+          discountHalalas = grossLineHalalas - desiredNetHalalas;
+        }
+      }
+
+      if (discountHalalas > 0) {
+        discpc = deriveDiscountPercentageForExactHalalas(grossLineHalalas, discountHalalas);
       }
     }
 
@@ -450,7 +574,7 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
       qty: qty,
       fqty: 0,
       price: price,
-      discpc: Math.round(discpc * 100) / 100, // Round to 2 decimal places
+      discpc,
     });
 
     // Add extra options (like packaging) if available
@@ -469,6 +593,8 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
             discpc: 0,
           });
 
+          explicitOptionNetTotal += optionPrice * qty;
+
           logger.info('Added product option as item', {
             orderId: order.orderId,
             optionName: option.name,
@@ -480,25 +606,39 @@ async function extractOrderItems(order: SallaOrder): Promise<ERPInvoiceItem[]> {
     }
   }
 
-  return items;
+  return {
+    items,
+    explicitOptionNetTotal: roundMoney(explicitOptionNetTotal),
+  };
 }
 
 /**
  * Transform SallaOrder to ERP invoice payload
  */
 export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERPInvoicePayload> {
+  if (!isSupportedERPCurrency(order.currency)) {
+    throw new Error(buildUnsupportedERPCurrencyMessage(order.currency));
+  }
+
   const invoiceType = getInvoiceType(order);
   const salesCenter = getSalesCenterCode(order);
-  const items = await extractOrderItems(order);
+  const rawOrder = order.rawOrder as any;
+  const extractedItems = await extractOrderItems(order);
+  const items = extractedItems.items;
 
   // Extract amounts - try from database first, then fetch from Salla API if needed
-  const taxAmount = parseFloat(order.taxAmount?.toString() || '0');
-  let shippingAmount = parseFloat(order.shippingAmount?.toString() || '0');
-  const discountAmount = parseFloat(order.discountAmount?.toString() || '0');
+  const taxAmount = roundMoney(parseMoney(order.taxAmount));
+  let shippingAmount = roundMoney(parseMoney(order.shippingAmount));
+  const discountAmount = roundMoney(parseMoney(order.discountAmount));
+  const optionsTotalAmount = roundMoney(parseMoney(rawOrder?.amounts?.options_total));
+  const expectedTotal = roundMoney(
+    parseMoney(rawOrder?.amounts?.total) ||
+      parseMoney(rawOrder?.total) ||
+      parseMoney(order.totalAmount)
+  );
 
   // If shippingAmount is 0, try to extract from raw order data or fetch from API
   if (shippingAmount === 0) {
-    const rawOrder = order.rawOrder as any;
     let rawShipping = rawOrder?.amounts?.shipping?.amount ||
                       rawOrder?.amounts?.shipping ||
                       rawOrder?.amounts?.shipping_cost?.amount ||
@@ -525,7 +665,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
       }
     }
 
-    shippingAmount = parseFloat(rawShipping.toString());
+    shippingAmount = roundMoney(parseMoney(rawShipping));
 
     logger.info('Extracted shipping amount', {
       orderId: order.orderId,
@@ -534,25 +674,18 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     });
   }
 
-  if (!Number.isFinite(shippingAmount) || Number.isNaN(shippingAmount)) {
-    logger.warn('Shipping amount is not a valid number, defaulting to 0', {
-      orderId: order.orderId,
-      rawValue: order.shippingAmount,
-    });
-    shippingAmount = 0;
-  }
+  const extraChargeItems: ERPInvoiceItem[] = [];
 
   // Add shipping as a line item if there's a shipping cost
   if (shippingAmount > 0) {
-    // Shipping price should include tax (15%)
-    const shippingWithTax = shippingAmount * 1.15;
+    const shippingWithTax = roundMoney(shippingAmount * 1.15);
 
-    items.push({
+    extraChargeItems.push({
       cmbkey: '0',
       barcode: '019',
       qty: 1,
       fqty: 0,
-      price: Math.round(shippingWithTax * 100) / 100, // Round to 2 decimal places
+      price: shippingWithTax,
       discpc: 0,
     });
 
@@ -566,10 +699,10 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
   // Add COD fee as a line item if payment method is COD
   const paymentMethod = order.paymentMethod?.toLowerCase() || '';
   const isCOD = paymentMethod.includes('cod') || paymentMethod.includes('cash');
+  let codFeeAmount = 0;
 
   if (isCOD) {
     // Extract COD fee from raw order or API
-    const rawOrder = order.rawOrder as any;
     let codFee = rawOrder?.amounts?.cash_on_delivery?.amount ||
                  rawOrder?.amounts?.cash_on_delivery ||
                  rawOrder?.amounts?.cod_cost?.amount ||
@@ -598,18 +731,17 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
       }
     }
 
-    const codFeeAmount = parseFloat(codFee.toString());
+    codFeeAmount = roundMoney(parseMoney(codFee));
 
     if (codFeeAmount > 0) {
-      // COD fee with tax (15%)
-      const codFeeWithTax = codFeeAmount * 1.15;
+      const codFeeWithTax = roundMoney(codFeeAmount * 1.15);
 
-      items.push({
+      extraChargeItems.push({
         cmbkey: '000',
         barcode: '000',
         qty: 1,
         fqty: 0,
-        price: Math.round(codFeeWithTax * 100) / 100,
+        price: codFeeWithTax,
         discpc: 0,
       });
 
@@ -626,6 +758,33 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     }
   }
 
+  const optionRemainderNet = roundMoney(
+    Math.max(0, optionsTotalAmount - extractedItems.explicitOptionNetTotal)
+  );
+
+  if (optionRemainderNet > 0) {
+    const optionsWithTax = roundMoney(optionRemainderNet * 1.15);
+
+    extraChargeItems.push({
+      cmbkey: '0000',
+      barcode: '05147',
+      qty: 1,
+      fqty: 0,
+      price: optionsWithTax,
+      discpc: 0,
+    });
+
+    logger.info('Added options total as item', {
+      orderId: order.orderId,
+      optionsTotalAmount,
+      explicitOptionNetTotal: extractedItems.explicitOptionNetTotal,
+      optionRemainderNet,
+      optionsWithTax,
+    });
+  }
+
+  items.push(...extraChargeItems);
+
   // Log extracted items for debugging
   logger.info('Extracted items from order', {
     orderId: order.orderId,
@@ -635,50 +794,64 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     isCOD,
   });
 
-  // Validate total: Calculate total from items and compare with order total
-  let calculatedTotal = 0;
-  for (const item of items) {
-    // Calculate item total: (price * qty) - (price * qty * discpc / 100)
-    const itemSubtotal = item.price * item.qty;
-    const itemDiscount = itemSubtotal * (item.discpc / 100);
-    const itemTotal = itemSubtotal - itemDiscount;
-    calculatedTotal += itemTotal;
+  // Reconcile non-product lines back to Salla's exact total in halalas.
+  const invoiceDiscountHalalas = toHalalas(discountAmount);
+  let calculatedTotalHalalas = calculateERPItemsTotalHalalas(items) - invoiceDiscountHalalas;
+  let deltaHalalas = toHalalas(expectedTotal) - calculatedTotalHalalas;
+
+  if (deltaHalalas !== 0) {
+    const lastAdjustmentItem = extraChargeItems[extraChargeItems.length - 1] || null;
+    let adjusted = false;
+
+    if (lastAdjustmentItem) {
+      lastAdjustmentItem.price = roundMoney(lastAdjustmentItem.price + fromHalalas(deltaHalalas));
+      adjusted = true;
+    } else if (items.length > 0 && items[items.length - 1].qty === 1 && items[items.length - 1].discpc === 0) {
+      items[items.length - 1].price = roundMoney(items[items.length - 1].price + fromHalalas(deltaHalalas));
+      adjusted = true;
+    } else if (tryAdjustItemDiscountToMatchTotal(items, deltaHalalas)) {
+      adjusted = true;
+    } else if (deltaHalalas > 0) {
+      items.push({
+        cmbkey: '0000',
+        barcode: '05147',
+        qty: 1,
+        fqty: 0,
+        price: fromHalalas(deltaHalalas),
+        discpc: 0,
+      });
+      adjusted = true;
+    }
+
+    if (adjusted) {
+      calculatedTotalHalalas = calculateERPItemsTotalHalalas(items) - invoiceDiscountHalalas;
+      deltaHalalas = toHalalas(expectedTotal) - calculatedTotalHalalas;
+    }
   }
 
-  // Add discount at invoice level
-  calculatedTotal -= discountAmount;
-
-  // Round to 2 decimal places for comparison
-  calculatedTotal = Math.round(calculatedTotal * 100) / 100;
-
-  // Get expected total from order
-  const rawOrder = order.rawOrder as any;
-  const expectedTotal = parseFloat(
-    rawOrder?.total?.amount ||
-    order.totalAmount?.toString() ||
-    '0'
-  );
-
-  // Allow small difference due to rounding (0.01 SAR tolerance)
-  const totalDifference = Math.abs(calculatedTotal - expectedTotal);
-  const TOLERANCE = 0.01;
+  const calculatedTotal = fromHalalas(calculatedTotalHalalas);
+  const totalDifference = Math.abs(deltaHalalas);
 
   logger.info('Total validation', {
     orderId: order.orderId,
     calculatedTotal,
     expectedTotal,
-    difference: totalDifference,
-    isValid: totalDifference <= TOLERANCE,
+    differenceHalalas: totalDifference,
+    isValid: totalDifference === 0,
+    shippingAmount,
+    codFeeAmount,
+    optionsTotalAmount,
+    explicitOptionNetTotal: extractedItems.explicitOptionNetTotal,
   });
 
-  if (totalDifference > TOLERANCE) {
-    const errorMsg = `Total mismatch: calculated ${calculatedTotal} SAR but expected ${expectedTotal} SAR (difference: ${totalDifference} SAR)`;
+  if (totalDifference !== 0) {
+    const errorMsg = `Total mismatch: calculated ${calculatedTotal} SAR but expected ${expectedTotal} SAR (difference: ${fromHalalas(totalDifference)} SAR)`;
     logger.error('Invoice total validation failed', {
       orderId: order.orderId,
       orderNumber: order.orderNumber,
       calculatedTotal,
       expectedTotal,
-      difference: totalDifference,
+      differenceHalalas: totalDifference,
       items,
     });
 

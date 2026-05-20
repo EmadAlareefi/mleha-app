@@ -1,8 +1,25 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import {
   CONDITION_LABELS,
@@ -620,38 +637,42 @@ export default function ReturnsManagementPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
+    <AppPageShell
+      title="إدارة طلبات الإرجاع والاستبدال"
+      subtitle={`إجمالي الطلبات: ${total}`}
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
         {/* Header */}
         <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">إدارة طلبات الإرجاع والاستبدال</h1>
-            <p className="text-gray-600">
+            <h1 className="text-2xl font-semibold tracking-tight">إدارة طلبات الإرجاع والاستبدال</h1>
+            <p className="text-muted-foreground">
               إجمالي الطلبات: {total}
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
-            <Link href="/returns-priority">
-              <Button className="bg-orange-600 hover:bg-orange-700 text-white">
+            <Button asChild className="bg-orange-600 text-white hover:bg-orange-700">
+              <Link href="/returns-priority">
                 ⚡ الطلبات عالية الأولوية
-              </Button>
-            </Link>
-            <Link href="/">
-              <Button variant="outline">← العودة للرئيسية</Button>
-            </Link>
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/">← العودة للرئيسية</Link>
+            </Button>
           </div>
         </div>
 
-        <Card className="p-6 mb-6 space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold mb-1">تدفق مبسط للطلبات</h2>
-            <p className="text-sm text-gray-600">
+        <Card>
+          <CardHeader>
+            <CardTitle>تدفق مبسط للطلبات</CardTitle>
+            <CardDescription>
               تحقق من الطلب، حدّد نوعه، ثم قم بإصدار الاسترداد أو إنشاء كوبون الاستبدال لإنهائه دون المرور بحالات متعددة.
-            </p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">بحث سريع</label>
-            <input
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+          <Field>
+            <FieldLabel>بحث سريع</FieldLabel>
+            <Input
               type="text"
               value={searchQuery}
               onChange={(e) => {
@@ -659,11 +680,10 @@ export default function ReturnsManagementPage() {
                 setPage(1);
               }}
               placeholder="رقم الطلب، اسم العميل، رقم التتبع..."
-              className="w-full px-4 py-2 border rounded-lg"
             />
-          </div>
+          </Field>
           <div>
-            <label className="block text-sm font-medium mb-2">تصفية حسب حالة الفحص</label>
+            <FieldLabel className="mb-2">تصفية حسب حالة الفحص</FieldLabel>
             <div className="flex flex-wrap gap-4">
               {[
                 { key: 'review' as const, label: 'تحت المراجعة' },
@@ -673,11 +693,9 @@ export default function ReturnsManagementPage() {
                   key={option.key}
                   className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
                 >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  <Checkbox
                     checked={inspectionFilters[option.key]}
-                    onChange={() => handleInspectionFilterChange(option.key)}
+                    onCheckedChange={() => handleInspectionFilterChange(option.key)}
                   />
                   <span>{option.label}</span>
                 </label>
@@ -685,18 +703,16 @@ export default function ReturnsManagementPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">تصفية حسب نوع الطلب</label>
+            <FieldLabel className="mb-2">تصفية حسب نوع الطلب</FieldLabel>
             <div className="flex flex-wrap gap-4">
               {TYPE_FILTER_OPTIONS.map((option) => (
                 <label
                   key={option.key}
                   className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
                 >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  <Checkbox
                     checked={typeFilters[option.key]}
-                    onChange={() => handleTypeFilterChange(option.key)}
+                    onCheckedChange={() => handleTypeFilterChange(option.key)}
                   />
                   <span>{option.label}</span>
                 </label>
@@ -704,43 +720,37 @@ export default function ReturnsManagementPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">تصفية حسب حالة الطلب</label>
+            <FieldLabel className="mb-2">تصفية حسب حالة الطلب</FieldLabel>
             <div className="flex flex-wrap gap-4">
               {STATUS_FILTER_OPTIONS.map((option) => (
                 <label
                   key={option.key}
                   className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
                 >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  <Checkbox
                     checked={statusFilters[option.key]}
-                    onChange={() => handleStatusFilterChange(option.key)}
+                    onCheckedChange={() => handleStatusFilterChange(option.key)}
                   />
                   <span>{option.label}</span>
                 </label>
               ))}
             </div>
           </div>
+          </CardContent>
         </Card>
 
         {/* Error */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* Loading */}
         {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
-            <p className="mt-4 text-gray-600">جاري التحميل...</p>
-          </div>
+          <LoadingState />
         ) : returnRequests.length === 0 ? (
-          <Card className="p-12 text-center">
-            <p className="text-gray-500 text-lg">لا توجد طلبات</p>
-          </Card>
+          <EmptyState title="لا توجد طلبات" />
         ) : (
           <>
             {/* Return Requests List */}
@@ -768,22 +778,22 @@ export default function ReturnsManagementPage() {
                       {/* Request Info */}
                       <div className="lg:col-span-2">
                         <div className="flex items-start gap-3 mb-3">
-                          <div
-                            className={`px-3 py-1 rounded-full text-sm font-medium border ${
+                          <Badge
+                            className={`${
                               request.type === 'return'
                                 ? 'bg-orange-100 text-orange-800 border-orange-300'
                                 : 'bg-blue-100 text-blue-800 border-blue-300'
                             }`}
                           >
                             {request.type === 'return' ? 'إرجاع' : 'استبدال'}
-                          </div>
-                          <div
-                            className={`px-3 py-1 rounded-full text-sm font-medium border ${
+                          </Badge>
+                          <Badge
+                            className={`${
                               STATUS_COLORS[request.status] || 'bg-gray-100 text-gray-800'
                             }`}
                           >
                             {STATUS_LABELS[request.status] || request.status}
-                          </div>
+                          </Badge>
                         </div>
 
                         <h3 className="font-semibold text-lg mb-2">
@@ -876,14 +886,14 @@ export default function ReturnsManagementPage() {
 
                         <div className="flex flex-wrap gap-2 mt-3">
                           {inspectionSummary.badges.map((badge, index) => (
-                            <span
+                            <Badge
                               key={`${request.id}-${badge.label}-${index}`}
-                              className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                              className={`${
                                 INSPECTION_BADGE_STYLES[badge.tone] || INSPECTION_BADGE_STYLES.muted
                               }`}
                             >
                               {badge.label}
-                            </span>
+                            </Badge>
                           ))}
                         </div>
 
@@ -937,17 +947,17 @@ export default function ReturnsManagementPage() {
                           <label className="block text-xs font-semibold text-gray-600 mb-1">
                             نوع المعالجة
                           </label>
-                          <select
+                          <NativeSelect
                             value={request.type}
                             onChange={(e) =>
                               updateRequestType(request.id, e.target.value as 'return' | 'exchange')
                             }
-                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                            className="w-full"
                             aria-label="نوع طلب الإرجاع"
                           >
                             <option value="return">استرداد مبلغ</option>
                             <option value="exchange">استبدال بكوبون</option>
-                          </select>
+                          </NativeSelect>
                         </div>
 
                         {request.status !== 'completed' ? (
@@ -1052,17 +1062,11 @@ export default function ReturnsManagementPage() {
 
         {/* Details Modal */}
         {selectedRequest && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
-              <div className="flex justify-between items-start mb-4">
-                <h2 className="text-2xl font-bold">تفاصيل الطلب #{selectedRequest.orderNumber}</h2>
-                <button
-                  onClick={() => setSelectedRequest(null)}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  ✕
-                </button>
-              </div>
+          <Dialog open={Boolean(selectedRequest)} onOpenChange={(open) => !open && setSelectedRequest(null)}>
+            <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>تفاصيل الطلب #{selectedRequest.orderNumber}</DialogTitle>
+              </DialogHeader>
 
               <div className="space-y-4">
                 <div>
@@ -1118,41 +1122,32 @@ export default function ReturnsManagementPage() {
                 )}
               </div>
 
-              <div className="mt-6 flex gap-3">
+              <DialogFooter className="mt-6">
                 <Button onClick={() => setSelectedRequest(null)} className="flex-1">
                   إغلاق
                 </Button>
-              </div>
-            </Card>
-          </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         )}
 
         {/* Pre-Inspection Notes Modal */}
         {noteEditor && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h2 className="text-xl font-semibold">ملاحظات للمفتش</h2>
-                  <p className="text-sm text-gray-500">طلب #{noteEditor.orderNumber}</p>
-                </div>
-                <button
-                  onClick={closePreInspectionNotes}
-                  className="text-gray-500 hover:text-gray-700"
-                  aria-label="إغلاق"
-                >
-                  ✕
-                </button>
-              </div>
+          <Dialog open={Boolean(noteEditor)} onOpenChange={(open) => !open && closePreInspectionNotes()}>
+            <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>ملاحظات للمفتش</DialogTitle>
+                <DialogDescription>طلب #{noteEditor.orderNumber}</DialogDescription>
+              </DialogHeader>
 
               <p className="text-sm text-gray-600 mb-4">
                 اكتب ملاحظات حول العيوب التي اكتشفها فريق خدمة العملاء ليطلع عليها فريق الفحص عند وصول الشحنة.
               </p>
 
               {noteEditor.error && (
-                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                  {noteEditor.error}
-                </div>
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{noteEditor.error}</AlertDescription>
+                </Alert>
               )}
 
               {noteEditor.items.length > 0 ? (
@@ -1172,9 +1167,8 @@ export default function ReturnsManagementPage() {
                           الكمية: x{item.quantity}
                         </div>
                       </div>
-                      <textarea
+                      <Textarea
                         rows={3}
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="اشرح ما لاحظه العميل أو فريق خدمة العملاء"
                         value={noteEditor.notes[item.id] ?? ''}
                         onChange={(e) => updatePreInspectionNote(item.id, e.target.value)}
@@ -1183,12 +1177,12 @@ export default function ReturnsManagementPage() {
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900">
-                  تم فحص جميع العناصر في هذا الطلب.
-                </div>
+                <Alert className="border-green-200 bg-green-50 text-green-900">
+                  <AlertDescription>تم فحص جميع العناصر في هذا الطلب.</AlertDescription>
+                </Alert>
               )}
 
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <DialogFooter className="mt-6">
                 <Button
                   type="button"
                   variant="outline"
@@ -1206,11 +1200,10 @@ export default function ReturnsManagementPage() {
                 >
                   {noteEditor.saving ? 'جاري الحفظ...' : 'حفظ الملاحظات'}
                 </Button>
-              </div>
-            </Card>
-          </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         )}
-      </div>
-    </div>
+    </AppPageShell>
   );
 }

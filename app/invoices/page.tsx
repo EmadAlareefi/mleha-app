@@ -1,10 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import {
   Table,
   TableBody,
@@ -13,7 +18,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Select } from '@/components/ui/select';
 
 interface Invoice {
   id: string;
@@ -62,7 +66,6 @@ export default function InvoicesPage() {
   // Filters
   const [erpSyncFilter, setErpSyncFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [searchTerm, setSearchTerm] = useState('');
 
   // Pagination
   const [pagination, setPagination] = useState<PaginationData>({
@@ -75,7 +78,7 @@ export default function InvoicesPage() {
   });
 
   // Fetch invoices
-  const fetchInvoices = async () => {
+  const fetchInvoices = useCallback(async () => {
     setLoading(true);
     setError('');
 
@@ -107,7 +110,7 @@ export default function InvoicesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [erpSyncFilter, pagination.limit, pagination.page, statusFilter]);
 
   // Sync invoice to ERP
   const handleSyncToERP = async (invoice: Invoice) => {
@@ -146,7 +149,7 @@ export default function InvoicesPage() {
   // Initial load and reload on filter/pagination changes
   useEffect(() => {
     fetchInvoices();
-  }, [pagination.page, erpSyncFilter, statusFilter]);
+  }, [fetchInvoices]);
 
   // Format currency
   const formatAmount = (amount: number | null, currency: string | null = 'SAR') => {
@@ -168,74 +171,63 @@ export default function InvoicesPage() {
   // Get sync status badge
   const getSyncStatusBadge = (invoice: Invoice) => {
     if (invoice.erpSyncedAt) {
-      return (
-        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-          تم المزامنة
-        </span>
-      );
+      return <Badge>تم المزامنة</Badge>;
     } else if (invoice.erpSyncError) {
       return (
-        <span
-          className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 cursor-help"
-          title={invoice.erpSyncError}
-        >
+        <Badge variant="destructive" title={invoice.erpSyncError} className="cursor-help">
           خطأ ({invoice.erpSyncAttempts})
-        </span>
+        </Badge>
       );
     } else {
-      return (
-        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
-          غير متزامن
-        </span>
-      );
+      return <Badge variant="secondary">غير متزامن</Badge>;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4">
-      <div className="max-w-7xl mx-auto">
+    <AppPageShell
+      title="الفواتير"
+      subtitle="إدارة ومزامنة فواتير سلة مع نظام ERP"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">الفواتير</h1>
-          <p className="text-gray-600">
+        <div>
+          <h1 className="mb-2 text-3xl font-bold">الفواتير</h1>
+          <p className="text-muted-foreground">
             إدارة ومزامنة فواتير سلة مع نظام ERP
           </p>
         </div>
 
         {/* Filters */}
-        <Card className="p-4 mb-6">
+        <Card className="p-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* ERP Sync Status Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                حالة المزامنة مع ERP
-              </label>
-              <Select
+            <Field className="gap-2">
+              <FieldLabel>حالة المزامنة مع ERP</FieldLabel>
+              <NativeSelect
                 value={erpSyncFilter}
                 onChange={(e) => setErpSyncFilter(e.target.value)}
               >
-                <option value="all">الكل</option>
-                <option value="true">تم المزامنة</option>
-                <option value="false">غير متزامن</option>
-              </Select>
-            </div>
+                <NativeSelectOption value="all">الكل</NativeSelectOption>
+                <NativeSelectOption value="true">تم المزامنة</NativeSelectOption>
+                <NativeSelectOption value="false">غير متزامن</NativeSelectOption>
+              </NativeSelect>
+            </Field>
 
             {/* Status Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                حالة الفاتورة
-              </label>
-              <Select
+            <Field className="gap-2">
+              <FieldLabel>حالة الفاتورة</FieldLabel>
+              <NativeSelect
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <option value="all">الكل</option>
-                <option value="issued">صادرة</option>
-                <option value="paid">مدفوعة</option>
-                <option value="unpaid">غير مدفوعة</option>
-                <option value="cancelled">ملغاة</option>
-              </Select>
-            </div>
+                <NativeSelectOption value="all">الكل</NativeSelectOption>
+                <NativeSelectOption value="issued">صادرة</NativeSelectOption>
+                <NativeSelectOption value="paid">مدفوعة</NativeSelectOption>
+                <NativeSelectOption value="unpaid">غير مدفوعة</NativeSelectOption>
+                <NativeSelectOption value="cancelled">ملغاة</NativeSelectOption>
+              </NativeSelect>
+            </Field>
 
             {/* Refresh Button */}
             <div className="flex items-end">
@@ -252,22 +244,17 @@ export default function InvoicesPage() {
 
         {/* Error Message */}
         {error && (
-          <Card className="p-4 mb-6 bg-red-50 border-red-200">
-            <p className="text-red-800">{error}</p>
-          </Card>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* Invoices Table */}
         <Card className="p-6">
           {loading && invoices.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-              <p className="mt-4 text-gray-600">جاري تحميل الفواتير...</p>
-            </div>
+            <LoadingState label="جاري تحميل الفواتير..." />
           ) : invoices.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-600">لا توجد فواتير</p>
-            </div>
+            <EmptyState title="لا توجد فواتير" />
           ) : (
             <>
               <div className="overflow-x-auto">
@@ -299,7 +286,7 @@ export default function InvoicesPage() {
                               {invoice.customerName || '-'}
                             </div>
                             {invoice.customerMobile && (
-                              <div className="text-sm text-gray-500">
+                              <div className="text-sm text-muted-foreground">
                                 {invoice.customerMobile}
                               </div>
                             )}
@@ -310,9 +297,9 @@ export default function InvoicesPage() {
                         </TableCell>
                         <TableCell>{formatDate(invoice.issueDate)}</TableCell>
                         <TableCell>
-                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                          <Badge variant="outline">
                             {invoice.paymentStatus || invoice.status || '-'}
-                          </span>
+                          </Badge>
                         </TableCell>
                         <TableCell>{getSyncStatusBadge(invoice)}</TableCell>
                         <TableCell>
@@ -328,11 +315,7 @@ export default function InvoicesPage() {
                               disabled={
                                 syncing[invoice.id] || !!invoice.erpSyncedAt
                               }
-                              className={
-                                invoice.erpSyncedAt
-                                  ? 'bg-gray-400 cursor-not-allowed'
-                                  : ''
-                              }
+                              variant={invoice.erpSyncedAt ? 'secondary' : 'default'}
                             >
                               {syncing[invoice.id]
                                 ? 'جاري المزامنة...'
@@ -350,7 +333,7 @@ export default function InvoicesPage() {
 
               {/* Pagination */}
               <div className="flex items-center justify-between mt-6 pt-6 border-t">
-                <div className="text-sm text-gray-700">
+                <div className="text-sm text-muted-foreground">
                   عرض {invoices.length} من أصل {pagination.totalCount} فاتورة
                   (صفحة {pagination.page} من {pagination.totalPages})
                 </div>
@@ -380,12 +363,12 @@ export default function InvoicesPage() {
         </Card>
 
         {/* Back to Home */}
-        <div className="mt-6 text-center">
+        <div className="text-center">
           <Link href="/">
             <Button variant="outline">العودة إلى الصفحة الرئيسية</Button>
           </Link>
         </div>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

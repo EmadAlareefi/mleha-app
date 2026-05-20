@@ -1,10 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import {
   Table,
   TableBody,
@@ -74,7 +78,6 @@ export default function DeliveryAgentWalletsPage() {
 
   useEffect(() => {
     fetchWallets();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchWallets = async () => {
@@ -194,66 +197,70 @@ export default function DeliveryAgentWalletsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-7xl mx-auto">
+    <AppPageShell title="محافظ المناديب" subtitle="متابعة رصيد الشحنات والمهمات المكتملة ودفعات الإدارة">
+      <div className="mx-auto w-full max-w-7xl">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">محافظ المناديب</h1>
-            <p className="text-slate-600">متابعة رصيد الشحنات والمهمات المكتملة ودفعات الإدارة</p>
-          </div>
           <Button onClick={fetchWallets} variant="outline" disabled={loading}>
             تحديث البيانات
           </Button>
         </div>
 
         {error && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
-            {error}
-          </div>
+          <Alert variant="destructive" className="mb-6">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {summary && (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-            <Card className="p-4">
-              <p className="text-sm text-slate-500">إجمالي المستحقات</p>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">إجمالي المستحقات</p>
               <p className="text-2xl font-semibold text-emerald-600">
                 {formatCurrency(summary.totalOutstanding)}
               </p>
-              <p className="text-xs text-slate-500 mt-1">يمثل ما يجب على الإدارة سداده</p>
+              <p className="text-xs text-muted-foreground mt-1">يمثل ما يجب على الإدارة سداده</p>
+              </CardContent>
             </Card>
-            <Card className="p-4">
-              <p className="text-sm text-slate-500">إجمالي ما تم سداده</p>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">إجمالي ما تم سداده</p>
               <p className="text-2xl font-semibold text-blue-600">
                 {formatCurrency(summary.totalPaidAmount)}
               </p>
-              <p className="text-xs text-slate-500 mt-1">عدد الدفعات: {summary.totalPayouts}</p>
+              <p className="text-xs text-muted-foreground mt-1">عدد الدفعات: {summary.totalPayouts}</p>
+              </CardContent>
             </Card>
-            <Card className="p-4">
-              <p className="text-sm text-slate-500">الشحنات المكتملة</p>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">الشحنات المكتملة</p>
               <p className="text-2xl font-semibold text-indigo-600">{summary.totalShipments}</p>
-              <p className="text-xs text-slate-500 mt-1">30 ريال لكل شحنة</p>
+              <p className="text-xs text-muted-foreground mt-1">30 ريال لكل شحنة</p>
+              </CardContent>
             </Card>
-            <Card className="p-4">
-              <p className="text-sm text-slate-500">المهام المكتملة</p>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">المهام المكتملة</p>
               <p className="text-2xl font-semibold text-purple-600">{summary.totalTasks}</p>
-              <p className="text-xs text-slate-500 mt-1">30 ريال لكل مهمة</p>
+              <p className="text-xs text-muted-foreground mt-1">30 ريال لكل مهمة</p>
+              </CardContent>
             </Card>
           </div>
         )}
 
         <div className="grid gap-6 lg:grid-cols-3 mb-8">
-          <Card className="p-6 lg:col-span-2">
-            <div className="flex items-center justify-between mb-4">
+          <Card className="rounded-lg lg:col-span-2">
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xl font-semibold text-slate-900">قائمة المحافظ</h2>
-                <p className="text-sm text-slate-500">رصيد كل مندوب مع تفاصيل الإنجاز والدفعات</p>
+                <CardTitle>قائمة المحافظ</CardTitle>
+                <CardDescription>رصيد كل مندوب مع تفاصيل الإنجاز والدفعات</CardDescription>
               </div>
-              <div className="text-right text-sm text-slate-500">
+              <div className="text-right text-sm text-muted-foreground">
                 <p>عدد المناديب: {wallets.length}</p>
                 <p>صافي التزامات الإدارة: {formatCurrency(totalPositiveBalances)}</p>
               </div>
-            </div>
-            <div className="overflow-x-auto">
+            </CardHeader>
+            <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -270,35 +277,35 @@ export default function DeliveryAgentWalletsPage() {
                   {wallets.map((wallet) => (
                     <TableRow key={wallet.agent.id}>
                       <TableCell>
-                        <div className="font-semibold text-slate-900">{wallet.agent.name}</div>
-                        <div className="text-xs text-slate-500">
+                        <div className="font-semibold">{wallet.agent.name}</div>
+                        <div className="text-xs text-muted-foreground">
                           {wallet.agent.username}
                           {wallet.agent.phone ? ` • ${wallet.agent.phone}` : ''}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-slate-900 font-medium">{wallet.stats.shipments.count}</div>
-                        <div className="text-xs text-slate-500">
+                        <div className="font-medium">{wallet.stats.shipments.count}</div>
+                        <div className="text-xs text-muted-foreground">
                           {formatCurrency(wallet.stats.shipments.total)}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-slate-900 font-medium">{wallet.stats.tasks.count}</div>
-                        <div className="text-xs text-slate-500">
+                        <div className="font-medium">{wallet.stats.tasks.count}</div>
+                        <div className="text-xs text-muted-foreground">
                           {formatCurrency(wallet.stats.tasks.total)}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-slate-900 font-medium">
+                        <div className="font-medium">
                           {formatCurrency(wallet.stats.totalEarned)}
                         </div>
-                        <div className="text-xs text-slate-500">شحنات + مهام</div>
+                        <div className="text-xs text-muted-foreground">شحنات + مهام</div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-slate-900 font-medium">
+                        <div className="font-medium">
                           {formatCurrency(wallet.stats.totalPaid)}
                         </div>
-                        <div className="text-xs text-slate-500">خصومات مسجلة</div>
+                        <div className="text-xs text-muted-foreground">خصومات مسجلة</div>
                       </TableCell>
                       <TableCell>
                         <span
@@ -323,49 +330,49 @@ export default function DeliveryAgentWalletsPage() {
                           {collectingAgentId === wallet.agent.id ? 'جاري التحصيل...' : 'تحصيل الرصيد'}
                         </Button>
                         {wallet.balance <= 0 && (
-                          <p className="text-xs text-slate-500 mt-1">لا يوجد رصيد موجب للتحصيل</p>
+                          <p className="text-xs text-muted-foreground mt-1">لا يوجد رصيد موجب للتحصيل</p>
                         )}
                       </TableCell>
                     </TableRow>
                   ))}
                   {!wallets.length && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-slate-500 py-6">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
                         لا توجد بيانات محافظ حتى الآن
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
-            </div>
+            </CardContent>
           </Card>
 
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold text-slate-900 mb-4">تسجيل دفعة لمندوب</h2>
-            <form className="space-y-4" onSubmit={handleRecordPayout}>
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-1 block">
-                  اختر المندوب
-                </label>
-                <Select
+          <Card className="rounded-lg">
+            <CardHeader>
+              <CardTitle>تسجيل دفعة لمندوب</CardTitle>
+            </CardHeader>
+            <CardContent>
+            <form onSubmit={handleRecordPayout}>
+              <FieldGroup>
+              <Field>
+                <FieldLabel>اختر المندوب</FieldLabel>
+                <NativeSelect
                   value={formState.deliveryAgentId}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, deliveryAgentId: event.target.value }))
                   }
                 >
-                  <option value="">اختر المندوب</option>
+                  <NativeSelectOption value="">اختر المندوب</NativeSelectOption>
                   {wallets.map((wallet) => (
-                    <option key={wallet.agent.id} value={wallet.agent.id}>
+                    <NativeSelectOption key={wallet.agent.id} value={wallet.agent.id}>
                       {wallet.agent.name} — رصيد {formatCurrency(wallet.balance)}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </Select>
-              </div>
+                </NativeSelect>
+              </Field>
 
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-1 block">
-                  المبلغ (ر.س)
-                </label>
+              <Field>
+                <FieldLabel>المبلغ (ر.س)</FieldLabel>
                 <Input
                   type="number"
                   min="1"
@@ -376,28 +383,24 @@ export default function DeliveryAgentWalletsPage() {
                   }
                   placeholder="30"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-1 block">
-                  طريقة الدفع
-                </label>
-                <Select
+              <Field>
+                <FieldLabel>طريقة الدفع</FieldLabel>
+                <NativeSelect
                   value={formState.paymentMethod}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, paymentMethod: event.target.value }))
                   }
                 >
-                  <option value="cash">نقداً</option>
-                  <option value="bank_transfer">تحويل بنكي</option>
-                  <option value="wallet">محفظة إلكترونية</option>
-                </Select>
-              </div>
+                  <NativeSelectOption value="cash">نقداً</NativeSelectOption>
+                  <NativeSelectOption value="bank_transfer">تحويل بنكي</NativeSelectOption>
+                  <NativeSelectOption value="wallet">محفظة إلكترونية</NativeSelectOption>
+                </NativeSelect>
+              </Field>
 
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-1 block">
-                  ملاحظات (اختياري)
-                </label>
+              <Field>
+                <FieldLabel>ملاحظات (اختياري)</FieldLabel>
                 <Input
                   type="text"
                   value={formState.notes}
@@ -406,22 +409,24 @@ export default function DeliveryAgentWalletsPage() {
                   }
                   placeholder="مثال: دفعة أسبوعية"
                 />
-              </div>
+              </Field>
 
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting ? 'جاري تسجيل الدفعة...' : 'تسجيل الدفعة وخصم الرصيد'}
               </Button>
-              <p className="text-xs text-slate-500 text-center">
+              <FieldDescription className="text-center">
                 يتم خصم الدفعات من رصيد المندوب وتظهر مباشرة في التقرير أعلاه
-              </p>
+              </FieldDescription>
+              </FieldGroup>
             </form>
+            </CardContent>
           </Card>
         </div>
 
         {loading && (
-          <div className="text-center text-slate-500">جاري تحميل بيانات المحافظ...</div>
+          <LoadingState label="جاري تحميل بيانات المحافظ..." />
         )}
       </div>
-    </div>
+    </AppPageShell>
   );
 }

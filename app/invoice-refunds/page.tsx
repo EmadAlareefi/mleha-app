@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -370,78 +373,67 @@ export default function InvoiceRefundsPage() {
     setBulkProgress(null);
   };
 
-  const getStatusBadgeClasses = (statusValue: InvoiceRefundRow['status']) => {
+  const getStatusBadgeVariant = (statusValue: InvoiceRefundRow['status']) => {
     switch (statusValue) {
       case 'ready':
-        return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+        return 'secondary';
       case 'refunded':
-        return 'border-sky-200 bg-sky-50 text-sky-700';
+        return 'default';
       case 'conflict':
-        return 'border-rose-200 bg-rose-50 text-rose-700';
+        return 'destructive';
       default:
-        return 'border-amber-200 bg-amber-50 text-amber-700';
+        return 'outline';
     }
   };
 
   if (status === 'loading' || (status === 'authenticated' && loading && !workbookData)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50">
-        <AppNavbar title="مرتجعات الفواتير" subtitle="جاري تحميل بيانات الملف" />
-        <main className="mx-auto flex min-h-[50vh] max-w-7xl items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-            <LoaderCircle className="h-5 w-5 animate-spin text-emerald-600" />
-            <span className="text-sm text-slate-600">جاري تحميل الملف...</span>
-          </div>
-        </main>
-      </div>
+      <AppPageShell title="مرتجعات الفواتير" subtitle="جاري تحميل بيانات الملف">
+        <LoadingState label="جاري تحميل الملف..." />
+      </AppPageShell>
     );
   }
 
   if (status === 'authenticated' && !hasAccess) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50">
-        <AppNavbar title="مرتجعات الفواتير" subtitle="لا تملك صلاحية الوصول لهذه الصفحة" />
-        <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <Card className="rounded-3xl border border-rose-100 bg-white p-8 text-center shadow-sm">
+      <AppPageShell title="مرتجعات الفواتير" subtitle="لا تملك صلاحية الوصول لهذه الصفحة">
+          <Card className="border-destructive/20 p-8 text-center shadow-sm">
             <AlertCircle className="mx-auto mb-4 h-10 w-10 text-rose-500" />
             <h2 className="text-2xl font-bold text-slate-900">لا تملك صلاحية الوصول</h2>
             <p className="mt-3 text-sm text-slate-600">
               هذه الصفحة متاحة فقط للحسابات المخولة بخدمة مرتجعات الفواتير.
             </p>
           </Card>
-        </main>
-      </div>
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50">
-      <AppNavbar
-        title="مرتجعات الفواتير"
-        subtitle="إنشاء مرتجع ERP مستقل لكل صف داخل invoices.xlsx وحفظ رقم المرتجع في نفس الصف"
-      />
-
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <AppPageShell
+      title="مرتجعات الفواتير"
+      subtitle="إنشاء مرتجع ERP مستقل لكل صف داخل invoices.xlsx وحفظ رقم المرتجع في نفس الصف"
+    >
+      <div className="space-y-6">
         <section className="grid gap-4 md:grid-cols-4">
-          <Card className="rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-sm">
+          <Card className="p-5">
             <p className="text-sm text-slate-500">إجمالي الصفوف</p>
             <p className="mt-2 text-3xl font-bold text-slate-900">{summary.total}</p>
           </Card>
-          <Card className="rounded-3xl border border-emerald-100 bg-white/95 p-5 shadow-sm">
+          <Card className="p-5">
             <p className="text-sm text-slate-500">جاهزة للاسترداد</p>
             <p className="mt-2 text-3xl font-bold text-emerald-700">{summary.ready}</p>
           </Card>
-          <Card className="rounded-3xl border border-sky-100 bg-white/95 p-5 shadow-sm">
+          <Card className="p-5">
             <p className="text-sm text-slate-500">تم تسجيل المرتجع</p>
             <p className="mt-2 text-3xl font-bold text-sky-700">{summary.refunded}</p>
           </Card>
-          <Card className="rounded-3xl border border-amber-100 bg-white/95 p-5 shadow-sm">
+          <Card className="p-5">
             <p className="text-sm text-slate-500">تحتاج مراجعة</p>
             <p className="mt-2 text-3xl font-bold text-amber-700">{summary.review}</p>
           </Card>
         </section>
 
-        <Card className="mt-6 rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-sm">
+        <Card className="p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-slate-900">
@@ -498,7 +490,8 @@ export default function InvoiceRefundsPage() {
           </div>
 
           {bulkProgress && (
-            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            <Alert className="mt-4">
+              <AlertDescription>
               <p>
                 تقدم التنفيذ: {bulkProgress.processed} / {bulkProgress.total}
               </p>
@@ -508,28 +501,19 @@ export default function InvoiceRefundsPage() {
               <p>
                 الصف الحالي: {bulkProgress.currentRowNumber ?? 'اكتمل التنفيذ'}
               </p>
-            </div>
+              </AlertDescription>
+            </Alert>
           )}
 
           {feedback && (
-            <div
-              className={`mt-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${
-                feedback.type === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-rose-200 bg-rose-50 text-rose-700'
-              }`}
-            >
-              {feedback.type === 'success' ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              ) : (
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              )}
-              <span>{feedback.text}</span>
-            </div>
+            <Alert variant={feedback.type === 'error' ? 'destructive' : 'default'} className="mt-4">
+              {feedback.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+              <AlertDescription>{feedback.text}</AlertDescription>
+            </Alert>
           )}
         </Card>
 
-        <Card className="mt-6 rounded-3xl border border-slate-200 bg-white/95 p-0 shadow-sm">
+        <Card className="overflow-x-auto p-0 shadow-sm">
           <Table className="min-w-[1500px]">
             <TableHeader>
               <TableRow className="bg-slate-50/80">
@@ -550,7 +534,7 @@ export default function InvoiceRefundsPage() {
                     colSpan={(workbookData?.headers.length || 0) + 5}
                     className="py-10 text-center text-slate-500"
                   >
-                    لا توجد صفوف مطابقة لنتيجة البحث.
+                    <EmptyState title="لا توجد صفوف مطابقة لنتيجة البحث." />
                   </TableCell>
                 </TableRow>
               )}
@@ -588,13 +572,9 @@ export default function InvoiceRefundsPage() {
                   </TableCell>
 
                   <TableCell>
-                    <div
-                      className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${getStatusBadgeClasses(
-                        row.status
-                      )}`}
-                    >
+                    <Badge variant={getStatusBadgeVariant(row.status)}>
                       {row.statusLabel}
-                    </div>
+                    </Badge>
                     {row.statusMessage && (
                       <p className="mt-2 max-w-[240px] text-xs leading-5 text-slate-500">
                         {row.statusMessage}
@@ -627,7 +607,7 @@ export default function InvoiceRefundsPage() {
             </TableBody>
           </Table>
         </Card>
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

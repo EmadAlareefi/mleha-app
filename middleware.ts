@@ -16,6 +16,7 @@ const PUBLIC_PATHS = [
   '/api/salla/sync-invoices',
   '/salla/webhook',
   '/logo.png',
+  '/manifest.webmanifest',
   '/cv.pdf',
   '/trademark.pdf',
 ];
@@ -119,9 +120,35 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['user-recognition', [/^\/user-recognition(\/.*)?$/]],
   ['my-recognition', [/^\/my-recognition(\/.*)?$/]],
   ['warehouse-management', [/^\/warehouse-management(\/.*)?$/]],
-  ['order-reports', [/^\/order-reports(\/.*)?$/]],
+  [
+    'order-reports',
+    [
+      /^\/order-reports(\/.*)?$/,
+      /^\/erp-sync(\/.*)?$/,
+      /^\/invoices-and-refund-invoices(\/.*)?$/,
+      /^\/api\/invoices-and-refund-invoices(\/.*)?$/,
+    ],
+  ],
   ['settlements', [/^\/settlements(\/.*)?$/]],
   ['invoices', [/^\/invoices(\/.*)?$/]],
+  [
+    'invoice-refunds',
+    [
+      /^\/invoice-refunds(\/.*)?$/,
+      /^\/erp-sync(\/.*)?$/,
+      /^\/invoices-and-refund-invoices(\/.*)?$/,
+      /^\/api\/invoice-refunds(\/.*)?$/,
+      /^\/api\/invoices-and-refund-invoices(\/.*)?$/,
+    ],
+  ],
+  [
+    'invoices-and-refund-invoices',
+    [
+      /^\/erp-sync(\/.*)?$/,
+      /^\/invoices-and-refund-invoices(\/.*)?$/,
+      /^\/api\/invoices-and-refund-invoices(\/.*)?$/,
+    ],
+  ],
   ['expenses', [/^\/expenses(\/.*)?$/]],
 ]);
 
@@ -226,8 +253,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - logo.png, cv.pdf, trademark.pdf (public branding assets)
+     * - logo.png, manifest.webmanifest, cv.pdf, trademark.pdf (public branding assets)
      */
-    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|cv.pdf|trademark.pdf).*)',
+    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|manifest.webmanifest|cv.pdf|trademark.pdf).*)',
   ],
 };

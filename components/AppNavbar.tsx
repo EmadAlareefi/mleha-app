@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import {
   ChevronDown,
   ChevronUp,
@@ -157,19 +160,17 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
   const mobileSummaryClasses = collapseOnMobile ? 'border-b border-slate-100 sm:hidden' : 'hidden';
 
   return (
-    <header className="sticky top-0 z-50 bg-gradient-to-b from-slate-900/80 via-slate-900/40 to-white/50 pb-4 pt-2 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl border border-white/40 bg-white/80 shadow-xl shadow-indigo-100/40 backdrop-blur">
+        <div className="bg-background">
           {collapseOnMobile && (
             <div className={`${mobileSummaryClasses} flex items-center justify-between gap-4 px-4 py-3`}>
               <div className="flex flex-1 items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-blue-500 text-lg font-semibold text-white shadow-lg shadow-indigo-500/30">
-                  {initials || 'م'}
-                </div>
+                <Avatar size="lg">
+                  <AvatarFallback>{initials || 'م'}</AvatarFallback>
+                </Avatar>
                 <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-                    لوحة التحكم
-                  </p>
+                  <Badge variant="outline" className="mb-1">لوحة التحكم</Badge>
                   <p className="text-base font-semibold text-slate-900">{heading}</p>
                   <p className="text-xs text-slate-500">{subheading}</p>
                 </div>
@@ -179,7 +180,7 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
                 variant="ghost"
                 size="sm"
                 onClick={toggleMobileNav}
-                className="shrink-0 rounded-2xl border border-slate-200 bg-white text-slate-600 hover:text-slate-900"
+                className="shrink-0"
                 aria-expanded={isMobileNavOpen}
                 aria-controls={sectionId}
               >
@@ -197,11 +198,11 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
             className={`${topSectionVisibilityClasses} flex-wrap items-center justify-between gap-6 ${topSectionPaddingClasses}`}
           >
             <div className="flex flex-1 items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-blue-500 text-xl font-semibold text-white shadow-lg shadow-indigo-500/30">
-                {initials || 'م'}
-              </div>
+              <Avatar size="lg">
+                <AvatarFallback>{initials || 'م'}</AvatarFallback>
+              </Avatar>
               <div className="min-w-0">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
                   <span>مركز التحكم</span>
                 </div>
@@ -232,11 +233,7 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
                     <Button
                       variant="ghost"
                       size={link.iconOnly ? 'icon' : 'sm'}
-                      className={
-                        link.iconOnly
-                          ? 'rounded-2xl border border-indigo-100 bg-indigo-50/60 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700'
-                          : 'rounded-2xl px-5 text-sm font-semibold text-slate-600 hover:text-slate-900'
-                      }
+                      className={link.iconOnly ? 'border' : 'px-5 text-sm font-semibold'}
                       title={link.label}
                       aria-label={link.label}
                     >
@@ -249,7 +246,7 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
               <Button
                 variant="ghost"
                 onClick={() => signOut({ callbackUrl: '/login' })}
-                className="rounded-2xl border border-rose-100 bg-gradient-to-r from-rose-50 to-rose-100 text-rose-600 hover:from-rose-100 hover:to-rose-200"
+                className="border text-destructive hover:text-destructive"
               >
                 <LogOut className="h-4 w-4" />
                 <span className="hidden sm:inline">تسجيل الخروج</span>
@@ -257,16 +254,17 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
             </div>
           </div>
 
-          <div
-            className={`${metaSectionVisibilityClasses} gap-3 border-t border-slate-100 ${metaSectionPaddingClasses}`}
-          >
+          <Separator />
+          <div className={`${metaSectionVisibilityClasses} gap-3 ${metaSectionPaddingClasses}`}>
             {metaPills.map((pill) => (
               <div
                 key={pill.label}
-                className="flex min-w-[160px] flex-1 items-center justify-between rounded-2xl border border-slate-100 bg-white/80 px-4 py-2 text-xs text-slate-500"
+                className="flex min-w-[160px] flex-1 items-center justify-between gap-3 rounded-lg border bg-card px-4 py-2 text-xs text-muted-foreground"
               >
-                <span className="font-semibold text-slate-400">{pill.label}</span>
-                <span className="truncate text-slate-900">{pill.value}</span>
+                <span className="font-semibold">{pill.label}</span>
+                <Badge variant="secondary" className="max-w-[180px] truncate">
+                  {pill.value}
+                </Badge>
               </div>
             ))}
           </div>

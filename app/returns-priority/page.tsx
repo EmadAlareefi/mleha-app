@@ -2,11 +2,16 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { RefreshCcw, ShieldCheck, Search } from 'lucide-react';
-import AppNavbar from '@/components/AppNavbar';
+import { RefreshCcw, ShieldCheck, Search, Zap } from 'lucide-react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 interface HighPriorityOrder {
   id: string;
@@ -34,7 +39,7 @@ const workflowHighlights = [
   {
     title: 'زر تحديث الطلبات',
     description: 'عند الضغط على زر التحديث يتم تنظيف الطلبات القديمة وجلب الأقدم مباشرة من سلة ثم تعيين الأولوية أولاً.',
-    badge: '🔄 تحديث',
+    badge: 'تحديث',
   },
   {
     title: 'أولوية الطابور',
@@ -44,7 +49,7 @@ const workflowHighlights = [
   {
     title: 'لوحة الفحص',
     description: 'زر فحص في لوحة التحضير يعرض سبب عدم ظهور الطلب ويؤكد وصول طلبات الأولوية.',
-    badge: '🔍 فحص',
+    badge: 'فحص',
   },
 ];
 
@@ -226,37 +231,30 @@ export default function HighPriorityOrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar
-        title="الطلبات عالية الأولوية"
-        subtitle="طابور خاص يضمن أن أقدم طلبات العملاء الحساسة تظهر أولاً في لوحة التحضير الجديدة"
-      />
-
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <AppPageShell
+      title="الطلبات عالية الأولوية"
+      subtitle="طابور خاص يضمن أن أقدم طلبات العملاء الحساسة تظهر أولاً في لوحة التحضير الجديدة"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         {message && (
-          <div
-            className={`p-4 rounded border text-sm ${
-              message.type === 'success'
-                ? 'bg-green-50 border-green-200 text-green-700'
-                : 'bg-red-50 border-red-200 text-red-700'
-            }`}
-          >
-            {message.text}
-          </div>
+          <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+            <AlertDescription>{message.text}</AlertDescription>
+          </Alert>
         )}
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card className="p-5">
-            <div className="text-sm text-gray-500">إجمالي الطلبات المميزة</div>
-            <div className="mt-2 text-3xl font-bold text-gray-900">{stats.total}</div>
-            <p className="mt-2 text-xs text-gray-500">
+            <div className="text-sm text-muted-foreground">إجمالي الطلبات المميزة</div>
+            <div className="mt-2 text-3xl font-bold">{stats.total}</div>
+            <p className="mt-2 text-xs text-muted-foreground">
               آخر إضافة: {formatDateTime(stats.newestAt)}
             </p>
           </Card>
           <Card className="p-5">
             <div className="text-sm text-amber-600">بانتظار التعيين</div>
             <div className="mt-2 text-3xl font-bold text-amber-600">{stats.queueCount}</div>
-            <p className="mt-2 text-xs text-gray-500">
+            <p className="mt-2 text-xs text-muted-foreground">
               سيتم دفع هذه الطلبات تلقائياً عند تشغيل التحديث التلقائي أو زر التحديث اليدوي.
             </p>
           </Card>
@@ -264,21 +262,21 @@ export default function HighPriorityOrdersPage() {
             <div className="text-sm text-blue-600">مع فريق التحضير</div>
             <div className="mt-2 flex items-baseline gap-2 text-3xl font-bold text-blue-700">
               {stats.assignedCount}
-              <span className="text-xs font-normal text-gray-500">
+              <span className="text-xs font-normal text-muted-foreground">
                 {stats.assignedCount > 0 ? 'قيد المتابعة' : 'لا يوجد حالياً'}
               </span>
             </div>
-            <p className="mt-2 text-xs text-gray-500">
+            <p className="mt-2 text-xs text-muted-foreground">
               تتم مراقبة حالة هذه الطلبات بما يتماشى مع منطق التحضير الجديد.
             </p>
           </Card>
           <Card className="p-5 flex flex-col justify-between">
             <div>
-              <div className="text-sm text-gray-500">آخر مزامنة مع لوحة التحضير</div>
-              <div className="mt-2 text-lg font-semibold text-gray-900">
+              <div className="text-sm text-muted-foreground">آخر مزامنة مع لوحة التحضير</div>
+              <div className="mt-2 text-lg font-semibold">
                 {formatDateTime(lastRefreshAt)}
               </div>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-muted-foreground">
                 يشمل تنظيف الطلبات المتغيرة والتحقق من توفر طلبات سلة مباشرة.
               </p>
             </div>
@@ -298,7 +296,7 @@ export default function HighPriorityOrdersPage() {
         <Card className="p-6 space-y-6">
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-bold">كيف تتكامل مع منطق التحضير الجديد؟</h2>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-muted-foreground">
               تم تحديث لوحة التحضير لتحاور واجهة سلة مباشرةً، وتعمل تلقائياً كل 30 ثانية عندما لا يملك
               المستخدم طلباً نشطاً. أي طلب مضاف هنا يتصدر الطابور في كل من التحديث التلقائي وزر
               &quot;تحديث الطلبات&quot;، مما يضمن أن عملاء VIP يتم التعامل معهم أولاً.
@@ -308,86 +306,76 @@ export default function HighPriorityOrdersPage() {
             {workflowHighlights.map((item) => (
               <div
                 key={item.title}
-                className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+                className="rounded-lg border bg-card p-4"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-base font-bold text-gray-900">{item.title}</span>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-                    {item.badge}
-                  </span>
+                  <span className="text-base font-bold">{item.title}</span>
+                  <Badge variant="secondary">{item.badge}</Badge>
                 </div>
-                <p className="mt-2 text-sm text-gray-600">{item.description}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{item.description}</p>
               </div>
             ))}
           </div>
-          <div className="flex flex-wrap gap-3 text-sm text-gray-600">
-            <span className="inline-flex items-center gap-2 rounded-full bg-green-50 px-4 py-1 text-green-700">
+          <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+            <Badge variant="outline" className="gap-2">
               <ShieldCheck className="h-4 w-4" />
               يتم فحص حالة الطلب لحظياً من سلة
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1 text-blue-700">
+            </Badge>
+            <Badge variant="outline" className="gap-2">
               <RefreshCcw className="h-4 w-4" />
               أولوية الطابور تنعكس في زر &quot;تحديث الطلبات&quot;
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-4 py-1 text-amber-700">
-              ⚡ جاهز للترتيب حسب الأقدمية
-            </span>
+            </Badge>
+            <Badge variant="outline" className="gap-2">
+              <Zap className="h-4 w-4" />
+              جاهز للترتيب حسب الأقدمية
+            </Badge>
           </div>
         </Card>
 
         <Card className="p-6">
           <h2 className="text-2xl font-bold mb-4">إضافة طلب عالي الأولوية</h2>
-          <p className="text-sm text-gray-600 mb-6">
+          <p className="text-sm text-muted-foreground mb-6">
             بمجرد حفظ الطلب سيتم إدراجه في الطابور الخاص وسيظهر أولاً لمستخدمي التحضير سواء عبر التحديث
             التلقائي أو زر التحديث اليدوي.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2" htmlFor="orderNumber">
-                رقم الطلب
-              </label>
-              <input
+            <Field className="gap-2">
+              <FieldLabel htmlFor="orderNumber">رقم الطلب</FieldLabel>
+              <Input
                 id="orderNumber"
                 type="text"
                 value={formState.orderNumber}
                 onChange={(e) => setFormState((prev) => ({ ...prev, orderNumber: e.target.value }))}
-                className="w-full rounded border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="مثال: 123456"
                 required
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium mb-2" htmlFor="reason">
-                سبب الأهمية
-              </label>
-              <input
+            <Field className="gap-2">
+              <FieldLabel htmlFor="reason">سبب الأهمية</FieldLabel>
+              <Input
                 id="reason"
                 type="text"
                 value={formState.reason}
                 onChange={(e) => setFormState((prev) => ({ ...prev, reason: e.target.value }))}
-                className="w-full rounded border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="مثال: عميل VIP بحاجة للطلب اليوم"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium mb-2" htmlFor="notes">
-                ملاحظات داخلية (اختياري)
-              </label>
-              <textarea
+            <Field className="gap-2">
+              <FieldLabel htmlFor="notes">ملاحظات داخلية</FieldLabel>
+              <Textarea
                 id="notes"
                 value={formState.notes}
                 onChange={(e) => setFormState((prev) => ({ ...prev, notes: e.target.value }))}
-                className="w-full rounded border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={3}
                 placeholder="تفاصيل إضافية لفريق التحضير..."
               />
-            </div>
+            </Field>
 
             <div className="flex items-center justify-between">
-              <Button type="submit" disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+              <Button type="submit" disabled={submitting}>
                 {submitting ? 'جاري المعالجة...' : 'حفظ كأولوية قصوى'}
               </Button>
               <Button type="button" variant="outline" onClick={loadOrders} disabled={loading}>
@@ -401,18 +389,18 @@ export default function HighPriorityOrdersPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="space-y-2">
               <h2 className="text-2xl font-bold">طابور الطلبات عالية الأولوية</h2>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 يتم ترتيب هذه الطلبات أولاً عند تشغيل التحديث التلقائي (كل 30 ثانية) أو الضغط على زر
                 &quot;تحديث الطلبات&quot; داخل لوحة التحضير. بمجرد تعيين الطلب، يظهر للمستخدم مع شارة توضح
                 سبب الأهمية.
               </p>
               <div className="flex flex-wrap gap-2 text-xs">
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+                <Badge variant="outline">
                   الطلبات غير المعينة = جاهزة للتعيين فوراً
-                </span>
-                <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">
+                </Badge>
+                <Badge variant="outline">
                   الطلبات المعينة = قيد التحضير أو الشحن
-                </span>
+                </Badge>
               </div>
             </div>
             <div className="w-full max-w-md space-y-2">
@@ -428,7 +416,7 @@ export default function HighPriorityOrdersPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pr-10"
                 />
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               </div>
               <div className="flex gap-2">
                 {[
@@ -451,16 +439,13 @@ export default function HighPriorityOrdersPage() {
           </div>
 
           {loading ? (
-            <p className="text-gray-500 text-center py-8">جاري تحميل الطلبات...</p>
+            <LoadingState label="جاري تحميل الطلبات..." />
           ) : displayedOrders.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">لا توجد طلبات محددة كعالية الأولوية حالياً.</p>
+            <EmptyState title="لا توجد طلبات عالية الأولوية حالياً" />
           ) : (
             <div className="mt-6 space-y-4">
               {displayedOrders.map((order) => {
                 const isAssigned = Boolean(order.assignment);
-                const queueBadgeClasses = isAssigned
-                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                  : 'bg-amber-50 text-amber-700 border border-amber-200';
                 const assignmentState = order.assignment?.status
                   ? assignmentStatusLabel[order.assignment.status] || 'معين'
                   : 'جاهز للتعيين';
@@ -468,53 +453,53 @@ export default function HighPriorityOrdersPage() {
                 return (
                   <div
                     key={order.id}
-                    className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+                    className="rounded-lg border bg-card p-5"
                   >
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <div className="text-sm text-gray-500">رقم الطلب</div>
-                        <div className="text-2xl font-bold text-gray-900">
+                        <div className="text-sm text-muted-foreground">رقم الطلب</div>
+                        <div className="text-2xl font-bold">
                           #{order.orderNumber || order.orderId}
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted-foreground">
                           تمت الإضافة في {formatDateTime(order.createdAt)}
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs font-medium">
-                        <span className={`rounded-full px-3 py-1 ${queueBadgeClasses}`}>
+                        <Badge variant={isAssigned ? 'default' : 'secondary'}>
                           {assignmentState}
-                        </span>
+                        </Badge>
                         {order.reason && (
-                          <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-700">
+                          <Badge variant="outline">
                             {order.reason}
-                          </span>
+                          </Badge>
                         )}
                       </div>
                     </div>
                     <div className="mt-4 grid gap-4 md:grid-cols-3">
                       <div>
-                        <p className="text-xs text-gray-500">العميل</p>
-                        <p className="text-sm font-medium text-gray-900">
+                        <p className="text-xs text-muted-foreground">العميل</p>
+                        <p className="text-sm font-medium">
                           {order.customerName || 'غير متوفر'}
                         </p>
                         {order.createdByName && (
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             أضيف بواسطة: {order.createdByName}
                           </p>
                         )}
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">ملاحظات داخلية</p>
-                        <p className="text-sm text-gray-700">{order.notes || '—'}</p>
+                        <p className="text-xs text-muted-foreground">ملاحظات داخلية</p>
+                        <p className="text-sm">{order.notes || '—'}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">حالة التعيين</p>
+                        <p className="text-xs text-muted-foreground">حالة التعيين</p>
                         {isAssigned ? (
-                          <div className="text-sm text-gray-900">
+                          <div className="text-sm">
                             <p className="font-semibold text-blue-700">
                               {order.assignment?.userName}
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                               {assignmentState} منذ{' '}
                               {formatDateTime(order.assignment?.assignedAt)}
                             </p>
@@ -526,16 +511,15 @@ export default function HighPriorityOrdersPage() {
                         )}
                       </div>
                     </div>
-                    <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 text-sm text-gray-500 md:flex-row md:items-center md:justify-between">
+                    <div className="mt-4 flex flex-col gap-3 border-t pt-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
                       <div>
                         يظهر هذا الطلب أعلى الطابور عند{' '}
-                        <span className="font-semibold text-gray-900">التحديث القادم</span>.
+                        <span className="font-semibold text-foreground">التحديث القادم</span>.
                       </div>
                       <Button
-                        variant="outline"
+                        variant="destructive"
                         onClick={() => handleRemove(order.id)}
                         disabled={removingId === order.id}
-                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
                       >
                         {removingId === order.id ? 'جاري الإزالة...' : 'إزالة من الطابور'}
                       </Button>
@@ -547,6 +531,6 @@ export default function HighPriorityOrdersPage() {
           )}
         </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

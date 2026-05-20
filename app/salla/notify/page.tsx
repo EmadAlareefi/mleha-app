@@ -3,12 +3,16 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { BellRing, CheckCircle2, Loader2, MessageCircle, PackageSearch, Search } from 'lucide-react';
-import AppNavbar from '@/components/AppNavbar';
+import { BellRing, CheckCircle2, Loader2, MessageCircle, Search } from 'lucide-react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   SallaPaginationMeta,
@@ -844,9 +848,9 @@ export default function SallaNotifyPage() {
 
   if (status === 'loading') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-      </div>
+      <AppPageShell title="ابلغني عند التوفر" subtitle="إدارة طلبات إشعار العملاء عند توفر المنتجات">
+        <LoadingState label="جاري تحميل الجلسة..." />
+      </AppPageShell>
     );
   }
 
@@ -870,19 +874,18 @@ export default function SallaNotifyPage() {
     filteredAllRequests.every((request) => selectedRequestIds.has(request.id));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50">
-      <AppNavbar />
-      <main className="mx-auto max-w-6xl space-y-8 px-4 py-10 sm:px-6 lg:px-8">
-        <section className="rounded-3xl border border-slate-100 bg-white/95 shadow-xl shadow-slate-200/60">
-          <Card className="border-none bg-transparent shadow-none">
+    <AppPageShell
+      title="ابلغني عند التوفر"
+      subtitle="دوّن طلبات العملاء للتواصل معهم فور توفر المقاس المطلوب"
+    >
+      <div className="space-y-8">
+        <section>
+          <Card>
             <CardHeader className="space-y-6">
               <div className="flex flex-col gap-4 text-slate-900 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-indigo-500">
-                    سلة — الفريق التجاري
-                  </p>
                   <h1 className="mt-2 flex items-center gap-3 text-3xl font-semibold">
-                    <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-100">
+                    <span className="inline-flex h-12 w-12 items-center justify-center rounded-md bg-muted">
                       <BellRing className="h-6 w-6 text-indigo-600" />
                     </span>
                     ابلغني عند التوفر
@@ -988,30 +991,27 @@ export default function SallaNotifyPage() {
                   >
                     فلترة طلبات “أبلغني”
                   </label>
-                  <Select
+                  <NativeSelect
                     id="request-status-filter"
                     value={requestStatusFilter}
                     onChange={(event) =>
                       setRequestStatusFilter(event.target.value as AvailabilityStatusFilter)
                     }
-                    className="h-12 rounded-2xl border-slate-200 bg-white/80 text-sm"
                   >
-                    <option value="all">جميع الحالات</option>
-                    <option value="pending">بانتظار التوفر</option>
-                    <option value="notified">تم إشعار العميل</option>
-                    <option value="cancelled">ملغي</option>
-                  </Select>
+                    <NativeSelectOption value="all">جميع الحالات</NativeSelectOption>
+                    <NativeSelectOption value="pending">بانتظار التوفر</NativeSelectOption>
+                    <NativeSelectOption value="notified">تم إشعار العميل</NativeSelectOption>
+                    <NativeSelectOption value="cancelled">ملغي</NativeSelectOption>
+                  </NativeSelect>
                   <p className="mt-1 text-xs text-slate-500">
                     اختر الحالة التي ترغب في متابعتها مع العملاء.
                   </p>
                 </div>
                 {activeTab === 'products' && (
                   <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-600">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    <Checkbox
                       checked={showOnlyWithRequests}
-                      onChange={(event) => setShowOnlyWithRequests(event.target.checked)}
+                      onCheckedChange={(checked) => setShowOnlyWithRequests(checked === true)}
                     />
                     عرض المنتجات التي تحتوي على طلبات مطابقة فقط
                   </label>
@@ -1063,18 +1063,17 @@ export default function SallaNotifyPage() {
                       <label className="text-xs font-semibold text-slate-600" htmlFor="availability-filter">
                         التوفر في المخزون
                       </label>
-                      <Select
+                      <NativeSelect
                         id="availability-filter"
                         value={subscriberAvailabilityFilter}
                         onChange={(event) =>
                           setSubscriberAvailabilityFilter(event.target.value as SubscriberAvailabilityFilter)
                         }
-                        className="mt-1 h-11 rounded-xl border-slate-200 bg-white/90 text-sm"
                       >
-                        <option value="all">جميع المشتركين</option>
-                        <option value="available">متوفر فقط</option>
-                        <option value="unavailable">غير متوفر</option>
-                      </Select>
+                        <NativeSelectOption value="all">جميع المشتركين</NativeSelectOption>
+                        <NativeSelectOption value="available">متوفر فقط</NativeSelectOption>
+                        <NativeSelectOption value="unavailable">غير متوفر</NativeSelectOption>
+                      </NativeSelect>
                       <p className="mt-1 text-xs text-slate-500">
                         {subscriberStockLoading
                           ? 'جارٍ التحقق من توفر المنتجات...'
@@ -1091,25 +1090,24 @@ export default function SallaNotifyPage() {
         {activeTab === 'products' ? (
           <section className="space-y-4">
             {loading && (
-              <div className="flex flex-col items-center gap-3 rounded-3xl border border-slate-100 bg-white/80 p-6 text-slate-600">
-                <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
-                <p>جاري تحميل المنتجات من سلة...</p>
-              </div>
+              <Card>
+                <CardContent className="p-6">
+                  <LoadingState label="جاري تحميل المنتجات من سلة..." />
+                </CardContent>
+              </Card>
             )}
             {!loading && products.length === 0 && (
               <Card className="border-slate-100 shadow-none">
-                <CardContent className="flex flex-col items-center gap-3 py-10 text-slate-600">
-                  <PackageSearch className="h-10 w-10 text-slate-400" />
-                  <p>لا توجد منتجات مطابقة لبحثك.</p>
+                <CardContent className="py-10">
+                  <EmptyState title="لا توجد منتجات مطابقة لبحثك" />
                 </CardContent>
               </Card>
             )}
 
             {!loading && products.length > 0 && visibleProducts.length === 0 && showOnlyWithRequests && (
               <Card className="border-slate-100 shadow-none">
-                <CardContent className="flex flex-col items-center gap-3 py-10 text-slate-600">
-                  <PackageSearch className="h-10 w-10 text-slate-400" />
-                  <p>لا توجد منتجات تحتوي على طلبات مطابقة للترشيح الحالي.</p>
+                <CardContent className="py-10">
+                  <EmptyState title="لا توجد منتجات تحتوي على طلبات مطابقة للترشيح الحالي" />
                 </CardContent>
               </Card>
             )}
@@ -1198,31 +1196,23 @@ export default function SallaNotifyPage() {
                   </div>
                 )}
                 {allRequestsError && (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {allRequestsError}
-                  </div>
+                  <Alert variant="destructive">
+                    <AlertDescription>{allRequestsError}</AlertDescription>
+                  </Alert>
                 )}
                 {allRequestsLoading ? (
-                  <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
-                    <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
-                    جاري تحميل المشتركين...
-                  </div>
+                  <LoadingState label="جاري تحميل المشتركين..." />
                 ) : filteredAllRequests.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 py-10 text-sm text-slate-500">
-                    <PackageSearch className="h-10 w-10 text-slate-400" />
-                    <p>لا توجد سجلات مطابقة للترشيح الحالي.</p>
-                  </div>
+                  <EmptyState title="لا توجد سجلات مطابقة للترشيح الحالي" />
                 ) : (
                   <div className="rounded-2xl border border-slate-100">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-12">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            <Checkbox
                               checked={allSelected}
-                              onChange={(event) => toggleSelectAll(event.target.checked)}
+                              onCheckedChange={(checked) => toggleSelectAll(checked === true)}
                               aria-label="تحديد الكل"
                             />
                           </TableHead>
@@ -1247,21 +1237,14 @@ export default function SallaNotifyPage() {
                             notified: 'تم إشعار العميل',
                             cancelled: 'ملغي',
                           };
-                          const statusClassMap: Record<AvailabilityRequestRecord['status'], string> = {
-                            pending: 'bg-amber-50 text-amber-700',
-                            notified: 'bg-emerald-50 text-emerald-700',
-                            cancelled: 'bg-slate-50 text-slate-600',
-                          };
                           const stockInfo = subscriberStockMap[request.productId];
                           const hasStock = stockInfo?.hasStock;
                           return (
                             <TableRow key={request.id} data-state={selected ? 'selected' : undefined}>
                               <TableCell>
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                <Checkbox
                                   checked={selected}
-                                  onChange={() => toggleSelectRequest(request.id)}
+                                  onCheckedChange={() => toggleSelectRequest(request.id)}
                                 />
                               </TableCell>
                               <TableCell>
@@ -1275,21 +1258,15 @@ export default function SallaNotifyPage() {
                                 <p className="text-xs text-slate-500">المقاس: {sizeLabel}</p>
                               </TableCell>
                               <TableCell>
-                                <span
-                                  className={`inline-flex rounded-full px-3 py-0.5 text-xs font-semibold ${statusClassMap[request.status]}`}
-                                >
+                                <Badge variant={request.status === 'notified' ? 'default' : request.status === 'cancelled' ? 'secondary' : 'outline'}>
                                   {statusLabelMap[request.status]}
-                                </span>
+                                </Badge>
                               </TableCell>
                               <TableCell>
                                 {hasStock ? (
-                                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                                    متوفر
-                                  </span>
+                                  <Badge>متوفر</Badge>
                                 ) : (
-                                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
-                                    غير متوفر
-                                  </span>
+                                  <Badge variant="secondary">غير متوفر</Badge>
                                 )}
                               </TableCell>
                               <TableCell>
@@ -1311,8 +1288,8 @@ export default function SallaNotifyPage() {
             </Card>
           </section>
         )}
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }
 
@@ -1604,15 +1581,14 @@ function ProductNotifyCard({
           <form onSubmit={handleSubmit} className="mt-3 space-y-2">
             <div>
               <label className="text-xs text-slate-500">{selectLabel}</label>
-              <Select
+              <NativeSelect
                 disabled={variations.length === 0}
                 value={form.variationKey}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, variationKey: event.target.value }))
                 }
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm"
               >
-                <option value="">—</option>
+                <NativeSelectOption value="">—</NativeSelectOption>
                 {variations.map((variation) => {
                   const rawQuantity =
                     typeof variation.availableQuantity === 'number'
@@ -1625,13 +1601,13 @@ function ProductNotifyCard({
                       ? ` - متوفر ${formatNumber(rawQuantity)}`
                       : '';
                   return (
-                    <option key={String(variation.id)} value={String(variation.id)}>
+                    <NativeSelectOption key={String(variation.id)} value={String(variation.id)}>
                       {variation.name || 'متغير'}
                       {quantitySuffix}
-                    </option>
+                    </NativeSelectOption>
                   );
                 })}
-              </Select>
+              </NativeSelect>
             </div>
             <Input
               placeholder="المقاس المطلوب (في حال لم يكن متوفر في القائمة)"
@@ -1784,11 +1760,6 @@ function AvailabilityRequestCard({
     notified: 'تم إشعار العميل',
     cancelled: 'ملغي',
   };
-  const statusClassMap: Record<AvailabilityRequestRecord['status'], string> = {
-    pending: 'border-amber-200 bg-amber-50 text-amber-700',
-    notified: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    cancelled: 'border-slate-200 bg-slate-50 text-slate-600',
-  };
 
   const fullName = [request.customerFirstName, request.customerLastName]
     .filter((part) => part && part.trim().length > 0)
@@ -1833,11 +1804,9 @@ function AvailabilityRequestCard({
           <p className="text-sm font-semibold text-slate-900">{fullName || 'عميل'}</p>
           <p className="text-xs text-slate-500">المقاس المطلوب: {sizeLabel}</p>
         </div>
-        <span
-          className={`rounded-full border px-3 py-0.5 text-xs font-semibold ${statusClassMap[request.status]}`}
-        >
+        <Badge variant={request.status === 'notified' ? 'default' : request.status === 'cancelled' ? 'secondary' : 'outline'}>
           {statusLabelMap[request.status]}
-        </span>
+        </Badge>
       </div>
       <div className="mt-2 space-y-1 text-xs text-slate-600">
         <p>

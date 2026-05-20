@@ -1,6 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 
 interface Setting {
   key: string;
@@ -73,7 +81,7 @@ export default function ERPSettingsPage() {
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to update setting' });
       }
-    } catch (error) {
+    } catch {
       setMessage({ type: 'error', text: 'Error updating setting' });
     }
 
@@ -106,16 +114,15 @@ export default function ERPSettingsPage() {
       } else {
         setMessage({ type: 'error', text: data.error || 'Sync failed' });
       }
-    } catch (error) {
+    } catch {
       setMessage({ type: 'error', text: 'Error syncing orders' });
     } finally {
       setSyncing(false);
     }
   };
 
-  const toggleAutoSync = async (currentValue: string) => {
-    const newValue = currentValue === 'true' ? 'false' : 'true';
-    await updateSetting('erp_auto_sync_enabled', newValue);
+  const toggleAutoSync = async (checked: boolean) => {
+    await updateSetting('erp_auto_sync_enabled', checked ? 'true' : 'false');
   };
 
   const autoSyncSetting = settings.find((s) => s.key === 'erp_auto_sync_enabled');
@@ -123,143 +130,127 @@ export default function ERPSettingsPage() {
 
   if (loading) {
     return (
-      <div className="p-8">
-        <p>Loading...</p>
-      </div>
+      <AppPageShell title="ERP Integration Settings" subtitle="Configure sync behavior and monitor sync health">
+        <LoadingState label="Loading ERP settings..." />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">ERP Integration Settings</h1>
+    <AppPageShell title="ERP Integration Settings" subtitle="Configure sync behavior and monitor sync health">
+      <div className="mx-auto w-full max-w-4xl space-y-6">
 
       {message && (
-        <div
-          className={`mb-4 p-4 rounded ${
-            message.type === 'success'
-              ? 'bg-green-100 text-green-800'
-              : 'bg-red-100 text-red-800'
-          }`}
-        >
-          {message.text}
-        </div>
+        <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+          <AlertDescription>{message.text}</AlertDescription>
+        </Alert>
       )}
 
       {/* Sync Statistics */}
       {stats && (
-        <div className="mb-8 p-6 bg-gray-50 rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">Sync Statistics</h2>
-          <div className="grid grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
-              <div className="text-sm text-gray-600">Total Orders</div>
+        <Card className="rounded-lg">
+          <CardHeader>
+            <CardTitle>Sync Statistics</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
+                <div className="text-sm text-muted-foreground">Total Orders</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-green-600">{stats.synced}</div>
+                <div className="text-sm text-muted-foreground">Synced</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-yellow-600">{stats.unsynced}</div>
+                <div className="text-sm text-muted-foreground">Unsynced</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-red-600">{stats.failed}</div>
+                <div className="text-sm text-muted-foreground">Failed</div>
+              </div>
             </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600">{stats.synced}</div>
-              <div className="text-sm text-gray-600">Synced</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-yellow-600">{stats.unsynced}</div>
-              <div className="text-sm text-gray-600">Unsynced</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-red-600">{stats.failed}</div>
-              <div className="text-sm text-gray-600">Failed</div>
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Manual Sync */}
-      <div className="mb-8 p-6 bg-white border rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">Manual Sync</h2>
-        <p className="text-gray-600 mb-4">
-          Manually sync all unsynced orders to your ERP system.
-        </p>
-        <button
-          onClick={syncAllUnsynced}
-          disabled={syncing || stats?.unsynced === 0}
-          className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          {syncing ? 'Syncing...' : `Sync ${stats?.unsynced || 0} Unsynced Orders`}
-        </button>
-      </div>
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardTitle>Manual Sync</CardTitle>
+          <CardDescription>Manually sync all unsynced orders to your ERP system.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={syncAllUnsynced} disabled={syncing || stats?.unsynced === 0}>
+            {syncing ? 'Syncing...' : `Sync ${stats?.unsynced || 0} Unsynced Orders`}
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Auto Sync Settings */}
-      <div className="mb-8 p-6 bg-white border rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">Automatic Sync</h2>
-
-        {/* Toggle */}
-        <div className="mb-6">
-          <label className="flex items-center space-x-3 cursor-pointer">
-            <div className="relative">
-              <input
-                type="checkbox"
-                checked={isAutoSyncEnabled}
-                onChange={() => toggleAutoSync(autoSyncSetting?.value || 'false')}
-                className="sr-only"
-              />
-              <div
-                className={`w-14 h-8 rounded-full shadow-inner transition ${
-                  isAutoSyncEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                }`}
-              ></div>
-              <div
-                className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${
-                  isAutoSyncEnabled ? 'transform translate-x-6' : ''
-                }`}
-              ></div>
-            </div>
-            <span className="font-medium">
-              {isAutoSyncEnabled ? 'Enabled' : 'Disabled'}
-            </span>
-          </label>
-          <p className="text-sm text-gray-600 mt-2">
-            {autoSyncSetting?.description}
-          </p>
-        </div>
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardTitle>Automatic Sync</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field orientation="horizontal">
+              <Switch checked={isAutoSyncEnabled} onCheckedChange={toggleAutoSync} />
+              <div>
+                <FieldLabel>{isAutoSyncEnabled ? 'Enabled' : 'Disabled'}</FieldLabel>
+                <FieldDescription>{autoSyncSetting?.description}</FieldDescription>
+              </div>
+            </Field>
 
         {/* Status Filter */}
         {settings
           .filter((s) => s.key === 'erp_auto_sync_on_status')
           .map((setting) => (
-            <div key={setting.key} className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <Field key={setting.key}>
+              <FieldLabel htmlFor={setting.key}>
                 Auto-sync on statuses:
-              </label>
-              <input
+              </FieldLabel>
+              <Input
+                id={setting.key}
                 type="text"
                 value={setting.value}
                 onChange={(e) => updateSetting(setting.key, e.target.value)}
-                className="w-full px-4 py-2 border rounded focus:ring-2 focus:ring-blue-500"
                 placeholder="completed,ready_to_ship"
               />
-              <p className="text-sm text-gray-600 mt-1">{setting.description}</p>
-            </div>
+              <FieldDescription>{setting.description}</FieldDescription>
+            </Field>
           ))}
-      </div>
+          </FieldGroup>
+        </CardContent>
+      </Card>
 
       {/* All Settings */}
-      <div className="p-6 bg-white border rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">All ERP Settings</h2>
-        <div className="space-y-4">
-          {settings.map((setting) => (
-            <div key={setting.key} className="border-b pb-4 last:border-b-0">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <code className="text-sm font-mono text-gray-800">{setting.key}</code>
-                  <p className="text-sm text-gray-600 mt-1">{setting.description}</p>
-                </div>
-                <div className="ml-4 text-right">
-                  <code className="text-sm bg-gray-100 px-2 py-1 rounded">
-                    {setting.value}
-                  </code>
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardTitle>All ERP Settings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {settings.map((setting) => (
+              <div key={setting.key} className="border-b pb-4 last:border-b-0">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <code className="text-sm font-mono text-foreground">{setting.key}</code>
+                    <p className="text-sm text-muted-foreground mt-1">{setting.description}</p>
+                  </div>
+                  <div className="ml-4 text-right">
+                    <code className="rounded bg-muted px-2 py-1 text-sm">
+                      {setting.value}
+                    </code>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

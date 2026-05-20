@@ -1,10 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import AppNavbar from '@/components/AppNavbar';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 type ProviderOption = {
   value: 'salla' | 'smsa' | 'tabby' | 'tamara';
@@ -117,7 +131,7 @@ export default function SettlementsPage() {
     }[]
   >([]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setDataError('');
@@ -136,13 +150,13 @@ export default function SettlementsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (status === 'authenticated') {
       fetchData();
     }
-  }, [status]);
+  }, [fetchData, status]);
 
   const handleUpload = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -217,26 +231,20 @@ export default function SettlementsPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">جاري التحقق من الجلسة...</p>
-        </div>
-      </div>
+      <AppPageShell title="تسويات المدفوعات" subtitle="جاري التحقق من الجلسة">
+        <LoadingState label="جاري التحقق من الجلسة..." />
+      </AppPageShell>
     );
   }
 
   if (!hasAccess) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <AppNavbar />
-        <div className="max-w-2xl mx-auto px-4 py-16">
+      <AppPageShell title="تسويات المدفوعات" subtitle="لا تملك صلاحية الوصول">
           <Card className="p-6 text-center">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">لا تملك صلاحية الوصول</h1>
             <p className="text-gray-600">هذه الصفحة متاحة فقط للمحاسبين أو مدراء النظام.</p>
           </Card>
-        </div>
-      </div>
+      </AppPageShell>
     );
   }
 
@@ -256,119 +264,119 @@ export default function SettlementsPage() {
     return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
   };
 
+  const getUploadStatusVariant = (uploadStatus: string) => {
+    if (uploadStatus === 'completed') return 'default';
+    if (uploadStatus === 'processing') return 'secondary';
+    return 'destructive';
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <AppNavbar />
-
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <header className="mb-10">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">تسويات المدفوعات</h1>
-          <p className="text-gray-600">
-            اربط تقارير سلة، سمسا، تابي، وتمارا مع الطلبات الموثقة في النظام واحتفظ بنسخة من كل ملف.
-          </p>
-        </header>
-
+    <AppPageShell
+      title="تسويات المدفوعات"
+      subtitle="اربط تقارير سلة، سمسا، تابي، وتمارا مع الطلبات الموثقة في النظام واحتفظ بنسخة من كل ملف"
+    >
+      <div className="space-y-8">
         {loading && (
-          <Card className="p-6 mb-8">
-            <p className="text-gray-600">جاري تحميل بيانات التسويات...</p>
+          <Card>
+            <CardContent className="p-6">
+              <LoadingState label="جاري تحميل بيانات التسويات..." />
+            </CardContent>
           </Card>
         )}
 
         {dataError && (
-          <Card className="p-6 mb-8 border-red-200 bg-red-50">
-            <p className="text-red-800">{dataError}</p>
-            <Button className="mt-4" onClick={fetchData}>
+          <Alert variant="destructive">
+            <AlertDescription className="flex flex-col gap-4">
+              <span>{dataError}</span>
+              <Button className="w-fit" onClick={fetchData}>
               إعادة المحاولة
-            </Button>
-          </Card>
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
 
         {!loading && stats && (
-          <section className="grid gap-6 md:grid-cols-3 mb-10">
-            <Card className="p-6 bg-white/80">
+          <section className="grid gap-6 md:grid-cols-3">
+            <Card className="p-6">
               <p className="text-sm text-gray-500 mb-2">إجمالي السجلات</p>
               <p className="text-3xl font-bold text-gray-900">{stats.totalRecords.toLocaleString('en-US')}</p>
             </Card>
-            <Card className="p-6 bg-white/80">
+            <Card className="p-6">
               <p className="text-sm text-gray-500 mb-2">تم ربطه بطلب</p>
               <p className="text-3xl font-bold text-emerald-600">{stats.linkedRecords.toLocaleString('en-US')}</p>
             </Card>
-            <Card className="p-6 bg-white/80">
+            <Card className="p-6">
               <p className="text-sm text-gray-500 mb-2">تحتاج للمراجعة</p>
               <p className="text-3xl font-bold text-amber-600">{stats.unmatchedRecords.toLocaleString('en-US')}</p>
             </Card>
           </section>
         )}
 
-        <section className="mb-12 grid gap-6 lg:grid-cols-2">
-          <Card className="p-6 bg-white/90">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">رفع ملفات التسويات</h2>
-            <p className="text-gray-600 mb-6">
-              اختر مزود الخدمة ثم ارفع ملف .xlsx كما وصل من البريد. سيتم ربط كل صف بالطلب المطابق وتخزين نسخة من الملف.
-            </p>
+        <section className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>رفع ملفات التسويات</CardTitle>
+              <CardDescription>
+                اختر مزود الخدمة ثم ارفع ملف .xlsx كما وصل من البريد. سيتم ربط كل صف بالطلب المطابق وتخزين نسخة من الملف.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
 
             <form className="space-y-5" onSubmit={handleUpload}>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">مزود التسوية</label>
-                <div className="grid gap-3">
+              <Field>
+                <FieldLabel>مزود التسوية</FieldLabel>
+                <RadioGroup
+                  value={formState.provider}
+                  onValueChange={(value) =>
+                    setFormState((prev) => ({ ...prev, provider: value as ProviderOption['value'] }))
+                  }
+                >
                   {PROVIDERS.map((provider) => (
                     <label
                       key={provider.value}
-                      className={`border rounded-lg p-4 cursor-pointer transition ${
-                        formState.provider === provider.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-                      }`}
+                      className="cursor-pointer rounded-md border p-4 transition has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-muted/60"
                     >
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="font-semibold text-gray-900">{provider.label}</p>
                           <p className="text-sm text-gray-500 mt-1">{provider.description}</p>
                         </div>
-                        <input
-                          type="radio"
-                          name="provider"
-                          className="mt-1"
-                          checked={formState.provider === provider.value}
-                          onChange={() => setFormState((prev) => ({ ...prev, provider: provider.value }))}
-                        />
+                        <RadioGroupItem value={provider.value} />
                       </div>
                     </label>
                   ))}
-                </div>
-              </div>
+                </RadioGroup>
+              </Field>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">تاريخ البيان</label>
-                  <input
+                <Field>
+                  <FieldLabel>تاريخ البيان</FieldLabel>
+                  <Input
                     type="date"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={formState.statementDate}
                     onChange={(event) => setFormState((prev) => ({ ...prev, statementDate: event.target.value }))}
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">ملاحظات (اختياري)</label>
-                  <input
-                    type="text"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                </Field>
+                <Field>
+                  <FieldLabel>ملاحظات (اختياري)</FieldLabel>
+                  <Input
                     placeholder="مثال: بيان الأسبوع الأخير من ديسمبر"
                     value={formState.notes}
                     onChange={(event) => setFormState((prev) => ({ ...prev, notes: event.target.value }))}
                   />
-                </div>
+                </Field>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">ملف التسوية (Excel)</label>
-                <input
+              <Field>
+                <FieldLabel>ملف التسوية (Excel)</FieldLabel>
+                <Input
                   type="file"
                   accept=".xls,.xlsx"
                   multiple
-                  className="w-full rounded-md border border-dashed border-gray-300 px-3 py-8 text-center text-gray-500 cursor-pointer hover:border-blue-400"
                   onChange={(event) => setSelectedFiles(event.target.files)}
                 />
-                <p className="text-xs text-gray-500 mt-2">يمكن رفع أكثر من ملف لنفس المزود وسيتم حفظ نسخة من كل ملف.</p>
-              </div>
+                <FieldDescription>يمكن رفع أكثر من ملف لنفس المزود وسيتم حفظ نسخة من كل ملف.</FieldDescription>
+              </Field>
 
               <Button type="submit" className="w-full md:w-auto" disabled={uploading}>
                 {uploading ? 'جاري الرفع...' : 'رفع ومعالجة الملفات'}
@@ -404,15 +412,19 @@ export default function SettlementsPage() {
                 </ul>
               </div>
             )}
+            </CardContent>
           </Card>
 
-          <Card className="p-6 bg-white/90">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">توزيع السجلات حسب المزود</h2>
-            <p className="text-gray-600 mb-4">
-              تساعدك هذه الإحصاءات على معرفة المزودات التي تم رفع ملفاتها مؤخراً وأيها بحاجة للمتابعة.
-            </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>توزيع السجلات حسب المزود</CardTitle>
+              <CardDescription>
+                تساعدك هذه الإحصاءات على معرفة المزودات التي تم رفع ملفاتها مؤخراً وأيها بحاجة للمتابعة.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
             {!stats || stats.providerBreakdown.length === 0 ? (
-              <p className="text-gray-500">لم يتم رفع أي ملفات حتى الآن.</p>
+              <EmptyState title="لم يتم رفع أي ملفات حتى الآن." />
             ) : (
               <ul className="space-y-3">
                 {stats.providerBreakdown.map((provider) => {
@@ -453,70 +465,66 @@ export default function SettlementsPage() {
                 </div>
               </div>
             )}
+            </CardContent>
           </Card>
         </section>
 
-        <section className="mb-12">
-          <Card className="p-6 bg-white">
+        <section>
+          <Card>
+            <CardHeader>
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
-              <h2 className="text-2xl font-semibold text-gray-900">أحدث الملفات المرفوعة</h2>
+              <CardTitle>أحدث الملفات المرفوعة</CardTitle>
               <span className="text-sm text-gray-500">
                 يتم الاحتفاظ بنسخة من كل ملف لأغراض المراجعة لاحقاً.
               </span>
             </div>
+            </CardHeader>
+            <CardContent>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">الملف</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">المزود</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">تاريخ البيان</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">السجلات</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">تم ربطه</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">المتبقي</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">المستخدم</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">الحالة</th>
-                    {isAdmin && <th className="px-4 py-3 text-right font-medium text-gray-600">الإجراءات</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>الملف</TableHead>
+                    <TableHead>المزود</TableHead>
+                    <TableHead>تاريخ البيان</TableHead>
+                    <TableHead>السجلات</TableHead>
+                    <TableHead>تم ربطه</TableHead>
+                    <TableHead>المتبقي</TableHead>
+                    <TableHead>المستخدم</TableHead>
+                    <TableHead>الحالة</TableHead>
+                    {isAdmin && <TableHead>الإجراءات</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {uploads.length === 0 && (
-                    <tr>
-                      <td colSpan={isAdmin ? 9 : 8} className="px-4 py-6 text-center text-gray-500">
-                        لا توجد ملفات مرفوعة حتى الآن.
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colSpan={isAdmin ? 9 : 8}>
+                        <EmptyState title="لا توجد ملفات مرفوعة حتى الآن." />
+                      </TableCell>
+                    </TableRow>
                   )}
                   {uploads.map((upload) => {
                     const providerMeta = PROVIDERS.find((item) => item.value === upload.provider);
                     return (
-                      <tr key={upload.id}>
-                        <td className="px-4 py-3 font-medium text-gray-900">{upload.originalFileName}</td>
-                        <td className="px-4 py-3 text-gray-700">{providerMeta?.label || upload.provider}</td>
-                        <td className="px-4 py-3 text-gray-700">{formatDate(upload.statementDate)}</td>
-                        <td className="px-4 py-3 text-gray-900">{upload.recordCount.toLocaleString('en-US')}</td>
-                        <td className="px-4 py-3 text-emerald-600">{upload.matchedCount.toLocaleString('en-US')}</td>
-                        <td className="px-4 py-3 text-amber-600">{upload.unmatchedCount.toLocaleString('en-US')}</td>
-                        <td className="px-4 py-3 text-gray-700">{upload.uploadedByName || '-'}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              upload.status === 'completed'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : upload.status === 'processing'
-                                  ? 'bg-blue-50 text-blue-700'
-                                  : 'bg-red-50 text-red-700'
-                            }`}
-                          >
+                      <TableRow key={upload.id}>
+                        <TableCell className="font-medium">{upload.originalFileName}</TableCell>
+                        <TableCell>{providerMeta?.label || upload.provider}</TableCell>
+                        <TableCell>{formatDate(upload.statementDate)}</TableCell>
+                        <TableCell>{upload.recordCount.toLocaleString('en-US')}</TableCell>
+                        <TableCell className="text-emerald-600">{upload.matchedCount.toLocaleString('en-US')}</TableCell>
+                        <TableCell className="text-amber-600">{upload.unmatchedCount.toLocaleString('en-US')}</TableCell>
+                        <TableCell>{upload.uploadedByName || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant={getUploadStatusVariant(upload.status)}>
                             {upload.status === 'completed'
                               ? 'مكتمل'
                               : upload.status === 'processing'
                                 ? 'جاري المعالجة'
                                 : 'فشل'}
-                          </span>
-                        </td>
+                          </Badge>
+                        </TableCell>
                         {isAdmin && (
-                          <td className="px-4 py-3 text-left">
+                          <TableCell>
                             <Button
                               variant="destructive"
                               size="sm"
@@ -525,76 +533,77 @@ export default function SettlementsPage() {
                             >
                               {deletingId === upload.id ? 'جاري الحذف...' : 'حذف الملف'}
                             </Button>
-                          </td>
+                          </TableCell>
                         )}
-                      </tr>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
+            </CardContent>
           </Card>
         </section>
 
-        <section className="mb-16">
-          <Card className="p-6 bg-white">
+        <section>
+          <Card>
+            <CardHeader>
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
-              <h2 className="text-2xl font-semibold text-gray-900">آخر التسويات المرتبطة بالطلبات</h2>
+              <CardTitle>آخر التسويات المرتبطة بالطلبات</CardTitle>
               <p className="text-sm text-gray-500">يتم تحديث هذه القائمة عند رفع أي ملف جديد.</p>
             </div>
+            </CardHeader>
+            <CardContent>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">المزود</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">رقم الطلب</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">التاريخ</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">الصافي</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">طريقة الدفع</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">الحالة</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>المزود</TableHead>
+                    <TableHead>رقم الطلب</TableHead>
+                    <TableHead>التاريخ</TableHead>
+                    <TableHead>الصافي</TableHead>
+                    <TableHead>طريقة الدفع</TableHead>
+                    <TableHead>الحالة</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {recentSettlements.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                        لا توجد سجلات بعد. ابدأ برفع الملفات للعرض هنا.
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colSpan={6}>
+                        <EmptyState title="لا توجد سجلات بعد" description="ابدأ برفع الملفات للعرض هنا." />
+                      </TableCell>
+                    </TableRow>
                   )}
                   {recentSettlements.map((settlement) => {
                     const providerMeta = PROVIDERS.find((item) => item.value === settlement.provider);
                     return (
-                      <tr key={settlement.id}>
-                        <td className="px-4 py-3 font-medium text-gray-900">
+                      <TableRow key={settlement.id}>
+                        <TableCell className="font-medium">
                           {providerMeta?.label || settlement.provider}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{settlement.orderNumber || settlement.orderId || '-'}</td>
-                        <td className="px-4 py-3 text-gray-700">{formatDate(settlement.settlementDate)}</td>
-                        <td className="px-4 py-3 text-gray-900">
+                        </TableCell>
+                        <TableCell>{settlement.orderNumber || settlement.orderId || '-'}</TableCell>
+                        <TableCell>{formatDate(settlement.settlementDate)}</TableCell>
+                        <TableCell>
                           {settlement.netAmount !== null && settlement.netAmount !== undefined
                             ? `${formatNumber(settlement.netAmount)} ${settlement.currency || 'ر.س'}`
                             : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{settlement.paymentMethod || settlement.eventType || '-'}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              settlement.linkedOrderId ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                            }`}
-                          >
+                        </TableCell>
+                        <TableCell>{settlement.paymentMethod || settlement.eventType || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant={settlement.linkedOrderId ? 'default' : 'secondary'}>
                             {settlement.linkedOrderId ? 'مرتبط' : 'بانتظار المطابقة'}
-                          </span>
-                        </td>
-                      </tr>
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
+            </CardContent>
           </Card>
         </section>
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

@@ -1,9 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import AppNavbar from '@/components/AppNavbar';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import {
   AlertTriangle,
@@ -184,7 +188,7 @@ export default function PrinterSettingsPage() {
     try {
       await navigator.clipboard.writeText(String(printerId));
       alert(`تم نسخ المعرف ${printerId}`);
-    } catch (err) {
+    } catch {
       alert('تعذر نسخ المعرف، يرجى المحاولة يدوياً');
     }
   };
@@ -192,156 +196,155 @@ export default function PrinterSettingsPage() {
   const configuredIds = useMemo(() => new Set(profiles.map((profile) => profile.printerId)), [profiles]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-slate-100 pb-16">
-      <AppNavbar title="إعدادات الطابعات" subtitle="تعريف الطابعات الموثوقة للطباعة التلقائية" />
-      <div className="max-w-6xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
+    <AppPageShell title="إعدادات الطابعات" subtitle="تعريف الطابعات الموثوقة للطباعة التلقائية">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="mb-8 grid gap-6 lg:grid-cols-[1.6fr,1fr]">
-          <Card className="rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-900 via-indigo-700 to-slate-900 p-8 text-white shadow-xl">
-            <div className="space-y-4">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em]">
-                <span>مركز الطباعة</span>
-              </div>
+          <Card className="rounded-lg">
+            <CardContent className="space-y-4 p-6">
               <div>
                 <h1 className="text-3xl font-semibold">إدارة هوية الطابعات</h1>
-                <p className="mt-2 text-white/80">
+                <p className="mt-2 text-muted-foreground">
                   عرّف الطابعات الموثوقة، أضف مواقعها وأسماءها، ثم استخدمها لربط الطابعات لكل مستخدم من صفحة إدارة المستخدمين.
                 </p>
               </div>
               <div className="flex flex-wrap gap-3">
-                <Button onClick={loadData} disabled={loading} className="rounded-2xl bg-white/95 text-slate-900 hover:bg-white">
+                <Button onClick={loadData} disabled={loading}>
                   {loading ? 'جاري التحديث...' : 'تحديث بيانات PrintNode'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setFormData(initialFormState)}
-                  className="rounded-2xl border-white/50 text-white hover:bg-white/10"
                 >
                   مسح النموذج
                 </Button>
               </div>
-            </div>
+            </CardContent>
           </Card>
-          <Card className="rounded-3xl border border-white/60 bg-white/95 p-4 shadow-md">
+          <Card className="rounded-lg">
+            <CardContent className="p-4">
             <div className="grid grid-cols-2 gap-3 text-slate-600">
               {stats.map((stat) => {
                 const Icon = stat.icon;
                 return (
-                  <div key={stat.label} className="rounded-2xl border border-slate-200/80 bg-white/80 p-4">
-                    <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <div key={stat.label} className="rounded-lg border bg-card p-4">
+                    <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
                       <span>{stat.label}</span>
                       <Icon className="h-4 w-4" />
                     </div>
-                    <p className="mt-2 text-2xl font-semibold text-slate-900">{stat.value}</p>
-                    <p className="text-xs text-slate-500">{stat.hint}</p>
+                    <p className="mt-2 text-2xl font-semibold text-foreground">{stat.value}</p>
+                    <p className="text-xs text-muted-foreground">{stat.hint}</p>
                   </div>
                 );
               })}
             </div>
+            </CardContent>
           </Card>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
-          <Card className="rounded-3xl border border-white/70 bg-white/95 p-6 shadow">
-            <h2 className="text-lg font-semibold text-slate-900">إضافة أو تحديث طابعة</h2>
-            <p className="text-sm text-slate-500">املأ البيانات التالية ليظهر الاسم الودي والورق المقترح عند ربط الطابعة بالمستخدمين.</p>
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-slate-500">معرف الطابعة في PrintNode</label>
+          <Card className="rounded-lg">
+            <CardHeader>
+              <CardTitle>إضافة أو تحديث طابعة</CardTitle>
+              <CardDescription>املأ البيانات التالية ليظهر الاسم الودي والورق المقترح عند ربط الطابعة بالمستخدمين.</CardDescription>
+            </CardHeader>
+            <CardContent>
+            <form onSubmit={handleSubmit}>
+              <FieldGroup>
+              <Field>
+                <FieldLabel>معرف الطابعة في PrintNode</FieldLabel>
                 <Input
                   type="text"
                   value={formData.printerId}
                   onChange={(e) => handleFormChange('printerId', e.target.value)}
                   placeholder="مثال: 75062490"
-                  className="mt-1 rounded-2xl border-slate-200"
                 />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500">اسم الطابعة</label>
+              </Field>
+              <Field>
+                <FieldLabel>اسم الطابعة</FieldLabel>
                 <Input
                   type="text"
                   value={formData.label}
                   onChange={(e) => handleFormChange('label', e.target.value)}
                   placeholder="طابعة تحضير أ"
-                  className="mt-1 rounded-2xl border-slate-200"
                 />
-              </div>
+              </Field>
               <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="text-xs font-semibold text-slate-500">الموقع أو الحاسوب</label>
+                <Field>
+                  <FieldLabel>الموقع أو الحاسوب</FieldLabel>
                   <Input
                     type="text"
                     value={formData.location}
                     onChange={(e) => handleFormChange('location', e.target.value)}
                     placeholder="مكتب التحضير - جهاز خالد"
-                    className="mt-1 rounded-2xl border-slate-200"
                   />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500">ورق الطباعة</label>
+                </Field>
+                <Field>
+                  <FieldLabel>ورق الطباعة</FieldLabel>
                   <Input
                     type="text"
                     value={formData.paperName}
                     onChange={(e) => handleFormChange('paperName', e.target.value)}
                     placeholder="LABEL(100mm x 150mm)"
-                    className="mt-1 rounded-2xl border-slate-200"
                   />
-                </div>
+                </Field>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500">ملاحظات</label>
+              <Field>
+                <FieldLabel>ملاحظات</FieldLabel>
                 <Input
                   type="text"
                   value={formData.notes}
                   onChange={(e) => handleFormChange('notes', e.target.value)}
                   placeholder="يجب إعادة تشغيل PrintNode يومياً"
-                  className="mt-1 rounded-2xl border-slate-200"
                 />
-              </div>
+              </Field>
               <div className="flex flex-wrap gap-3">
-                <Button type="submit" disabled={saving} className="rounded-2xl px-6 py-5">
+                <Button type="submit" disabled={saving}>
                   {saving ? 'جاري الحفظ...' : 'حفظ الطابعة'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setFormData(initialFormState)}
-                  className="rounded-2xl border-slate-200 px-6 py-5 text-slate-600 hover:text-slate-900"
                 >
                   إعادة التعيين
                 </Button>
               </div>
+              </FieldGroup>
             </form>
+            </CardContent>
           </Card>
 
-          <Card className="rounded-3xl border border-white/70 bg-white/95 p-6 shadow">
-            <h2 className="text-lg font-semibold text-slate-900">الطابعات المعرفة ({profiles.length})</h2>
+          <Card className="rounded-lg">
+            <CardHeader>
+              <CardTitle>الطابعات المعرفة ({profiles.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
             {profiles.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">لم يتم إضافة أي طابعة بعد.</p>
+              <EmptyState title="لم يتم إضافة أي طابعة بعد" />
             ) : (
-              <div className="mt-4 space-y-3">
+              <div className="space-y-3">
                 {profiles
                   .slice()
                   .sort((a, b) => a.label.localeCompare(b.label, 'ar'))
                   .map((profile) => (
                     <div
                       key={profile.id}
-                      className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-600"
+                      className="rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <p className="text-base font-semibold text-slate-900">{profile.label}</p>
-                          <p className="text-xs text-slate-500">معرف: {profile.printerId}</p>
-                          {profile.location && <p className="text-xs text-slate-500">الموقع: {profile.location}</p>}
-                          {profile.paperName && <p className="text-xs text-slate-500">الورق: {profile.paperName}</p>}
-                          {profile.notes && <p className="text-xs text-slate-500">ملاحظات: {profile.notes}</p>}
+                          <p className="text-base font-semibold text-foreground">{profile.label}</p>
+                          <p className="text-xs">معرف: {profile.printerId}</p>
+                          {profile.location && <p className="text-xs">الموقع: {profile.location}</p>}
+                          {profile.paperName && <p className="text-xs">الورق: {profile.paperName}</p>}
+                          {profile.notes && <p className="text-xs">ملاحظات: {profile.notes}</p>}
                         </div>
                         <div className="flex flex-col gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             onClick={() => handleCopyId(profile.printerId)}
-                            className="rounded-2xl border-slate-200 text-slate-600 hover:text-slate-900"
                           >
                             <Copy className="h-4 w-4" />
                             نسخ المعرف
@@ -351,7 +354,7 @@ export default function PrinterSettingsPage() {
                             variant="outline"
                             onClick={() => handleDelete(profile.id)}
                             disabled={deletingId === profile.id}
-                            className="rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50"
+                            className="text-destructive"
                           >
                             {deletingId === profile.id ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
@@ -366,52 +369,41 @@ export default function PrinterSettingsPage() {
                   ))}
               </div>
             )}
+            </CardContent>
           </Card>
         </div>
 
-        <Card className="mt-6 rounded-3xl border border-white/70 bg-white/95 p-6 shadow">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">طابعات PrintNode ({printers.length})</h2>
-              <p className="text-sm text-slate-500">القائمة الحالية كما أبلغها PrintNode. استخدمها للتحقق من الحالة وربطها بالتكوينات أعلاه.</p>
-            </div>
-          </div>
+        <Card className="mt-6 rounded-lg">
+          <CardHeader>
+            <CardTitle>طابعات PrintNode ({printers.length})</CardTitle>
+            <CardDescription>القائمة الحالية كما أبلغها PrintNode. استخدمها للتحقق من الحالة وربطها بالتكوينات أعلاه.</CardDescription>
+          </CardHeader>
+          <CardContent>
           {loading ? (
-            <div className="mt-6 flex items-center gap-2 text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              جاري تحميل الطابعات...
-            </div>
+            <LoadingState label="جاري تحميل الطابعات..." />
           ) : error ? (
-            <div className="mt-6 rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
-              {error}
-            </div>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : (
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2">
               {printers.map((printer) => (
-                <div key={printer.id} className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 text-sm text-slate-600">
+                <div key={printer.id} className="rounded-lg border bg-card px-4 py-4 text-sm text-muted-foreground">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-base font-semibold text-slate-900">{printer.name}</p>
-                      <p className="text-xs text-slate-500">معرف: {printer.id}</p>
+                      <p className="text-base font-semibold text-foreground">{printer.name}</p>
+                      <p className="text-xs">معرف: {printer.id}</p>
                     </div>
-                    <span
-                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                        printer.state === 'online'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : printer.state === 'disconnected'
-                            ? 'bg-rose-100 text-rose-700'
-                            : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
+                    <Badge variant={printer.state === 'disconnected' ? 'destructive' : printer.state === 'online' ? 'default' : 'secondary'}>
                       {printer.state || 'غير معروف'}
-                    </span>
+                    </Badge>
                   </div>
-                  {printer.description && <p className="mt-1 text-xs text-slate-500">{printer.description}</p>}
+                  {printer.description && <p className="mt-1 text-xs">{printer.description}</p>}
                   {printer.computer?.name && (
-                    <p className="text-xs text-slate-500">الحاسوب: {printer.computer.name || printer.computer.hostname}</p>
+                    <p className="text-xs">الحاسوب: {printer.computer.name || printer.computer.hostname}</p>
                   )}
                   {printer.default?.paperName && (
-                    <p className="text-xs text-slate-500">الورق الافتراضي: {printer.default.paperName || printer.default.paper}</p>
+                    <p className="text-xs">الورق الافتراضي: {printer.default.paperName || printer.default.paper}</p>
                   )}
                   {configuredIds.has(printer.id) ? (
                     <p className="mt-2 text-xs text-emerald-600">تمت إضافتها في قائمة التكوين.</p>
@@ -437,8 +429,9 @@ export default function PrinterSettingsPage() {
               ))}
             </div>
           )}
+          </CardContent>
         </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

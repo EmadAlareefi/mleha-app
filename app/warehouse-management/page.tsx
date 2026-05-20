@@ -2,8 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
 
 interface Warehouse {
   id: string;
@@ -190,15 +198,9 @@ export default function WarehouseManagementPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <AppPageShell title="إدارة المستودعات" subtitle="إنشاء المستودعات، تعديل بياناتها، وتفعيلها أو تعطيلها">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">إدارة المستودعات</h1>
-            <p className="text-gray-600">
-              إنشاء المستودعات، تعديل بياناتها، وتفعيلها/تعطيلها.
-            </p>
-          </div>
           <div className="flex flex-wrap gap-3">
             <Button onClick={openCreateForm} disabled={schemaMissing}>
               + إضافة مستودع
@@ -210,79 +212,80 @@ export default function WarehouseManagementPage() {
         </div>
 
         {schemaMissing && (
-          <Card className="p-5 border-red-200 bg-red-50 text-red-800">
-            <p className="font-semibold mb-1">ترحيل قاعدة البيانات مطلوب</p>
-            <p className="text-sm">
+          <Alert variant="destructive">
+            <AlertTitle>ترحيل قاعدة البيانات مطلوب</AlertTitle>
+            <AlertDescription>
               ميزة إدارة المستودعات تتطلب تشغيل ترحيل Prisma الخاص بالمستودعات. شغّل
               <code className="mx-2 px-2 py-1 bg-white border rounded text-xs">npx prisma migrate deploy</code>
               ثم أعد تحميل الصفحة.
-            </p>
-          </Card>
+            </AlertDescription>
+          </Alert>
         )}
 
         {showForm && (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">
+          <Card className="rounded-lg">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>
                 {editingWarehouse ? 'تعديل مستودع' : 'مستودع جديد'}
-              </h2>
+                </CardTitle>
+                <CardDescription>أدخل بيانات المستودع وحالة تفعيله.</CardDescription>
+              </div>
               <Button variant="ghost" onClick={() => setShowForm(false)}>
                 إغلاق
               </Button>
-            </div>
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            </CardHeader>
+            <CardContent>
+            <form onSubmit={handleSubmit}>
+              <FieldGroup>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">اسم المستودع *</label>
-                  <input
+                <Field>
+                  <FieldLabel>اسم المستودع *</FieldLabel>
+                  <Input
                     type="text"
-                    className="w-full border rounded-lg px-3 py-2"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">رمز المستودع</label>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>رمز المستودع</FieldLabel>
+                  <Input
                     type="text"
-                    className="w-full border rounded-lg px-3 py-2"
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                   />
-                  <p className="text-xs text-gray-500 mt-1">يجب أن يكون فريداً (اختياري).</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">الموقع</label>
-                  <input
+                  <FieldDescription>يجب أن يكون فريداً (اختياري).</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>الموقع</FieldLabel>
+                  <Input
                     type="text"
-                    className="w-full border rounded-lg px-3 py-2"
                     value={formData.location}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">الحالة</label>
-                  <select
-                    className="w-full border rounded-lg px-3 py-2"
+                </Field>
+                <Field>
+                  <FieldLabel>الحالة</FieldLabel>
+                  <NativeSelect
                     value={formData.isActive ? 'active' : 'inactive'}
                     onChange={(e) =>
                       setFormData({ ...formData, isActive: e.target.value === 'active' })
                     }
                   >
-                    <option value="active">نشط</option>
-                    <option value="inactive">غير نشط</option>
-                  </select>
-                </div>
+                    <NativeSelectOption value="active">نشط</NativeSelectOption>
+                    <NativeSelectOption value="inactive">غير نشط</NativeSelectOption>
+                  </NativeSelect>
+                </Field>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">الوصف</label>
-                <textarea
-                  className="w-full border rounded-lg px-3 py-2 min-h-[100px]"
+              <Field>
+                <FieldLabel>الوصف</FieldLabel>
+                <Textarea
+                  className="min-h-[100px]"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 />
-              </div>
+              </Field>
               <div className="flex gap-3">
                 <Button type="submit" disabled={saving}>
                   {saving ? 'جارٍ الحفظ...' : editingWarehouse ? 'تحديث' : 'حفظ'}
@@ -299,18 +302,25 @@ export default function WarehouseManagementPage() {
                   إلغاء
                 </Button>
               </div>
+              </FieldGroup>
             </form>
+            </CardContent>
           </Card>
         )}
 
-        <Card className="p-5">
+        <Card className="rounded-lg">
+          <CardHeader>
+            <CardTitle>قائمة المستودعات</CardTitle>
+            <CardDescription>إجمالي المستودعات وحالة التفعيل الحالية.</CardDescription>
+          </CardHeader>
+          <CardContent>
           <div className="flex flex-wrap items-center gap-4 mb-4">
             <div>
-              <p className="text-sm text-gray-500">عدد المستودعات</p>
+              <p className="text-sm text-muted-foreground">عدد المستودعات</p>
               <p className="text-2xl font-semibold">{warehouses.length}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">المستودعات النشطة</p>
+              <p className="text-sm text-muted-foreground">المستودعات النشطة</p>
               <p className="text-2xl font-semibold text-green-600">{activeCount}</p>
             </div>
             <Button variant="outline" onClick={loadWarehouses} disabled={loading}>
@@ -319,43 +329,38 @@ export default function WarehouseManagementPage() {
           </div>
 
           {error && (
-            <div className="p-4 mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-              {error}
-            </div>
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
           {loading ? (
-            <div className="py-10 text-center text-gray-500">جاري تحميل المستودعات...</div>
+            <LoadingState label="جاري تحميل المستودعات..." />
           ) : warehouses.length === 0 ? (
-            <div className="py-10 text-center text-gray-500">
-              لا يوجد مستودعات حالياً. قم بإضافة مستودع جديد للبدء.
-            </div>
+            <EmptyState title="لا يوجد مستودعات حالياً" description="قم بإضافة مستودع جديد للبدء." />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {warehouses.map((warehouse) => (
-                <Card key={warehouse.id} className="p-4 border">
+                <Card key={warehouse.id} className="rounded-lg">
+                  <CardContent className="p-4">
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <h3 className="text-lg font-semibold">{warehouse.name}</h3>
                       {warehouse.code && (
-                        <p className="text-sm text-gray-500">رمز: {warehouse.code}</p>
+                        <p className="text-sm text-muted-foreground">رمز: {warehouse.code}</p>
                       )}
                       {warehouse.location && (
-                        <p className="text-sm text-gray-500">الموقع: {warehouse.location}</p>
+                        <p className="text-sm text-muted-foreground">الموقع: {warehouse.location}</p>
                       )}
                     </div>
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs ${
-                        warehouse.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'
-                      }`}
-                    >
+                    <Badge variant={warehouse.isActive ? 'default' : 'secondary'}>
                       {warehouse.isActive ? 'نشط' : 'غير نشط'}
-                    </span>
+                    </Badge>
                   </div>
                   {warehouse.description && (
-                    <p className="text-sm text-gray-700 mb-3 whitespace-pre-wrap">{warehouse.description}</p>
+                    <p className="text-sm text-muted-foreground mb-3 whitespace-pre-wrap">{warehouse.description}</p>
                   )}
-                  <div className="text-xs text-gray-500 space-y-1 mb-3">
+                  <div className="text-xs text-muted-foreground space-y-1 mb-3">
                     <p>أُنشئ في: {new Date(warehouse.createdAt).toLocaleString('ar')}</p>
                     <p>آخر تحديث: {new Date(warehouse.updatedAt).toLocaleString('ar')}</p>
                   </div>
@@ -380,12 +385,14 @@ export default function WarehouseManagementPage() {
                       حذف
                     </Button>
                   </div>
+                  </CardContent>
                 </Card>
               ))}
             </div>
           )}
+          </CardContent>
         </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

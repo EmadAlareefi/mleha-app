@@ -1,8 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Card } from '@/components/ui/card';
+import Link from 'next/link';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 
 export default function CancelShipmentPage() {
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -49,60 +54,52 @@ export default function CancelShipmentPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2">إلغاء شحنة إرجاع</h1>
-          <p className="text-gray-600">
-            أدخل رقم تتبع الشحنة (AWB) لإلغاء شحنة الإرجاع
-          </p>
-        </div>
-
-        <Card className="p-8">
-          <form onSubmit={handleCancel} className="space-y-6">
-            <div>
-              <label htmlFor="trackingNumber" className="block text-sm font-medium mb-2">
-                رقم تتبع الشحنة (AWB)
-              </label>
-              <input
+    <AppPageShell title="إلغاء شحنة إرجاع" subtitle="أدخل رقم تتبع الشحنة لإلغاء شحنة الإرجاع">
+      <div className="mx-auto w-full max-w-2xl space-y-6">
+        <Card className="rounded-lg">
+          <CardHeader>
+            <CardTitle>بيانات الشحنة</CardTitle>
+            <CardDescription>يمكن إلغاء الشحنات التي لم يتم استلامها بعد فقط.</CardDescription>
+          </CardHeader>
+          <CardContent>
+          <form onSubmit={handleCancel}>
+            <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="trackingNumber">رقم تتبع الشحنة (AWB)</FieldLabel>
+              <Input
                 id="trackingNumber"
                 type="text"
                 value={trackingNumber}
                 onChange={(e) => setTrackingNumber(e.target.value)}
                 placeholder="مثال: 233011127922"
-                className="w-full px-4 py-3 border rounded-lg text-lg font-mono"
+                className="font-mono"
                 required
                 disabled={loading}
               />
-              <p className="text-sm text-gray-500 mt-2">
+              <FieldDescription>
                 يمكنك العثور على رقم التتبع في تفاصيل طلب الإرجاع
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
 
             {error && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                {error}
-              </div>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
 
             {success && (
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
-                <div className="flex items-center gap-2 mb-2">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  <span className="font-semibold">تم الإلغاء بنجاح</span>
-                </div>
-                <p>{success}</p>
-              </div>
+              <Alert>
+                <AlertTitle>تم الإلغاء بنجاح</AlertTitle>
+                <AlertDescription>{success}</AlertDescription>
+              </Alert>
             )}
 
             <div className="flex gap-4">
               <Button
                 type="submit"
                 disabled={loading || !trackingNumber.trim()}
-                className="flex-1 py-6 text-lg bg-red-600 hover:bg-red-700"
+                variant="destructive"
+                className="flex-1"
               >
                 {loading ? 'جاري الإلغاء...' : 'إلغاء الشحنة'}
               </Button>
@@ -112,33 +109,34 @@ export default function CancelShipmentPage() {
                   type="button"
                   variant="outline"
                   onClick={handleReset}
-                  className="py-6"
                 >
                   إعادة تعيين
                 </Button>
               )}
             </div>
+            </FieldGroup>
           </form>
 
           {/* Info Box */}
           <div className="mt-8 pt-6 border-t">
             <h3 className="font-semibold mb-2 text-red-600">تنبيه هام:</h3>
-            <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
+            <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
               <li>إلغاء الشحنة نهائي ولا يمكن التراجع عنه</li>
               <li>يمكن إلغاء الشحنات التي لم يتم استلامها بعد فقط</li>
               <li>بعد إلغاء الشحنة، قد تحتاج إلى إنشاء طلب إرجاع جديد</li>
               <li>في حالة وجود مشاكل، يرجى التواصل مع الدعم الفني</li>
             </ul>
           </div>
+          </CardContent>
         </Card>
 
         {/* Back to Home */}
         <div className="text-center mt-6">
-          <a href="/" className="text-blue-600 hover:underline">
+          <Link href="/" className="text-sm text-primary underline-offset-4 hover:underline">
             ← العودة للصفحة الرئيسية
-          </a>
+          </Link>
         </div>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

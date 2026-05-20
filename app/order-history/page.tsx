@@ -1,10 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { ArrowRight, Calendar, Clock, Package, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
 interface OrderHistory {
@@ -46,13 +51,7 @@ export default function OrderHistoryPage() {
     }
   }, [status, router]);
 
-  useEffect(() => {
-    if ((session?.user as any)?.id) {
-      fetchHistory();
-    }
-  }, [session, startDate, endDate, filterStatus]);
-
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams({
@@ -75,7 +74,13 @@ export default function OrderHistoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [session, startDate, endDate, filterStatus]);
+
+  useEffect(() => {
+    if ((session?.user as any)?.id) {
+      fetchHistory();
+    }
+  }, [session, fetchHistory]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -103,16 +108,16 @@ export default function OrderHistoryPage() {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): 'default' | 'secondary' | 'destructive' => {
     switch (status) {
       case 'completed':
-        return 'bg-green-50 border-green-200 text-green-700';
+        return 'default';
       case 'cancelled':
-        return 'bg-red-50 border-red-200 text-red-700';
+        return 'destructive';
       case 'removed':
-        return 'bg-orange-50 border-orange-200 text-orange-700';
+        return 'secondary';
       default:
-        return 'bg-gray-50 border-gray-200 text-gray-700';
+        return 'secondary';
     }
   };
 
@@ -136,18 +141,15 @@ export default function OrderHistoryPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">جاري التحميل...</p>
-        </div>
-      </div>
+      <AppPageShell title="سجل الطلبات" subtitle="عرض الطلبات المنتهية ومدة تجهيزها">
+        <LoadingState />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
+    <AppPageShell title="سجل الطلبات" subtitle="عرض الطلبات المنتهية ومدة تجهيزها">
+      <div className="mx-auto w-full max-w-7xl">
         {/* Header */}
         <div className="mb-6">
           <Button
@@ -158,74 +160,81 @@ export default function OrderHistoryPage() {
             <ArrowRight className="ml-2 h-4 w-4" />
             العودة
           </Button>
-          <h1 className="text-3xl font-bold text-gray-900">سجل الطلبات</h1>
         </div>
 
         {/* Stats Cards */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-            <Card className="p-4">
-              <div className="text-sm text-gray-600">الإجمالي</div>
-              <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">الإجمالي</div>
+              <div className="text-2xl font-bold">{stats.total}</div>
+              </CardContent>
             </Card>
-            <Card className="p-4">
-              <div className="text-sm text-gray-600">مكتملة</div>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">مكتملة</div>
               <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+              </CardContent>
             </Card>
-            <Card className="p-4">
-              <div className="text-sm text-gray-600">ملغاة</div>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">ملغاة</div>
               <div className="text-2xl font-bold text-red-600">{stats.cancelled}</div>
+              </CardContent>
             </Card>
-            <Card className="p-4">
-              <div className="text-sm text-gray-600">محذوفة</div>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">محذوفة</div>
               <div className="text-2xl font-bold text-orange-600">{stats.removed}</div>
+              </CardContent>
             </Card>
-            <Card className="p-4">
-              <div className="text-sm text-gray-600">متوسط الوقت</div>
+            <Card className="rounded-lg">
+              <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">متوسط الوقت</div>
               <div className="text-2xl font-bold text-blue-600">{stats.averageDuration} د</div>
+              </CardContent>
             </Card>
           </div>
         )}
 
         {/* Filters */}
-        <Card className="p-4 mb-6">
+        <Card className="rounded-lg mb-6">
+          <CardContent className="p-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium mb-2">
                 من تاريخ
               </label>
-              <input
+              <Input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium mb-2">
                 إلى تاريخ
               </label>
-              <input
+              <Input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium mb-2">
                 الحالة
               </label>
-              <select
+              <NativeSelect
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               >
-                <option value="">الكل</option>
-                <option value="completed">مكتمل</option>
-                <option value="cancelled">ملغي</option>
-                <option value="removed">محذوف</option>
-              </select>
+                <NativeSelectOption value="">الكل</NativeSelectOption>
+                <NativeSelectOption value="completed">مكتمل</NativeSelectOption>
+                <NativeSelectOption value="cancelled">ملغي</NativeSelectOption>
+                <NativeSelectOption value="removed">محذوف</NativeSelectOption>
+              </NativeSelect>
             </div>
             <div className="flex items-end">
               <Button
@@ -241,29 +250,28 @@ export default function OrderHistoryPage() {
               </Button>
             </div>
           </div>
+          </CardContent>
         </Card>
 
         {/* History List */}
         <div className="space-y-4">
           {history.length === 0 ? (
-            <Card className="p-8 text-center">
-              <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">لا توجد طلبات في السجل</p>
-            </Card>
+            <EmptyState title="لا توجد طلبات في السجل" />
           ) : (
             history.map((order) => (
-              <Card key={order.id} className="p-4">
+              <Card key={order.id} className="rounded-lg">
+                <CardContent className="p-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-start gap-4">
                     {getStatusIcon(order.status)}
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-bold text-lg">#{order.orderNumber}</h3>
-                        <span className={`px-3 py-1 rounded-full text-sm border ${getStatusColor(order.status)}`}>
+                        <Badge variant={getStatusVariant(order.status)}>
                           {getStatusText(order.status)}
-                        </span>
+                        </Badge>
                       </div>
-                      <div className="text-sm text-gray-600 space-y-1">
+                      <div className="text-sm text-muted-foreground space-y-1">
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4" />
                           <span>انتهى في: {formatDate(order.finishedAt)}</span>
@@ -275,7 +283,7 @@ export default function OrderHistoryPage() {
                           </div>
                         )}
                         {order.notes && (
-                          <div className="text-gray-500 mt-2">
+                          <div className="text-muted-foreground mt-2">
                             <span className="font-medium">ملاحظات:</span> {order.notes}
                           </div>
                         )}
@@ -284,17 +292,18 @@ export default function OrderHistoryPage() {
                   </div>
                   <div className="text-left">
                     {order.orderData?.amounts?.total && (
-                      <div className="text-lg font-bold text-gray-900">
+                      <div className="text-lg font-bold">
                         {order.orderData.amounts.total.amount} {order.orderData.amounts.total.currency}
                       </div>
                     )}
                   </div>
                 </div>
+                </CardContent>
               </Card>
             ))
           )}
         </div>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

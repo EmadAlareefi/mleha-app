@@ -1,4 +1,6 @@
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -6,6 +8,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { prisma } from '@/lib/prisma';
 import { BadgeCheck, Database, RefreshCcw, ServerCrash } from 'lucide-react';
 
@@ -39,11 +49,6 @@ function formatMoney(value: any) {
     currency: 'SAR',
   }).format(numeric);
 }
-
-const statusBadgeClasses = (delivered: boolean | null | undefined) =>
-  delivered
-    ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-    : 'bg-amber-50 text-amber-700 border border-amber-100';
 
 export default async function SmsaWebhookPage() {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -94,23 +99,18 @@ export default async function SmsaWebhookPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
-      <AppNavbar title="سجل ويب هوك سمسا" subtitle="راقب أحدث الشحنات وعمليات المسح" />
-
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+    <AppPageShell title="سجل ويب هوك سمسا" subtitle="راقب أحدث الشحنات وعمليات المسح">
+      <div className="mx-auto w-full max-w-6xl space-y-8">
         <section className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => (
-            <Card
-              key={stat.label}
-              className="rounded-3xl border border-white/70 bg-white/90 shadow-lg shadow-indigo-100/50"
-            >
+            <Card key={stat.label} className="rounded-lg">
               <CardContent className="flex flex-col gap-3 p-5">
-                <div className="flex items-center gap-3 text-slate-500">
+                <div className="flex items-center gap-3 text-muted-foreground">
                   <stat.icon className="h-5 w-5" />
                   <span className="text-sm font-medium">{stat.label}</span>
                 </div>
-                <p className="text-3xl font-semibold text-slate-900">{stat.value}</p>
-                <p className="text-xs text-slate-500">{stat.description}</p>
+                <p className="text-3xl font-semibold text-foreground">{stat.value}</p>
+                <p className="text-xs text-muted-foreground">{stat.description}</p>
               </CardContent>
             </Card>
           ))}
@@ -118,100 +118,97 @@ export default async function SmsaWebhookPage() {
 
         <section className="space-y-4">
           <div>
-            <h2 className="text-2xl font-semibold text-slate-900">Latest webhook deliveries</h2>
-            <p className="text-sm text-slate-500">
+            <h2 className="text-2xl font-semibold text-foreground">Latest webhook deliveries</h2>
+            <p className="text-sm text-muted-foreground">
               Showing the last {shipments.length} AWBs received from SMSA. For each shipment we keep
               the top 5 scans (newest first).
             </p>
           </div>
 
           {shipments.length === 0 ? (
-            <Card className="rounded-3xl border border-dashed border-slate-200 bg-white/70 p-8 text-center text-slate-500">
-              No webhook calls received yet. Once SMSA posts to `/api/webhooks/smsa/scans` the
-              payloads will appear here.
-            </Card>
+            <EmptyState
+              title="No webhook calls received yet"
+              description="Once SMSA posts to /api/webhooks/smsa/scans the payloads will appear here."
+            />
           ) : (
             <div className="space-y-4">
               {shipments.map((shipment) => (
-                <Card
-                  key={shipment.id}
-                  className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm"
-                >
+                <Card key={shipment.id} className="rounded-lg">
                   <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <CardTitle className="text-lg font-semibold text-slate-900">
+                      <CardTitle className="text-lg font-semibold">
                         AWB #{shipment.awb}
                       </CardTitle>
-                      <CardDescription className="text-sm text-slate-600">
+                      <CardDescription className="text-sm">
                         Reference: {shipment.reference || '—'} · Pieces: {shipment.pieces ?? '—'} ·
                         COD: {formatMoney(shipment.codAmount)}
                       </CardDescription>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(shipment.isDelivered)}`}>
+                    <Badge variant={shipment.isDelivered ? 'default' : 'secondary'}>
                       {shipment.isDelivered ? 'Delivered' : 'In transit'}
-                    </span>
+                    </Badge>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Recipient</p>
-                        <p className="text-sm text-slate-900">{shipment.recipientName || '—'}</p>
+                        <p className="text-xs uppercase text-muted-foreground">Recipient</p>
+                        <p className="text-sm text-foreground">{shipment.recipientName || '—'}</p>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Route</p>
-                        <p className="text-sm text-slate-900">
+                        <p className="text-xs uppercase text-muted-foreground">Route</p>
+                        <p className="text-sm text-foreground">
                           {shipment.originCity || '—'} → {shipment.destinationCity || '—'}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Last scan</p>
-                        <p className="text-sm text-slate-900">{formatDate(shipment.lastScanDateTime)}</p>
+                        <p className="text-xs uppercase text-muted-foreground">Last scan</p>
+                        <p className="text-sm text-foreground">{formatDate(shipment.lastScanDateTime)}</p>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Updated</p>
-                        <p className="text-sm text-slate-900">{formatDate(shipment.updatedAt)}</p>
+                        <p className="text-xs uppercase text-muted-foreground">Updated</p>
+                        <p className="text-sm text-foreground">{formatDate(shipment.updatedAt)}</p>
                       </div>
                     </div>
 
                     {shipment.scans.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
+                      <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-sm text-muted-foreground">
                         No scan details captured for this webhook payload.
                       </div>
                     ) : (
-                      <div className="overflow-hidden rounded-2xl border border-slate-100">
-                        <table className="min-w-full divide-y divide-slate-100 text-sm">
-                          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                            <tr>
-                              <th className="px-4 py-3 text-left">Scan</th>
-                              <th className="px-4 py-3 text-left">Description</th>
-                              <th className="px-4 py-3 text-left">City</th>
-                              <th className="px-4 py-3 text-left">Timestamp</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 bg-white">
+                      <div className="rounded-lg border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-left">Scan</TableHead>
+                              <TableHead className="text-left">Description</TableHead>
+                              <TableHead className="text-left">City</TableHead>
+                              <TableHead className="text-left">Timestamp</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
                             {shipment.scans.map((scan) => (
-                              <tr key={scan.id}>
-                                <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                              <TableRow key={scan.id}>
+                                <TableCell className="font-mono text-xs">
                                   {scan.scanType || '—'}
-                                </td>
-                                <td className="px-4 py-3 text-slate-900">{scan.scanDescription || '—'}</td>
-                                <td className="px-4 py-3 text-slate-700">{scan.city || '—'}</td>
-                                <td className="px-4 py-3 text-slate-700">
+                                </TableCell>
+                                <TableCell>{scan.scanDescription || '—'}</TableCell>
+                                <TableCell>{scan.city || '—'}</TableCell>
+                                <TableCell>
                                   {formatDate(scan.scanDateTime)}
                                   {scan.scanTimeZone ? (
-                                    <span className="ms-1 text-xs text-slate-500">{scan.scanTimeZone}</span>
+                                    <span className="ms-1 text-xs text-muted-foreground">{scan.scanTimeZone}</span>
                                   ) : null}
-                                </td>
-                              </tr>
+                                </TableCell>
+                              </TableRow>
                             ))}
-                          </tbody>
-                        </table>
+                          </TableBody>
+                        </Table>
                       </div>
                     )}
 
                     {shipment.contentDesc ? (
-                      <div className="rounded-2xl bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
-                        <span className="font-medium text-slate-800">Content:</span> {shipment.contentDesc}
+                      <div className="rounded-lg bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">Content:</span> {shipment.contentDesc}
                       </div>
                     ) : null}
                   </CardContent>
@@ -220,7 +217,7 @@ export default async function SmsaWebhookPage() {
             </div>
           )}
         </section>
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

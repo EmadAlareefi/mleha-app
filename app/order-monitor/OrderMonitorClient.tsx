@@ -1,15 +1,21 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import AppNavbar from '@/components/AppNavbar';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { AlertTriangle, Clock3, Loader2, RefreshCcw, Search, Truck, UserCheck } from 'lucide-react';
+import { AlertTriangle, Clock3, RefreshCcw, Search, Truck, UserCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Select } from '@/components/ui/select';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
 
 interface MonitorRecord {
   merchantId: string | null;
@@ -434,19 +440,18 @@ export default function OrderMonitorClient() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar title="متابعة التحضير والشحن" subtitle="راقب سير الطلبات" />
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        <div className="mb-6 flex flex-col gap-4 rounded-3xl border border-slate-100 bg-white/90 p-4 shadow-sm shadow-slate-200 sm:flex-row sm:items-center sm:justify-between">
+    <AppPageShell title="متابعة التحضير والشحن" subtitle="راقب سير الطلبات">
+        <Card>
+          <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm text-slate-500">وضع التحديث</p>
-            <p className="text-base font-semibold text-slate-900">آخر تحديث: {lastUpdatedLabel}</p>
+            <p className="text-sm text-muted-foreground">وضع التحديث</p>
+            <p className="text-base font-semibold">آخر تحديث: {lastUpdatedLabel}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               onClick={handleRefresh}
-              className="rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+              variant="outline"
             >
               <RefreshCcw className="ml-2 h-4 w-4" />
               تحديث الآن
@@ -456,39 +461,33 @@ export default function OrderMonitorClient() {
                 type="button"
                 variant="ghost"
                 onClick={handleClearSearch}
-                className="rounded-2xl border border-slate-100"
               >
                 مسح البحث
               </Button>
             )}
           </div>
-        </div>
+          </CardContent>
+        </Card>
 
         <form
           onSubmit={handleSearchSubmit}
-          className="mb-6 flex flex-col gap-3 rounded-3xl border border-slate-100 bg-white/90 p-4 shadow-sm shadow-slate-200 sm:flex-row sm:items-center"
+          className="flex flex-col gap-4 rounded-xl border bg-card p-4 text-card-foreground shadow sm:flex-row sm:items-end"
         >
-          <div className="flex-1">
-            <label htmlFor="monitor-search" className="mb-2 block text-sm font-medium text-slate-600">
-              ابحث برقم الطلب، المرجع أو رقم التتبع
-            </label>
+          <Field className="flex-1">
+            <FieldLabel htmlFor="monitor-search">ابحث برقم الطلب، المرجع أو رقم التتبع</FieldLabel>
             <div className="flex gap-2">
               <Input
                 id="monitor-search"
                 value={searchDraft}
                 onChange={(event) => setSearchDraft(event.target.value)}
                 placeholder="مثال: 112233 أو #A123"
-                className="rounded-2xl border-slate-200 px-4 py-6 text-base"
               />
-              <Button
-                type="submit"
-                className="rounded-2xl bg-slate-900 px-6 py-6 text-base font-semibold"
-              >
+              <Button type="submit">
                 <Search className="ml-2 h-4 w-4" />
                 بحث
               </Button>
             </div>
-          </div>
+          </Field>
           <div className="flex flex-wrap gap-2">
             {TIME_FILTERS.map((filter) => (
               <Button
@@ -496,12 +495,7 @@ export default function OrderMonitorClient() {
                 type="button"
                 onClick={() => handleFilterChange(filter.value)}
                 disabled={isDateFilterActive}
-                className={cn(
-                  'rounded-2xl border px-4 py-3 text-sm font-semibold transition',
-                  filterDays === filter.value && !activeQuery
-                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-700',
-                )}
+                variant={filterDays === filter.value && !activeQuery ? 'default' : 'outline'}
               >
                 {filter.label}
               </Button>
@@ -509,56 +503,52 @@ export default function OrderMonitorClient() {
           </div>
         </form>
 
-        <div className="mb-6 grid gap-4 rounded-3xl border border-slate-100 bg-white/90 p-4 shadow-sm shadow-slate-200 md:grid-cols-2">
+        <Card>
+          <CardContent className="grid gap-4 p-4 md:grid-cols-2">
           <div className="space-y-4">
-            <div>
-              <label htmlFor="status-filter" className="mb-2 block text-sm font-medium text-slate-600">
-                حالة التحضير
-              </label>
-              <Select
+            <Field>
+              <FieldLabel htmlFor="status-filter">حالة التحضير</FieldLabel>
+              <NativeSelect
                 id="status-filter"
                 value={statusFilter}
                 onChange={(event) => handleStatusChange(event.target.value)}
-                className="h-12 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+                className="w-full"
               >
                 {ORDER_STATUS_FILTERS.map((option) => (
                   <option key={option.value || 'all'} value={option.value}>
                     {option.label}
                   </option>
                 ))}
-              </Select>
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700">
-              <input
-                type="checkbox"
+              </NativeSelect>
+            </Field>
+            <Field orientation="horizontal" className="rounded-md border p-3">
+              <Checkbox
+                id="missing-shipment-only"
                 checked={missingShipmentOnly}
-                onChange={handleMissingShipmentChange}
-                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                onCheckedChange={handleMissingShipmentChange}
               />
-              عرض الطلبات التي لا تحتوي على شحنة
-            </label>
+              <FieldLabel htmlFor="missing-shipment-only">عرض الطلبات التي لا تحتوي على شحنة</FieldLabel>
+            </Field>
           </div>
           <div className="space-y-3">
-            <p className="text-sm font-medium text-slate-600">فلترة بالتاريخ</p>
+            <p className="text-sm font-medium">فلترة بالتاريخ</p>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="flex-1 space-y-1">
-                <span className="text-xs text-slate-500">من</span>
+              <Field className="flex-1">
+                <FieldLabel>من</FieldLabel>
                 <Input
                   type="date"
                   value={dateRange.start}
                   onChange={(event) => handleDateChange('start', event.target.value)}
-                  className="rounded-2xl border border-slate-200 px-3 py-2 text-sm"
                 />
-              </div>
-              <div className="flex-1 space-y-1">
-                <span className="text-xs text-slate-500">إلى</span>
+              </Field>
+              <Field className="flex-1">
+                <FieldLabel>إلى</FieldLabel>
                 <Input
                   type="date"
                   value={dateRange.end}
                   onChange={(event) => handleDateChange('end', event.target.value)}
-                  className="rounded-2xl border border-slate-200 px-3 py-2 text-sm"
                 />
-              </div>
+              </Field>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -566,52 +556,54 @@ export default function OrderMonitorClient() {
                 variant="ghost"
                 onClick={handleClearDates}
                 disabled={!isDateFilterActive}
-                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold"
               >
                 مسح التاريخ
               </Button>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-muted-foreground">
                 عند اختيار تاريخ يتم تجاهل فلتر الأيام أعلاه تلقائياً.
               </p>
             </div>
           </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {meta && (
-          <div className="mb-6 grid gap-4 md:grid-cols-3">
-            <Card className="rounded-3xl border border-slate-100 bg-white/90 p-5 shadow-sm">
-              <p className="text-sm text-slate-500">السجلات المعروضة</p>
-              <p className="text-2xl font-semibold text-slate-900">{meta.counts.records}</p>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">السجلات المعروضة</p>
+              <p className="text-2xl font-semibold">{meta.counts.records}</p>
+              </CardContent>
             </Card>
-            <Card className="rounded-3xl border border-slate-100 bg-white/90 p-5 shadow-sm">
-              <p className="text-sm text-slate-500">طلبات التحضير المطابقة</p>
-              <p className="text-2xl font-semibold text-slate-900">{meta.counts.assignments}</p>
+            <Card>
+              <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">طلبات التحضير المطابقة</p>
+              <p className="text-2xl font-semibold">{meta.counts.assignments}</p>
+              </CardContent>
             </Card>
-            <Card className="rounded-3xl border border-slate-100 bg-white/90 p-5 shadow-sm">
-              <p className="text-sm text-slate-500">شحنات مطابقة</p>
-              <p className="text-2xl font-semibold text-slate-900">{meta.counts.shipments}</p>
+            <Card>
+              <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">شحنات مطابقة</p>
+              <p className="text-2xl font-semibold">{meta.counts.shipments}</p>
+              </CardContent>
             </Card>
           </div>
         )}
 
         {error && (
-          <Card className="mb-6 flex items-center gap-3 rounded-3xl border border-rose-100 bg-rose-50/60 p-4 text-rose-700">
+          <Alert variant="destructive">
             <AlertTriangle className="h-5 w-5" />
-            <p className="text-sm font-semibold">{error}</p>
-          </Card>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
-        {loading && (
-          <div className="mb-6 flex items-center gap-3 rounded-3xl border border-slate-100 bg-white p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
-            <p className="text-slate-600">جاري تحميل البيانات...</p>
-          </div>
-        )}
+        {loading && <LoadingState label="جاري تحميل البيانات..." />}
 
         {!loading && !hasRecords && (
-          <Card className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-slate-500">
-            لا توجد سجلات مطابقة حالياً. جرّب تغيير الفلتر أو البحث برقم محدد.
-          </Card>
+          <EmptyState
+            title="لا توجد سجلات مطابقة"
+            description="جرّب تغيير الفلتر أو البحث برقم محدد."
+          />
         )}
 
         <div className="space-y-4">
@@ -622,52 +614,51 @@ export default function OrderMonitorClient() {
             return (
               <Card
                 key={`${record.orderId}-${record.assignmentId || 'shipment'}`}
-                className="rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm shadow-slate-200"
               >
-                <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <CardHeader className="flex flex-col gap-2 border-b sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-sm text-slate-500">رقم الطلب</p>
-                    <p className="text-xl font-semibold text-slate-900">
+                    <p className="text-sm text-muted-foreground">رقم الطلب</p>
+                    <CardTitle className="text-xl">
                       {record.orderNumber || 'غير متوفر'}
-                    </p>
-                    <div className="mt-1 text-xs text-slate-500">
+                    </CardTitle>
+                    <div className="mt-1 text-xs text-muted-foreground">
                       <span>معرف سلة: {record.orderId}</span>
                       {record.orderReference && (
-                        <span className="ml-2 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                        <Badge variant="secondary" className="ml-2">
                           مرجع: {record.orderReference}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    <Clock3 className="h-4 w-4 text-slate-500" />
+                  <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <Clock3 className="h-4 w-4" />
                     <span>
                       آخر نشاط:{' '}
                       {record.latestActivityAt
                         ? formatDateTime(record.latestActivityAt)
                         : 'غير محدد'}
                     </span>
-                    {latestRelative && <span className="text-slate-400">({latestRelative})</span>}
+                    {latestRelative && <span>({latestRelative})</span>}
                   </div>
-                </div>
+                </CardHeader>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
-                    <div className="mb-3 flex items-center gap-2 text-slate-600">
+                <CardContent className="grid gap-4 p-5 md:grid-cols-2">
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="mb-3 flex items-center gap-2 text-muted-foreground">
                       <UserCheck className="h-4 w-4 text-indigo-600" />
                       <span className="text-sm font-semibold">تحضير الطلب</span>
                     </div>
                     <div className="mb-3">
-                      <span
+                      <Badge
+                        variant="outline"
                         className={cn(
-                          'inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold',
                           prepMeta.className,
                         )}
                       >
                         {prepMeta.label}
-                      </span>
+                      </Badge>
                     </div>
-                    <dl className="space-y-2 text-sm text-slate-600">
+                    <dl className="space-y-2 text-sm text-muted-foreground">
                       <div className="flex items-center justify-between">
                         <dt>المسؤول</dt>
                         <dd>{renderUserWithActions(record.preparedById, record.preparedByName)}</dd>
@@ -687,22 +678,22 @@ export default function OrderMonitorClient() {
                     </dl>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                    <div className="mb-3 flex items-center gap-2 text-slate-600">
+                  <div className="rounded-lg border bg-card p-4">
+                    <div className="mb-3 flex items-center gap-2 text-muted-foreground">
                       <Truck className="h-4 w-4 text-emerald-600" />
                       <span className="text-sm font-semibold">الشحن والبوليصة</span>
                     </div>
                     <div className="mb-3">
-                      <span
+                      <Badge
+                        variant="outline"
                         className={cn(
-                          'inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold',
                           shippingMeta.className,
                         )}
                       >
                         {shippingMeta.label}
-                      </span>
+                      </Badge>
                     </div>
-                    <dl className="space-y-2 text-sm text-slate-600">
+                    <dl className="space-y-2 text-sm text-muted-foreground">
                       <div className="flex items-center justify-between">
                         <dt>مسؤول الشحن</dt>
                         <dd>{renderUserWithActions(record.shippedById, record.shippedByName)}</dd>
@@ -717,7 +708,7 @@ export default function OrderMonitorClient() {
                       </div>
                       <div className="flex items-center justify-between">
                         <dt>رقم التتبع</dt>
-                        <dd className="font-mono text-xs text-slate-900">
+                        <dd className="font-mono text-xs text-foreground">
                           {record.trackingNumber || '—'}
                         </dd>
                       </div>
@@ -738,12 +729,11 @@ export default function OrderMonitorClient() {
                       )}
                     </dl>
                   </div>
-                </div>
+                </CardContent>
               </Card>
             );
           })}
         </div>
-      </main>
       <ConfirmationDialog
         open={violationDialog.open}
         title="تسجيل مخالفة"
@@ -762,14 +752,12 @@ export default function OrderMonitorClient() {
         content={
           <div className="mt-4 space-y-3">
             {violationError && (
-              <p className="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-600">
-                {violationError}
-              </p>
+              <Alert variant="destructive">
+                <AlertDescription>{violationError}</AlertDescription>
+              </Alert>
             )}
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-600" htmlFor="violation-title">
-                عنوان المخالفة
-              </label>
+            <Field>
+              <FieldLabel htmlFor="violation-title">عنوان المخالفة</FieldLabel>
               <Input
                 id="violation-title"
                 value={violationForm.title}
@@ -779,11 +767,9 @@ export default function OrderMonitorClient() {
                 className="rounded-2xl"
                 placeholder="مثال: تأخير في تحضير الطلب"
               />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-600" htmlFor="violation-points">
-                النقاط
-              </label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="violation-points">النقاط</FieldLabel>
               <Input
                 id="violation-points"
                 type="number"
@@ -794,28 +780,22 @@ export default function OrderMonitorClient() {
                 }
                 className="rounded-2xl"
               />
-            </div>
-            <div className="space-y-1">
-              <label
-                className="text-xs font-semibold text-slate-600"
-                htmlFor="violation-description"
-              >
-                تفاصيل إضافية
-              </label>
-              <textarea
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="violation-description">تفاصيل إضافية</FieldLabel>
+              <Textarea
                 id="violation-description"
                 rows={4}
                 value={violationForm.description}
                 onChange={(event) =>
                   setViolationForm((prev) => ({ ...prev, description: event.target.value }))
                 }
-                className="w-full rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 placeholder="أضف تفاصيل يمكن للإداري مراجعتها"
               />
-            </div>
+            </Field>
           </div>
         }
       />
-    </div>
+    </AppPageShell>
   );
 }

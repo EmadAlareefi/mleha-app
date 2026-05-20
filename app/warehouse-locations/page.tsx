@@ -11,11 +11,17 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 
 type ProductLocation = {
   id: string;
@@ -45,11 +51,6 @@ async function parseJsonResponse(response: Response, fallbackMessage: string) {
     throw new Error(fallbackMessage);
   }
 }
-
-const inputClasses =
-  'h-12 rounded-2xl border border-slate-200/70 bg-white/80 px-4 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
-
-const textareaClasses = `${inputClasses} min-h-[96px] resize-none py-3`;
 
 export default function WarehouseLocationsPage() {
   const { data: session } = useSession();
@@ -269,27 +270,25 @@ export default function WarehouseLocationsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
-      <AppNavbar
-        title="مواقع التخزين"
-        subtitle="سجّل مواقع المنتجات بسرعة وأرسلها لفرق التحضير والشحن"
-      />
-
-      <main className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 space-y-8">
+    <AppPageShell
+      title="مواقع التخزين"
+      subtitle="سجّل مواقع المنتجات بسرعة وأرسلها لفرق التحضير والشحن"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
         <section className="grid gap-6 lg:grid-cols-[1.4fr,0.6fr]">
-          <Card className="relative overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-slate-900 via-indigo-900 to-indigo-700 text-white">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.12),transparent_60%)]" />
-            <div className="relative z-10 flex flex-col gap-6 p-8">
+          <Card className="overflow-hidden border-primary/20 bg-primary text-primary-foreground">
+            <div className="flex flex-col gap-6 p-8">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.4em] text-white/60">مستودع</p>
+                  <p className="text-xs uppercase tracking-[0.4em] text-primary-foreground/60">مستودع</p>
                   <h1 className="text-3xl font-semibold">لوحة مواقع التخزين</h1>
-                  <p className="text-white/70">
+                  <p className="text-primary-foreground/70">
                     تابع رموز SKU المسجلة وحدّث مواقعها فوراً مع سجل زمني لكل تحديث.
                   </p>
                 </div>
-                <div className="flex flex-col rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-right text-sm">
-                  <span className="text-white/70">آخر تحديث</span>
+                <div className="flex flex-col rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-4 py-3 text-right text-sm">
+                  <span className="text-primary-foreground/70">آخر تحديث</span>
                   <span className="text-xl font-semibold">
                     {lastUpdatedLabel || '—'}
                   </span>
@@ -297,33 +296,30 @@ export default function WarehouseLocationsPage() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4">
-                  <p className="text-sm text-white/70">السجلات الظاهرة</p>
+                <div className="rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-5 py-4">
+                  <p className="text-sm text-primary-foreground/70">السجلات الظاهرة</p>
                   <p className="mt-2 text-3xl font-semibold">{productLocations.length}</p>
                 </div>
-                <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4">
-                  <p className="text-sm text-white/70">وضع البحث</p>
+                <div className="rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-5 py-4">
+                  <p className="text-sm text-primary-foreground/70">وضع البحث</p>
                   <p className="mt-2 text-xl font-semibold">
                     {searchQuery ? `نتائج لـ ${searchQuery}` : 'عرض عام'}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4">
-                  <p className="text-sm text-white/70">حد النتائج</p>
+                <div className="rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-5 py-4">
+                  <p className="text-sm text-primary-foreground/70">حد النتائج</p>
                   <p className="mt-2 text-3xl font-semibold">{limit}</p>
                 </div>
               </div>
 
               {locationSummary.length > 0 && (
                 <div>
-                  <p className="mb-3 text-sm text-white/70">أكثر المخازن نشاطاً</p>
+                  <p className="mb-3 text-sm text-primary-foreground/70">أكثر المخازن نشاطاً</p>
                   <div className="flex flex-wrap gap-2">
                     {locationSummary.map(([label, count]) => (
-                      <span
-                        key={label}
-                        className="rounded-full border border-white/20 bg-white/10 px-4 py-1 text-sm text-white"
-                      >
+                      <Badge key={label} variant="secondary">
                         {label} • {count}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
                 </div>
@@ -331,18 +327,18 @@ export default function WarehouseLocationsPage() {
             </div>
           </Card>
 
-          <Card className="rounded-3xl border border-indigo-100 bg-white/95 shadow-[0_20px_40px_rgba(15,23,42,0.08)]">
+          <Card>
             <div className="p-6">
-              <div className="flex items-center gap-3 text-indigo-600">
+              <div className="flex items-center gap-3 text-primary">
                 <ClipboardList className="h-6 w-6" />
                 <div>
-                  <h2 className="text-xl font-semibold text-slate-900">إرشادات الاستخدام</h2>
-                  <p className="text-sm text-slate-500">
+                  <h2 className="text-xl font-semibold text-foreground">إرشادات الاستخدام</h2>
+                  <p className="text-sm text-muted-foreground">
                     سجّل رمز SKU والموقع الداخلي بنفس التنسيق المتفق عليه (مثال: A1-03-B).
                   </p>
                 </div>
               </div>
-              <ul className="mt-4 list-disc space-y-2 pr-5 text-sm text-slate-600">
+              <ul className="mt-4 list-disc space-y-2 pr-5 text-sm text-muted-foreground">
                 <li>يمكن تحديث نفس SKU أكثر من مرة وسيتم حفظ آخر محرر.</li>
                 <li>يجب أن تكون مواقع التخزين بالأحرف الإنجليزية لسهولة مسحها.</li>
                 <li>الحذف متاح للمسؤول فقط، ويجب استخدامه بحذر.</li>
@@ -352,32 +348,26 @@ export default function WarehouseLocationsPage() {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.05fr,0.95fr]">
-          <Card className="rounded-3xl border border-slate-100 bg-white/95 shadow">
-            <div className="border-b border-slate-100 px-6 py-4">
-              <h2 className="text-xl font-semibold text-slate-900">
+          <Card>
+            <div className="border-b px-6 py-4">
+              <h2 className="text-xl font-semibold">
                 {selectedLocation ? 'تعديل موقع مسجل' : 'تسجيل موقع جديد'}
               </h2>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 اضغط على أي صف من الجدول لتعديله أو استخدم النموذج لإضافة سجل جديد.
               </p>
             </div>
             <div className="p-6 space-y-4">
               {formStatus && (
-                <div
-                  className={`rounded-2xl border px-4 py-3 text-sm ${
-                    formStatus.type === 'success'
-                      ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
-                      : 'border-rose-100 bg-rose-50 text-rose-700'
-                  }`}
-                >
-                  {formStatus.text}
-                </div>
+                <Alert variant={formStatus.type === 'error' ? 'destructive' : 'default'}>
+                  <AlertDescription>{formStatus.text}</AlertDescription>
+                </Alert>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">رمز SKU</label>
+                  <Field className="gap-2">
+                    <FieldLabel>رمز SKU</FieldLabel>
                     <Input
                       value={formData.sku}
                       onChange={(event) =>
@@ -387,11 +377,10 @@ export default function WarehouseLocationsPage() {
                         }))
                       }
                       placeholder="مثال: SKU12345"
-                      className={inputClasses}
                     />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">اسم المنتج</label>
+                  </Field>
+                  <Field className="gap-2">
+                    <FieldLabel>اسم المنتج</FieldLabel>
                     <Input
                       value={formData.productName}
                       onChange={(event) =>
@@ -401,14 +390,13 @@ export default function WarehouseLocationsPage() {
                         }))
                       }
                       placeholder="اسم المنتج (اختياري)"
-                      className={inputClasses}
                     />
-                  </div>
+                  </Field>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">المعرف الداخلي</label>
+                  <Field className="gap-2">
+                    <FieldLabel>المعرف الداخلي</FieldLabel>
                     <Input
                       value={formData.productId}
                       onChange={(event) =>
@@ -418,13 +406,10 @@ export default function WarehouseLocationsPage() {
                         }))
                       }
                       placeholder="Product ID (اختياري)"
-                      className={inputClasses}
                     />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">
-                      موقع التخزين
-                    </label>
+                  </Field>
+                  <Field className="gap-2">
+                    <FieldLabel>موقع التخزين</FieldLabel>
                     <Input
                       value={formData.location}
                       onChange={(event) =>
@@ -434,14 +419,13 @@ export default function WarehouseLocationsPage() {
                         }))
                       }
                       placeholder="مثال: A1-03-B"
-                      className={inputClasses}
                     />
-                  </div>
+                  </Field>
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">ملاحظات</label>
-                  <textarea
+                <Field className="gap-2">
+                  <FieldLabel>ملاحظات</FieldLabel>
+                  <Textarea
                     value={formData.notes}
                     onChange={(event) =>
                       setFormData((prev) => ({
@@ -450,15 +434,13 @@ export default function WarehouseLocationsPage() {
                       }))
                     }
                     placeholder="اكتب أي ملاحظة تساعد فريق المستودع (اختياري)"
-                    className={textareaClasses}
                   />
-                </div>
+                </Field>
 
                 <div className="flex flex-wrap gap-3">
                   <Button
                     type="submit"
                     disabled={saving}
-                    className="rounded-2xl bg-indigo-600 px-6 py-3 text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-700"
                   >
                     {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                     {selectedLocation ? 'تحديث الموقع' : 'حفظ الموقع'}
@@ -468,7 +450,6 @@ export default function WarehouseLocationsPage() {
                       type="button"
                       variant="outline"
                       onClick={resetForm}
-                      className="rounded-2xl border-slate-200 px-6 py-3 text-slate-600 hover:text-slate-900"
                     >
                       <XCircle className="h-4 w-4" />
                       إلغاء التحديد
@@ -480,7 +461,6 @@ export default function WarehouseLocationsPage() {
                       variant="destructive"
                       onClick={handleDelete}
                       disabled={saving}
-                      className="rounded-2xl px-6 py-3"
                     >
                       <Trash2 className="h-4 w-4" />
                       حذف السجل
@@ -491,10 +471,10 @@ export default function WarehouseLocationsPage() {
             </div>
           </Card>
 
-          <Card className="rounded-3xl border border-slate-100 bg-white/95 shadow">
-            <div className="border-b border-slate-100 px-6 py-4">
-              <h2 className="text-xl font-semibold text-slate-900">البحث والسجل</h2>
-              <p className="text-sm text-slate-500">
+          <Card>
+            <div className="border-b px-6 py-4">
+              <h2 className="text-xl font-semibold">البحث والسجل</h2>
+              <p className="text-sm text-muted-foreground">
                 استعرض السجلات الحالية وابحث بالكود، الاسم، أو الموقع.
               </p>
             </div>
@@ -506,13 +486,12 @@ export default function WarehouseLocationsPage() {
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
                     placeholder="ابحث برقم SKU أو الموقع أو اسم المنتج"
-                    className={`${inputClasses} pl-10`}
+                    className="pl-10"
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="submit"
-                    className="rounded-2xl bg-slate-900 px-5 py-3 text-white hover:bg-slate-800"
                     disabled={loading}
                   >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -523,7 +502,6 @@ export default function WarehouseLocationsPage() {
                       type="button"
                       variant="ghost"
                       onClick={clearSearch}
-                      className="rounded-2xl text-slate-500 hover:text-slate-900"
                     >
                       إعادة التعيين
                     </Button>
@@ -532,23 +510,25 @@ export default function WarehouseLocationsPage() {
               </form>
 
               <div className="flex flex-wrap items-center gap-3">
-                <label className="text-sm font-semibold text-slate-600">حد النتائج</label>
-                <select
+                <Field className="w-28 gap-2">
+                  <FieldLabel>حد النتائج</FieldLabel>
+                <NativeSelect
                   value={limit}
                   onChange={(event) => setLimit(Number(event.target.value))}
-                  className={`${inputClasses} h-11 w-28 text-center`}
+                  className="w-full"
                 >
                   {limitOptions.map((option) => (
-                    <option key={option} value={option}>
+                    <NativeSelectOption key={option} value={option}>
                       {option}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
+                </NativeSelect>
+                </Field>
                 <Button
                   type="button"
                   onClick={fetchProductLocations}
                   disabled={loading}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-slate-600 shadow-sm hover:text-slate-900"
+                  variant="outline"
                 >
                   <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                   تحديث
@@ -556,35 +536,37 @@ export default function WarehouseLocationsPage() {
               </div>
 
               {error && (
-                <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                  {error}
-                </div>
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
 
               {schemaMissing && (
-                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <Alert>
+                  <AlertDescription>
                   لا يمكن تحميل السجلات قبل تشغيل أداة الهجرة: قم بتشغيل
                   <code className="mx-1 rounded bg-white px-2 py-0.5 text-xs text-amber-700">
                     prisma migrate deploy
                   </code>
                   ثم أعد المحاولة.
-                </div>
+                  </AlertDescription>
+                </Alert>
               )}
 
-              <div className="rounded-3xl border border-slate-100 bg-slate-50/60 p-4 text-sm text-slate-600">
-                <p className="flex items-center gap-2 font-semibold text-slate-800">
-                  <MapPin className="h-4 w-4 text-indigo-500" />
+              <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <p className="flex items-center gap-2 font-semibold text-foreground">
+                  <MapPin className="h-4 w-4 text-primary" />
                   التحديد السريع
                 </p>
-                <p>
+                <FieldDescription>
                   اضغط على أي صف لنسخ بياناته إلى نموذج التحرير. الصف المحدد يظل مظللاً ليسهل تتبعه.
-                </p>
+                </FieldDescription>
               </div>
 
-              <div className="rounded-2xl border border-slate-100">
+              <div className="rounded-lg border">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50/60 text-slate-600">
+                    <TableRow>
                       <TableHead className="text-right">SKU</TableHead>
                       <TableHead className="text-right">المنتج</TableHead>
                       <TableHead className="text-right">الموقع</TableHead>
@@ -594,8 +576,11 @@ export default function WarehouseLocationsPage() {
                   <TableBody>
                     {productLocations.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="py-10 text-center text-slate-500">
-                          لا توجد سجلات مطابقة للبحث الحالي.
+                        <TableCell colSpan={4}>
+                          <EmptyState
+                            title="لا توجد سجلات مطابقة"
+                            description="غيّر كلمات البحث أو حد النتائج ثم أعد المحاولة."
+                          />
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -607,36 +592,36 @@ export default function WarehouseLocationsPage() {
                             onClick={() => handleRowSelect(record)}
                             className={`cursor-pointer rounded-2xl transition ${
                               isSelected
-                                ? 'bg-indigo-50/80 font-semibold text-slate-900'
-                                : 'hover:bg-slate-50'
+                                ? 'bg-muted font-semibold'
+                                : 'hover:bg-muted/50'
                             }`}
                           >
                             <TableCell className="font-mono text-sm">{record.sku}</TableCell>
                             <TableCell>
                               <div className="flex flex-col">
-                                <span className="font-medium text-slate-900">
+                                <span className="font-medium">
                                   {record.productName || '—'}
                                 </span>
                                 {record.productId && (
-                                  <span className="text-xs text-slate-400">{record.productId}</span>
+                                  <span className="text-xs text-muted-foreground">{record.productId}</span>
                                 )}
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-indigo-700">
+                              <Badge variant="outline">
                                 <MapPin className="h-3.5 w-3.5" />
                                 {record.location}
-                              </div>
+                              </Badge>
                               {record.notes && (
-                                <p className="mt-1 max-w-[220px] truncate text-xs text-slate-500">
+                                <p className="mt-1 max-w-[220px] truncate text-xs text-muted-foreground">
                                   {record.notes}
                                 </p>
                               )}
                             </TableCell>
-                            <TableCell className="text-sm text-slate-500">
+                            <TableCell className="text-sm text-muted-foreground">
                               <div>{new Date(record.updatedAt).toLocaleString('ar-SA')}</div>
                               {record.updatedBy && (
-                                <span className="text-xs text-slate-400">بواسطة {record.updatedBy}</span>
+                                <span className="text-xs text-muted-foreground">بواسطة {record.updatedBy}</span>
                               )}
                             </TableCell>
                           </TableRow>
@@ -649,7 +634,7 @@ export default function WarehouseLocationsPage() {
             </div>
           </Card>
         </section>
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

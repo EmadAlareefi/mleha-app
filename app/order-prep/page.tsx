@@ -2,16 +2,15 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import OrderPrepClient from './OrderPrepClient';
 
 export default function OrderPrepPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar />
-      <main className="max-w-7xl mx-auto px-4 py-6">
+    <AppPageShell title="تجهيز الطلبات" subtitle="إدارة تجهيز الطلبات ومتابعة حالة المنتجات">
+      <div className="mx-auto w-full max-w-7xl">
         <OrderPrepClient />
-      </main>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

@@ -1,11 +1,18 @@
 'use client';
 
+import Link from 'next/link';
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import AppNavbar from '@/components/AppNavbar';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import {
   Calendar,
   Package,
@@ -15,10 +22,9 @@ import {
   CreditCard,
   MapPin,
   LoaderCircle,
-  Send,
+  ArrowUpRight,
   CheckCircle2,
   XCircle,
-  RefreshCw,
   Megaphone,
   FileSpreadsheet,
 } from 'lucide-react';
@@ -139,9 +145,7 @@ export default function OrderReportsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [syncingOrders, setSyncingOrders] = useState<Set<string>>(new Set());
-  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [clearingDebugInvoices, setClearingDebugInvoices] = useState(false);
+  const [pageMessage, setPageMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [paymentMethodOptions, setPaymentMethodOptions] = useState<{ value: string; label: string; count: number }[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -184,7 +188,6 @@ export default function OrderReportsPage() {
         `/api/order-history/admin${query ? `?${query}` : ''}`
       );
       const data = await response.json();
-      console.log(data);
       if (data.success) {
         const fetchedOrders: OrderRecord[] = data.orders ?? [];
         setOrders((prev) => (append ? [...prev, ...fetchedOrders] : fetchedOrders));
@@ -306,7 +309,7 @@ export default function OrderReportsPage() {
   const handleExportToExcel = async () => {
     if (isExporting) return;
     setIsExporting(true);
-    setSyncMessage(null);
+    setPageMessage(null);
 
     try {
       const allOrders: OrderRecord[] = [];
@@ -338,11 +341,11 @@ export default function OrderReportsPage() {
       }
 
       if (allOrders.length === 0) {
-        setSyncMessage({
+        setPageMessage({
           type: 'error',
           text: 'لا توجد بيانات مطابقة للفلاتر الحالية لتصديرها',
         });
-        setTimeout(() => setSyncMessage(null), 5000);
+        setTimeout(() => setPageMessage(null), 5000);
         return;
       }
 
@@ -398,238 +401,55 @@ export default function OrderReportsPage() {
       const timestamp = new Date().toISOString().split('T')[0];
       XLSX.writeFile(workbook, `order-reports-${timestamp}.xlsx`);
 
-      setSyncMessage({
+      setPageMessage({
         type: 'success',
         text: `تم تصدير ${allOrders.length} طلب في ملف Excel`,
       });
-      setTimeout(() => setSyncMessage(null), 5000);
+      setTimeout(() => setPageMessage(null), 5000);
     } catch (error) {
       console.error('Error exporting orders:', error);
-      setSyncMessage({
+      setPageMessage({
         type: 'error',
         text: 'حدث خطأ أثناء تصدير الملف، حاول مرة أخرى',
       });
-      setTimeout(() => setSyncMessage(null), 5000);
+      setTimeout(() => setPageMessage(null), 5000);
     } finally {
       setIsExporting(false);
     }
   };
 
-  const syncOrderToERP = async (orderId: string, orderNumber: string | null) => {
-    setSyncingOrders(prev => new Set(prev).add(orderId));
-    setSyncMessage(null);
-
-    try {
-      const res = await fetch('/api/erp/sync-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, force: false }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setSyncMessage({
-          type: 'success',
-          text: `تم مزامنة الطلب ${orderNumber || orderId} بنجاح`,
-        });
-
-        // Update the order in the list
-        setOrders(prev =>
-          prev.map(order =>
-            order.orderId === orderId
-              ? { ...order, erpSyncedAt: new Date().toISOString(), erpInvoiceId: data.erpInvoiceId, erpSyncError: null }
-              : order
-          )
-        );
-      } else {
-        setSyncMessage({
-          type: 'error',
-          text: `فشل مزامنة الطلب: ${data.error || data.message}`,
-        });
-
-        // Update error status
-        setOrders(prev =>
-          prev.map(order =>
-            order.orderId === orderId
-              ? { ...order, erpSyncedAt: null, erpSyncError: data.error || data.message }
-              : order
-          )
-        );
-      }
-    } catch (error) {
-      console.error('Error syncing order to ERP:', error);
-      setSyncMessage({
-        type: 'error',
-        text: 'حدث خطأ أثناء المزامنة',
-      });
-    } finally {
-      setSyncingOrders(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(orderId);
-        return newSet;
-      });
-
-      setTimeout(() => setSyncMessage(null), 5000);
-    }
-  };
-
-  const syncAllUnsyncedOrders = async () => {
-    const unsyncedOrders = orders.filter(order => !hasSuccessfulERPSync(order));
-
-    if (unsyncedOrders.length === 0) {
-      setSyncMessage({ type: 'error', text: 'لا توجد طلبات غير مزامنة' });
-      setTimeout(() => setSyncMessage(null), 3000);
-      return;
-    }
-
-    if (!confirm(`هل تريد مزامنة ${unsyncedOrders.length} طلب مع نظام ERP؟`)) {
-      return;
-    }
-
-    // Add all unsynced orders to syncing set
-    setSyncingOrders(prev => {
-      const newSet = new Set(prev);
-      unsyncedOrders.forEach(order => newSet.add(order.orderId));
-      return newSet;
-    });
-
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const order of unsyncedOrders) {
-      try {
-        const res = await fetch('/api/erp/sync-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId: order.orderId }),
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-          successCount++;
-          setOrders(prev =>
-            prev.map(o =>
-              o.orderId === order.orderId
-                ? { ...o, erpSyncedAt: new Date().toISOString(), erpInvoiceId: data.erpInvoiceId, erpSyncError: null }
-                : o
-            )
-          );
-        } else {
-          failCount++;
-          setOrders(prev =>
-            prev.map(o =>
-              o.orderId === order.orderId
-                ? { ...o, erpSyncedAt: null, erpSyncError: data.error || data.message }
-                : o
-            )
-          );
-        }
-      } catch (error) {
-        console.error('Error while syncing batch of orders:', error);
-        failCount++;
-      }
-
-      // Small delay between requests
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    setSyncingOrders(new Set());
-    setSyncMessage({
-      type: successCount > 0 ? 'success' : 'error',
-      text: `تمت مزامنة ${successCount} طلب بنجاح، فشل ${failCount} طلب`,
-    });
-    setTimeout(() => setSyncMessage(null), 5000);
-  };
-
-  const clearDebugInvoices = async () => {
-    if (!confirm('هل تريد حذف جميع الفواتير التجريبية (DEBUG)؟')) {
-      return;
-    }
-
-    setClearingDebugInvoices(true);
-    setSyncMessage(null);
-
-    try {
-      const res = await fetch('/api/erp/clear-debug-invoices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setSyncMessage({
-          type: 'success',
-          text: `تم حذف ${data.count} فاتورة تجريبية بنجاح`,
-        });
-
-        // Update orders to remove debug syncs
-        setOrders(prev =>
-          prev.map(order =>
-            order.erpInvoiceId?.startsWith('DEBUG-')
-              ? { ...order, erpSyncedAt: null, erpInvoiceId: null, erpSyncError: null }
-              : order
-          )
-        );
-
-        // Refresh the list
-        await fetchOrders(1, false);
-      } else {
-        setSyncMessage({
-          type: 'error',
-          text: `فشل حذف الفواتير التجريبية: ${data.error || data.message}`,
-        });
-      }
-    } catch (error) {
-      console.error('Error clearing debug ERP invoices:', error);
-      setSyncMessage({
-        type: 'error',
-        text: 'حدث خطأ أثناء حذف الفواتير التجريبية',
-      });
-    } finally {
-      setClearingDebugInvoices(false);
-      setTimeout(() => setSyncMessage(null), 5000);
-    }
-  };
-
   if (loading && orders.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <LoaderCircle className="h-12 w-12 animate-spin text-blue-600 mx-auto" />
-          <p className="mt-4 text-gray-600">جاري التحميل...</p>
-        </div>
-      </div>
+      <AppPageShell title="تقارير الطلبات" subtitle="جاري تحميل بيانات الطلبات">
+        <Card>
+          <LoadingState />
+        </Card>
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar title="تقارير الطلبات" subtitle="عرض وتحليل بيانات الطلبات" />
+    <AppPageShell
+      title="تقارير الطلبات"
+      subtitle="عرض وتحليل بيانات الطلبات مع متابعة حالة مزامنة ERP"
+    >
+      <div className="mx-auto w-full max-w-7xl">
 
-      <div className="max-w-7xl mx-auto p-4">
-
-        {/* Sync Message */}
-        {syncMessage && (
-          <div
-            className={`mb-4 p-4 rounded-lg ${
-              syncMessage.type === 'success'
-                ? 'bg-green-50 border border-green-200 text-green-800'
-                : 'bg-red-50 border border-red-200 text-red-800'
-            }`}
+        {/* Page Message */}
+        {pageMessage && (
+          <Alert
+            variant={pageMessage.type === 'error' ? 'destructive' : 'default'}
+            className="mb-4"
           >
-            {syncMessage.text}
-          </div>
+            <AlertDescription>{pageMessage.text}</AlertDescription>
+          </Alert>
         )}
 
         {/* Action Buttons */}
-        <div className="flex gap-2 mb-6">
+        <div className="mb-6 grid gap-2 sm:grid-cols-2">
           <Button
             onClick={() => setViewMode('stats')}
             variant={viewMode === 'stats' ? 'default' : 'outline'}
-            className="flex-1"
           >
             <TrendingUp className="ml-2 h-4 w-4" />
             الإحصائيات
@@ -637,7 +457,6 @@ export default function OrderReportsPage() {
           <Button
             onClick={() => setViewMode('list')}
             variant={viewMode === 'list' ? 'default' : 'outline'}
-            className="flex-1"
           >
             <Package className="ml-2 h-4 w-4" />
             قائمة الطلبات
@@ -681,14 +500,12 @@ export default function OrderReportsPage() {
         {/* Filters */}
         <Card className="p-4 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                حالة الطلب
-              </label>
-              <select
+            <Field>
+              <FieldLabel>حالة الطلب</FieldLabel>
+              <NativeSelect
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full"
               >
                 <option value="">الكل</option>
                 {statusOptions.map((statusOption, index) => (
@@ -696,75 +513,59 @@ export default function OrderReportsPage() {
                     {statusOption.name}
                   </option>
                 ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                من تاريخ
-              </label>
-              <input
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel>من تاريخ</FieldLabel>
+              <Input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                إلى تاريخ
-              </label>
-              <input
+            </Field>
+            <Field>
+              <FieldLabel>إلى تاريخ</FieldLabel>
+              <Input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                ترتيب العرض
-              </label>
-              <select
+            </Field>
+            <Field>
+              <FieldLabel>ترتيب العرض</FieldLabel>
+              <NativeSelect
                 value={sortDirection}
                 onChange={(event) => setSortDirection(event.target.value as 'asc' | 'desc')}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full"
               >
                 <option value="desc">من الأحدث إلى الأقدم</option>
                 <option value="asc">من الأقدم إلى الأحدث</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                مصدر الحملة
-              </label>
-              <input
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel>مصدر الحملة</FieldLabel>
+              <Input
                 type="text"
                 value={filterCampaignSource}
                 onChange={(e) => setFilterCampaignSource(e.target.value)}
                 placeholder="مثال: coupon"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                اسم الحملة
-              </label>
-              <input
+            </Field>
+            <Field>
+              <FieldLabel>اسم الحملة</FieldLabel>
+              <Input
                 type="text"
                 value={filterCampaignName}
                 onChange={(e) => setFilterCampaignName(e.target.value)}
                 placeholder="مثال: ml"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                طريقة الدفع
-              </label>
-              <select
+            </Field>
+            <Field>
+              <FieldLabel>طريقة الدفع</FieldLabel>
+              <NativeSelect
                 value={filterPaymentMethod}
                 onChange={(e) => setFilterPaymentMethod(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full"
               >
                 <option value="">الكل</option>
                 {paymentMethodOptions.map((pm, index) => (
@@ -772,12 +573,10 @@ export default function OrderReportsPage() {
                     {translatePaymentMethod(pm.value)} ({pm.count})
                   </option>
                 ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                حالة مزامنة ERP
-              </label>
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel>حالة مزامنة ERP</FieldLabel>
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -807,7 +606,7 @@ export default function OrderReportsPage() {
                   غير المتزامنة
                 </Button>
               </div>
-            </div>
+            </Field>
             <div className="md:col-span-2 lg:col-span-1 flex items-end">
               <Button
                 onClick={() => {
@@ -829,6 +628,24 @@ export default function OrderReportsPage() {
           </div>
         </Card>
 
+        <Card className="mb-6 border border-sky-100 bg-gradient-to-r from-sky-50 to-white p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold text-sky-900">تم نقل مزامنة ERP إلى صفحة مستقلة</h2>
+              <p className="text-sm text-sky-800">
+                استخدم صفحة مزامنة ERP لإرسال طلبات يوم كامل أو نطاق زمني كامل إلى ERP، مع
+                مزامنة المرتجعات أيضاً بدون الحاجة إلى تحميل المزيد من الطلبات هنا.
+              </p>
+            </div>
+            <Button asChild className="w-full bg-sky-600 hover:bg-sky-700 md:w-auto">
+              <Link href="/erp-sync" className="shrink-0">
+                <ArrowUpRight className="ml-2 h-4 w-4" />
+                فتح صفحة مزامنة ERP
+              </Link>
+            </Button>
+          </div>
+        </Card>
+
         {/* Content based on view mode */}
         {viewMode === 'stats' ? (
           <div className="space-y-4">
@@ -837,10 +654,10 @@ export default function OrderReportsPage() {
               إحصائيات حالات الطلبات
             </h2>
             {statusStats.length === 0 ? (
-              <Card className="p-8 text-center">
-                <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">لا توجد بيانات</p>
-              </Card>
+              <EmptyState
+                title="لا توجد بيانات"
+                description="غيّر الفلاتر أو نطاق التاريخ لعرض إحصائيات الطلبات."
+              />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {statusStats.map((statusStat, index) => (
@@ -877,6 +694,12 @@ export default function OrderReportsPage() {
                     عرض {formatNumber(orders.length)} من {formatNumber(stats.total)} طلب
                   </p>
                 )}
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/erp-sync">
+                    <ArrowUpRight className="ml-2 h-4 w-4" />
+                    مزامنة ERP
+                  </Link>
+                </Button>
                 <Button
                   onClick={handleExportToExcel}
                   disabled={isExporting}
@@ -895,51 +718,13 @@ export default function OrderReportsPage() {
                     </>
                   )}
                 </Button>
-                {process.env.NODE_ENV === 'development' && (
-                  <Button
-                    onClick={clearDebugInvoices}
-                    disabled={clearingDebugInvoices || syncingOrders.size > 0}
-                    variant="outline"
-                    size="sm"
-                  >
-                    {clearingDebugInvoices ? (
-                      <>
-                        <LoaderCircle className="ml-2 h-4 w-4 animate-spin" />
-                        جاري الحذف...
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="ml-2 h-4 w-4" />
-                        حذف الفواتير التجريبية
-                      </>
-                    )}
-                  </Button>
-                )}
-                <Button
-                  onClick={syncAllUnsyncedOrders}
-                  disabled={syncingOrders.size > 0 || clearingDebugInvoices}
-                  variant="default"
-                  size="sm"
-                >
-                  {syncingOrders.size > 0 ? (
-                    <>
-                      <LoaderCircle className="ml-2 h-4 w-4 animate-spin" />
-                      جاري المزامنة...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="ml-2 h-4 w-4" />
-                      مزامنة الطلبات غير المزامنة
-                    </>
-                  )}
-                </Button>
               </div>
             </div>
             {orders.length === 0 ? (
-              <Card className="p-8 text-center">
-                <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">لا توجد طلبات في السجل</p>
-              </Card>
+              <EmptyState
+                title="لا توجد طلبات في السجل"
+                description="لا توجد طلبات مطابقة للفلاتر الحالية."
+              />
             ) : (
               <>
                 {orders.map((order, index) => {
@@ -953,11 +738,9 @@ export default function OrderReportsPage() {
                             <h3 className="font-bold text-lg">
                               #{order.orderNumber ?? order.orderId}
                             </h3>
-                            <span
-                              className={`px-3 py-1 rounded-full text-sm border ${getStatusColor(order.statusSlug)}`}
-                            >
+                            <Badge variant="outline" className={getStatusColor(order.statusSlug)}>
                               {formatStatusText(order.statusName, order.statusSlug)}
-                            </span>
+                            </Badge>
                           </div>
                           <div className="text-sm text-gray-600 space-y-1">
                             {!isAccountant && order.customerName && (
@@ -1047,25 +830,13 @@ export default function OrderReportsPage() {
                               <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
                                 {getERPOrderSyncError(order)}
                               </div>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => syncOrderToERP(order.orderId, order.orderNumber)}
-                                disabled={syncingOrders.has(order.orderId)}
-                                className="w-full text-xs"
-                              >
-                                {syncingOrders.has(order.orderId) ? (
-                                  <>
-                                    <LoaderCircle className="ml-1 h-3 w-3 animate-spin" />
-                                    جاري إعادة المحاولة...
-                                  </>
-                                ) : (
-                                  <>
-                                    <RefreshCw className="ml-1 h-3 w-3" />
-                                    إعادة المحاولة
-                                  </>
-                                )}
-                              </Button>
+                              <p className="text-xs text-sky-700">
+                                أعد المحاولة من{' '}
+                                <Link href="/erp-sync" className="font-medium underline underline-offset-2">
+                                  صفحة مزامنة ERP
+                                </Link>
+                                .
+                              </p>
                             </div>
                           ) : (
                             <div className="space-y-2">
@@ -1073,24 +844,13 @@ export default function OrderReportsPage() {
                                 <Package className="h-4 w-4" />
                                 <span>لم تتم المزامنة</span>
                               </div>
-                              <Button
-                                size="sm"
-                                onClick={() => syncOrderToERP(order.orderId, order.orderNumber)}
-                                disabled={syncingOrders.has(order.orderId)}
-                                className="w-full text-xs"
-                              >
-                                {syncingOrders.has(order.orderId) ? (
-                                  <>
-                                    <LoaderCircle className="ml-1 h-3 w-3 animate-spin" />
-                                    جاري المزامنة...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Send className="ml-1 h-3 w-3" />
-                                    مزامنة مع ERP
-                                  </>
-                                )}
-                              </Button>
+                              <p className="text-xs text-sky-700">
+                                نفّذ المزامنة من{' '}
+                                <Link href="/erp-sync" className="font-medium underline underline-offset-2">
+                                  صفحة مزامنة ERP
+                                </Link>
+                                .
+                              </p>
                             </div>
                           )}
                         </div>
@@ -1115,6 +875,6 @@ export default function OrderReportsPage() {
           </div>
         )}
       </div>
-    </div>
+    </AppPageShell>
   );
 }

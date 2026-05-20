@@ -1,9 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -49,18 +55,17 @@ type DeliveryAgentTask = {
   createdByUsername?: string | null;
 };
 
-const statusBadgeClasses: Record<string, string> = {
-  pending: 'bg-slate-100 text-slate-800',
-  in_progress: 'bg-amber-100 text-amber-800',
-  agent_completed: 'bg-blue-100 text-blue-800',
-  completed: 'bg-emerald-100 text-emerald-800',
-  cancelled: 'bg-rose-100 text-rose-800',
+const getStatusVariant = (status: DeliveryAgentTask['status']) => {
+  if (status === 'cancelled') return 'destructive';
+  if (status === 'completed') return 'default';
+  if (status === 'agent_completed') return 'outline';
+  return 'secondary';
 };
 
-const priorityClasses: Record<string, string> = {
-  high: 'bg-red-100 text-red-800',
-  normal: 'bg-blue-100 text-blue-800',
-  low: 'bg-slate-100 text-slate-700',
+const getPriorityVariant = (priority?: string | null) => {
+  if (priority === 'high') return 'destructive';
+  if (priority === 'normal') return 'outline';
+  return 'secondary';
 };
 
 const formatDateTime = (value?: string | null) => {
@@ -109,26 +114,7 @@ export default function DeliveryAgentTasksPage() {
     details: '',
   });
 
-  useEffect(() => {
-    const bootstrap = async () => {
-      try {
-        setLoading(true);
-        await Promise.all([fetchAgents(), fetchTasks()]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    bootstrap();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    fetchTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, agentFilter]);
-
-  const fetchAgents = async () => {
+  const fetchAgents = useCallback(async () => {
     try {
       const response = await fetch('/api/delivery-agents?includeStats=true');
       const data = await response.json();
@@ -145,9 +131,9 @@ export default function DeliveryAgentTasksPage() {
         variant: 'destructive',
       });
     }
-  };
+  }, [toast]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     try {
       setTasksLoading(true);
       setTaskError('');
@@ -187,7 +173,24 @@ export default function DeliveryAgentTasksPage() {
     } finally {
       setTasksLoading(false);
     }
-  };
+  }, [agentFilter, statusFilter]);
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      try {
+        setLoading(true);
+        await fetchAgents();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    bootstrap();
+  }, [fetchAgents]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
 
   const handleFormChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -289,39 +292,29 @@ export default function DeliveryAgentTasksPage() {
   );
 
   const renderStatusBadge = (status: DeliveryAgentTask['status']) => (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClasses[status]}`}
-    >
+    <Badge variant={getStatusVariant(status)}>
       {status === 'pending' && 'بانتظار التنفيذ'}
       {status === 'in_progress' && 'قيد التنفيذ'}
       {status === 'agent_completed' && 'بانتظار تأكيد الإدارة'}
       {status === 'completed' && 'منجز'}
       {status === 'cancelled' && 'ملغي'}
-    </span>
+    </Badge>
   );
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12 px-4">
-        <div className="max-w-6xl mx-auto text-center">
-          <p>جاري تحميل بيانات المناديب والمهام...</p>
-        </div>
-      </div>
+      <AppPageShell title="طلبات المناديب" subtitle="إدارة المهام الخاصة والمشتريات العاجلة">
+        <LoadingState label="جاري تحميل بيانات المناديب والمهام..." />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div className="text-center space-y-3">
-          <p className="text-sm text-gray-500">إدارة طلبات المناديب</p>
-          <h1 className="text-3xl font-bold text-gray-900">اطلب من المندوب تنفيذ مشترياتك</h1>
-          <p className="text-gray-600 max-w-3xl mx-auto">
-            أرسل طلبات سريعة للمناديب سواء لشراء مستلزمات مستعجلة أو تنفيذ مهام خاصة، وتابع حالة كل طلب
-            بسهولة بجانب الشحنات المحلية المعيّنة لهم.
-          </p>
-        </div>
-
+    <AppPageShell
+      title="طلبات المناديب"
+      subtitle="أرسل طلبات شراء أو مهام خاصة، وتابع تقدمها بجانب الشحنات المحلية المعيّنة للمناديب"
+    >
+      <div className="space-y-8">
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardHeader>
@@ -330,101 +323,102 @@ export default function DeliveryAgentTasksPage() {
             </CardHeader>
             <CardContent>
               <form className="space-y-4" onSubmit={handleCreateTask}>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">المندوب</label>
-                  <Select
-                    name="deliveryAgentId"
-                    value={formData.deliveryAgentId}
-                    onChange={handleFormChange}
-                  >
-                    <option value="">اختر المندوب</option>
-                    {deliveryAgents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.name} ({agent.username})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel>المندوب</FieldLabel>
+                    <NativeSelect name="deliveryAgentId" value={formData.deliveryAgentId} onChange={handleFormChange}>
+                      <NativeSelectOption value="">اختر المندوب</NativeSelectOption>
+                      {deliveryAgents.map((agent) => (
+                        <NativeSelectOption key={agent.id} value={agent.id}>
+                          {agent.name} ({agent.username})
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </Field>
 
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">عنوان الطلب</label>
-                  <Input
-                    name="title"
-                    placeholder="مثال: شراء صناديق تعبئة متوسطة"
-                    value={formData.title}
-                    onChange={handleFormChange}
-                  />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">نوع الطلب</label>
-                    <Select name="requestType" value={formData.requestType} onChange={handleFormChange}>
-                      <option value="purchase">شراء عاجل</option>
-                      <option value="pickup">استلام شحنة</option>
-                      <option value="support">مساندة فريق آخر</option>
-                      <option value="other">مهمة متنوعة</option>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">الأولوية</label>
-                    <Select name="priority" value={formData.priority} onChange={handleFormChange}>
-                      <option value="high">عالية</option>
-                      <option value="normal">متوسطة</option>
-                      <option value="low">منخفضة</option>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">ما المطلوب شراؤه؟</label>
+                  <Field>
+                    <FieldLabel>عنوان الطلب</FieldLabel>
                     <Input
-                      name="requestedItem"
-                      placeholder="اكتب اسم المنتج أو ما يحتاجه فريقك"
-                      value={formData.requestedItem}
+                      name="title"
+                      placeholder="مثال: شراء صناديق تعبئة متوسطة"
+                      value={formData.title}
                       onChange={handleFormChange}
                     />
+                  </Field>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel>نوع الطلب</FieldLabel>
+                      <NativeSelect name="requestType" value={formData.requestType} onChange={handleFormChange}>
+                        <NativeSelectOption value="purchase">شراء عاجل</NativeSelectOption>
+                        <NativeSelectOption value="pickup">استلام شحنة</NativeSelectOption>
+                        <NativeSelectOption value="support">مساندة فريق آخر</NativeSelectOption>
+                        <NativeSelectOption value="other">مهمة متنوعة</NativeSelectOption>
+                      </NativeSelect>
+                    </Field>
+                    <Field>
+                      <FieldLabel>الأولوية</FieldLabel>
+                      <NativeSelect name="priority" value={formData.priority} onChange={handleFormChange}>
+                        <NativeSelectOption value="high">عالية</NativeSelectOption>
+                        <NativeSelectOption value="normal">متوسطة</NativeSelectOption>
+                        <NativeSelectOption value="low">منخفضة</NativeSelectOption>
+                      </NativeSelect>
+                    </Field>
                   </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">الكمية</label>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel>ما المطلوب شراؤه؟</FieldLabel>
+                      <Input
+                        name="requestedItem"
+                        placeholder="اكتب اسم المنتج أو ما يحتاجه فريقك"
+                        value={formData.requestedItem}
+                        onChange={handleFormChange}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>الكمية</FieldLabel>
+                      <Input
+                        name="quantity"
+                        type="number"
+                        min="1"
+                        value={formData.quantity}
+                        onChange={handleFormChange}
+                      />
+                    </Field>
+                  </div>
+
+                  <Field>
+                    <FieldLabel>تاريخ الاستحقاق</FieldLabel>
                     <Input
-                      name="quantity"
-                      type="number"
-                      min="1"
-                      value={formData.quantity}
+                      name="dueDate"
+                      type="datetime-local"
+                      value={formData.dueDate}
                       onChange={handleFormChange}
                     />
-                  </div>
-                </div>
+                  </Field>
 
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">تاريخ الاستحقاق</label>
-                  <Input
-                    name="dueDate"
-                    type="datetime-local"
-                    value={formData.dueDate}
-                    onChange={handleFormChange}
-                  />
-                </div>
+                  <Field>
+                    <FieldLabel>تفاصيل إضافية</FieldLabel>
+                    <Textarea
+                      name="details"
+                      value={formData.details}
+                      onChange={handleFormChange}
+                      rows={4}
+                      placeholder="اكتب تفاصيل المهمة، نقاط التسليم، أو تعليمات الدفع"
+                    />
+                  </Field>
 
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">تفاصيل إضافية</label>
-                  <textarea
-                    name="details"
-                    value={formData.details}
-                    onChange={handleFormChange}
-                    rows={4}
-                    className="w-full rounded-md border border-input px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    placeholder="اكتب تفاصيل المهمة، نقاط التسليم، أو تعليمات الدفع"
-                  />
-                </div>
+                  {formError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{formError}</AlertDescription>
+                    </Alert>
+                  )}
 
-                {formError && <p className="text-sm text-red-600">{formError}</p>}
-
-                <Button type="submit" className="w-full" disabled={creatingTask}>
-                  {creatingTask ? 'جاري إرسال الطلب...' : 'إرسال الطلب للمندوب'}
-                </Button>
+                  <Button type="submit" className="w-full" disabled={creatingTask}>
+                    {creatingTask ? 'جاري إرسال الطلب...' : 'إرسال الطلب للمندوب'}
+                  </Button>
+                </FieldGroup>
               </form>
             </CardContent>
           </Card>
@@ -464,7 +458,7 @@ export default function DeliveryAgentTasksPage() {
                 <p className="text-sm font-medium text-gray-700 mb-2">مستوى ضغط المناديب</p>
                 <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                   {deliveryAgents.map((agent) => (
-                    <div key={agent.id} className="rounded-lg border p-3 flex items-center justify-between">
+                    <div key={agent.id} className="flex items-center justify-between rounded-md border bg-background p-3">
                       <div>
                         <p className="font-medium text-gray-900">{agent.name}</p>
                         <p className="text-sm text-gray-500">{agent.username}</p>
@@ -478,13 +472,13 @@ export default function DeliveryAgentTasksPage() {
                     </div>
                   ))}
                   {!deliveryAgents.length && (
-                    <p className="text-sm text-gray-500">لا يوجد مناديب نشطون حالياً</p>
+                    <EmptyState title="لا يوجد مناديب نشطون حالياً" />
                   )}
                 </div>
               </div>
 
               {selectedAgent && (
-                <div className="mt-6 rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
+                <div className="mt-6 rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground">
                   <p className="font-semibold text-slate-900">المندوب المختار</p>
                   <p>{selectedAgent.name}</p>
                   <p>
@@ -507,33 +501,38 @@ export default function DeliveryAgentTasksPage() {
               <CardDescription>تابع الحالة وحدثها حسب تقدم المندوب</CardDescription>
             </div>
             <div className="flex flex-col gap-2 md:flex-row md:items-center">
-              <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as any)}>
-                <option value="active">الطلبات النشطة</option>
-                <option value="completed">الطلبات المكتملة</option>
-                <option value="all">كل الطلبات</option>
-              </Select>
-              <Select value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>
-                <option value="all">كل المناديب</option>
+              <NativeSelect value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+                <NativeSelectOption value="active">الطلبات النشطة</NativeSelectOption>
+                <NativeSelectOption value="completed">الطلبات المكتملة</NativeSelectOption>
+                <NativeSelectOption value="all">كل الطلبات</NativeSelectOption>
+              </NativeSelect>
+              <NativeSelect value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>
+                <NativeSelectOption value="all">كل المناديب</NativeSelectOption>
                 {deliveryAgents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
+                  <NativeSelectOption key={agent.id} value={agent.id}>
                     {agent.name}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </Select>
+              </NativeSelect>
               <Button variant="outline" onClick={fetchTasks} disabled={tasksLoading}>
                 تحديث القائمة
               </Button>
             </div>
           </CardHeader>
           <CardContent>
-            {taskError && <p className="text-sm text-red-600 mb-4">{taskError}</p>}
+            {taskError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertDescription>{taskError}</AlertDescription>
+              </Alert>
+            )}
 
             {tasksLoading ? (
-              <p className="text-center text-gray-500">جاري تحميل الطلبات...</p>
+              <LoadingState label="جاري تحميل الطلبات..." />
             ) : tasks.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                لا توجد طلبات في هذه القائمة. جرّب تغيير المرشحات أو إنشاء طلب جديد.
-              </div>
+              <EmptyState
+                title="لا توجد طلبات في هذه القائمة"
+                description="جرّب تغيير المرشحات أو إنشاء طلب جديد."
+              />
             ) : (
               <div className="space-y-4">
                 {tasks.map((task) => (
@@ -552,16 +551,12 @@ export default function DeliveryAgentTasksPage() {
                       <div className="flex items-center gap-2">
                         {renderStatusBadge(task.status)}
                         {task.priority && (
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              priorityClasses[task.priority] || 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
+                          <Badge variant={getPriorityVariant(task.priority)}>
                             {task.priority === 'high' && 'أولوية عالية'}
                             {task.priority === 'normal' && 'أولوية متوسطة'}
                             {task.priority === 'low' && 'أولوية منخفضة'}
                             {!['high', 'normal', 'low'].includes(task.priority) && task.priority}
-                          </span>
+                          </Badge>
                         )}
                       </div>
                     </div>
@@ -663,6 +658,6 @@ export default function DeliveryAgentTasksPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

@@ -4,12 +4,15 @@ import { useState, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { useReactToPrint } from 'react-to-print';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import AppNavbar from '@/components/AppNavbar';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
-import { Search, Printer, AlertCircle, FileText, Globe } from 'lucide-react';
+import { Search, Printer, AlertCircle } from 'lucide-react';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 
@@ -349,25 +352,15 @@ export default function OrderInvoiceSearchPage() {
     return statusMap[status] || status;
   };
 
-  const getStatusColor = (status: string, sallaStatus: string | null) => {
+  const getStatusVariant = (status: string, sallaStatus: string | null) => {
     // Check Salla status IDs
-    if (sallaStatus === '1065456688') return 'bg-orange-100 text-orange-800 border-orange-300';
-    if (sallaStatus === '1576217163') return 'bg-purple-100 text-purple-800 border-purple-300';
-    if (sallaStatus === '1882207425') return 'bg-blue-100 text-blue-800 border-blue-300';
-    if (sallaStatus === '2046404155') return 'bg-rose-100 text-rose-900 border-rose-300';
-    if (sallaStatus === '165947469') return 'bg-green-100 text-green-800 border-green-300';
+    if (sallaStatus === '2046404155') return 'destructive';
+    if (sallaStatus === '165947469') return 'default';
+    if (sallaStatus) return 'secondary';
 
-    const colorMap: Record<string, string> = {
-      'pending': 'bg-yellow-100 text-yellow-800 border-yellow-300',
-      'in_progress': 'bg-blue-100 text-blue-800 border-blue-300',
-      'preparing': 'bg-blue-100 text-blue-800 border-blue-300',
-      'prepared': 'bg-green-100 text-green-800 border-green-300',
-      'completed': 'bg-green-100 text-green-800 border-green-300',
-      'shipped': 'bg-green-100 text-green-800 border-green-300',
-      'under_review': 'bg-orange-100 text-orange-800 border-orange-300',
-      'under_review_reservation': 'bg-purple-100 text-purple-800 border-purple-300',
-    };
-    return colorMap[status] || 'bg-gray-100 text-gray-800 border-gray-300';
+    if (['prepared', 'completed', 'shipped'].includes(status)) return 'default';
+    if (['under_review', 'under_review_reservation'].includes(status)) return 'secondary';
+    return 'outline';
   };
 
   const formatDate = (value?: unknown) => {
@@ -503,9 +496,6 @@ export default function OrderInvoiceSearchPage() {
   const isInternationalOrder = Boolean(order && shippingCountry && !isSaudiCountry(shippingCountry));
   const isCommercialInvoiceAvailable = Boolean(order && isInternationalOrder);
   const shippingTypeLabel = isInternationalOrder ? 'شحنة دولية' : 'شحنة محلية';
-  const shippingTypeColor = isInternationalOrder
-    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-    : 'bg-blue-100 text-blue-800 border-blue-300';
   const canPrintCommercialInvoice = Boolean(order);
 
   const orderCreatedAt = order?.orderData?.created_at ? formatDate(order.orderData.created_at) : '';
@@ -562,17 +552,17 @@ export default function OrderInvoiceSearchPage() {
   // Show loading while checking session
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-lg">جاري التحميل...</p>
-      </div>
+      <AppPageShell title="البحث عن الطلبات والفواتير" subtitle="طباعة الفاتورة التجارية">
+        <LoadingState label="جاري التحميل..." />
+      </AppPageShell>
     );
   }
 
   // If not authenticated or not authorized, show message
   if (!session || !isAuthorized) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md p-8 text-center space-y-4">
+      <AppPageShell title="البحث عن الطلبات والفواتير" subtitle="صلاحية الخدمة مطلوبة">
+        <Card className="mx-auto w-full max-w-md p-8 text-center space-y-4">
           <h1 className="text-2xl font-bold">البحث عن الطلبات والفواتير</h1>
           <p className="text-gray-600">
             يجب أن يكون حسابك مفعّلاً بخدمة &quot;البحث عن الطلبات&quot; للوصول إلى هذه الصفحة. يرجى التواصل مع
@@ -582,25 +572,22 @@ export default function OrderInvoiceSearchPage() {
             تسجيل الدخول
           </Button>
         </Card>
-      </div>
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar title="البحث عن الطلبات والفواتير" subtitle="طباعة الفاتورة التجارية" />
-
-      <div className="w-full px-4 md:px-6 py-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+    <AppPageShell title="البحث عن الطلبات والفواتير" subtitle="طباعة الفاتورة التجارية">
+        <div className="space-y-6">
           {/* Search Section */}
-          <Card className="p-6 shadow-sm">
-            <div className="flex flex-col gap-2 mb-4">
-              <p className="text-sm font-semibold text-blue-600">خطوة البحث</p>
-              <h2 className="text-xl font-bold text-gray-900">ابحث عن طلب</h2>
-              <p className="text-sm text-gray-600">
+          <Card>
+            <CardHeader>
+              <CardTitle>ابحث عن طلب</CardTitle>
+              <CardDescription>
                 أدخل رقم الطلب من سلة، الرقم المرجعي (Reference) أو رقم جوال العميل للحصول على التفاصيل مباشرة.
-              </p>
-            </div>
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
             <div className="flex gap-3 flex-col md:flex-row">
               <div className="flex-1 relative">
                 <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -617,23 +604,26 @@ export default function OrderInvoiceSearchPage() {
               <Button
                 onClick={handleSearch}
                 disabled={searching || !searchQuery.trim()}
-                className="bg-blue-600 hover:bg-blue-700 px-8"
+                className="px-8"
               >
                 {searching ? 'جاري البحث...' : 'بحث'}
               </Button>
             </div>
             {/* Error Message */}
             {error && (
-              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-                <p className="text-red-800">{error}</p>
-              </div>
+              <Alert variant="destructive" className="mt-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
+            </CardContent>
           </Card>
 
           {!order && (
-            <Card className="p-8 text-center text-gray-600 border-dashed">
-              <p>ابحث عن الطلب لعرض تفاصيله وطباعة الفاتورة التجارية أو البوليصة عند الحاجة.</p>
+            <Card className="border-dashed">
+              <CardContent className="p-8">
+                <EmptyState title="ابحث عن الطلب" description="اعرض التفاصيل واطبع الفاتورة التجارية أو البوليصة عند الحاجة." />
+              </CardContent>
             </Card>
           )}
 
@@ -643,16 +633,20 @@ export default function OrderInvoiceSearchPage() {
               {/* Order Header */}
               <Card className="p-6 space-y-6">
                 {order.source === 'history' && (
-                  <div className="p-4 border border-amber-200 bg-amber-50 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                  <Alert>
                     <AlertCircle className="h-5 w-5" />
+                    <AlertDescription>
                     تم العثور على هذا الطلب في السجلات المكتملة (أرشيف). لا يمكن تعديله ولكن يمكن مراجعة تفاصيله وطباعتها.
-                  </div>
+                    </AlertDescription>
+                  </Alert>
                 )}
                 {order.source === 'salla' && (
-                  <div className="p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800 flex items-center gap-2">
+                  <Alert>
                     <AlertCircle className="h-5 w-5" />
+                    <AlertDescription>
                     تم جلب هذا الطلب مباشرةً من بيانات سلة. قد لا يكون لديه تعيين داخلي بعد، لكن يمكنك عرض تفاصيله وطباعته.
-                  </div>
+                    </AlertDescription>
+                  </Alert>
                 )}
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -665,17 +659,12 @@ export default function OrderInvoiceSearchPage() {
                     )}
                   </div>
                   <div className="flex flex-col items-start gap-2 md:items-end">
-                    <span
-                      className={`inline-block px-4 py-2 rounded-full text-sm font-medium border ${getStatusColor(
-                        order.status,
-                        order.sallaStatus
-                      )}`}
-                    >
+                    <Badge variant={getStatusVariant(order.status, order.sallaStatus)}>
                       {getStatusLabel(order.status, order.sallaStatus)}
-                    </span>
-                    <span className={`inline-block px-4 py-2 rounded-full text-xs font-medium border ${shippingTypeColor}`}>
+                    </Badge>
+                    <Badge variant={isInternationalOrder ? 'default' : 'secondary'}>
                       {shippingTypeLabel}
-                    </span>
+                    </Badge>
                     {shippingCountry && (
                       <p className="text-xs text-gray-500">الدولة: {shippingCountry}</p>
                     )}
@@ -708,10 +697,12 @@ export default function OrderInvoiceSearchPage() {
                 </div>
 
                 {order.notes && (
-                  <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                    <p className="text-sm font-medium text-orange-800">ملاحظات داخلية</p>
-                    <p className="text-orange-700 mt-1">{order.notes}</p>
-                  </div>
+                  <Alert>
+                    <AlertDescription>
+                      <span className="block text-sm font-medium">ملاحظات داخلية</span>
+                      <span className="mt-1 block">{order.notes}</span>
+                    </AlertDescription>
+                  </Alert>
                 )}
               </Card>
 
@@ -726,17 +717,14 @@ export default function OrderInvoiceSearchPage() {
                       <div className="flex flex-col gap-2 w-full md:w-auto">
                         {LABEL_PRINTER_OPTIONS.map((printerOption, index) => {
                           const isActivePrinter = printingShipmentPrinter === printerOption.id;
-                          const emphasisClasses =
-                            index === 0
-                              ? 'bg-emerald-600 hover:bg-emerald-700'
-                              : 'bg-blue-600 hover:bg-blue-700';
 
                           return (
                             <Button
                               key={printerOption.id}
                               onClick={() => handleReprintShipmentLabel(printerOption.id)}
                               disabled={isPrintingShipmentLabel}
-                              className={`w-full md:w-auto ${emphasisClasses}`}
+                              variant={index === 0 ? 'default' : 'secondary'}
+                              className="w-full md:w-auto"
                             >
                               {isActivePrinter
                                 ? 'جاري إرسال البوليصة...'
@@ -1044,7 +1032,7 @@ export default function OrderInvoiceSearchPage() {
                     <Button
                       onClick={handlePrintCommercialInvoice}
                       disabled={!canPrintCommercialInvoice}
-                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200 px-8 py-6 text-lg"
+                      className="px-8 py-6 text-lg"
                     >
                       <Printer className="h-5 w-5 ml-2" />
                       طباعة الفاتورة
@@ -1053,7 +1041,7 @@ export default function OrderInvoiceSearchPage() {
                       onClick={handlePrintInvoiceViaPrintNode}
                       disabled={!canPrintCommercialInvoice || printingInvoiceViaPrintNode}
                       variant="outline"
-                      className="px-8 py-6 text-lg disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-200"
+                      className="px-8 py-6 text-lg"
                     >
                       <Printer className="h-5 w-5 ml-2" />
                       {printingInvoiceViaPrintNode ? 'جاري الإرسال للطابعة...' : 'إرسال الفاتورة إلى PrintNode'}
@@ -1064,7 +1052,6 @@ export default function OrderInvoiceSearchPage() {
             </>
           )}
         </div>
-      </div>
 
       {/* Hidden Commercial Invoice for Printing */}
       {order && (
@@ -1086,6 +1073,6 @@ export default function OrderInvoiceSearchPage() {
           />
         </div>
       )}
-    </div>
+    </AppPageShell>
   );
 }

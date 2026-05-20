@@ -2,9 +2,25 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { MapPin, MessageCircle } from 'lucide-react';
 
@@ -995,11 +1011,7 @@ export default function MyDeliveriesPage() {
 
     const statusInfo = statusMap[status] || { label: status, className: 'bg-gray-100 text-gray-800' };
 
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
-        {statusInfo.label}
-      </span>
-    );
+    return <Badge variant="outline" className={statusInfo.className}>{statusInfo.label}</Badge>;
   };
 
   const getCODStatusBadge = (status: string) => {
@@ -1013,11 +1025,7 @@ export default function MyDeliveriesPage() {
 
     const statusInfo = statusMap[status] || { label: status, className: 'bg-gray-100 text-gray-800' };
 
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
-        {statusInfo.label}
-      </span>
-    );
+    return <Badge variant="outline" className={statusInfo.className}>{statusInfo.label}</Badge>;
   };
 
   const getTaskStatusBadge = (status: DeliveryAgentTask['status']) => {
@@ -1031,11 +1039,7 @@ export default function MyDeliveriesPage() {
 
     const statusInfo = statusMap[status];
 
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
-        {statusInfo.label}
-      </span>
-    );
+    return <Badge variant="outline" className={statusInfo.className}>{statusInfo.label}</Badge>;
   };
 
   const getShipmentTypeBadge = (direction?: 'incoming' | 'outgoing') => {
@@ -1046,11 +1050,7 @@ export default function MyDeliveriesPage() {
     };
 
     const typeInfo = statusMap[direction];
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${typeInfo.className}`}>
-        {typeInfo.label}
-      </span>
-    );
+    return <Badge variant="outline" className={typeInfo.className}>{typeInfo.label}</Badge>;
   };
 
   const getExchangeStatusLabel = (status: string) => {
@@ -1071,13 +1071,13 @@ export default function MyDeliveriesPage() {
     if (!request) return null;
 
     return (
-      <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-        <p className="font-semibold">تنبيه استبدال</p>
-        <p className="text-amber-800">
+      <Alert className="mb-3 border-amber-200 bg-amber-50 text-amber-900">
+        <AlertTitle>تنبيه استبدال</AlertTitle>
+        <AlertDescription>
           هذه الشحنة مرتبطة بطلب استبدال. استلم المنتج البديل من المستودع قبل التوجه للعميل واستعد
           لاستلام المنتج المرتجع عند التسليم.
-        </p>
-        <div className="mt-2 flex flex-wrap gap-4 text-xs text-amber-900">
+        </AlertDescription>
+        <div className="col-start-2 mt-2 flex flex-wrap gap-4 text-xs text-amber-900">
           <div>
             <span className="text-amber-700">معرف طلب الاستبدال:</span>{' '}
             <span className="font-mono font-semibold">{request.id}</span>
@@ -1093,7 +1093,7 @@ export default function MyDeliveriesPage() {
             <span className="font-semibold">{getExchangeStatusLabel(request.status)}</span>
           </div>
         </div>
-      </div>
+      </Alert>
     );
   };
 
@@ -1146,52 +1146,36 @@ export default function MyDeliveriesPage() {
     totalCOD: outstandingCodAmount,
   };
   const recentWalletTransactions = walletInfo?.recentTransactions?.slice(0, 5) ?? [];
-  const tabButtonClass = (tab: 'shipments' | 'tasks' | 'reports') =>
-    `w-full rounded-xl px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-      activeTab === tab ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-600 hover:text-blue-600'
-    }`;
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12 px-4">
-        <div className="max-w-6xl mx-auto text-center">
-          <p>جاري التحميل...</p>
-        </div>
-      </div>
+      <AppPageShell title="شحناتي" subtitle="إدارة ومتابعة الشحنات المُعيّنة لك">
+        <LoadingState label="جاري تحميل الشحنات..." />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2">شحناتي</h1>
-          <p className="text-gray-600">إدارة ومتابعة الشحنات المُعيّنة لك</p>
-        </div>
-
+    <AppPageShell title="شحناتي" subtitle="إدارة ومتابعة الشحنات المُعيّنة لك">
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
-        <div className="rounded-2xl border border-gray-100 bg-white/80 p-2 shadow-sm backdrop-blur mb-6">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button type="button" className={tabButtonClass('shipments')} onClick={() => setActiveTab('shipments')}>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'shipments' | 'tasks' | 'reports')}>
+          <TabsList className="w-full sm:w-fit">
+            <TabsTrigger value="shipments" className="flex-1 sm:flex-none">
               الشحنات
-            </button>
-            <button type="button" className={tabButtonClass('tasks')} onClick={() => setActiveTab('tasks')}>
+            </TabsTrigger>
+            <TabsTrigger value="tasks" className="flex-1 sm:flex-none">
               المهام
-            </button>
-            <button type="button" className={tabButtonClass('reports')} onClick={() => setActiveTab('reports')}>
+            </TabsTrigger>
+            <TabsTrigger value="reports" className="flex-1 sm:flex-none">
               التقارير
-            </button>
-          </div>
-        </div>
+            </TabsTrigger>
+          </TabsList>
 
-        {activeTab === 'reports' && (
-          <div className="space-y-6 mb-6">
+        <TabsContent value="reports" className="space-y-6">
             <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
               <Card className="p-4 text-center">
                 <div className="text-2xl font-bold text-blue-600">{stats.active}</div>
@@ -1301,10 +1285,9 @@ export default function MyDeliveriesPage() {
                 </div>
               </div>
             </Card>
-          </div>
-        )}
+        </TabsContent>
 
-        {activeTab === 'tasks' && (
+        <TabsContent value="tasks">
           <Card className="p-6 mb-6">
             {/* Custom delivery tasks */}
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -1334,16 +1317,23 @@ export default function MyDeliveriesPage() {
             </Button>
           </div>
 
-          {tasksError && <p className="text-sm text-red-600 mb-3">{tasksError}</p>}
+          {tasksError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertDescription>{tasksError}</AlertDescription>
+            </Alert>
+          )}
 
           {tasksLoading ? (
-            <p className="text-center text-gray-500 py-4">جاري تحميل المهام...</p>
+            <LoadingState label="جاري تحميل المهام..." />
           ) : visibleTasks.length === 0 ? (
-            <p className="text-center text-gray-500 py-6">
-              {tasksTab === 'active'
-                ? 'لا توجد مهام حالياً، ستظهر هنا الطلبات عند إرسالها لك.'
-                : 'لا توجد مهام مكتملة أو بانتظار التأكيد أو ملغاة.'}
-            </p>
+            <EmptyState
+              title={tasksTab === 'active' ? 'لا توجد مهام حالياً' : 'لا توجد مهام مكتملة'}
+              description={
+                tasksTab === 'active'
+                  ? 'ستظهر هنا الطلبات عند إرسالها لك.'
+                  : 'لا توجد مهام مكتملة أو بانتظار التأكيد أو ملغاة.'
+              }
+            />
           ) : (
             <div className="space-y-4">
               {visibleTasks.map((task) => (
@@ -1417,8 +1407,7 @@ export default function MyDeliveriesPage() {
 
                   {!['completed', 'agent_completed', 'cancelled'].includes(task.status) && (
                     <div className="mt-4 space-y-3">
-                      <textarea
-                        className="w-full rounded-md border border-input px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      <Textarea
                         rows={2}
                         placeholder="ملاحظات الشراء أو وصف ما تم (اختياري)"
                         value={taskNotes[task.id] ?? ''}
@@ -1459,18 +1448,18 @@ export default function MyDeliveriesPage() {
                   )}
 
                   {task.status === 'agent_completed' && (
-                    <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                      <p className="font-semibold">بانتظار تأكيد الإدارة</p>
-                      <p className="mt-1">
+                    <Alert className="mt-3 border-blue-200 bg-blue-50 text-blue-800">
+                      <AlertTitle>بانتظار تأكيد الإدارة</AlertTitle>
+                      <AlertDescription>
                         سيتم اعتماد المهمة بعد أن يقوم صاحب الطلب بمراجعة ما تم وتأكيده. يمكنك متابعة الحالة من
                         هذه القائمة.
-                      </p>
+                      </AlertDescription>
                       {task.completionNotes && (
-                        <p className="mt-2 text-blue-900">
+                        <p className="col-start-2 mt-2 text-sm text-blue-900">
                           ملاحظات التنفيذ: <span className="font-medium">{task.completionNotes}</span>
                         </p>
                       )}
-                    </div>
+                    </Alert>
                   )}
 
                   {task.status === 'completed' && task.completionNotes && (
@@ -1482,11 +1471,10 @@ export default function MyDeliveriesPage() {
               ))}
             </div>
           )}
-        </Card>
-        )}
+          </Card>
+        </TabsContent>
 
-        {activeTab === 'shipments' && (
-          <div className="space-y-4 mb-6">
+        <TabsContent value="shipments" className="space-y-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <h2 className="text-xl font-semibold">شحناتي</h2>
@@ -1550,7 +1538,7 @@ export default function MyDeliveriesPage() {
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <p className="text-sm text-gray-700">
                     عدد الشحنات القابلة للتأكيد:{' '}
-                    <span className="font-semibold">{adminSelectableCount}</span>
+              <span className="font-semibold">{adminSelectableCount}</span>
                     {adminSelectionCount > 0 && (
                       <>
                         {' '}| تم تحديد{' '}
@@ -1567,7 +1555,9 @@ export default function MyDeliveriesPage() {
                   </Button>
                 </div>
                 {adminBulkError && (
-                  <p className="text-sm text-red-600">{adminBulkError}</p>
+                  <Alert variant="destructive">
+                    <AlertDescription>{adminBulkError}</AlertDescription>
+                  </Alert>
                 )}
               </div>
             </Card>
@@ -1577,11 +1567,10 @@ export default function MyDeliveriesPage() {
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">الشحنات النشطة</h3>
               {filteredActiveAssignments.length === 0 ? (
-                <p className="text-center text-gray-500 py-6">
-                  {activeAssignments.length === 0
-                    ? 'لا توجد شحنات نشطة'
-                    : 'لا توجد شحنات مطابقة لبحثك'}
-                </p>
+                <EmptyState
+                  title={activeAssignments.length === 0 ? 'لا توجد شحنات نشطة' : 'لا توجد شحنات مطابقة'}
+                  description={activeAssignments.length === 0 ? undefined : 'غيّر البحث ثم حاول مرة أخرى.'}
+                />
               ) : (
                 <div className="space-y-4">
                   {filteredActiveAssignments.map((assignment) => {
@@ -1613,22 +1602,23 @@ export default function MyDeliveriesPage() {
                               {getStatusBadge(assignment.status)}
                               {getShipmentTypeBadge(assignment.shipmentDirection)}
                             {assignment.exchangeRequest && (
-                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                              <Badge variant="outline" className="bg-amber-100 text-amber-800">
                                 طلب استبدال
-                              </span>
+                              </Badge>
                             )}
                             {showExchangeLabel && (
-                              <span
-                                className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                              <Badge
+                                variant="outline"
+                                className="bg-red-100 text-red-700"
                                 title="يجب استلام الطلب الأصلي من العميل قبل تسليم هذه الشحنة"
                               >
                                 استبدال
-                              </span>
+                              </Badge>
                             )}
                               {assignment.shipment.isCOD && (
-                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                <Badge variant="outline" className="bg-orange-100 text-orange-800">
                                   COD
-                                </span>
+                                </Badge>
                               )}
                             </div>
                             <div className="text-sm text-gray-600">
@@ -1647,11 +1637,9 @@ export default function MyDeliveriesPage() {
                             )}
                             {isAdminSelectable && (
                               <label className="inline-flex items-center gap-2 text-xs font-medium text-emerald-700">
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
+                                <Checkbox
                                   checked={isAdminSelected}
-                                  onChange={() => toggleAdminAssignmentSelection(assignment.id)}
+                                  onCheckedChange={() => toggleAdminAssignmentSelection(assignment.id)}
                                   disabled={adminBulkUpdating}
                                 />
                                 تحديد للتسليم الإداري
@@ -1743,19 +1731,19 @@ export default function MyDeliveriesPage() {
                       {renderExchangeReminder(assignment.exchangeRequest)}
 
                       {!assignment.exchangeRequest && hasExchangeCoupon && (
-                        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-                          <p className="font-semibold">تنبيه استبدال</p>
-                          <p>
+                        <Alert className="mb-3 border-red-200 bg-red-50 text-red-800">
+                          <AlertTitle>تنبيه استبدال</AlertTitle>
+                          <AlertDescription>
                             تم إنشاء هذه الشحنة باستخدام كوبون استبدال. تأكد من استلام الطلب الأصلي من العميل قبل
                             تسليم هذه الشحنة.
-                          </p>
+                          </AlertDescription>
                           {exchangeCouponCode && (
-                            <p className="mt-1">
+                            <p className="col-start-2 mt-1 text-xs">
                               <span className="font-semibold">الكوبون:</span>{' '}
                               <span className="font-mono">{exchangeCouponCode}</span>
                             </p>
                           )}
-                        </div>
+                        </Alert>
                       )}
 
                       {assignment.notes && (
@@ -1804,26 +1792,27 @@ export default function MyDeliveriesPage() {
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">الشحنات المكتملة</h3>
               <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-right bg-gray-100">
-                      <th className="px-3 py-2">رقم الطلب</th>
-                      <th className="px-3 py-2">العميل</th>
-                      <th className="px-3 py-2">المدينة</th>
-                      <th className="px-3 py-2">المبلغ</th>
-                      <th className="px-3 py-2">الحالة</th>
-                      <th className="px-3 py-2">تاريخ الإنجاز</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="min-w-full text-sm">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>رقم الطلب</TableHead>
+                      <TableHead>العميل</TableHead>
+                      <TableHead>المدينة</TableHead>
+                      <TableHead>المبلغ</TableHead>
+                      <TableHead>الحالة</TableHead>
+                      <TableHead>تاريخ الإنجاز</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {filteredCompletedAssignments.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="text-center text-gray-500 py-6">
-                          {completedAssignments.length === 0
-                            ? 'لا توجد شحنات مكتملة'
-                            : 'لا توجد شحنات مطابقة لبحثك'}
-                        </td>
-                      </tr>
+                      <TableRow>
+                        <TableCell colSpan={6}>
+                          <EmptyState
+                            title={completedAssignments.length === 0 ? 'لا توجد شحنات مكتملة' : 'لا توجد شحنات مطابقة'}
+                            description={completedAssignments.length === 0 ? undefined : 'غيّر البحث ثم حاول مرة أخرى.'}
+                          />
+                        </TableCell>
+                      </TableRow>
                     ) : (
                       filteredCompletedAssignments.map((assignment) => {
                         const fullAddress = getFullAddressLabel(assignment.shipment);
@@ -1834,27 +1823,28 @@ export default function MyDeliveriesPage() {
                         const locationShortCode =
                           assignment.shipment.orderItems?.meta?.shipToLocationCode;
                         return (
-                          <tr key={assignment.id} className="border-b">
-                            <td className="px-3 py-2">
+                          <TableRow key={assignment.id}>
+                            <TableCell>
                               <div className="font-mono font-semibold">{assignment.shipment.orderNumber}</div>
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {getShipmentTypeBadge(assignment.shipmentDirection)}
                                 {assignment.exchangeRequest && (
-                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                  <Badge variant="outline" className="bg-amber-100 text-amber-800">
                                     طلب استبدال
-                                  </span>
+                                  </Badge>
                                 )}
                                 {showExchangeLabel && (
-                                  <span
-                                    className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-red-100 text-red-700"
                                     title="يجب استلام الطلب الأصلي من العميل قبل تسليم هذه الشحنة"
                                   >
                                     استبدال
-                                  </span>
+                                  </Badge>
                                 )}
                               </div>
-                            </td>
-                            <td className="px-3 py-2">
+                            </TableCell>
+                            <TableCell>
                               <div>{assignment.shipment.customerName}</div>
                               <div className="mt-1 text-xs text-gray-600 whitespace-pre-line">
                                 {fullAddress}
@@ -1896,36 +1886,41 @@ export default function MyDeliveriesPage() {
                                   </a>
                                 </div>
                               )}
-                            </td>
-                            <td className="px-3 py-2">{assignment.shipment.shippingCity}</td>
-                            <td className="px-3 py-2 font-semibold">
+                            </TableCell>
+                            <TableCell>{assignment.shipment.shippingCity}</TableCell>
+                            <TableCell className="font-semibold">
                               {formatCurrency(assignment.shipment.orderTotal)}
                               {assignment.shipment.isCOD && (
                                 <span className="text-xs text-orange-600 ml-1">(COD)</span>
                               )}
-                            </td>
-                            <td className="px-3 py-2">{getStatusBadge(assignment.status)}</td>
-                            <td className="px-3 py-2 text-xs">
+                            </TableCell>
+                            <TableCell>{getStatusBadge(assignment.status)}</TableCell>
+                            <TableCell className="text-xs">
                               {formatDate(assignment.deliveredAt || assignment.assignedAt)}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       })
                     )}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </Card>
           )}
-        </div>
-        )}
+        </TabsContent>
+        </Tabs>
 
         {/* Update Status Modal */}
 
-        {selectedAssignment && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <Card className="max-w-lg w-full p-6">
-              <h3 className="text-xl font-semibold mb-4">تحديث حالة الشحنة</h3>
+        <Dialog open={Boolean(selectedAssignment)} onOpenChange={(open) => !open && resetStatusModalState()}>
+          {selectedAssignment && (
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>تحديث حالة الشحنة</DialogTitle>
+                <DialogDescription>
+                  راجع الطلب والعميل قبل تأكيد الحالة الجديدة.
+                </DialogDescription>
+              </DialogHeader>
 
               <div className="mb-4">
                 <div className="text-sm text-gray-600 mb-2">
@@ -1940,9 +1935,9 @@ export default function MyDeliveriesPage() {
               </div>
 
               {statusModalError && (
-                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {statusModalError}
-                </div>
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{statusModalError}</AlertDescription>
+                </Alert>
               )}
 
               {newStatus === 'failed' && (
@@ -1950,11 +1945,10 @@ export default function MyDeliveriesPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     سبب الفشل *
                   </label>
-                  <textarea
+                  <Textarea
                     value={failureReason}
                     onChange={(e) => setFailureReason(e.target.value)}
                     placeholder="اذكر سبب فشل التوصيل"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     rows={3}
                     required
                   />
@@ -1979,14 +1973,13 @@ export default function MyDeliveriesPage() {
                           : 'إرسال رمز التحقق'}
                     </Button>
                   </div>
-                  <input
+                  <Input
                     type="text"
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     value={deliveryOtpCode}
                     onChange={(e) => setDeliveryOtpCode(e.target.value)}
                     placeholder="أدخل الرمز المكوّن من 6 أرقام"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-xs text-gray-600">
                     سيتم إرسال الرمز إلى{' '}
@@ -2012,16 +2005,15 @@ export default function MyDeliveriesPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   ملاحظات (اختياري)
                 </label>
-                <textarea
+                <Textarea
                   value={deliveryNotes}
                   onChange={(e) => setDeliveryNotes(e.target.value)}
                   placeholder="ملاحظات إضافية"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   rows={2}
                 />
               </div>
 
-              <div className="flex gap-3">
+              <DialogFooter>
                 <Button
                   onClick={handleUpdateStatus}
                   disabled={
@@ -2029,7 +2021,6 @@ export default function MyDeliveriesPage() {
                     (newStatus === 'failed' && !failureReason.trim()) ||
                     (requiresOtpInput && !deliveryOtpCode.trim())
                   }
-                  className="flex-1"
                 >
                   {updating ? 'جاري التحديث...' : 'تأكيد'}
                 </Button>
@@ -2037,15 +2028,13 @@ export default function MyDeliveriesPage() {
                   variant="outline"
                   onClick={resetStatusModalState}
                   disabled={updating}
-                  className="flex-1"
                 >
                   إلغاء
                 </Button>
-              </div>
-            </Card>
-          </div>
-        )}
-      </div>
-    </div>
+              </DialogFooter>
+            </DialogContent>
+          )}
+        </Dialog>
+    </AppPageShell>
   );
 }

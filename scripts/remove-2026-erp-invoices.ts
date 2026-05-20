@@ -14,14 +14,24 @@ const DATE_RANGE = {
 } as const;
 
 async function removeFutureErpInvoices() {
-  console.log('Looking for ERP-synced orders dated in 2026...\n');
+  console.log('Looking for 2026 orders with ERP sync markers...\n');
 
   const ordersToClean = await prisma.sallaOrder.findMany({
     where: {
-      erpSyncedAt: { not: null },
-      OR: [
-        { placedAt: DATE_RANGE },
-        { updatedAtRemote: DATE_RANGE },
+      AND: [
+        {
+          OR: [
+            { placedAt: DATE_RANGE },
+            { updatedAtRemote: DATE_RANGE },
+          ],
+        },
+        {
+          OR: [
+            { erpSyncedAt: { not: null } },
+            { erpInvoiceId: { not: null } },
+            { erpSyncError: { not: null } },
+          ],
+        },
       ],
     },
     select: {
@@ -32,6 +42,7 @@ async function removeFutureErpInvoices() {
       updatedAtRemote: true,
       erpSyncedAt: true,
       erpInvoiceId: true,
+      erpSyncError: true,
     },
     orderBy: {
       placedAt: 'asc',
@@ -39,18 +50,19 @@ async function removeFutureErpInvoices() {
   });
 
   if (ordersToClean.length === 0) {
-    console.log('No ERP-synced orders found with a 2026 placement/update date.');
+    console.log('No 2026 orders found with ERP sync markers.');
     return;
   }
 
-  console.log(`Found ${ordersToClean.length} ERP-synced orders with dates in 2026:`);
+  console.log(`Found ${ordersToClean.length} 2026 orders with ERP sync markers:`);
   ordersToClean.forEach((order, index) => {
     console.log(
       `${index + 1}. Order #${order.orderNumber ?? order.orderId ?? order.id} | ` +
       `placed: ${order.placedAt?.toISOString() ?? 'n/a'} | ` +
       `updatedAtRemote: ${order.updatedAtRemote?.toISOString() ?? 'n/a'} | ` +
       `erpSyncedAt: ${order.erpSyncedAt?.toISOString() ?? 'n/a'} | ` +
-      `erpInvoiceId: ${order.erpInvoiceId ?? 'n/a'}`
+      `erpInvoiceId: ${order.erpInvoiceId ?? 'n/a'} | ` +
+      `erpSyncError: ${order.erpSyncError ?? 'n/a'}`
     );
   });
 
@@ -81,7 +93,10 @@ async function removeFutureErpInvoices() {
     const invoicesResult = await prisma.sallaInvoice.updateMany({
       where: {
         orderId: { in: relatedOrderIds },
-        erpSyncedAt: { not: null },
+        OR: [
+          { erpSyncedAt: { not: null } },
+          { erpSyncError: { not: null } },
+        ],
       },
       data: {
         erpSyncedAt: null,
@@ -98,7 +113,7 @@ async function removeFutureErpInvoices() {
 
 removeFutureErpInvoices()
   .catch(error => {
-    console.error('Failed to remove ERP invoices synced in 2026:', error);
+    console.error('Failed to clear ERP sync markers for 2026 orders:', error);
     process.exitCode = 1;
   })
   .finally(async () => {

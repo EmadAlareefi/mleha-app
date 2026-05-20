@@ -3,6 +3,14 @@
 import type { FormEvent } from 'react';
 import { useMemo, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 
 type LabelRequest = {
   barcode: string;
@@ -80,113 +88,107 @@ export default function BarcodeLabelsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f3ec] py-10 px-4">
-      <div className="max-w-5xl mx-auto space-y-8">
-        <div className="text-center space-y-3">
-          <p className="text-sm uppercase tracking-[0.3em] text-gray-500">barcode studio</p>
-          <h1 className="text-4xl font-bold text-gray-900">مولد ملصقات الباركود</h1>
-          <p className="text-gray-600">
-            أدخل رقم الصنف، المقاس واللون (اختياري) ثم اختر عدد الملصقات المطلوبة بحجم ٧ سم × ٤ سم
-          </p>
-        </div>
-
+    <AppPageShell
+      title="مولد ملصقات الباركود"
+      subtitle="أدخل رقم الصنف، المقاس واللون ثم اختر عدد الملصقات المطلوبة"
+    >
+      <div className="mx-auto w-full max-w-5xl space-y-8">
         <form
           onSubmit={handleGenerateLabels}
-          className="no-print grid gap-6 rounded-3xl bg-white/90 p-6 shadow-lg shadow-gray-200 md:grid-cols-2"
+          className="no-print"
         >
-          <div className="space-y-2">
-            <label htmlFor="barcode" className="text-sm font-medium text-gray-700">
-              رقم الباركود / رقم الصنف *
-            </label>
-            <input
+          <Card className="rounded-lg">
+            <CardHeader>
+              <CardTitle>بيانات الملصقات</CardTitle>
+              <CardDescription>حجم الملصق النهائي ٧ سم × ٤ سم.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup className="grid gap-6 md:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor="barcode">رقم الباركود / رقم الصنف *</FieldLabel>
+            <Input
               id="barcode"
               type="text"
               value={barcode}
               onChange={(event) => setBarcode(event.target.value)}
               placeholder="7023"
-              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <label htmlFor="size" className="text-sm font-medium text-gray-700">
-              المقاس (اختياري)
-            </label>
-            <input
+          <Field>
+            <FieldLabel htmlFor="size">المقاس (اختياري)</FieldLabel>
+            <Input
               id="size"
               type="text"
               value={size}
               onChange={(event) => setSize(event.target.value)}
               placeholder="50 - XL"
-              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <label htmlFor="color" className="text-sm font-medium text-gray-700">
-              اللون (اختياري)
-            </label>
-            <input
+          <Field>
+            <FieldLabel htmlFor="color">اللون (اختياري)</FieldLabel>
+            <Input
               id="color"
               type="text"
               value={color}
               onChange={(event) => setColor(event.target.value)}
               placeholder="أزرق"
-              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <label htmlFor="quantity" className="text-sm font-medium text-gray-700">
-              عدد الملصقات
-            </label>
-            <input
+          <Field>
+            <FieldLabel htmlFor="quantity">عدد الملصقات</FieldLabel>
+            <Input
               id="quantity"
               type="number"
               min={1}
               max={200}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
-              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
             />
-          </div>
+          </Field>
 
           <div className="md:col-span-2 flex flex-col gap-3 md:flex-row">
-            <button
-              type="submit"
-              className="flex-1 rounded-2xl bg-gray-900 py-3 text-base font-semibold text-white transition hover:bg-black"
-            >
+            <Button type="submit" className="flex-1">
               إنشاء الملصقات
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
               onClick={handlePrintClick}
-              className="flex-1 rounded-2xl border border-gray-900 py-3 text-base font-semibold text-gray-900 transition hover:bg-gray-100"
+              className="flex-1"
             >
               طباعة الملصقات
-            </button>
+            </Button>
           </div>
 
           {error && (
-            <p className="md:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              {error}
-            </p>
+            <Alert className="md:col-span-2">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
+              </FieldGroup>
+            </CardContent>
+          </Card>
         </form>
 
-        <section className="rounded-3xl bg-white p-6 shadow-lg shadow-gray-200">
-          <div className="no-print mb-6 flex flex-wrap items-center justify-between gap-3">
+        <Card className="rounded-lg">
+          <CardHeader className="no-print flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">معاينة الملصقات</h2>
-              <p className="text-sm text-gray-500">
+              <CardTitle>معاينة الملصقات</CardTitle>
+              <CardDescription>
                 كل بطاقة أدناه تطابق المقاس المطلوب ٧ سم × ٤ سم وجاهزة للطباعة المباشرة
-              </p>
+              </CardDescription>
             </div>
             {labelRequest && (
-              <div className="rounded-2xl bg-gray-100 px-4 py-2 text-sm text-gray-600">
+              <Badge variant="secondary">
                 {labelRequest.quantity} ملصق لـ {labelRequest.barcode}
-              </div>
+              </Badge>
             )}
+          </CardHeader>
+          <CardContent>
+          <div className="no-print mb-6 flex flex-wrap items-center justify-between gap-3">
           </div>
 
           <div
@@ -194,8 +196,11 @@ export default function BarcodeLabelsPage() {
             className="grid justify-center gap-4 md:grid-cols-2 lg:grid-cols-3"
           >
             {labels.length === 0 ? (
-              <div className="col-span-full rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 p-10 text-center text-gray-500">
-                قم بملء الحقول في الأعلى واضغط &quot;إنشاء الملصقات&quot; لعرض الملصقات القابلة للطباعة.
+              <div className="col-span-full">
+                <EmptyState
+                  title="لا توجد ملصقات للمعاينة"
+                  description='قم بملء الحقول في الأعلى واضغط "إنشاء الملصقات" لعرض الملصقات القابلة للطباعة.'
+                />
               </div>
             ) : (
               labels.map((label, index) => (
@@ -226,8 +231,9 @@ export default function BarcodeLabelsPage() {
               ))
             )}
           </div>
-        </section>
+          </CardContent>
+        </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

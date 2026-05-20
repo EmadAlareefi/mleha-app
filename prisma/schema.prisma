@@ -398,6 +398,7 @@ model SallaOrder {
   erpSyncError    String?   @db.Text
   erpSyncAttempts Int       @default(0)
 
+  erpRefundOrderSync ERPRefundOrderSync?
   settlements OrderSettlement[]
 
   createdAt DateTime @default(now())
@@ -409,6 +410,24 @@ model SallaOrder {
   @@index([merchantId, erpSyncedAt])
   @@index([merchantId, campaignSource])
   @@index([merchantId, campaignName])
+}
+
+model ERPRefundOrderSync {
+  id              String   @id @default(cuid())
+  merchantId      String
+  orderRecordId   String   @unique
+  orderId         String
+  orderNumber     String?
+  erpInvoiceId    String?
+  erpSyncedAt     DateTime?
+  erpSyncError    String?  @db.Text
+  erpSyncAttempts Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  order SallaOrder @relation(fields: [orderRecordId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, erpSyncedAt])
 }
 
 model SettlementUpload {

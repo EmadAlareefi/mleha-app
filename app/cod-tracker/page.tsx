@@ -3,8 +3,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 
 interface CODCollection {
   id: string;
@@ -157,21 +181,20 @@ export default function CODTrackerPage() {
     });
 
   const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { label: string; className: string }> = {
-      pending: { label: 'قيد الانتظار', className: 'bg-gray-100 text-gray-800' },
-      collected: { label: 'تم التحصيل', className: 'bg-green-100 text-green-800' },
-      deposited: { label: 'تم الإيداع', className: 'bg-blue-100 text-blue-800' },
-      reconciled: { label: 'تمت التسوية', className: 'bg-purple-100 text-purple-800' },
-      failed: { label: 'فشل', className: 'bg-red-100 text-red-800' },
+    const statusMap: Record<
+      string,
+      { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }
+    > = {
+      pending: { label: 'قيد الانتظار', variant: 'secondary' },
+      collected: { label: 'تم التحصيل', variant: 'default' },
+      deposited: { label: 'تم الإيداع', variant: 'outline' },
+      reconciled: { label: 'تمت التسوية', variant: 'default' },
+      failed: { label: 'فشل', variant: 'destructive' },
     };
 
-    const statusInfo = statusMap[status] || { label: status, className: 'bg-gray-100 text-gray-800' };
+    const statusInfo = statusMap[status] || { label: status, variant: 'secondary' as const };
 
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
-        {statusInfo.label}
-      </span>
-    );
+    return <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>;
   };
 
   // Calculate totals
@@ -197,151 +220,145 @@ export default function CODTrackerPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12 px-4">
-        <div className="max-w-7xl mx-auto text-center">
-          <p>جاري التحميل...</p>
-        </div>
-      </div>
+      <AppPageShell title="متابعة تحصيل المبالغ" subtitle="تتبع وإدارة مبالغ الدفع عند الاستلام">
+        <LoadingState label="جاري تحميل سجل التحصيل..." />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-7xl mx-auto">
+    <AppPageShell
+      title="متابعة تحصيل المبالغ"
+      subtitle="تتبع وإدارة مبالغ الدفع عند الاستلام"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         {/* Navigation */}
-        <nav className="flex justify-center gap-3 mb-8">
-          <Link
-            href="/warehouse"
-            prefetch={false}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            المستودع
-          </Link>
-          <Link
-            href="/local-shipping"
-            prefetch={false}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            شحن محلي
-          </Link>
-          {isWarehouse && (
-            <Link
-              href="/shipment-assignments"
-              prefetch={false}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-            >
-              تعيين الشحنات
+        <nav className="flex flex-wrap justify-center gap-3">
+          <Button asChild variant="outline">
+            <Link href="/warehouse" prefetch={false}>
+              المستودع
             </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/local-shipping" prefetch={false}>
+              شحن محلي
+            </Link>
+          </Button>
+          {isWarehouse && (
+            <Button asChild variant="outline">
+              <Link href="/shipment-assignments" prefetch={false}>
+                تعيين الشحنات
+              </Link>
+            </Button>
           )}
-          <Link
-            href="/cod-tracker"
-            prefetch={false}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-          >
-            تتبع التحصيل
-          </Link>
+          <Button asChild>
+            <Link href="/cod-tracker" prefetch={false}>
+              تتبع التحصيل
+            </Link>
+          </Button>
         </nav>
 
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2">متابعة تحصيل المبالغ (COD)</h1>
-          <p className="text-gray-600">تتبع وإدارة مبالغ الدفع عند الاستلام</p>
+        <div className="text-center">
+          <h1 className="mb-2 text-3xl font-bold">متابعة تحصيل المبالغ (COD)</h1>
+          <p className="text-muted-foreground">تتبع وإدارة مبالغ الدفع عند الاستلام</p>
         </div>
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* Totals */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           <Card className="p-4 text-center">
-            <div className="text-xl font-bold text-gray-800">{formatCurrency(totals.total)}</div>
-            <div className="text-sm text-gray-600">الإجمالي</div>
+            <div className="text-xl font-bold">{formatCurrency(totals.total)}</div>
+            <div className="text-sm text-muted-foreground">الإجمالي</div>
           </Card>
           <Card className="p-4 text-center">
             <div className="text-xl font-bold text-orange-600">{formatCurrency(totals.pending)}</div>
-            <div className="text-sm text-gray-600">قيد الانتظار</div>
+            <div className="text-sm text-muted-foreground">قيد الانتظار</div>
           </Card>
           <Card className="p-4 text-center">
             <div className="text-xl font-bold text-green-600">{formatCurrency(totals.collected)}</div>
-            <div className="text-sm text-gray-600">تم التحصيل</div>
+            <div className="text-sm text-muted-foreground">تم التحصيل</div>
           </Card>
           <Card className="p-4 text-center">
             <div className="text-xl font-bold text-blue-600">{formatCurrency(totals.deposited)}</div>
-            <div className="text-sm text-gray-600">تم الإيداع</div>
+            <div className="text-sm text-muted-foreground">تم الإيداع</div>
           </Card>
           <Card className="p-4 text-center">
             <div className="text-xl font-bold text-purple-600">{formatCurrency(totals.reconciled)}</div>
-            <div className="text-sm text-gray-600">تمت التسوية</div>
+            <div className="text-sm text-muted-foreground">تمت التسوية</div>
           </Card>
         </div>
 
         {/* Filters */}
-        <Card className="p-4 mb-6">
-          <div className="flex flex-wrap gap-3">
-            <label className="text-sm font-medium text-gray-700">تصفية حسب الحالة:</label>
-            <select
+        <Card className="p-4">
+          <Field className="max-w-xs gap-2">
+            <FieldLabel>تصفية حسب الحالة</FieldLabel>
+            <NativeSelect
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full"
             >
-              <option value="">الكل</option>
-              <option value="pending">قيد الانتظار</option>
-              <option value="collected">تم التحصيل</option>
-              <option value="deposited">تم الإيداع</option>
-              <option value="reconciled">تمت التسوية</option>
-              <option value="failed">فشل</option>
-            </select>
-          </div>
+              <NativeSelectOption value="">الكل</NativeSelectOption>
+              <NativeSelectOption value="pending">قيد الانتظار</NativeSelectOption>
+              <NativeSelectOption value="collected">تم التحصيل</NativeSelectOption>
+              <NativeSelectOption value="deposited">تم الإيداع</NativeSelectOption>
+              <NativeSelectOption value="reconciled">تمت التسوية</NativeSelectOption>
+              <NativeSelectOption value="failed">فشل</NativeSelectOption>
+            </NativeSelect>
+          </Field>
         </Card>
 
         {/* Collections Table */}
         <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4">سجل التحصيل</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-right bg-gray-100">
-                  <th className="px-3 py-2">رقم الطلب</th>
-                  <th className="px-3 py-2">العميل</th>
-                  <th className="px-3 py-2">المندوب</th>
-                  <th className="px-3 py-2">المبلغ المطلوب</th>
-                  <th className="px-3 py-2">المبلغ المحصّل</th>
-                  <th className="px-3 py-2">الحالة</th>
-                  <th className="px-3 py-2">تاريخ التحصيل</th>
-                  <th className="px-3 py-2">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>رقم الطلب</TableHead>
+                  <TableHead>العميل</TableHead>
+                  <TableHead>المندوب</TableHead>
+                  <TableHead>المبلغ المطلوب</TableHead>
+                  <TableHead>المبلغ المحصّل</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead>تاريخ التحصيل</TableHead>
+                  <TableHead>إجراءات</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {collections.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="text-center text-gray-500 py-6">
-                      لا توجد مبالغ للتحصيل
-                    </td>
-                  </tr>
+                  <TableRow>
+                    <TableCell colSpan={8}>
+                      <EmptyState title="لا توجد مبالغ للتحصيل" />
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   collections.map((collection) => (
-                    <tr key={collection.id} className="border-b">
-                      <td className="px-3 py-2 font-mono">{collection.shipment.orderNumber}</td>
-                      <td className="px-3 py-2">{collection.shipment.customerName}</td>
-                      <td className="px-3 py-2">
+                    <TableRow key={collection.id}>
+                      <TableCell className="font-mono">{collection.shipment.orderNumber}</TableCell>
+                      <TableCell>{collection.shipment.customerName}</TableCell>
+                      <TableCell>
                         {collection.shipment.assignment?.deliveryAgent.name || '-'}
-                      </td>
-                      <td className="px-3 py-2 font-semibold">
+                      </TableCell>
+                      <TableCell className="font-semibold">
                         {formatCurrency(collection.collectionAmount)}
-                      </td>
-                      <td className="px-3 py-2 font-semibold">
+                      </TableCell>
+                      <TableCell className="font-semibold">
                         {collection.collectedAmount
                           ? formatCurrency(collection.collectedAmount)
                           : '-'}
-                      </td>
-                      <td className="px-3 py-2">{getStatusBadge(collection.status)}</td>
-                      <td className="px-3 py-2 text-xs">
+                      </TableCell>
+                      <TableCell>{getStatusBadge(collection.status)}</TableCell>
+                      <TableCell className="text-xs">
                         {collection.collectedAt ? formatDate(collection.collectedAt) : '-'}
-                      </td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell>
                         {collection.status === 'collected' && isWarehouse && (
                           <Button
                             size="sm"
@@ -364,135 +381,140 @@ export default function CODTrackerPage() {
                             تسوية
                           </Button>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
 
         {/* Update Status Modal */}
-        {selectedCollection && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <Card className="max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-xl font-semibold mb-4">
-                {newStatus === 'deposited' ? 'تسجيل الإيداع' : 'تسوية المبلغ'}
-              </h3>
+        <Dialog
+          open={Boolean(selectedCollection)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedCollection(null);
+              resetForm();
+            }
+          }}
+        >
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+            {selectedCollection && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>
+                    {newStatus === 'deposited' ? 'تسجيل الإيداع' : 'تسوية المبلغ'}
+                  </DialogTitle>
+                  <DialogDescription>
+                    حدّث حالة تحصيل الطلب وسجّل بيانات الإيداع أو التسوية.
+                  </DialogDescription>
+                </DialogHeader>
 
-              <div className="mb-4 bg-gray-50 p-3 rounded">
-                <div className="text-sm text-gray-600 mb-1">
-                  الطلب: <span className="font-mono font-semibold">{selectedCollection.shipment.orderNumber}</span>
-                </div>
-                <div className="text-sm text-gray-600 mb-1">
-                  المبلغ: <span className="font-semibold">{formatCurrency(selectedCollection.collectionAmount)}</span>
-                </div>
-                {selectedCollection.collectedAmount && (
-                  <div className="text-sm text-gray-600">
-                    المحصّل: <span className="font-semibold">{formatCurrency(selectedCollection.collectedAmount)}</span>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="mb-1 text-sm text-muted-foreground">
+                    الطلب:{' '}
+                    <span className="font-mono font-semibold text-foreground">
+                      {selectedCollection.shipment.orderNumber}
+                    </span>
                   </div>
-                )}
+                  <div className="mb-1 text-sm text-muted-foreground">
+                    المبلغ:{' '}
+                    <span className="font-semibold text-foreground">
+                      {formatCurrency(selectedCollection.collectionAmount)}
+                    </span>
+                  </div>
+                  {selectedCollection.collectedAmount && (
+                    <div className="text-sm text-muted-foreground">
+                      المحصّل:{' '}
+                      <span className="font-semibold text-foreground">
+                        {formatCurrency(selectedCollection.collectedAmount)}
+                      </span>
+                    </div>
+                  )}
               </div>
 
               {newStatus === 'deposited' && (
                 <>
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      طريقة الإيداع *
-                    </label>
-                    <select
+                  <Field className="gap-2">
+                    <FieldLabel>طريقة الإيداع *</FieldLabel>
+                    <NativeSelect
                       value={depositMethod}
                       onChange={(e) => setDepositMethod(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="w-full"
                       required
                     >
-                      <option value="">اختر طريقة الإيداع</option>
-                      <option value="cash">نقدي</option>
-                      <option value="bank_transfer">تحويل بنكي</option>
-                      <option value="mobile_wallet">محفظة إلكترونية</option>
-                    </select>
-                  </div>
+                      <NativeSelectOption value="">اختر طريقة الإيداع</NativeSelectOption>
+                      <NativeSelectOption value="cash">نقدي</NativeSelectOption>
+                      <NativeSelectOption value="bank_transfer">تحويل بنكي</NativeSelectOption>
+                      <NativeSelectOption value="mobile_wallet">محفظة إلكترونية</NativeSelectOption>
+                    </NativeSelect>
+                  </Field>
 
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      رقم المرجع (اختياري)
-                    </label>
-                    <input
+                  <Field className="gap-2">
+                    <FieldLabel>رقم المرجع</FieldLabel>
+                    <Input
                       type="text"
                       value={depositReference}
                       onChange={(e) => setDepositReference(e.target.value)}
                       placeholder="رقم المرجع أو رقم العملية"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
-                  </div>
+                  </Field>
 
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      ملاحظات (اختياري)
-                    </label>
-                    <textarea
+                  <Field className="gap-2">
+                    <FieldLabel>ملاحظات</FieldLabel>
+                    <Textarea
                       value={depositNotes}
                       onChange={(e) => setDepositNotes(e.target.value)}
                       placeholder="ملاحظات الإيداع"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       rows={2}
                     />
-                  </div>
+                  </Field>
                 </>
               )}
 
               {newStatus === 'reconciled' && (
                 <>
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      ملاحظات التسوية (اختياري)
-                    </label>
-                    <textarea
+                  <Field className="gap-2">
+                    <FieldLabel>ملاحظات التسوية</FieldLabel>
+                    <Textarea
                       value={reconciliationNotes}
                       onChange={(e) => setReconciliationNotes(e.target.value)}
                       placeholder="ملاحظات التسوية"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       rows={2}
                     />
-                  </div>
+                  </Field>
 
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      فرق المبلغ (اختياري)
-                    </label>
-                    <input
+                  <Field className="gap-2">
+                    <FieldLabel>فرق المبلغ</FieldLabel>
+                    <Input
                       type="number"
                       step="0.01"
                       value={discrepancyAmount}
                       onChange={(e) => setDiscrepancyAmount(e.target.value)}
                       placeholder="0.00"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
-                  </div>
+                  </Field>
 
                   {discrepancyAmount && (
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        سبب الفرق
-                      </label>
-                      <textarea
+                    <Field className="gap-2">
+                      <FieldLabel>سبب الفرق</FieldLabel>
+                      <Textarea
                         value={discrepancyReason}
                         onChange={(e) => setDiscrepancyReason(e.target.value)}
                         placeholder="سبب فرق المبلغ"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                         rows={2}
                       />
-                    </div>
+                    </Field>
                   )}
                 </>
               )}
 
-              <div className="flex gap-3">
+              <DialogFooter>
                 <Button
                   onClick={handleUpdateStatus}
                   disabled={updating || (newStatus === 'deposited' && !depositMethod)}
-                  className="flex-1"
                 >
                   {updating ? 'جاري التحديث...' : 'تأكيد'}
                 </Button>
@@ -503,15 +525,15 @@ export default function CODTrackerPage() {
                     resetForm();
                   }}
                   disabled={updating}
-                  className="flex-1"
                 >
                   إلغاء
                 </Button>
-              </div>
-            </Card>
-          </div>
-        )}
+              </DialogFooter>
+            </>
+          )}
+          </DialogContent>
+        </Dialog>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

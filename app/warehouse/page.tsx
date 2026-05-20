@@ -5,7 +5,8 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { prisma } from '@/lib/prisma';
 import WarehouseDashboardClient from './WarehouseDashboardClient';
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { Shipment, WarehouseInfo } from '@/components/warehouse/types';
 
 export const dynamic = 'force-dynamic';
@@ -303,17 +304,18 @@ export default async function WarehousePage() {
 
   if (!canAccess) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
-        <AppNavbar title="لوحة المستودع" subtitle="لا تملك صلاحية الوصول إلى هذه الصفحة" />
-        <div className="mx-auto max-w-2xl px-4 py-16 text-center text-slate-600">
-          <p className="text-lg font-semibold text-slate-800">
+      <AppPageShell title="لوحة المستودع" subtitle="لا تملك صلاحية الوصول إلى هذه الصفحة">
+        <Alert variant="destructive" className="mx-auto max-w-2xl">
+          <AlertDescription className="text-center">
+            <span className="block text-lg font-semibold">
             لا تملك صلاحية الوصول إلى لوحة المستودع.
-          </p>
-          <p className="mt-4 text-sm">
+            </span>
+            <span className="mt-4 block text-sm">
             يرجى التواصل مع المسؤول لمنحك صلاحية خدمة المستودع.
-          </p>
-        </div>
-      </div>
+            </span>
+          </AlertDescription>
+        </Alert>
+      </AppPageShell>
     );
   }
 

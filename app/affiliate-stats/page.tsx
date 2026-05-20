@@ -3,12 +3,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import AppNavbar from '@/components/AppNavbar';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
   CreditCard,
-  LoaderCircle,
   Package,
   TrendingUp,
 } from 'lucide-react';
@@ -46,14 +57,6 @@ interface Order {
   commissionAmount: number;
   isDelivered: boolean;
 }
-
-const STATUS_BADGE_MAP: Record<string, string> = {
-  completed: 'bg-green-50 border-green-200 text-green-700',
-  delivered: 'bg-green-50 border-green-200 text-green-700',
-  cancelled: 'bg-red-50 border-red-200 text-red-700',
-  payment_pending: 'bg-yellow-50 border-yellow-200 text-yellow-700',
-  in_progress: 'bg-blue-50 border-blue-200 text-blue-700',
-};
 
 export default function AffiliateStatsPage() {
   const { data: session, status } = useSession();
@@ -118,60 +121,57 @@ export default function AffiliateStatsPage() {
     }).format(amount);
   };
 
-  const getStatusColor = (slug: string | null) => {
-    if (!slug) return 'bg-gray-50 border-gray-200 text-gray-700';
-    return STATUS_BADGE_MAP[slug] || 'bg-gray-50 border-gray-200 text-gray-700';
+  const getStatusVariant = (slug: string | null): 'default' | 'secondary' | 'destructive' => {
+    if (slug === 'cancelled') return 'destructive';
+    if (slug === 'completed' || slug === 'delivered') return 'default';
+    return 'secondary';
   };
 
   if (status === 'loading' || (loading && !stats && !error)) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <LoaderCircle className="h-12 w-12 animate-spin text-blue-600" />
-      </div>
+      <AppPageShell title="إحصائيات المسوق">
+        <LoadingState />
+      </AppPageShell>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <AppNavbar title="إحصائيات المسوق" />
-        <div className="max-w-4xl mx-auto p-8">
-          <Card className="p-8 text-center text-red-600">
-            <h2 className="text-xl font-bold mb-2">تنبيه</h2>
-            <p>{error}</p>
+      <AppPageShell title="إحصائيات المسوق">
+        <div className="mx-auto w-full max-w-4xl">
+          <Alert variant="destructive">
+            <AlertTitle>تنبيه</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
             <Button onClick={() => router.push('/')} className="mt-4" variant="outline">
               العودة للرئيسية
             </Button>
-          </Card>
+          </Alert>
         </div>
-      </div>
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar title="إحصائيات المسوق" subtitle={`المسوق: ${(session?.user as any)?.affiliateName}`} />
-
-      <div className="max-w-7xl mx-auto p-4 space-y-6">
+    <AppPageShell title="إحصائيات المسوق" subtitle={`المسوق: ${(session?.user as any)?.affiliateName}`}>
+      <div className="mx-auto w-full max-w-7xl space-y-6">
         {/* Filters */}
-        <Card className="p-4">
+        <Card className="rounded-lg">
+          <CardContent className="p-4">
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">من تاريخ</label>
-              <input
+              <label className="block text-sm font-medium mb-1">من تاريخ</label>
+              <Input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="px-3 py-2 border rounded-md"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">إلى تاريخ</label>
-              <input
+              <label className="block text-sm font-medium mb-1">إلى تاريخ</label>
+              <Input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="px-3 py-2 border rounded-md"
               />
             </div>
             <Button 
@@ -181,141 +181,156 @@ export default function AffiliateStatsPage() {
               مسح الفلاتر
             </Button>
           </div>
+          </CardContent>
         </Card>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-blue-100 rounded-full text-blue-600">
+          <Card className="rounded-lg">
+            <CardContent className="flex items-center gap-4 p-6">
+            <div className="rounded-lg bg-muted p-4 text-primary">
               <Package className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">إجمالي الطلبات</p>
+              <p className="text-sm text-muted-foreground">إجمالي الطلبات</p>
               <h3 className="text-2xl font-bold">{stats?.totalOrders}</h3>
             </div>
+            </CardContent>
           </Card>
-          <Card className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-green-100 rounded-full text-green-600">
+          <Card className="rounded-lg">
+            <CardContent className="flex items-center gap-4 p-6">
+            <div className="rounded-lg bg-muted p-4 text-primary">
               <CreditCard className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">إجمالي المبيعات الصافية</p>
+              <p className="text-sm text-muted-foreground">إجمالي المبيعات الصافية</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.totalSales || 0)}</h3>
             </div>
+            </CardContent>
           </Card>
-          <Card className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-purple-100 rounded-full text-purple-600">
+          <Card className="rounded-lg">
+            <CardContent className="flex items-center gap-4 p-6">
+            <div className="rounded-lg bg-muted p-4 text-primary">
               <TrendingUp className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">متوسط قيمة الطلب الصافي</p>
+              <p className="text-sm text-muted-foreground">متوسط قيمة الطلب الصافي</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.averageOrderValue || 0)}</h3>
             </div>
+            </CardContent>
           </Card>
-          <Card className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-yellow-100 rounded-full text-yellow-600">
+          <Card className="rounded-lg">
+            <CardContent className="flex items-center gap-4 p-6">
+            <div className="rounded-lg bg-muted p-4 text-primary">
               <CreditCard className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">إجمالي العمولات</p>
+              <p className="text-sm text-muted-foreground">إجمالي العمولات</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.totalCommissionEarned || 0)}</h3>
             </div>
+            </CardContent>
           </Card>
-          <Card className="p-6 flex items-center gap-4">
-            <div className="p-4 bg-orange-100 rounded-full text-orange-600">
+          <Card className="rounded-lg">
+            <CardContent className="flex items-center gap-4 p-6">
+            <div className="rounded-lg bg-muted p-4 text-primary">
               <TrendingUp className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">متوسط عمولة الطلب</p>
+              <p className="text-sm text-muted-foreground">متوسط عمولة الطلب</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.averageCommissionPerOrder || 0)}</h3>
             </div>
+            </CardContent>
           </Card>
           {/* Status Breakdown */}
-          <Card className="p-6 lg:col-span-1">
-            <h3 className="text-lg font-bold mb-4">حالات الطلبات</h3>
-            <div className="space-y-4">
+          <Card className="rounded-lg lg:col-span-1">
+            <CardHeader>
+              <CardTitle>حالات الطلبات</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               {statusStats.map((stat, index) => {
                 const percentageLabel = Number.isFinite(stat.percentage) ? stat.percentage.toFixed(1) : '0.0';
                 return (
-                  <div key={stat.slug || index} className="flex items-center justify-between rounded-xl border bg-white/70 p-4">
+                  <div key={stat.slug || index} className="flex items-center justify-between rounded-lg border bg-card p-4">
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">{stat.name || stat.slug || 'غير معروف'}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm font-semibold">{stat.name || stat.slug || 'غير معروف'}</p>
+                    <p className="text-xs text-muted-foreground">
                       {stat.count} طلب - {percentageLabel}%
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-gray-500">المبيعات الصافية</p>
-                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(stat.netAmount || 0)}</p>
-                    <p className="text-xs text-purple-600 mt-1">
+                    <p className="text-xs text-muted-foreground">المبيعات الصافية</p>
+                    <p className="text-sm font-semibold">{formatCurrency(stat.netAmount || 0)}</p>
+                    <p className="text-xs text-primary mt-1">
                       {formatCurrency(stat.commissionEarned || 0)} عمولة
                     </p>
                   </div>
                 </div>
                 );
               })}
-              {statusStats.length === 0 && <p className="text-gray-500 text-sm">لا توجد بيانات</p>}
-            </div>
+              {statusStats.length === 0 && <EmptyState title="لا توجد بيانات" />}
+            </CardContent>
           </Card>
 
           {/* Recent Orders */}
-          <Card className="p-6 lg:col-span-2">
-            <h3 className="text-lg font-bold mb-4">أحدث 10 طلبات</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-right">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3">رقم الطلب</th>
-                    <th className="px-4 py-3">التاريخ</th>
-                    <th className="px-4 py-3">المبلغ الصافي</th>
-                    <th className="px-4 py-3">العمولة</th>
-                    <th className="px-4 py-3">الحالة</th>
-                  </tr>
-                </thead>
-                <tbody>
+          <Card className="rounded-lg lg:col-span-2">
+            <CardHeader>
+              <CardTitle>أحدث 10 طلبات</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>رقم الطلب</TableHead>
+                    <TableHead>التاريخ</TableHead>
+                    <TableHead>المبلغ الصافي</TableHead>
+                    <TableHead>العمولة</TableHead>
+                    <TableHead>الحالة</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {recentOrders.map((order) => {
                     const commission = order.commissionAmount ?? 0;
                     return (
-                      <tr key={order.id} className="border-b hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">
+                      <TableRow key={order.id}>
+                        <TableCell className="font-medium">
                           #{order.orderNumber || order.orderId}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
                           {order.placedAt ? new Date(order.placedAt).toLocaleDateString('ar-SA') : '-'}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">
+                        </TableCell>
+                        <TableCell className="font-medium">
                           {formatCurrency(order.netAmount, order.currency || 'SAR')}
-                        </td>
-                        <td className="px-4 py-3 text-purple-600 font-medium">
+                        </TableCell>
+                        <TableCell className="font-medium text-primary">
                           {order.isDelivered ? (
                             <>
                               {formatCurrency(commission, order.currency || 'SAR')} ({order.affiliateCommission ?? 10}%)
                             </>
                           ) : (
-                            <span className="text-gray-500">بانتظار التوصيل</span>
+                            <span className="text-muted-foreground">بانتظار التوصيل</span>
                           )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(order.statusSlug)}`}>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusVariant(order.statusSlug)}>
                             {order.statusName || order.statusSlug}
-                          </span>
-                        </td>
-                      </tr>
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
                   {recentOrders.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground">
                         لا توجد طلبات حديثة
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </CardContent>
           </Card>
         </div>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

@@ -1,8 +1,23 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -11,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import AppNavbar from '@/components/AppNavbar';
 import {
   getAssignableServices,
   getRolesFromServiceKeys,
@@ -112,8 +126,6 @@ interface PrinterOption {
 
 const ASSIGNABLE_SERVICES = getAssignableServices();
 const SERVICE_MAP = new Map(serviceDefinitions.map((service) => [service.key, service]));
-const inputClasses =
-  'w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 transition focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
 
 const formatDateForInput = (value?: string | null) => {
   if (!value) {
@@ -725,11 +737,7 @@ export default function OrderUsersManagementPage() {
   }, [users]);
 
   return (
-    <>
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 pb-16">
-        <AppNavbar title="إدارة مستخدمي الطلبات" subtitle="إنشاء وإدارة حسابات الموظفين" />
-
-        <div className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 text-slate-900">
+    <AppPageShell title="إدارة مستخدمي الطلبات" subtitle="إنشاء وإدارة حسابات الموظفين">
         <section className="mb-10 grid gap-6 lg:grid-cols-[minmax(0,1.9fr),minmax(0,1.1fr)]">
           <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-900 via-indigo-700 to-slate-900 p-8 text-white shadow-2xl shadow-indigo-900/40">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#ffffff22,transparent_60%)]" />
@@ -802,13 +810,15 @@ export default function OrderUsersManagementPage() {
         </section>
 
         {accessDenied ? (
-          <Card className="rounded-3xl border border-rose-200/70 bg-rose-50/80 p-10 text-center text-rose-700 shadow-lg">
+          <Alert variant="destructive" className="p-10 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
               <AlertTriangle className="h-6 w-6" />
             </div>
-            <p className="text-xl font-semibold">لا تملك صلاحية الوصول لهذه الصفحة</p>
-            <p className="mt-2 text-sm text-rose-600/80">فقط حساب المسؤول يمكنه إدارة المستخدمين.</p>
-          </Card>
+            <AlertTitle className="col-span-full text-xl">لا تملك صلاحية الوصول لهذه الصفحة</AlertTitle>
+            <AlertDescription className="col-span-full justify-items-center">
+              فقط حساب المسؤول يمكنه إدارة المستخدمين.
+            </AlertDescription>
+          </Alert>
         ) : (
           <>
             {showForm && (
@@ -840,144 +850,120 @@ export default function OrderUsersManagementPage() {
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-8">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">
-                        اسم المستخدم *
-                      </label>
-                      <input
+                    <Field>
+                      <FieldLabel>اسم المستخدم *</FieldLabel>
+                      <Input
                         type="text"
                         value={formData.username}
                         onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                        className={inputClasses}
                         required
                       />
                       {editingUser && (
-                        <p className="text-xs text-slate-500">يمكنك تعديل اسم المستخدم إذا لزم الأمر.</p>
+                        <FieldDescription>يمكنك تعديل اسم المستخدم إذا لزم الأمر.</FieldDescription>
                       )}
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">
-                        كلمة المرور {!editingUser && '*'}
-                      </label>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>كلمة المرور {!editingUser && '*'}</FieldLabel>
+                      <Input
                         type="password"
                         value={formData.password}
                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        className={inputClasses}
                         required={!editingUser}
                         placeholder={editingUser ? 'اتركها فارغة لعدم التغيير' : ''}
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">الاسم *</label>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>الاسم *</FieldLabel>
+                      <Input
                         type="text"
                         value={formData.name}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        className={inputClasses}
                         required
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">البريد الإلكتروني</label>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>البريد الإلكتروني</FieldLabel>
+                      <Input
                         type="email"
                         value={formData.email}
                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        className={inputClasses}
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">رقم الهاتف</label>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>رقم الهاتف</FieldLabel>
+                      <Input
                         type="tel"
                         value={formData.phone}
                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        className={inputClasses}
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">كود المسوق (اختياري)</label>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>كود المسوق (اختياري)</FieldLabel>
+                      <Input
                         type="text"
                         value={formData.affiliateName}
                         onChange={(e) => setFormData({ ...formData, affiliateName: e.target.value })}
-                        className={inputClasses}
                         placeholder="مثال: mm11"
                       />
-                      <p className="text-xs text-slate-500">لربط المستخدم بإحصائيات الحملات التسويقية.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">نسبة العمولة (%)</label>
-                      <input
+                      <FieldDescription>لربط المستخدم بإحصائيات الحملات التسويقية.</FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel>نسبة العمولة (%)</FieldLabel>
+                      <Input
                         type="number"
                         min="0"
                         max="100"
                         step="0.01"
                         value={formData.affiliateCommission}
                         onChange={(e) => setFormData({ ...formData, affiliateCommission: e.target.value })}
-                        className={inputClasses}
                         placeholder="10"
                       />
-                      <p className="text-xs text-slate-500">النسبة المئوية لعمولة المسوق (الافتراضي 10%).</p>
-                    </div>
+                      <FieldDescription>النسبة المئوية لعمولة المسوق (الافتراضي 10%).</FieldDescription>
+                    </Field>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">
-                        تاريخ بداية العمل *
-                      </label>
-                      <input
+                    <Field>
+                      <FieldLabel>تاريخ بداية العمل *</FieldLabel>
+                      <Input
                         type="date"
                         value={formData.employmentStartDate}
                         onChange={(e) =>
                           setFormData({ ...formData, employmentStartDate: e.target.value })
                         }
-                        className={inputClasses}
                         required={!editingUser}
                       />
-                      <p className="text-xs text-slate-500">اليوم الأول الذي بدأ فيه الموظف عمله.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">
-                        تاريخ نهاية العمل (اختياري)
-                      </label>
-                      <input
+                      <FieldDescription>اليوم الأول الذي بدأ فيه الموظف عمله.</FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel>تاريخ نهاية العمل (اختياري)</FieldLabel>
+                      <Input
                         type="date"
                         value={formData.employmentEndDate}
                         onChange={(e) =>
                           setFormData({ ...formData, employmentEndDate: e.target.value })
                         }
-                        className={inputClasses}
                       />
-                      <p className="text-xs text-slate-500">
-                        اتركه فارغاً إذا كان الموظف ما زال على رأس العمل.
-                      </p>
-                    </div>
+                      <FieldDescription>اتركه فارغاً إذا كان الموظف ما زال على رأس العمل.</FieldDescription>
+                    </Field>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">
-                        الراتب الشهري
-                      </label>
-                      <input
+                    <Field>
+                      <FieldLabel>الراتب الشهري</FieldLabel>
+                      <Input
                         type="number"
                         min="0"
                         step="0.01"
                         value={formData.salaryAmount}
                         onChange={(e) => setFormData({ ...formData, salaryAmount: e.target.value })}
-                        className={inputClasses}
                         placeholder="0.00"
                       />
-                      <p className="text-xs text-slate-500">أدخل المبلغ الشهري دون البدلات.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-600">
-                        عملة الراتب
-                      </label>
-                      <input
+                      <FieldDescription>أدخل المبلغ الشهري دون البدلات.</FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel>عملة الراتب</FieldLabel>
+                      <Input
                         type="text"
                         value={formData.salaryCurrency}
                         onChange={(e) =>
@@ -986,11 +972,10 @@ export default function OrderUsersManagementPage() {
                             salaryCurrency: e.target.value.toUpperCase().slice(0, 10),
                           })
                         }
-                        className={inputClasses}
                         placeholder="SAR"
                       />
-                      <p className="text-xs text-slate-500">استخدم اختصار العملة مثل SAR أو USD.</p>
-                    </div>
+                      <FieldDescription>استخدم اختصار العملة مثل SAR أو USD.</FieldDescription>
+                    </Field>
                   </div>
 
                   <div>
@@ -1009,11 +994,10 @@ export default function OrderUsersManagementPage() {
                                 : 'border-slate-200 hover:border-slate-300'
                             }`}
                           >
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={selected}
-                              onChange={() => toggleService(service.key)}
-                              className="mt-1 h-5 w-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              onCheckedChange={() => toggleService(service.key)}
+                              className="mt-1"
                             />
                             <div>
                               <div className="font-semibold text-slate-900">{service.title}</div>
@@ -1026,12 +1010,13 @@ export default function OrderUsersManagementPage() {
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-indigo-700">
                       {formData.serviceKeys.length > 0 ? (
                         formData.serviceKeys.map((key) => (
-                          <span
+                          <Badge
                             key={key}
-                            className="rounded-full bg-indigo-50 px-3 py-1 font-semibold text-indigo-700"
+                            variant="outline"
+                            className="bg-indigo-50 font-semibold text-indigo-700"
                           >
                             {SERVICE_MAP.get(key)?.title || key}
-                          </span>
+                          </Badge>
                         ))
                       ) : (
                         <span>لم يتم اختيار روابط بعد.</span>
@@ -1053,18 +1038,21 @@ export default function OrderUsersManagementPage() {
                     <div className="space-y-3">
                       <label className="text-sm font-semibold text-slate-700">ربط المستودعات *</label>
                       {warehousesLoading ? (
-                        <p className="text-sm text-slate-500">جاري تحميل المستودعات...</p>
+                        <LoadingState label="جاري تحميل المستودعات..." />
                       ) : warehousesError ? (
                         <div className="space-y-3">
-                          <p className="text-sm text-rose-600">{warehousesError}</p>
+                          <Alert variant="destructive">
+                            <AlertDescription>{warehousesError}</AlertDescription>
+                          </Alert>
                           <Button type="button" variant="outline" onClick={loadWarehouses}>
                             إعادة المحاولة
                           </Button>
                         </div>
                       ) : warehouseOptions.length === 0 ? (
-                        <p className="text-sm text-slate-500">
-                          لا يوجد مستودعات نشطة. يرجى إنشاء مستودعات من صفحة المستودع أولاً.
-                        </p>
+                        <EmptyState
+                          title="لا توجد مستودعات نشطة"
+                          description="يرجى إنشاء مستودعات من صفحة المستودع أولاً."
+                        />
                       ) : (
                         <div className="max-h-60 space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           {warehouseOptions.map((warehouse) => {
@@ -1078,11 +1066,9 @@ export default function OrderUsersManagementPage() {
                                     : 'border-transparent hover:border-slate-200'
                                 }`}
                               >
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   checked={isSelected}
-                                  onChange={() => toggleWarehouseSelection(warehouse.id)}
-                                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                  onCheckedChange={() => toggleWarehouseSelection(warehouse.id)}
                                 />
                                 <div>
                                   <p className="font-semibold text-slate-900">{warehouse.name}</p>
@@ -1107,21 +1093,17 @@ export default function OrderUsersManagementPage() {
 
                   <div className="flex flex-wrap gap-4">
                     <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={formData.isActive}
-                        onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked === true })}
                       />
                       <span>نشط</span>
                     </label>
                     {hasOrdersAccess && (
                       <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={formData.autoAssign}
-                          onChange={(e) => setFormData({ ...formData, autoAssign: e.target.checked })}
-                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          onCheckedChange={(checked) => setFormData({ ...formData, autoAssign: checked === true })}
                         />
                         <span>التعيين التلقائي</span>
                       </label>
@@ -1150,20 +1132,26 @@ export default function OrderUsersManagementPage() {
             )}
 
             {loading ? (
-              <Card className="flex flex-col items-center justify-center rounded-3xl border border-white/30 bg-white/90 py-16 text-slate-500 shadow-lg">
-                <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-500" />
-                <p>جاري تحميل المستخدمين...</p>
+              <Card>
+                <LoadingState label="جاري تحميل المستخدمين..." />
               </Card>
             ) : users.length === 0 ? (
-              <Card className="rounded-3xl border border-dashed border-slate-200 bg-white/90 p-12 text-center shadow">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                  <UserPlus className="h-6 w-6" />
-                </div>
-                <p className="text-lg font-semibold text-slate-900">لا يوجد مستخدمون بعد</p>
-                <p className="mt-2 text-sm text-slate-500">
-                  ابدأ بإنشاء أول مستخدم لتحضير الطلبات أو لإدارة المستودع.
-                </p>
-              </Card>
+              <EmptyState
+                title="لا يوجد مستخدمون بعد"
+                description="ابدأ بإنشاء أول مستخدم لتحضير الطلبات أو لإدارة المستودع."
+                action={
+                  <Button
+                    onClick={() => {
+                      setEditingUser(null);
+                      resetForm();
+                      setShowForm(true);
+                    }}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    إضافة مستخدم
+                  </Button>
+                }
+              />
             ) : (
               <Card className="rounded-3xl border border-white/40 bg-white/95 p-0 shadow-lg shadow-slate-900/10">
                 <Table className="text-xs text-slate-600">
@@ -1407,19 +1395,18 @@ export default function OrderUsersManagementPage() {
             )}
           </>
         )}
-        </div>
-      </div>
-
-      {printerDialog.open && printerDialog.user && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
-          <div className="absolute inset-0 bg-slate-900/70" aria-hidden="true" />
-          <div className="relative z-10 w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl shadow-slate-900/30">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+      <Dialog open={printerDialog.open} onOpenChange={(open) => !open && closePrinterDialog()}>
+        {printerDialog.user && (
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">ربط الطابعة للمستخدم</p>
-                <p className="text-2xl font-semibold text-slate-900">{printerDialog.user.name}</p>
-                <p className="text-sm text-slate-500">@{printerDialog.user.username}</p>
+                <DialogTitle>ربط الطابعة للمستخدم</DialogTitle>
+                <DialogDescription>
+                  {printerDialog.user.name} - @{printerDialog.user.username}
+                </DialogDescription>
               </div>
+            </DialogHeader>
+            <div className="space-y-4">
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -1441,27 +1428,22 @@ export default function OrderUsersManagementPage() {
                   إغلاق
                 </Button>
               </div>
-            </div>
-
-            <div className="mt-4 space-y-4">
               {printerInventory.error && (
-                <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
-                  <p className="font-semibold">تعذر تحميل بيانات الطابعات</p>
-                  <p>{printerInventory.error}</p>
-                </div>
+                <Alert variant="destructive">
+                  <AlertTitle>تعذر تحميل بيانات الطابعات</AlertTitle>
+                  <AlertDescription>{printerInventory.error}</AlertDescription>
+                </Alert>
               )}
 
               {printerInventory.loading ? (
-                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-slate-500">
-                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-500" />
-                  <p>جاري تحميل قائمة الطابعات...</p>
-                </div>
+                <LoadingState label="جاري تحميل قائمة الطابعات..." />
               ) : (
                 <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
                   {printerOptions.length === 0 && (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-6 text-center text-sm text-slate-500">
-                      لا توجد طابعات متاحة حالياً. تأكد من اتصال PrintNode ثم حاول مرة أخرى.
-                    </div>
+                    <EmptyState
+                      title="لا توجد طابعات متاحة"
+                      description="تأكد من اتصال PrintNode ثم حاول مرة أخرى."
+                    />
                   )}
                   {printerOptions.map((option) => {
                     const isSelected = printerDialog.selectedPrinterId === option.id;
@@ -1490,15 +1472,16 @@ export default function OrderUsersManagementPage() {
                             )}
                           </div>
                           <div className="text-left">
-                            <span
-                              className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
+                            <Badge
+                              variant="outline"
+                              className={
                                 option.source === 'profile'
                                   ? 'bg-indigo-100 text-indigo-700'
                                   : 'bg-slate-100 text-slate-600'
-                              }`}
+                              }
                             >
                               {option.source === 'profile' ? 'تكوين مخصص' : 'PrintNode'}
-                            </span>
+                            </Badge>
                             {option.state && (
                               <p
                                 className={`mt-1 text-xs font-semibold ${
@@ -1521,12 +1504,12 @@ export default function OrderUsersManagementPage() {
               )}
 
               {printerDialog.error && (
-                <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
-                  {printerDialog.error}
-                </div>
+                <Alert variant="destructive">
+                  <AlertDescription>{printerDialog.error}</AlertDescription>
+                </Alert>
               )}
 
-              <div className="flex flex-wrap gap-3">
+              <DialogFooter className="flex-wrap">
                 <Button
                   type="button"
                   onClick={handleSavePrinterLink}
@@ -1555,11 +1538,11 @@ export default function OrderUsersManagementPage() {
                 >
                   إلغاء
                 </Button>
-              </div>
+              </DialogFooter>
             </div>
-          </div>
-        </div>
-      )}
-    </>
+          </DialogContent>
+        )}
+      </Dialog>
+    </AppPageShell>
   );
 }

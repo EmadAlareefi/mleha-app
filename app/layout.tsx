@@ -5,6 +5,7 @@ import SessionProvider from "@/components/SessionProvider";
 import PwaProvider from "@/components/PwaProvider";
 import { ToastProvider } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -40,9 +41,11 @@ export default function RootLayout({
       </head>
       <body className={`${tajawal.variable} antialiased`} suppressHydrationWarning>
         <ToastProvider>
-          <SessionProvider>
-            {children}
-          </SessionProvider>
+          <TooltipProvider>
+            <SessionProvider>
+              {children}
+            </SessionProvider>
+          </TooltipProvider>
           <Toaster />
         </ToastProvider>
         <PwaProvider />

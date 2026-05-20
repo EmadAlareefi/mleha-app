@@ -1,10 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Card } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 interface Invoice {
   id: string;
@@ -39,7 +50,6 @@ interface Invoice {
 
 export default function InvoiceDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const invoiceId = params.id as string;
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
@@ -49,7 +59,7 @@ export default function InvoiceDetailPage() {
   const [showRawData, setShowRawData] = useState(false);
 
   // Fetch invoice details
-  const fetchInvoice = async () => {
+  const fetchInvoice = useCallback(async () => {
     setLoading(true);
     setError('');
 
@@ -67,7 +77,7 @@ export default function InvoiceDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [invoiceId]);
 
   // Sync invoice to ERP
   const handleSyncToERP = async () => {
@@ -105,7 +115,7 @@ export default function InvoiceDetailPage() {
 
   useEffect(() => {
     fetchInvoice();
-  }, [invoiceId]);
+  }, [fetchInvoice]);
 
   // Format currency
   const formatAmount = (amount: number | null, currency: string | null = 'SAR') => {
@@ -126,233 +136,171 @@ export default function InvoiceDetailPage() {
     });
   };
 
+  const renderDetailRow = (label: string, value: ReactNode, className = '') => (
+    <div className="flex items-start justify-between gap-4 border-b py-2 last:border-b-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className={`text-left text-sm font-medium ${className}`}>{value}</span>
+    </div>
+  );
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4">
-        <div className="max-w-4xl mx-auto">
-          <Card className="p-12">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-              <p className="mt-4 text-gray-600">جاري تحميل تفاصيل الفاتورة...</p>
-            </div>
-          </Card>
-        </div>
-      </div>
+      <AppPageShell title="تفاصيل الفاتورة" subtitle="جاري تحميل بيانات الفاتورة">
+        <Card>
+          <CardContent className="pt-6">
+            <LoadingState label="جاري تحميل تفاصيل الفاتورة..." />
+          </CardContent>
+        </Card>
+      </AppPageShell>
     );
   }
 
   if (error || !invoice) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4">
-        <div className="max-w-4xl mx-auto">
-          <Card className="p-12 bg-red-50 border-red-200">
-            <div className="text-center">
-              <p className="text-red-800 text-lg mb-4">{error || 'الفاتورة غير موجودة'}</p>
-              <Link href="/invoices">
-                <Button>العودة إلى قائمة الفواتير</Button>
-              </Link>
-            </div>
-          </Card>
-        </div>
-      </div>
+      <AppPageShell title="تفاصيل الفاتورة" subtitle="تعذر تحميل بيانات الفاتورة">
+        <EmptyState
+          title={error || 'الفاتورة غير موجودة'}
+          description="تحقق من رقم الفاتورة أو ارجع إلى قائمة الفواتير."
+          action={
+            <Button asChild>
+              <Link href="/invoices">العودة إلى قائمة الفواتير</Link>
+            </Button>
+          }
+        />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              تفاصيل الفاتورة
-            </h1>
-            <p className="text-gray-600">
-              {invoice.invoiceNumber || invoice.invoiceId}
-            </p>
+    <AppPageShell
+      title="تفاصيل الفاتورة"
+      subtitle={invoice.invoiceNumber || invoice.invoiceId}
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">{invoice.status || 'بدون حالة'}</Badge>
+            <Badge variant={invoice.erpSyncedAt ? 'default' : 'secondary'}>
+              {invoice.erpSyncedAt ? 'متزامن مع ERP' : 'غير متزامن'}
+            </Badge>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               onClick={handleSyncToERP}
               disabled={syncing || !!invoice.erpSyncedAt}
-              className={
-                invoice.erpSyncedAt ? 'bg-gray-400 cursor-not-allowed' : ''
-              }
             >
-              {syncing
-                ? 'جاري المزامنة...'
-                : invoice.erpSyncedAt
-                ? 'تمت المزامنة'
-                : 'مزامنة مع ERP'}
+              {syncing ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  جاري المزامنة...
+                </>
+              ) : invoice.erpSyncedAt ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  تمت المزامنة
+                </>
+              ) : (
+                'مزامنة مع ERP'
+              )}
             </Button>
-            <Link href="/invoices">
-              <Button variant="outline">العودة</Button>
-            </Link>
+            <Button asChild variant="outline">
+              <Link href="/invoices">العودة</Link>
+            </Button>
           </div>
         </div>
 
-        {/* ERP Sync Status */}
         {invoice.erpSyncedAt && (
-          <Card className="p-4 mb-6 bg-green-50 border-green-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-green-900">
-                  تم مزامنة الفاتورة مع نظام ERP
-                </p>
-                <p className="text-sm text-green-700">
-                  تاريخ المزامنة: {formatDate(invoice.erpSyncedAt)}
-                </p>
-              </div>
-              <span className="inline-flex items-center px-3 py-1 text-sm font-medium rounded-full bg-green-100 text-green-800">
-                متزامن
-              </span>
-            </div>
-          </Card>
+          <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertTitle>تم مزامنة الفاتورة مع نظام ERP</AlertTitle>
+            <AlertDescription className="text-emerald-700">
+              تاريخ المزامنة: {formatDate(invoice.erpSyncedAt)}
+            </AlertDescription>
+          </Alert>
         )}
 
         {invoice.erpSyncError && (
-          <Card className="p-4 mb-6 bg-red-50 border-red-200">
-            <div>
-              <p className="font-medium text-red-900 mb-2">
-                خطأ في المزامنة مع ERP (محاولات: {invoice.erpSyncAttempts})
-              </p>
-              <p className="text-sm text-red-700">{invoice.erpSyncError}</p>
-            </div>
-          </Card>
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>خطأ في المزامنة مع ERP (محاولات: {invoice.erpSyncAttempts})</AlertTitle>
+            <AlertDescription>{invoice.erpSyncError}</AlertDescription>
+          </Alert>
         )}
 
-        {/* Invoice Details */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          {/* General Information */}
-          <Card className="p-6">
-            <h2 className="text-xl font-bold mb-4">معلومات عامة</h2>
-            <div className="space-y-3">
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">رقم الفاتورة:</span>
-                <span className="font-medium">
-                  {invoice.invoiceNumber || invoice.invoiceId}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">رقم الطلب:</span>
-                <span className="font-medium">
-                  {invoice.orderNumber || invoice.orderId || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">الحالة:</span>
-                <span className="font-medium">{invoice.status || '-'}</span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">حالة الدفع:</span>
-                <span className="font-medium">
-                  {invoice.paymentStatus || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">تاريخ الإصدار:</span>
-                <span className="font-medium">{formatDate(invoice.issueDate)}</span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">تاريخ الاستحقاق:</span>
-                <span className="font-medium">{formatDate(invoice.dueDate)}</span>
-              </div>
-            </div>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>معلومات عامة</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {renderDetailRow('رقم الفاتورة:', invoice.invoiceNumber || invoice.invoiceId)}
+              {renderDetailRow('رقم الطلب:', invoice.orderNumber || invoice.orderId || '-')}
+              {renderDetailRow('الحالة:', invoice.status || '-')}
+              {renderDetailRow('حالة الدفع:', invoice.paymentStatus || '-')}
+              {renderDetailRow('تاريخ الإصدار:', formatDate(invoice.issueDate))}
+              {renderDetailRow('تاريخ الاستحقاق:', formatDate(invoice.dueDate))}
+            </CardContent>
           </Card>
 
-          {/* Customer Information */}
-          <Card className="p-6">
-            <h2 className="text-xl font-bold mb-4">معلومات العميل</h2>
-            <div className="space-y-3">
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">اسم العميل:</span>
-                <span className="font-medium">
-                  {invoice.customerName || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">رقم الجوال:</span>
-                <span className="font-medium">
-                  {invoice.customerMobile || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">البريد الإلكتروني:</span>
-                <span className="font-medium text-sm break-all">
-                  {invoice.customerEmail || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">معرف العميل:</span>
-                <span className="font-medium text-sm">
-                  {invoice.customerId || '-'}
-                </span>
-              </div>
-            </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>معلومات العميل</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {renderDetailRow('اسم العميل:', invoice.customerName || '-')}
+              {renderDetailRow('رقم الجوال:', invoice.customerMobile || '-')}
+              {renderDetailRow('البريد الإلكتروني:', invoice.customerEmail || '-', 'break-all')}
+              {renderDetailRow('معرف العميل:', invoice.customerId || '-', 'break-all')}
+            </CardContent>
           </Card>
         </div>
 
-        {/* Financial Details */}
-        <Card className="p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">التفاصيل المالية</h2>
-          <div className="space-y-3">
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">المبلغ الفرعي:</span>
-              <span className="font-medium">
-                {formatAmount(invoice.subtotalAmount, invoice.currency)}
-              </span>
-            </div>
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">الضريبة:</span>
-              <span className="font-medium">
-                {formatAmount(invoice.taxAmount, invoice.currency)}
-              </span>
-            </div>
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">الشحن:</span>
-              <span className="font-medium">
-                {formatAmount(invoice.shippingAmount, invoice.currency)}
-              </span>
-            </div>
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">الخصم:</span>
-              <span className="font-medium text-red-600">
-                {formatAmount(invoice.discountAmount, invoice.currency)}
-              </span>
-            </div>
-            <div className="flex justify-between pt-2 border-t-2 border-gray-300">
-              <span className="text-lg font-bold text-gray-900">
-                المبلغ الإجمالي:
-              </span>
-              <span className="text-lg font-bold text-blue-600">
+        <Card>
+          <CardHeader>
+            <CardTitle>التفاصيل المالية</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {renderDetailRow('المبلغ الفرعي:', formatAmount(invoice.subtotalAmount, invoice.currency))}
+            {renderDetailRow('الضريبة:', formatAmount(invoice.taxAmount, invoice.currency))}
+            {renderDetailRow('الشحن:', formatAmount(invoice.shippingAmount, invoice.currency))}
+            {renderDetailRow('الخصم:', formatAmount(invoice.discountAmount, invoice.currency), 'text-destructive')}
+            <div className="flex items-start justify-between gap-4 pt-4">
+              <span className="text-base font-semibold">المبلغ الإجمالي:</span>
+              <span className="text-left text-lg font-bold text-primary">
                 {formatAmount(invoice.totalAmount, invoice.currency)}
               </span>
             </div>
-          </div>
+          </CardContent>
         </Card>
 
-        {/* Notes */}
         {invoice.notes && (
-          <Card className="p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">ملاحظات</h2>
-            <p className="text-gray-700 whitespace-pre-wrap">{invoice.notes}</p>
+          <Card>
+            <CardHeader>
+              <CardTitle>ملاحظات</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="whitespace-pre-wrap text-sm text-muted-foreground">{invoice.notes}</p>
+            </CardContent>
           </Card>
         )}
 
-        {/* Order Items (from rawOrder) */}
         {invoice.rawOrder && invoice.rawOrder.items && (
-          <Card className="p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">المنتجات</h2>
-            <div className="space-y-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>المنتجات</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
               {invoice.rawOrder.items.map((item: any, index: number) => (
                 <div
                   key={index}
-                  className="flex justify-between items-center border-b pb-2"
+                  className="flex items-center justify-between gap-4 border-b pb-3 last:border-b-0"
                 >
                   <div className="flex-1">
                     <p className="font-medium">{item.name || item.product?.name}</p>
                     {item.sku && (
-                      <p className="text-sm text-gray-500">SKU: {item.sku}</p>
+                      <p className="text-sm text-muted-foreground">SKU: {item.sku}</p>
                     )}
                   </div>
                   <div className="text-left">
@@ -362,69 +310,58 @@ export default function InvoiceDetailPage() {
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            </CardContent>
           </Card>
         )}
 
-        {/* Raw Data (Collapsible) */}
-        <Card className="p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold">البيانات الأولية (JSON)</h2>
+        <Card>
+          <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle>البيانات الأولية (JSON)</CardTitle>
+              <CardDescription>بيانات سلة الخام للفحص والدعم الفني.</CardDescription>
+            </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowRawData(!showRawData)}
             >
+              {showRawData ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               {showRawData ? 'إخفاء' : 'عرض'}
             </Button>
-          </div>
+          </CardHeader>
           {showRawData && (
-            <div className="space-y-4">
+            <CardContent className="space-y-4">
               <div>
                 <h3 className="font-semibold mb-2">بيانات الفاتورة:</h3>
-                <pre className="bg-gray-100 p-4 rounded-lg overflow-auto text-xs max-h-96">
+                <pre className="max-h-96 overflow-auto rounded-lg bg-muted p-4 text-xs">
                   {JSON.stringify(invoice.rawInvoice, null, 2)}
                 </pre>
               </div>
               {invoice.rawOrder && (
                 <div>
                   <h3 className="font-semibold mb-2">بيانات الطلب:</h3>
-                  <pre className="bg-gray-100 p-4 rounded-lg overflow-auto text-xs max-h-96">
+                  <pre className="max-h-96 overflow-auto rounded-lg bg-muted p-4 text-xs">
                     {JSON.stringify(invoice.rawOrder, null, 2)}
                   </pre>
                 </div>
               )}
-            </div>
+            </CardContent>
           )}
         </Card>
 
-        {/* Metadata */}
-        <Card className="p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">معلومات النظام</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">معرف التاجر:</span>
-              <span className="font-medium text-sm">{invoice.merchantId}</span>
-            </div>
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">معرف الفاتورة:</span>
-              <span className="font-medium text-sm">{invoice.invoiceId}</span>
-            </div>
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">تاريخ الإنشاء:</span>
-              <span className="font-medium text-sm">
-                {formatDate(invoice.createdAt)}
-              </span>
-            </div>
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-600">آخر تحديث:</span>
-              <span className="font-medium text-sm">
-                {formatDate(invoice.updatedAt)}
-              </span>
-            </div>
-          </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>معلومات النظام</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {renderDetailRow('معرف التاجر:', invoice.merchantId, 'break-all')}
+            {renderDetailRow('معرف الفاتورة:', invoice.invoiceId, 'break-all')}
+            {renderDetailRow('تاريخ الإنشاء:', formatDate(invoice.createdAt))}
+            {renderDetailRow('آخر تحديث:', formatDate(invoice.updatedAt))}
+          </CardContent>
         </Card>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

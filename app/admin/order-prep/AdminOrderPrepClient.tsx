@@ -2,10 +2,24 @@
 
 import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useSession } from 'next-auth/react';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import AppNavbar from '@/components/AppNavbar';
+import { NativeSelect } from '@/components/ui/native-select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface OrderUser {
   id: string;
@@ -32,31 +46,6 @@ interface OrderAssignment {
   priorityReason?: string | null;
   priorityNotes?: string | null;
   priorityCreatedAt?: string | null;
-}
-
-interface StatsByUser {
-  userId: string;
-  userName: string;
-  total: number;
-  completed: number;
-  underReview: number;
-  reservation: number;
-}
-
-interface StatsBucket {
-  total: number;
-  completed: number;
-  underReview: number;
-  reservation: number;
-  shipped: number;
-  byUser: StatsByUser[];
-}
-
-interface Stats {
-  active: StatsBucket;
-  today: StatsBucket;
-  week: StatsBucket;
-  month: StatsBucket;
 }
 
 type PerformancePreset = 'today' | 'week' | 'month' | 'custom';
@@ -283,7 +272,6 @@ export default function AdminOrderPrepPage() {
   const [assignments, setAssignments] = useState<OrderAssignment[]>([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
   const [users, setUsers] = useState<OrderUser[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
   const [liveOrders, setLiveOrders] = useState<LiveOrdersSummary | null>(null);
   const [liveOrdersLoading, setLiveOrdersLoading] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -308,9 +296,6 @@ export default function AdminOrderPrepPage() {
   const [perfCustomTo, setPerfCustomTo] = useState('');
   const [perfData, setPerfData] = useState<PerformanceData | null>(null);
   const [perfLoading, setPerfLoading] = useState(false);
-  const currentStats = stats?.active ?? null;
-  const currentUserStats = currentStats?.byUser ?? [];
-
   const loadUsers = useCallback(async () => {
     try {
       const response = await fetch('/api/admin/order-assignments/users');
@@ -331,13 +316,8 @@ export default function AdminOrderPrepPage() {
         statusFilter: 'all',
       });
 
-      const [assignmentsRes, statsRes] = await Promise.all([
-        fetch(`/api/admin/order-assignments/list?${params}`),
-        fetch(`/api/admin/order-assignments/stats?${params}`),
-      ]);
-
+      const assignmentsRes = await fetch(`/api/admin/order-assignments/list?${params}`);
       const assignmentsBody = await assignmentsRes.text();
-      const statsBody = await statsRes.text();
 
       if (!assignmentsRes.ok) {
         console.warn('Failed to load assignments list', {
@@ -357,21 +337,6 @@ export default function AdminOrderPrepPage() {
         } else {
           setAssignments([]);
           setError(assignmentsData?.error || 'تعذر تحميل الطلبات');
-        }
-      }
-
-      if (!statsRes.ok) {
-        console.warn('Failed to load order stats', {
-          status: statsRes.status,
-          bodySnippet: statsBody.slice(0, 200),
-        });
-        setStats(null);
-      } else {
-        const statsData = parseJsonSafely<{ success?: boolean; stats?: Stats }>(statsBody, 'Admin assignments stats');
-        if (statsData?.success && statsData.stats) {
-          setStats(statsData.stats);
-        } else {
-          setStats(null);
         }
       }
     } catch (loadError) {
@@ -692,7 +657,7 @@ export default function AdminOrderPrepPage() {
     }
   };
 
-  const performAssignmentsRemoval = async (options: { assignmentIds?: string[]; orderIds?: string[] }) => {
+  const performAssignmentsRemoval = useCallback(async (options: { assignmentIds?: string[]; orderIds?: string[] }) => {
     const assignmentIds = Array.isArray(options.assignmentIds)
       ? options.assignmentIds.filter((value) => Boolean(value))
       : [];
@@ -727,7 +692,7 @@ export default function AdminOrderPrepPage() {
       alert('فشل إزالة الطلبات');
       return false;
     }
-  };
+  }, [refreshAll]);
 
   const handleRemoveAssignments = async () => {
     if (selectedOrders.size === 0) {
@@ -1023,9 +988,9 @@ export default function AdminOrderPrepPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-lg">جاري التحميل...</p>
-      </div>
+      <AppPageShell title="إدارة طلبات التحضير" subtitle="لوحة تحكم المسؤول">
+        <LoadingState label="جاري التحميل..." />
+      </AppPageShell>
     );
   }
 
@@ -1044,18 +1009,17 @@ export default function AdminOrderPrepPage() {
 
   if (!initialized) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-lg text-gray-600">جاري تحميل لوحة التحكم...</p>
-      </div>
+      <AppPageShell title="إدارة طلبات التحضير" subtitle="لوحة تحكم المسؤول">
+        <LoadingState label="جاري تحميل لوحة التحكم..." />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar title="إدارة طلبات التحضير" subtitle="لوحة تحكم المسؤول" />
-
-      <div className="w-full px-4 md:px-6 py-6 space-y-6">
-          <Card className="p-6">
+    <AppPageShell title="إدارة طلبات التحضير" subtitle="لوحة تحكم المسؤول">
+      <div className="space-y-6">
+          <Card>
+            <CardContent className="p-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">لوحة المراقبة المباشرة</h2>
@@ -1077,9 +1041,11 @@ export default function AdminOrderPrepPage() {
                 </Button>
               </div>
             </div>
+            </CardContent>
           </Card>
 
-          <Card className="p-6 space-y-4">
+          <Card>
+            <CardContent className="space-y-4 p-6">
             <div>
               <h3 className="text-lg font-semibold text-gray-900">بحث عن عميل عبر رقم الطلب</h3>
               <p className="text-sm text-gray-500">
@@ -1101,7 +1067,9 @@ export default function AdminOrderPrepPage() {
               </Button>
             </form>
             {orderSearchError && (
-              <p className="text-sm text-rose-600">{orderSearchError}</p>
+              <Alert variant="destructive">
+                <AlertDescription>{orderSearchError}</AlertDescription>
+              </Alert>
             )}
             {orderSearchResult && (
               <div className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
@@ -1177,12 +1145,10 @@ export default function AdminOrderPrepPage() {
                           ${searchPriorityMeta.disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-amber-100'}
                         `}
                       >
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                        <Checkbox
                           checked={Boolean(orderSearchResult.isHighPriority)}
                           disabled={searchPriorityMeta.disabled || isSearchPriorityUpdating}
-                          onChange={() =>
+                          onCheckedChange={() =>
                             handleTogglePriority({
                               id: orderSearchResult.orderId,
                               orderNumber: orderSearchResult.orderNumber,
@@ -1220,10 +1186,10 @@ export default function AdminOrderPrepPage() {
                         </p>
                       </div>
                       <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                        <select
+                        <NativeSelect
                           value={manualAssignUserId}
                           onChange={(event) => setManualAssignUserId(event.target.value)}
-                          className="flex-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          className="w-full"
                           disabled={manualAssigning || users.length === 0}
                         >
                           <option value="">
@@ -1234,7 +1200,7 @@ export default function AdminOrderPrepPage() {
                               {user.name} ({user.username})
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                         <Button
                           type="button"
                           className="md:w-40 bg-emerald-600 hover:bg-emerald-700"
@@ -1245,10 +1211,14 @@ export default function AdminOrderPrepPage() {
                         </Button>
                       </div>
                       {manualAssignError && (
-                        <p className="text-sm text-rose-600">{manualAssignError}</p>
+                        <Alert variant="destructive">
+                          <AlertDescription>{manualAssignError}</AlertDescription>
+                        </Alert>
                       )}
                       {manualAssignSuccess && (
-                        <p className="text-sm text-emerald-700">{manualAssignSuccess}</p>
+                        <Alert>
+                          <AlertDescription>{manualAssignSuccess}</AlertDescription>
+                        </Alert>
                       )}
                     </div>
                   </div>
@@ -1261,12 +1231,13 @@ export default function AdminOrderPrepPage() {
                 )}
               </div>
             )}
+            </CardContent>
           </Card>
 
           {error && (
-            <Card className="p-4 border border-rose-200 bg-rose-50 text-rose-800 text-sm">
-              {error}
-            </Card>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
           <div className="grid grid-cols-1 gap-4">
@@ -1351,11 +1322,12 @@ export default function AdminOrderPrepPage() {
                                 </p>
                               </div>
                               <div className="flex flex-col items-end gap-2">
-                                <span
-                                  className={`inline-flex items-center px-2 py-1 rounded-full border text-[11px] font-semibold ${LIVE_STATE_STYLES[order.assignmentState]?.className}`}
+                                <Badge
+                                  variant="outline"
+                                  className={LIVE_STATE_STYLES[order.assignmentState]?.className}
                                 >
                                   {LIVE_STATE_STYLES[order.assignmentState]?.label}
-                                </span>
+                                </Badge>
                                 <label
                                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${
                                     order.isHighPriority
@@ -1368,12 +1340,10 @@ export default function AdminOrderPrepPage() {
                                       : 'حدد الطلب لدفعه إلى مقدمة طابور التحضير'
                                   }
                                 >
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                                  <Checkbox
                                     checked={Boolean(order.isHighPriority)}
                                     disabled={priorityDisabled || isPriorityUpdating}
-                                    onChange={() => handleTogglePriority(order)}
+                                    onCheckedChange={() => handleTogglePriority(order)}
                                   />
                                   <span>
                                     {isPriorityUpdating ? 'جارٍ التحديث...' : priorityLabel}
@@ -1542,34 +1512,34 @@ export default function AdminOrderPrepPage() {
 
                 {/* Enhanced Table */}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-right pb-3 font-semibold">المستخدم</th>
-                        <th className="text-center pb-3 font-semibold">المعين</th>
-                        <th className="text-center pb-3 font-semibold">مكتمل</th>
-                        <th className="text-center pb-3 font-semibold">متوسط الإنجاز</th>
-                        <th className="text-center pb-3 font-semibold">طلبات/ساعة</th>
-                        <th className="text-center pb-3 font-semibold">معدل الإنجاز</th>
-                        <th className="text-center pb-3 font-semibold">نشط</th>
-                        <th className="text-center pb-3 font-semibold">مراجعة</th>
-                        <th className="text-center pb-3 font-semibold">حجز</th>
-                        <th className="text-center pb-3 font-semibold">إجراءات</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>المستخدم</TableHead>
+                        <TableHead className="text-center">المعين</TableHead>
+                        <TableHead className="text-center">مكتمل</TableHead>
+                        <TableHead className="text-center">متوسط الإنجاز</TableHead>
+                        <TableHead className="text-center">طلبات/ساعة</TableHead>
+                        <TableHead className="text-center">معدل الإنجاز</TableHead>
+                        <TableHead className="text-center">نشط</TableHead>
+                        <TableHead className="text-center">مراجعة</TableHead>
+                        <TableHead className="text-center">حجز</TableHead>
+                        <TableHead className="text-center">إجراءات</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {perfData.byUser.map((u) => (
-                        <tr key={u.userId} className="border-b">
-                          <td className="py-3 font-medium">{u.userName}</td>
-                          <td className="text-center">{u.totalAssigned}</td>
-                          <td className="text-center text-green-600 font-semibold">{u.totalCompleted}</td>
-                          <td className="text-center text-blue-600">{formatCompletionTime(u.avgCompletionMs)}</td>
-                          <td className="text-center text-amber-600">{u.ordersPerHour}</td>
-                          <td className="text-center font-semibold">{u.completionRate}%</td>
-                          <td className="text-center">{u.active}</td>
-                          <td className="text-center text-orange-600">{u.underReview}</td>
-                          <td className="text-center text-purple-600">{u.reservation}</td>
-                          <td className="text-center">
+                        <TableRow key={u.userId}>
+                          <TableCell className="font-medium">{u.userName}</TableCell>
+                          <TableCell className="text-center">{u.totalAssigned}</TableCell>
+                          <TableCell className="text-center font-semibold text-green-600">{u.totalCompleted}</TableCell>
+                          <TableCell className="text-center text-blue-600">{formatCompletionTime(u.avgCompletionMs)}</TableCell>
+                          <TableCell className="text-center text-amber-600">{u.ordersPerHour}</TableCell>
+                          <TableCell className="text-center font-semibold">{u.completionRate}%</TableCell>
+                          <TableCell className="text-center">{u.active}</TableCell>
+                          <TableCell className="text-center text-orange-600">{u.underReview}</TableCell>
+                          <TableCell className="text-center text-purple-600">{u.reservation}</TableCell>
+                          <TableCell className="text-center">
                             <Button
                               size="sm"
                               variant="outline"
@@ -1577,25 +1547,25 @@ export default function AdminOrderPrepPage() {
                             >
                               إزالة الارتباطات
                             </Button>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 font-bold">
-                        <td className="py-3">الإجمالي</td>
-                        <td className="text-center">{perfData.aggregate.totalAssigned}</td>
-                        <td className="text-center text-green-600">{perfData.aggregate.totalCompleted}</td>
-                        <td className="text-center text-blue-600">{formatCompletionTime(perfData.aggregate.avgCompletionMs)}</td>
-                        <td className="text-center text-amber-600">{perfData.aggregate.ordersPerHour}</td>
-                        <td className="text-center">{perfData.aggregate.completionRate}%</td>
-                        <td className="text-center">{perfData.aggregate.active}</td>
-                        <td className="text-center text-orange-600">{perfData.aggregate.underReview}</td>
-                        <td className="text-center text-purple-600">{perfData.aggregate.reservation}</td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                    </TableBody>
+                    <TableFooter>
+                      <TableRow className="font-bold">
+                        <TableCell>الإجمالي</TableCell>
+                        <TableCell className="text-center">{perfData.aggregate.totalAssigned}</TableCell>
+                        <TableCell className="text-center text-green-600">{perfData.aggregate.totalCompleted}</TableCell>
+                        <TableCell className="text-center text-blue-600">{formatCompletionTime(perfData.aggregate.avgCompletionMs)}</TableCell>
+                        <TableCell className="text-center text-amber-600">{perfData.aggregate.ordersPerHour}</TableCell>
+                        <TableCell className="text-center">{perfData.aggregate.completionRate}%</TableCell>
+                        <TableCell className="text-center">{perfData.aggregate.active}</TableCell>
+                        <TableCell className="text-center text-orange-600">{perfData.aggregate.underReview}</TableCell>
+                        <TableCell className="text-center text-purple-600">{perfData.aggregate.reservation}</TableCell>
+                        <TableCell />
+                      </TableRow>
+                    </TableFooter>
+                  </Table>
                 </div>
               </>
             )}
@@ -1614,10 +1584,10 @@ export default function AdminOrderPrepPage() {
 
             <div className="mb-6">
               <label className="block text-sm font-medium mb-2">اختر المستخدم</label>
-              <select
+              <NativeSelect
                 value={reassignUserId}
                 onChange={(e) => setReassignUserId(e.target.value)}
-                className="w-full border rounded-lg p-3"
+                className="w-full"
               >
                 <option value="">-- اختر مستخدم --</option>
                 {users.map((user) => (
@@ -1625,7 +1595,7 @@ export default function AdminOrderPrepPage() {
                     {user.name} ({user.username})
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
 
             <div className="flex gap-3">
@@ -1650,6 +1620,6 @@ export default function AdminOrderPrepPage() {
           </Card>
         </div>
       )}
-    </div>
+    </AppPageShell>
   );
 }

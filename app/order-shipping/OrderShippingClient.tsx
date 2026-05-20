@@ -2,11 +2,16 @@
 
 import { useState, useEffect, useMemo, useCallback, FormEvent } from 'react';
 import { useSession } from 'next-auth/react';
-import AppNavbar from '@/components/AppNavbar';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
 import { detectMessengerShipments, buildShipToArabicLabel } from '@/app/lib/local-shipping/messenger';
 
@@ -1249,14 +1254,13 @@ const handleRefreshItems = async () => {
     fetchDeliveryAgents,
     deliveryAgentsError,
     loadingAgentSelection,
-    findPreferredDeliveryAgent,
   ]);
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-lg">جاري التحميل...</p>
-      </div>
+      <AppPageShell title="شحن الطلبات" subtitle="لوحة الشحن">
+        <LoadingState label="جاري التحميل..." />
+      </AppPageShell>
     );
   }
 
@@ -1276,28 +1280,29 @@ const handleRefreshItems = async () => {
 
   if (!isOrdersUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 text-center">
-        <Card className="p-8 max-w-md">
-          <p className="text-lg font-semibold text-gray-700">
+      <AppPageShell title="شحن الطلبات" subtitle="لوحة الشحن">
+        <Card className="mx-auto max-w-md">
+          <CardContent className="p-8 text-center">
+          <p className="text-lg font-semibold">
             ليس لديك صلاحية للوصول إلى لوحة شحن الطلبات.
           </p>
+          </CardContent>
         </Card>
-      </div>
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 overflow-x-hidden">
-      <AppNavbar title="شحن الطلبات" subtitle={`مرحباً، ${user.name}`} collapseOnMobile />
-
-      <div className="w-full">
-        <div className="w-full max-w-7xl mx-auto px-4 md:px-6 pt-6 pb-32 md:pb-40">
-          <Card className="w-full p-4 mb-6">
+    <AppPageShell
+      title="شحن الطلبات"
+      subtitle={`مرحباً، ${user.name}`}
+      contentClassName="flex flex-1 flex-col gap-6 p-4 pb-32 md:p-6 md:pb-40"
+    >
+          <Card className="w-full">
+            <CardContent className="p-4">
             <form onSubmit={handleSearch} className="flex flex-col gap-3 md:flex-row md:items-center">
-              <div className="flex-1">
-                <label htmlFor="orderSearch" className="block text-sm font-semibold text-gray-700 mb-1">
-                  ابحث عن الطلب
-                </label>
+              <Field className="flex-1">
+                <FieldLabel htmlFor="orderSearch">ابحث عن الطلب</FieldLabel>
                 <Input
                   id="orderSearch"
                   placeholder="رقم الطلب، رقم المرجع، رقم الهاتف، أو المعرف الخارجي"
@@ -1306,7 +1311,7 @@ const handleRefreshItems = async () => {
                   disabled={searching}
                   className="w-full"
                 />
-              </div>
+              </Field>
               <div className="flex gap-2">
                 <Button type="submit" disabled={searching} className="min-w-[140px]">
                   {searching ? 'جاري البحث...' : '🔍 بحث'}
@@ -1319,28 +1324,18 @@ const handleRefreshItems = async () => {
               </div>
             </form>
             {searchFeedback && (
-              <p
-                className={`mt-3 text-sm font-medium ${
-                  searchFeedback.type === 'error' ? 'text-red-600' : 'text-green-700'
-                }`}
-              >
-                {searchFeedback.message}
-              </p>
+              <Alert className="mt-3" variant={searchFeedback.type === 'error' ? 'destructive' : 'default'}>
+                <AlertDescription>{searchFeedback.message}</AlertDescription>
+              </Alert>
             )}
+            </CardContent>
           </Card>
 
           {!currentOrder ? (
-            <Card className="w-full p-8 md:p-12 text-center">
-              <div className="mb-6">
-                <svg className="w-24 h-24 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-xl text-gray-600 mb-2">ابحث عن طلب لبدء إنشاء الشحنة</p>
-                <p className="text-sm text-gray-500 mb-4">
-                  أدخل رقم الطلب أو بيانات البحث واضغط على زر &quot;بحث&quot; لعرض معلومات الطلب وإرسال الشحنات.
-                </p>
-              </div>
-            </Card>
+            <EmptyState
+              title="ابحث عن طلب لبدء إنشاء الشحنة"
+              description="أدخل رقم الطلب أو بيانات البحث واضغط على زر بحث لعرض معلومات الطلب وإرسال الشحنات."
+            />
           ) : (
             <div className="w-full">
               <Card className="p-4 md:p-6 mb-4 md:mb-6">
@@ -1348,9 +1343,9 @@ const handleRefreshItems = async () => {
                   <h2 className="text-2xl md:text-3xl font-bold flex flex-wrap items-center gap-3">
                     <span>طلب #{currentOrder.orderNumber}</span>
                     {currentOrder.isHighPriority && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-800">
+                      <Badge variant="outline" className="border-orange-200 bg-orange-100 text-orange-800">
                         ⚡ أولوية قصوى
-                      </span>
+                      </Badge>
                     )}
                   </h2>
                   <p className="text-gray-600 mt-1">
@@ -1526,14 +1521,14 @@ const handleRefreshItems = async () => {
 
               <div className="space-y-3 md:space-y-4">
                 {loadingProductLocations && (
-                  <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                    جاري تحميل مواقع التخزين للمنتجات...
-                  </div>
+                  <Alert>
+                    <AlertDescription>جاري تحميل مواقع التخزين للمنتجات...</AlertDescription>
+                  </Alert>
                 )}
                 {productLocationError && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    ⚠️ {productLocationError}
-                  </div>
+                  <Alert variant="destructive">
+                    <AlertDescription>{productLocationError}</AlertDescription>
+                  </Alert>
                 )}
                 {locationSummary.length > 0 && (
                   <Card className="border-amber-200 bg-amber-50/70">
@@ -1586,6 +1581,7 @@ const handleRefreshItems = async () => {
                           <div className="flex flex-col md:flex-row gap-4 md:gap-6">
                             <div className="flex-shrink-0">
                               {(item.thumbnail || item.product_thumbnail || item.product?.thumbnail) ? (
+                                // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={item.thumbnail || item.product_thumbnail || item.product?.thumbnail}
                                   alt={item.name}
@@ -1823,17 +1819,13 @@ const handleRefreshItems = async () => {
               )}
 
               {shipmentError && (
-                <Card className="mt-4 p-4 bg-red-50 border-2 border-red-500">
-                  <div className="flex items-start gap-3">
+                <Alert className="mt-4" variant="destructive">
                     <svg className="w-6 h-6 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
-                    <div>
-                      <h4 className="text-base font-bold text-red-900">فشل إنشاء الشحنة</h4>
-                      <p className="text-sm text-red-700 whitespace-pre-line leading-relaxed">{shipmentError}</p>
-                    </div>
-                  </div>
-                </Card>
+                    <AlertTitle>فشل إنشاء الشحنة</AlertTitle>
+                    <AlertDescription className="whitespace-pre-line leading-relaxed">{shipmentError}</AlertDescription>
+                </Alert>
               )}
 
               <div className="mt-8 md:mt-10 md:sticky md:bottom-0 md:z-40 md:-mx-6 md:px-6">
@@ -1956,8 +1948,6 @@ const handleRefreshItems = async () => {
               </div>
             </div>
           )}
-        </div>
-      </div>
 
       <ConfirmationDialog
         open={agentSelectionDialogOpen}
@@ -1976,7 +1966,11 @@ const handleRefreshItems = async () => {
                 لا يوجد مناديب نشطون متاحون حالياً. يرجى التواصل مع مسؤول المستودع.
               </p>
             ) : (
-              <div className="space-y-3 max-h-64 overflow-y-auto pr-1 mt-2">
+              <RadioGroup
+                value={selectedAgentId || ''}
+                onValueChange={setSelectedAgentId}
+                className="mt-2 max-h-64 space-y-3 overflow-y-auto pr-1"
+              >
                 {agentSelectionOptions.map((agent) => {
                   const isPreferred = isPreferredDeliveryAgent(agent);
                   return (
@@ -1984,13 +1978,8 @@ const handleRefreshItems = async () => {
                       key={agent.id}
                       className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 cursor-pointer"
                     >
-                      <input
-                        type="radio"
-                        name="local-shipment-agent"
-                        className="h-4 w-4 text-blue-600 border-gray-300"
+                      <RadioGroupItem
                         value={agent.id}
-                        checked={selectedAgentId === agent.id}
-                        onChange={() => setSelectedAgentId(agent.id)}
                         disabled={creatingLocalShipment}
                       />
                       <div className="flex-1 min-w-0">
@@ -2003,14 +1992,14 @@ const handleRefreshItems = async () => {
                         </p>
                       </div>
                       {isPreferred && (
-                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                        <Badge variant="secondary" className="whitespace-nowrap text-emerald-700">
                           الافتراضي
-                        </span>
+                        </Badge>
                       )}
                     </label>
                   );
                 })}
-              </div>
+              </RadioGroup>
             )}
           </div>
         }
@@ -2024,6 +2013,6 @@ const handleRefreshItems = async () => {
         onConfirm={handleConfirmDialog}
         onCancel={handleCancelDialog}
       />
-    </div>
+    </AppPageShell>
   );
 }

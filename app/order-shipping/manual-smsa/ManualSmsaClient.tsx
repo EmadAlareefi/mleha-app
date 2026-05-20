@@ -12,9 +12,11 @@ import {
   Truck,
   PackageSearch,
   FileText,
-  X,
 } from 'lucide-react';
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -24,7 +26,24 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import type { SallaOrder } from '@/app/lib/salla-api';
 import type {
   ManualSmsaShipmentItemInput,
@@ -671,17 +690,20 @@ const ManualSmsaClient = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNavbar />
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+    <AppPageShell
+      title="إنشاء شحنات SMSA إضافية"
+      subtitle="إنشاء أكثر من شحنة لنفس طلب سلة مع الاحتفاظ بنفس عنوان العميل."
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <Card>
           <CardHeader className="pb-4">
-            <CardTitle className="text-2xl flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-xl">
               <Truck className="h-5 w-5" />
-              إنشاء شحنات SMSA إضافية
+              بحث الطلب
             </CardTitle>
             <CardDescription>
-              استخدم هذه الصفحة لإنشاء أكثر من شحنة لنفس طلب سلة مع الاحتفاظ بنفس عنوان العميل.
+              حمّل الطلب من سلة ثم اختر المنتجات والقيم المراد إرسالها في الشحنة الإضافية.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -689,26 +711,22 @@ const ManualSmsaClient = () => {
               onSubmit={handleSearch}
               className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end"
             >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  رقم طلب سلة
-                </label>
+              <Field className="gap-2">
+                <FieldLabel>رقم طلب سلة</FieldLabel>
                 <Input
                   value={orderNumberInput}
                   onChange={(e) => setOrderNumberInput(e.target.value)}
                   placeholder="مثال: 123456789"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  معرف التاجر (إن وجد)
-                </label>
+              </Field>
+              <Field className="gap-2">
+                <FieldLabel>معرف التاجر (إن وجد)</FieldLabel>
                 <Input
                   value={merchantId}
                   onChange={(e) => setMerchantId(e.target.value)}
                   placeholder="استخدم الافتراضي إن كان الحقل فارغاً"
                 />
-              </div>
+              </Field>
               <Button type="submit" disabled={loadingOrder}>
                 {loadingOrder ? (
                   <>
@@ -724,15 +742,12 @@ const ManualSmsaClient = () => {
               </Button>
             </form>
             {feedback && (
-              <div
-                className={`mt-4 rounded-lg border p-3 text-sm ${
-                  feedback.type === 'success'
-                    ? 'border-green-200 bg-green-50 text-green-800'
-                    : 'border-red-200 bg-red-50 text-red-800'
-                }`}
+              <Alert
+                variant={feedback.type === 'error' ? 'destructive' : 'default'}
+                className="mt-4"
               >
-                {feedback.message}
-              </div>
+                <AlertDescription>{feedback.message}</AlertDescription>
+              </Alert>
             )}
           </CardContent>
         </Card>
@@ -748,16 +763,16 @@ const ManualSmsaClient = () => {
                 <CardDescription>معلومات الطلب الأساسي من سلة</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">رقم الطلب:</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">رقم الطلب:</span>
                   <span className="font-semibold">{order.reference_id || order.order_number}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">الحالة:</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">الحالة:</span>
                   <span className="font-semibold">{order.status?.name || order.status?.slug}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">إجمالي الطلب:</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">إجمالي الطلب:</span>
                   <span className="font-semibold">
                     {formatCurrency(
                       safeNumber((order as any)?.amounts?.total?.amount) ?? null,
@@ -765,12 +780,12 @@ const ManualSmsaClient = () => {
                     )}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">اسم العميل:</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">اسم العميل:</span>
                   <span className="font-semibold">{order.customer?.name || order.customer?.full_name}</span>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-gray-600">العنوان:</span>
+                  <span className="text-muted-foreground">العنوان:</span>
                   <span className="font-semibold whitespace-pre-line leading-relaxed">
                     {addressSummary.join('\n')}
                   </span>
@@ -788,8 +803,8 @@ const ManualSmsaClient = () => {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-600">عدد القطع</label>
+                  <Field className="gap-2">
+                    <FieldLabel>عدد القطع</FieldLabel>
                     <Input
                       value={formValues.parcels}
                       onChange={(e) =>
@@ -797,9 +812,9 @@ const ManualSmsaClient = () => {
                       }
                       placeholder={totals.quantity ? totals.quantity.toString() : 'مثال: 2'}
                     />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600">الوزن الكلي (كجم)</label>
+                  </Field>
+                  <Field className="gap-2">
+                    <FieldLabel>الوزن الكلي (كجم)</FieldLabel>
                     <Input
                       value={formValues.weight}
                       onChange={(e) =>
@@ -807,11 +822,11 @@ const ManualSmsaClient = () => {
                       }
                       placeholder={totals.weight ? totals.weight.toString() : 'مثال: 1.5'}
                     />
-                  </div>
+                  </Field>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-600">القيمة المصرح بها (SAR)</label>
+                  <Field className="gap-2">
+                    <FieldLabel>القيمة المصرح بها (SAR)</FieldLabel>
                     <Input
                       value={formValues.declaredValue}
                       onChange={(e) =>
@@ -819,9 +834,9 @@ const ManualSmsaClient = () => {
                       }
                       placeholder={totals.amount ? totals.amount.toString() : 'مثال: 350'}
                     />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600">مبلغ الدفع عند الاستلام (اختياري)</label>
+                  </Field>
+                  <Field className="gap-2">
+                    <FieldLabel>مبلغ الدفع عند الاستلام</FieldLabel>
                     <Input
                       value={formValues.codAmount}
                       onChange={(e) =>
@@ -829,10 +844,10 @@ const ManualSmsaClient = () => {
                       }
                       placeholder="اتركه فارغاً للطلبات المدفوعة مسبقاً"
                     />
-                  </div>
+                  </Field>
                 </div>
-                <div>
-                  <label className="text-xs text-gray-600">وصف المحتوى</label>
+                <Field className="gap-2">
+                  <FieldLabel>وصف المحتوى</FieldLabel>
                   <Input
                     value={formValues.contentDescription}
                     onChange={(e) =>
@@ -840,8 +855,8 @@ const ManualSmsaClient = () => {
                     }
                     placeholder="مثال: شحنة تعويض لطلب #123"
                   />
-                </div>
-                <div className="text-sm text-gray-600">
+                </Field>
+                <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
                   <p>مجموع الكميات المحددة: {totals.quantity || 0} قطعة</p>
                   <p>القيمة المقترحة: {formatCurrency(totals.amount, order.amounts?.total?.currency)}</p>
                   <p>الوزن التقديري: {totals.weight || 0} كجم</p>
@@ -881,14 +896,14 @@ const ManualSmsaClient = () => {
             <CardContent className="space-y-4">
               <div className="flex flex-col md:flex-row md:items-end gap-3">
                 <form onSubmit={handleSkuLookup} className="flex-1 flex gap-2">
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-600">إضافة منتج عبر SKU</label>
+                  <Field className="flex-1 gap-2">
+                    <FieldLabel>إضافة منتج عبر SKU</FieldLabel>
                     <Input
                       value={skuValue}
                       onChange={(e) => setSkuValue(e.target.value)}
                       placeholder="أدخل SKU المنتج لإضافته للشحنة"
                     />
-                  </div>
+                  </Field>
                   <Button type="submit" disabled={skuLookupLoading}>
                     {skuLookupLoading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -898,40 +913,40 @@ const ManualSmsaClient = () => {
                   </Button>
                 </form>
                 {skuLookupError && (
-                  <p className="text-sm text-red-600">{skuLookupError}</p>
+                  <p className="text-sm text-destructive">{skuLookupError}</p>
                 )}
               </div>
-              <div className="overflow-x-auto border rounded-lg">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-100 text-right text-sm text-gray-600">
-                    <tr>
-                      <th className="px-3 py-2">المنتج</th>
-                      <th className="px-3 py-2">SKU</th>
-                      <th className="px-3 py-2 w-24">الكمية</th>
-                      <th className="px-3 py-2 w-28">السعر للوحدة</th>
-                      <th className="px-3 py-2 w-28">الوزن (كجم)</th>
-                      <th className="px-3 py-2 w-16">إزالة</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-sm">
+              <div className="overflow-hidden rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>المنتج</TableHead>
+                      <TableHead>SKU</TableHead>
+                      <TableHead className="w-24">الكمية</TableHead>
+                      <TableHead className="w-28">السعر للوحدة</TableHead>
+                      <TableHead className="w-28">الوزن (كجم)</TableHead>
+                      <TableHead className="w-16">إزالة</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {draftItems.map((item) => (
-                      <tr key={item.clientKey} className="bg-white">
-                        <td className="px-3 py-2">
+                      <TableRow key={item.clientKey}>
+                        <TableCell>
                           <div className="font-semibold">{item.name}</div>
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-muted-foreground">
                             {item.source === 'order' ? 'من الطلب الأساسي' : 'مضاف يدوياً'}
                           </div>
-                        </td>
-                        <td className="px-3 py-2 text-gray-700">{item.sku || '—'}</td>
-                        <td className="px-3 py-2">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{item.sku || '—'}</TableCell>
+                        <TableCell>
                           <Input
                             type="number"
                             min={0}
                             value={item.quantity}
                             onChange={(e) => handleItemChange(item.clientKey, 'quantity', e.target.value)}
                           />
-                        </td>
-                        <td className="px-3 py-2">
+                        </TableCell>
+                        <TableCell>
                           <Input
                             type="number"
                             min="0"
@@ -939,8 +954,8 @@ const ManualSmsaClient = () => {
                             value={item.price ?? ''}
                             onChange={(e) => handleItemChange(item.clientKey, 'price', e.target.value)}
                           />
-                        </td>
-                        <td className="px-3 py-2">
+                        </TableCell>
+                        <TableCell>
                           <Input
                             type="number"
                             min="0"
@@ -948,8 +963,8 @@ const ManualSmsaClient = () => {
                             value={item.weight ?? ''}
                             onChange={(e) => handleItemChange(item.clientKey, 'weight', e.target.value)}
                           />
-                        </td>
-                        <td className="px-3 py-2 text-center">
+                        </TableCell>
+                        <TableCell className="text-center">
                           <Button
                             type="button"
                             variant="ghost"
@@ -958,16 +973,17 @@ const ManualSmsaClient = () => {
                           >
                             <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
               {draftItems.length === 0 && (
-                <p className="text-center text-gray-500 text-sm py-6">
-                  لا توجد منتجات محددة حالياً. قم بإعادة تحميل الطلب أو أضف منتجات يدوياً.
-                </p>
+                <EmptyState
+                  title="لا توجد منتجات محددة"
+                  description="قم بإعادة تحميل الطلب أو أضف منتجات يدوياً عبر SKU."
+                />
               )}
             </CardContent>
             <CardFooter className="flex justify-end gap-3">
@@ -996,44 +1012,43 @@ const ManualSmsaClient = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {shipments.length === 0 && (
-                <p className="text-gray-500 text-sm">
-                  لا توجد شحنات يدوية لهذا الطلب بعد.
-                </p>
+                <EmptyState
+                  title="لا توجد شحنات يدوية"
+                  description="أنشئ شحنة SMSA إضافية من إعدادات الشحنة أعلاه."
+                />
               )}
               {shipments.map((shipment) => (
                 <div
                   key={shipment.id}
-                  className="rounded-lg border border-gray-200 bg-white p-4 flex flex-col gap-3"
+                  className="flex flex-col gap-3 rounded-lg border bg-card p-4"
                 >
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                     <div>
-                      <div className="text-sm text-gray-500">رقم التتبع</div>
+                      <div className="text-sm text-muted-foreground">رقم التتبع</div>
                       <div className="font-semibold text-lg">
                         {shipment.smsaTrackingNumber || '—'}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 text-sm">
-                      <span
-                        className={`px-3 py-1 rounded-full ${
+                      <Badge
+                        variant={
                           shipment.status === 'cancelled'
-                            ? 'bg-red-50 text-red-700 border border-red-100'
+                            ? 'destructive'
                             : shipment.cancelledAt
-                              ? 'bg-gray-100 text-gray-700 border border-gray-200'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                        }`}
+                              ? 'secondary'
+                              : 'default'
+                        }
                       >
                         {shipment.status === 'cancelled'
                           ? 'ملغاة'
                           : shipment.cancelledAt
                             ? 'تم الإلغاء'
                             : 'نشطة'}
-                      </span>
-                      <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
-                        {formatDateTime(shipment.createdAt)}
-                      </span>
+                      </Badge>
+                      <Badge variant="outline">{formatDateTime(shipment.createdAt)}</Badge>
                     </div>
                   </div>
-                  <div className="text-sm text-gray-700">
+                  <div className="text-sm text-muted-foreground">
                     <p>القيمة المصرح بها: {formatCurrency(shipment.declaredValue, shipment.currency)}</p>
                     <p>عدد القطع: {shipment.parcels} • الوزن: {shipment.weight || 0} كجم</p>
                     {shipment.codAmount && (
@@ -1044,7 +1059,7 @@ const ManualSmsaClient = () => {
                         href={shipment.smsaLabelDataUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 mt-1"
+                        className="mt-1 inline-flex items-center gap-1 text-primary hover:underline"
                       >
                         <FileText className="h-4 w-4" />
                         طباعة بوليصة الشحن
@@ -1052,8 +1067,8 @@ const ManualSmsaClient = () => {
                     )}
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500 mb-1">المنتجات:</div>
-                    <ul className="text-sm list-disc list-inside text-gray-700 space-y-1">
+                    <div className="mb-1 text-xs text-muted-foreground">المنتجات:</div>
+                    <ul className="list-inside list-disc space-y-1 text-sm text-foreground">
                       {shipment.shipmentItems.map((item, idx) => (
                         <li key={`${shipment.id}-${idx}`}>
                           {item.name} — الكمية {item.quantity} — SKU {item.sku || '—'}
@@ -1096,29 +1111,27 @@ const ManualSmsaClient = () => {
         )}
       </div>
 
-      {itemEditorShipment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-          <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div>
-                <h3 className="text-lg font-semibold">
+      <Dialog
+        open={Boolean(itemEditorShipment)}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleCloseItemEditor();
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-3xl">
+          {itemEditorShipment && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
                   إضافة منتجات للشحنة{' '}
                   {itemEditorShipment.smsaTrackingNumber || itemEditorShipment.id}
-                </h3>
-                <p className="text-sm text-gray-500">
+                </DialogTitle>
+                <DialogDescription>
                   اختر منتجات من الطلب أو أدخل SKU لإبلاغ المستودع بما سيتم شحنه.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleCloseItemEditor}
-                className="rounded-full p-2 text-gray-500 hover:text-gray-700"
-                aria-label="إغلاق"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="max-h-[32rem] overflow-y-auto px-6 py-4 space-y-6">
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[32rem] space-y-6 overflow-y-auto pr-1">
               <div>
                 <h4 className="font-medium mb-2">منتجات الطلب</h4>
                 {Array.isArray(order?.items) && order.items.length > 0 ? (
@@ -1126,18 +1139,16 @@ const ManualSmsaClient = () => {
                     {order.items.map((item) => (
                       <div
                         key={item.id}
-                        className="rounded-lg border border-gray-200 bg-gray-50 p-3 sm:flex sm:items-center sm:justify-between"
+                        className="rounded-lg border bg-muted/30 p-3 sm:flex sm:items-center sm:justify-between"
                       >
                         <div>
-                          <p className="font-semibold text-gray-800">{item.name}</p>
-                          <p className="text-sm text-gray-600">
+                          <p className="font-semibold">{item.name}</p>
+                          <p className="text-sm text-muted-foreground">
                             SKU: {item.sku || item.product?.sku || '—'}
                           </p>
                         </div>
                         <div className="mt-3 sm:mt-0 sm:w-32">
-                          <label className="text-xs text-gray-500">
-                            الكمية لهذه الشحنة
-                          </label>
+                          <FieldLabel className="text-xs">الكمية لهذه الشحنة</FieldLabel>
                           <Input
                             type="number"
                             min={0}
@@ -1149,45 +1160,46 @@ const ManualSmsaClient = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">
-                    لا توجد بيانات للمنتجات من الطلب الحالي. يمكنك إدخال المنتجات عبر SKU أدناه.
-                  </p>
+                  <EmptyState
+                    title="لا توجد بيانات منتجات"
+                    description="يمكنك إدخال المنتجات عبر SKU أدناه."
+                  />
                 )}
               </div>
 
-              <div className="rounded-lg border border-dashed border-gray-300 p-4 space-y-3">
+              <div className="rounded-lg border border-dashed p-4 space-y-3">
                 <h4 className="font-medium">إضافة منتج عبر SKU</h4>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr]">
-                  <div>
-                    <label className="text-xs text-gray-500">SKU من سلة</label>
+                  <Field className="gap-2">
+                    <FieldLabel>SKU من سلة</FieldLabel>
                     <Input
                       value={itemEditorSku}
                       onChange={(e) => setItemEditorSku(e.target.value)}
                       placeholder="مثال: ABC-123"
                     />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">الكمية</label>
+                  </Field>
+                  <Field className="gap-2">
+                    <FieldLabel>الكمية</FieldLabel>
                     <Input
                       type="number"
                       min={1}
                       value={itemEditorSkuQty}
                       onChange={(e) => setItemEditorSkuQty(e.target.value)}
                     />
-                  </div>
+                  </Field>
                 </div>
-                <p className="text-xs text-gray-500">
+                <FieldDescription>
                   سيتم التحقق من SKU مباشرة من واجهة سلة قبل إضافته.
-                </p>
+                </FieldDescription>
               </div>
 
               {itemEditorError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700 text-sm">
-                  {itemEditorError}
-                </div>
+                <Alert variant="destructive">
+                  <AlertDescription>{itemEditorError}</AlertDescription>
+                </Alert>
               )}
-            </div>
-            <div className="flex justify-end gap-3 border-t px-6 py-4">
+              </div>
+              <DialogFooter>
               <Button variant="ghost" onClick={handleCloseItemEditor}>
                 إلغاء
               </Button>
@@ -1201,11 +1213,12 @@ const ManualSmsaClient = () => {
                   'إضافة المنتجات'
                 )}
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </AppPageShell>
   );
 };
 

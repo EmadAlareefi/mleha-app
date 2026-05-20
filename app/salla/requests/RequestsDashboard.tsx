@@ -3,9 +3,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Loader2, RefreshCcw } from 'lucide-react';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import type { QuantityRequestRecord } from '@/app/lib/salla-product-requests';
 
 type RequestsDashboardProps = {
@@ -171,27 +183,25 @@ export function RequestsDashboard({ initialRequests }: RequestsDashboardProps) {
   };
 
   return (
-    <main className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 space-y-6">
-      <section className="grid gap-4 rounded-3xl border border-indigo-100 bg-white/90 p-6 shadow-lg shadow-indigo-100/60 sm:grid-cols-4">
-        <div>
-          <p className="text-sm text-slate-500">إجمالي الطلبات</p>
-          <p className="text-3xl font-semibold text-slate-900">{formatNumber(totalRequests)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-slate-500">بانتظار التوفير</p>
-          <p className="text-3xl font-semibold text-amber-600">{formatNumber(totalPending)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-slate-500">مكتملة</p>
-          <p className="text-3xl font-semibold text-emerald-600">{formatNumber(totalCompleted)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-slate-500">كمية المرتجع المطلوبة</p>
-          <p className="text-3xl font-semibold text-purple-600">{formatNumber(totalRefundRequested)}</p>
-        </div>
+    <div className="space-y-6">
+      <section className="grid gap-4 sm:grid-cols-4">
+        {[
+          { label: 'إجمالي الطلبات', value: formatNumber(totalRequests), className: 'text-foreground' },
+          { label: 'بانتظار التوفير', value: formatNumber(totalPending), className: 'text-amber-600' },
+          { label: 'مكتملة', value: formatNumber(totalCompleted), className: 'text-emerald-600' },
+          { label: 'كمية المرتجع المطلوبة', value: formatNumber(totalRefundRequested), className: 'text-primary' },
+        ].map((stat) => (
+          <Card key={stat.label}>
+            <CardContent className="p-6">
+              <p className="text-sm text-muted-foreground">{stat.label}</p>
+              <p className={`text-3xl font-semibold ${stat.className}`}>{stat.value}</p>
+            </CardContent>
+          </Card>
+        ))}
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow space-y-4">
+      <Card>
+        <CardContent className="space-y-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">متابعة طلبات الكميات</h2>
@@ -211,36 +221,21 @@ export function RequestsDashboard({ initialRequests }: RequestsDashboardProps) {
           </Button>
         </div>
         {refreshError && (
-          <p className="text-sm text-red-600">
-            تعذر تحديث القائمة: {refreshError}
-          </p>
+          <Alert variant="destructive">
+            <AlertDescription>تعذر تحديث القائمة: {refreshError}</AlertDescription>
+          </Alert>
         )}
         <div className="flex flex-wrap gap-4">
           <div className="flex flex-col gap-2">
             <span className="text-xs font-semibold text-slate-600">حالة الطلب</span>
-            <div className="flex gap-2">
-              {[
-                { label: 'بانتظار', value: 'pending' },
-                { label: 'مكتمل', value: 'completed' },
-                { label: 'الكل', value: 'all' },
-              ].map((option) => {
-                const active = statusFilter === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setStatusFilter(option.value as typeof statusFilter)}
-                    className={`rounded-2xl px-4 py-1 text-sm font-semibold transition ${
-                      active
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
+            <NativeSelect
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+            >
+              <NativeSelectOption value="pending">بانتظار</NativeSelectOption>
+              <NativeSelectOption value="completed">مكتمل</NativeSelectOption>
+              <NativeSelectOption value="all">الكل</NativeSelectOption>
+            </NativeSelect>
           </div>
           <div className="flex flex-col flex-1 min-w-[220px] gap-2">
             <label className="text-xs font-semibold text-slate-600" htmlFor="requests-search">
@@ -255,15 +250,18 @@ export function RequestsDashboard({ initialRequests }: RequestsDashboardProps) {
             />
           </div>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {groupedRequests.length === 0 ? (
-        <Card className="rounded-3xl border border-slate-100 bg-white/90 p-6 text-center text-slate-500 shadow">
-          لا توجد طلبات مسجلة حالياً.
+        <Card>
+          <CardContent className="p-6">
+            <EmptyState title="لا توجد طلبات مسجلة حالياً" />
+          </CardContent>
         </Card>
       ) : (
         groupedRequests.map((group) => (
-          <Card key={group.productId} className="rounded-3xl border border-slate-100 bg-white/95 shadow">
+          <Card key={group.productId}>
             <CardHeader className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="h-14 w-14 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
@@ -301,56 +299,50 @@ export function RequestsDashboard({ initialRequests }: RequestsDashboardProps) {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-100 text-sm">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">تاريخ الطلب</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">أضيف بواسطة</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">الكمية</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">كمية المرتجع</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">الحالة</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">تاريخ التوريد</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">ملاحظات</th>
-                      <th className="px-3 py-2 text-right font-medium text-slate-600">تحديث</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>تاريخ الطلب</TableHead>
+                      <TableHead>أضيف بواسطة</TableHead>
+                      <TableHead>الكمية</TableHead>
+                      <TableHead>كمية المرتجع</TableHead>
+                      <TableHead>الحالة</TableHead>
+                      <TableHead>تاريخ التوريد</TableHead>
+                      <TableHead>ملاحظات</TableHead>
+                      <TableHead>تحديث</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {group.requests.map((request) => (
-                      <tr key={request.id} className="text-slate-700 align-top">
-                        <td className="px-3 py-2 whitespace-nowrap">{formatDate(request.requestedAt)}</td>
-                        <td className="px-3 py-2 text-xs text-slate-500">
+                      <TableRow key={request.id} className="align-top">
+                        <TableCell className="whitespace-nowrap">{formatDate(request.requestedAt)}</TableCell>
+                        <TableCell className="text-xs text-slate-500">
                           {request.requestedBy || 'مستخدم'}
-                        </td>
-                        <td className="px-3 py-2">{formatNumber(request.requestedAmount)}</td>
-                        <td className="px-3 py-2">
+                        </TableCell>
+                        <TableCell>{formatNumber(request.requestedAmount)}</TableCell>
+                        <TableCell>
                           {request.requestedRefundAmount
                             ? formatNumber(request.requestedRefundAmount)
                             : '—'}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={`rounded-full px-3 py-0.5 text-xs font-semibold ${
-                              request.status === 'completed'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-amber-50 text-amber-700'
-                            }`}
-                          >
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={request.status === 'completed' ? 'default' : 'secondary'}>
                             {request.status === 'completed' ? 'مكتمل' : 'بانتظار'}
-                          </span>
+                          </Badge>
                           {request.status === 'completed' && (
                             <div className="mt-1 text-xs text-slate-500">
                               وفّر {request.providedBy} {formatNumber(request.providedAmount ?? null)} في{' '}
                               {formatDate(request.fulfilledAt)}
                             </div>
                           )}
-                        </td>
-                        <td className="px-3 py-2">
+                        </TableCell>
+                        <TableCell>
                           {request.requestedFor ? formatDate(request.requestedFor) : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-slate-500">
+                        </TableCell>
+                        <TableCell className="text-slate-500">
                           {request.notes || <span className="text-slate-400">—</span>}
-                        </td>
-                        <td className="px-3 py-2">
+                        </TableCell>
+                        <TableCell>
                           {request.status === 'pending' ? (
                             <FulfillRequestForm
                               request={request}
@@ -360,17 +352,17 @@ export function RequestsDashboard({ initialRequests }: RequestsDashboardProps) {
                           ) : (
                             <p className="text-xs text-emerald-600">تم التحديث</p>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>
         ))
       )}
-    </main>
+    </div>
   );
 }
 

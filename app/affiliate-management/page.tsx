@@ -1,17 +1,21 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import AppNavbar from '@/components/AppNavbar';
-import { Card } from '@/components/ui/card';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState, LoadingState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import {
   ArrowDownToLine,
   BarChart3,
   Download,
-  LoaderCircle,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -342,45 +346,40 @@ export default function AffiliateManagementPage() {
 
   if (loading && !data) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <LoaderCircle className="h-10 w-10 text-indigo-500 animate-spin" />
-        <p className="mt-4 text-gray-600">جاري تحميل لوحة إدارة المسوقين...</p>
-      </div>
+      <AppPageShell title="إدارة المسوقين" subtitle="تقارير العمولات والمحافظ">
+        <LoadingState label="جاري تحميل لوحة إدارة المسوقين..." />
+      </AppPageShell>
     );
   }
 
   if (error && !data) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <AppNavbar title="إدارة المسوقين" />
-        <div className="max-w-3xl mx-auto p-6">
-          <Card className="p-8 text-center">
-            <p className="text-red-600 font-semibold mb-2">{error}</p>
-            <Button onClick={fetchData}>إعادة المحاولة</Button>
-          </Card>
-        </div>
-      </div>
+      <AppPageShell title="إدارة المسوقين" subtitle="تقارير العمولات والمحافظ">
+        <EmptyState
+          title="تعذر تحميل بيانات المسوقين"
+          description={error}
+          action={<Button onClick={fetchData}>إعادة المحاولة</Button>}
+        />
+      </AppPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50">
-      <AppNavbar title="إدارة المسوقين" subtitle="تقارير العمولات والمحافظ" />
-      <main className="max-w-7xl mx-auto p-4 space-y-6">
+    <AppPageShell title="إدارة المسوقين" subtitle="تقارير العمولات والمحافظ">
         <Card className="p-4">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
-              <div className="flex-1">
-                <label className="block text-sm text-gray-600 mb-1">اختر المسوق</label>
-                <Select value={selectedAffiliateId} onChange={handleAffiliateChange}>
-                  <option value="all">كل المسوقين</option>
+              <Field className="flex-1">
+                <FieldLabel>اختر المسوق</FieldLabel>
+                <NativeSelect className="w-full" value={selectedAffiliateId} onChange={handleAffiliateChange}>
+                  <NativeSelectOption value="all">كل المسوقين</NativeSelectOption>
                   {(data?.affiliates ?? []).map((affiliate) => (
-                    <option key={affiliate.id} value={affiliate.id}>
+                    <NativeSelectOption key={affiliate.id} value={affiliate.id}>
                       {affiliate.ownerName} — {affiliate.affiliateName}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </Select>
-              </div>
+                </NativeSelect>
+              </Field>
               <div className="flex flex-wrap gap-2">
                 {([
                   { key: '30', label: 'آخر ٣٠ يوماً' },
@@ -401,22 +400,22 @@ export default function AffiliateManagementPage() {
             </div>
             {rangePreset === 'custom' && (
               <div className="flex flex-col gap-4 sm:flex-row">
-                <div className="flex-1">
-                  <label className="block text-sm text-gray-600 mb-1">من تاريخ</label>
+                <Field className="flex-1">
+                  <FieldLabel>من تاريخ</FieldLabel>
                   <Input
                     type="date"
                     value={customRange.start}
                     onChange={(event) => setCustomRange((prev) => ({ ...prev, start: event.target.value }))}
                   />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm text-gray-600 mb-1">إلى تاريخ</label>
+                </Field>
+                <Field className="flex-1">
+                  <FieldLabel>إلى تاريخ</FieldLabel>
                   <Input
                     type="date"
                     value={customRange.end}
                     onChange={(event) => setCustomRange((prev) => ({ ...prev, end: event.target.value }))}
                   />
-                </div>
+                </Field>
               </div>
             )}
             <div className="flex flex-wrap items-center gap-3">
@@ -445,9 +444,9 @@ export default function AffiliateManagementPage() {
         </Card>
 
         {error && (
-          <Card className="border border-red-200 bg-red-50/60 p-4">
-            <p className="text-red-600 text-sm">{error}</p>
-          </Card>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -488,14 +487,14 @@ export default function AffiliateManagementPage() {
           </Card>
         </section>
 
-        <Card className="p-0">
-          <div className="flex items-center justify-between border-b px-4 py-3">
+        <Card className="overflow-hidden">
+          <CardHeader className="flex-row items-center justify-between border-b">
             <div>
               <p className="text-sm text-gray-500">نظرة سريعة</p>
-              <h2 className="text-lg font-semibold">قائمة المسوقين والعمولات</h2>
+              <CardTitle>قائمة المسوقين والعمولات</CardTitle>
             </div>
-            <span className="text-xs text-gray-400">{filteredAffiliates.length} مسوق</span>
-          </div>
+            <Badge variant="secondary">{filteredAffiliates.length} مسوق</Badge>
+          </CardHeader>
           <Table>
             <TableHeader>
               <TableRow>
@@ -536,7 +535,7 @@ export default function AffiliateManagementPage() {
               {!filteredAffiliates.length && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-6 text-gray-500">
-                    لا توجد بيانات مطابقة للبحث الحالي
+                    <EmptyState title="لا توجد بيانات مطابقة" description="غيّر البحث أو الفترة الزمنية ثم حاول مرة أخرى." />
                   </TableCell>
                 </TableRow>
               )}
@@ -607,7 +606,7 @@ export default function AffiliateManagementPage() {
               </div>
             </Card>
 
-            <Card className="p-5 flex flex-col gap-4">
+            <Card className="flex flex-col gap-4 p-5">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">محفظة العمولات</p>
@@ -633,7 +632,7 @@ export default function AffiliateManagementPage() {
                 <h4 className="text-sm font-semibold text-slate-800 mb-2">حركة السجل</h4>
                 <div className="space-y-2">
                   {latestTransactions.length === 0 && (
-                    <p className="text-sm text-gray-500">لا توجد معاملات خلال الفترة المحددة</p>
+                    <EmptyState title="لا توجد معاملات" description="لا توجد معاملات خلال الفترة المحددة." />
                   )}
                   {latestTransactions.map((transaction) => (
                     <div key={transaction.id} className="flex items-center justify-between rounded-xl border bg-slate-50/80 px-3 py-2">
@@ -666,8 +665,8 @@ export default function AffiliateManagementPage() {
               <form onSubmit={handleRecordPayout} className="space-y-3 border-t border-slate-100 pt-3">
                 <p className="text-sm font-semibold text-slate-800">تسجيل دفعة جديدة</p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">المبلغ</label>
+                  <Field>
+                    <FieldLabel>المبلغ</FieldLabel>
                     <Input
                       type="number"
                       min="0"
@@ -676,44 +675,52 @@ export default function AffiliateManagementPage() {
                       value={payoutForm.amount}
                       onChange={(event) => setPayoutForm((prev) => ({ ...prev, amount: event.target.value }))}
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">المرجع</label>
+                  </Field>
+                  <Field>
+                    <FieldLabel>المرجع</FieldLabel>
                     <Input
                       type="text"
                       value={payoutForm.reference}
                       onChange={(event) => setPayoutForm((prev) => ({ ...prev, reference: event.target.value }))}
                       placeholder="رقم التحويل أو وصف مختصر"
                     />
-                  </div>
+                  </Field>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">حالة الدفعة</label>
-                    <Select
+                  <Field>
+                    <FieldLabel>حالة الدفعة</FieldLabel>
+                    <NativeSelect
+                      className="w-full"
                       value={payoutForm.status}
                       onChange={(event) =>
                         setPayoutForm((prev) => ({ ...prev, status: event.target.value as 'PENDING' | 'APPROVED' | 'PAID' }))
                       }
                     >
-                      <option value="PAID">تم الدفع</option>
-                      <option value="APPROVED">جاهز للصرف</option>
-                      <option value="PENDING">قيد المراجعة</option>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">ملاحظات</label>
-                    <textarea
-                      className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      <NativeSelectOption value="PAID">تم الدفع</NativeSelectOption>
+                      <NativeSelectOption value="APPROVED">جاهز للصرف</NativeSelectOption>
+                      <NativeSelectOption value="PENDING">قيد المراجعة</NativeSelectOption>
+                    </NativeSelect>
+                  </Field>
+                  <Field>
+                    <FieldLabel>ملاحظات</FieldLabel>
+                    <Textarea
                       rows={2}
                       value={payoutForm.memo}
                       onChange={(event) => setPayoutForm((prev) => ({ ...prev, memo: event.target.value }))}
                       placeholder="تفاصيل إضافية (اختياري)"
                     />
-                  </div>
+                  </Field>
                 </div>
-                {payoutError && <p className="text-xs text-red-600">{payoutError}</p>}
-                {payoutSuccess && <p className="text-xs text-emerald-600">{payoutSuccess}</p>}
+                {payoutError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{payoutError}</AlertDescription>
+                  </Alert>
+                )}
+                {payoutSuccess && (
+                  <Alert>
+                    <AlertDescription>{payoutSuccess}</AlertDescription>
+                  </Alert>
+                )}
                 <Button type="submit" disabled={payoutSubmitting || !payoutForm.amount}>
                   {payoutSubmitting ? 'جاري التسجيل...' : 'تسجيل الدفعة'}
                 </Button>
@@ -754,13 +761,9 @@ export default function AffiliateManagementPage() {
                       </TableCell>
                       <TableCell>{formatCurrency(payout.amount, payout.currency)}</TableCell>
                       <TableCell>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
-                            payoutStatusStyles[payout.status]
-                          }`}
-                        >
+                        <Badge variant="outline" className={payoutStatusStyles[payout.status]}>
                           {payoutStatusLabels[payout.status]}
-                        </span>
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-slate-900">{payout.recordedBy?.name || '—'}</div>
@@ -855,15 +858,16 @@ export default function AffiliateManagementPage() {
                         {order.placedAt ? DATE_FORMATTER.format(new Date(order.placedAt)) : '—'}
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                        <Badge
+                          variant="outline"
+                          className={
                             order.isDelivered
                               ? 'bg-emerald-50 text-emerald-700'
                               : 'bg-amber-50 text-amber-700'
-                          }`}
+                          }
                         >
                           {order.statusName || order.statusSlug || 'غير معروف'}
-                        </span>
+                        </Badge>
                       </TableCell>
                       <TableCell>{formatCurrency(order.netAmount, order.currency ?? CURRENCY)}</TableCell>
                       <TableCell>{formatCurrency(order.commissionAmount, order.currency ?? CURRENCY)}</TableCell>
@@ -909,7 +913,6 @@ export default function AffiliateManagementPage() {
             </div>
           </Card>
         )}
-      </main>
-    </div>
+    </AppPageShell>
   );
 }

@@ -23,6 +23,10 @@ import {
   extractSmsaLabelBase64,
   buildSmsaLabelDataUrl,
 } from '@/lib/returns/smsa-label';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { EmptyState } from '@/components/dashboard/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CopyPhoneButton } from '@/components/CopyPhoneButton';
@@ -156,24 +160,27 @@ export default async function ReturnOrderDetailsPage({
   const typeLabel = returnRequest.type === 'exchange' ? 'استبدال' : 'إرجاع';
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <AppPageShell
+      title={`طلب #${returnRequest.orderNumber}`}
+      subtitle="تفاصيل طلب الإرجاع والاستبدال"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-sm text-gray-500">تفاصيل طلب الإرجاع</p>
-            <h1 className="text-3xl font-bold mt-1">طلب #{returnRequest.orderNumber}</h1>
+            <p className="text-sm text-muted-foreground">تفاصيل طلب الإرجاع</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">طلب #{returnRequest.orderNumber}</h1>
             <div className="mt-4 flex flex-wrap gap-3">
-              <span className="inline-flex items-center rounded-full border px-4 py-1 text-sm font-medium bg-orange-50 text-orange-700 border-orange-200">
+              <Badge className="bg-orange-50 text-orange-700 border-orange-200">
                 {typeLabel}
-              </span>
-              <span className={`inline-flex items-center rounded-full border px-4 py-1 text-sm font-medium ${statusClass}`}>
+              </Badge>
+              <Badge className={statusClass}>
                 {STATUS_LABELS[returnRequest.status] || returnRequest.status}
-              </span>
+              </Badge>
             </div>
           </div>
-          <Link href="/returns-management" className="self-start">
-            <Button variant="outline">← العودة لقائمة الطلبات</Button>
-          </Link>
+          <Button asChild variant="outline" className="self-start">
+            <Link href="/returns-management">← العودة لقائمة الطلبات</Link>
+          </Button>
         </div>
 
         <Card className="p-6 space-y-6">
@@ -197,10 +204,10 @@ export default async function ReturnOrderDetailsPage({
                   )}
                 </div>
                 {returnRequest.adminNotes && (
-                  <div className="mt-3 p-3 rounded-md bg-blue-50 border border-blue-100">
+                  <Alert className="mt-3 border-blue-100 bg-blue-50 text-blue-900">
                     <dt className="text-xs font-semibold text-blue-800">ملاحظات الإدارة</dt>
-                    <dd className="text-sm text-blue-900 mt-1">{returnRequest.adminNotes}</dd>
-                  </div>
+                    <AlertDescription>{returnRequest.adminNotes}</AlertDescription>
+                  </Alert>
                 )}
               </dl>
             </div>
@@ -335,23 +342,25 @@ export default async function ReturnOrderDetailsPage({
               </div>
             </>
           ) : (
-            <div className="p-4 rounded-lg bg-yellow-50 border border-yellow-100 text-sm text-yellow-800">
-              تعذر جلب بوليصة الشحنة من سمسا حالياً. تأكد من توفر رقم التتبع أو حاول لاحقاً.
-            </div>
+            <Alert className="border-yellow-100 bg-yellow-50 text-yellow-900">
+              <AlertDescription>
+                تعذر جلب بوليصة الشحنة من سمسا حالياً. تأكد من توفر رقم التتبع أو حاول لاحقاً.
+              </AlertDescription>
+            </Alert>
           )}
         </Card>
 
         <Card className="p-6 space-y-4 border border-gray-200 bg-gray-100">
           <div className="flex flex-wrap gap-2">
             {inspectionSummary.badges.map((badge) => (
-              <span
+              <Badge
                 key={badge.label}
-                className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${
+                className={`${
                   badgeToneClasses[badge.tone] || badgeToneClasses.muted
                 }`}
               >
                 {badge.label}
-              </span>
+              </Badge>
             ))}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
@@ -452,9 +461,7 @@ export default async function ReturnOrderDetailsPage({
               </div>
             ))}
             {itemsWithImages.length === 0 && (
-              <div className="text-center text-gray-500 py-12">
-                لا توجد عناصر مرتبطة بهذا الطلب.
-              </div>
+              <EmptyState title="لا توجد عناصر" description="لا توجد عناصر مرتبطة بهذا الطلب." />
             )}
           </div>
         </Card>
@@ -519,9 +526,7 @@ export default async function ReturnOrderDetailsPage({
               ))}
             </div>
           ) : (
-            <div className="text-sm text-gray-500 text-center py-6">
-              لا تتوفر عناصر للطلب في بيانات سلة الحالية.
-            </div>
+            <EmptyState title="لا تتوفر عناصر" description="لا تتوفر عناصر للطلب في بيانات سلة الحالية." />
           )}
         </Card>
 
@@ -537,7 +542,6 @@ export default async function ReturnOrderDetailsPage({
             </p>
           </Card>
         )}
-      </div>
-    </div>
+    </AppPageShell>
   );
 }

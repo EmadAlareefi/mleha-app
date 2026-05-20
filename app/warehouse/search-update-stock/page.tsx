@@ -15,10 +15,21 @@ import {
   Search,
   Target,
 } from 'lucide-react';
-import AppNavbar from '@/components/AppNavbar';
+import { AppPageShell } from '@/components/dashboard/app-page-shell';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { cn } from '@/lib/utils';
 
 type StockSearchResult = {
@@ -67,9 +78,6 @@ const stockModeOptions: Array<{
   },
 ];
 
-const inputClasses =
-  'w-full rounded-2xl border border-slate-200/70 bg-white px-4 py-3 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
-
 async function parseJsonResponse(response: Response, fallbackMessage: string) {
   const clone = response.clone();
   try {
@@ -98,11 +106,6 @@ function formatDateLabel(value?: string | null) {
   }).format(date);
 }
 
-function normalizeSku(value?: string | null) {
-  if (!value) return '';
-  return value.trim().toUpperCase();
-}
-
 export default function SearchAndUpdateStockPage() {
   const [searchInput, setSearchInput] = useState('');
   const [searching, setSearching] = useState(false);
@@ -129,7 +132,7 @@ export default function SearchAndUpdateStockPage() {
     }
     setCountInputs({});
     setUpdateFeedback(null);
-  }, [activeResult?.product.id]);
+  }, [activeResult?.product.id, activeResult?.product.location]);
 
   useEffect(() => {
     setCountInputs({});
@@ -403,31 +406,29 @@ export default function SearchAndUpdateStockPage() {
   }, [handleUpdate]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <AppNavbar
-        title="تحديث المخزون"
-        subtitle="بحث SKU وتعديل الكميات"
-        collapseOnMobile
-      />
-
-      <main className="mx-auto mt-6 w-full max-w-6xl px-4 pb-40">
-        <Card className="border-0 bg-white/70 shadow-2xl shadow-indigo-100/60">
+    <AppPageShell
+      title="تحديث المخزون"
+      subtitle="بحث SKU وتعديل الكميات"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 pb-40 md:p-6"
+    >
+      <div className="mx-auto w-full max-w-6xl">
+        <Card>
           <div className="space-y-4 p-6">
             <div className="flex flex-wrap items-center gap-4">
               <form onSubmit={handleSearch} className="flex flex-1 flex-wrap gap-4">
                 <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
                     placeholder="أدخل الباركود أو رمز SKU"
-                    className="h-12 rounded-2xl border border-slate-200 px-10 text-sm font-medium"
+                    className="h-12 px-10"
                   />
                 </div>
                 <Button
                   type="submit"
                   disabled={searching}
-                  className="h-12 rounded-2xl bg-indigo-600 px-6 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 disabled:opacity-70"
+                  className="h-12 px-6"
                 >
                   {searching ? (
                     <>
@@ -442,48 +443,43 @@ export default function SearchAndUpdateStockPage() {
                   )}
                 </Button>
               </form>
-              <Link
-                href="/warehouse-locations"
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-indigo-200 hover:text-indigo-600"
-              >
-                <ClipboardList className="h-4 w-4" />
-                إدارة المواقع
-              </Link>
+              <Button asChild variant="outline">
+                <Link href="/warehouse-locations">
+                  <ClipboardList className="h-4 w-4" />
+                  إدارة المواقع
+                </Link>
+              </Button>
             </div>
-            <div className="rounded-3xl border border-slate-100 bg-slate-50/60 p-4">
+            <div className="rounded-lg border bg-muted/30 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-700">اختيار نوع تعديل المخزون</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-sm font-semibold">اختيار نوع تعديل المخزون</p>
+                  <p className="text-xs text-muted-foreground">
                     حدد ما إذا كنت ترغب بتحديث الكميات الفعلية أو زيادة المخزون قبل البحث.
                   </p>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                   {stockModeOptions.map((option) => (
-                    <button
+                    <Button
                       key={option.value}
                       type="button"
                       onClick={() => setStockMode(option.value)}
                       aria-pressed={stockMode === option.value}
-                      className={cn(
-                        'flex-1 rounded-2xl border px-4 py-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 sm:flex-none',
-                        stockMode === option.value
-                          ? 'border-indigo-400 bg-white text-indigo-600 shadow-sm shadow-indigo-100'
-                          : 'border-transparent bg-transparent text-slate-500 hover:border-slate-200 hover:bg-white/50'
-                      )}
+                      variant={stockMode === option.value ? 'default' : 'outline'}
+                      className="h-auto flex-1 flex-col items-start px-4 py-3 text-right sm:flex-none"
                     >
                       <p className="text-sm font-semibold">{option.label}</p>
-                      <p className="text-[11px] text-slate-400">{option.description}</p>
-                    </button>
+                      <p className="text-[11px] opacity-70">{option.description}</p>
+                    </Button>
                   ))}
                 </div>
               </div>
             </div>
             {searchError && (
-              <div className="flex items-start gap-2 rounded-2xl border border-rose-100 bg-rose-50/80 px-4 py-3 text-sm text-rose-700">
+              <Alert variant="destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>{searchError}</p>
-              </div>
+                <AlertDescription>{searchError}</AlertDescription>
+              </Alert>
             )}
           </div>
         </Card>
@@ -491,43 +487,42 @@ export default function SearchAndUpdateStockPage() {
         {results.length > 0 && (
           <section className="mt-8 grid gap-6 lg:grid-cols-[320px_1fr]">
             <div className="space-y-4">
-              <div className="rounded-3xl border border-slate-100 bg-white/80 p-5 shadow-inner shadow-slate-100">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+              <div className="rounded-lg border bg-card p-5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
                   <Search className="h-4 w-4" />
                   نتائج البحث
                 </div>
-                <p className="mt-1 text-xs text-slate-400">اختر المنتج المطلوب تعديل كمياته</p>
+                <p className="mt-1 text-xs text-muted-foreground">اختر المنتج المطلوب تعديل كمياته</p>
               </div>
               <div className="space-y-3">
                 {results.map((result, index) => {
                   const locationLabel = result.product.location?.location || null;
                   return (
-                    <button
+                    <Button
                       key={`${result.product.id}-${index}`}
                       type="button"
                       onClick={() => setSelectedIndex(index)}
+                      variant={selectedIndex === index ? 'default' : 'outline'}
                       className={cn(
-                        'w-full rounded-2xl border px-4 py-3 text-right transition hover:border-indigo-200 hover:bg-indigo-50/40',
-                        selectedIndex === index
-                          ? 'border-indigo-400 bg-indigo-50/80 text-indigo-700 shadow-lg shadow-indigo-100'
-                          : 'border-slate-200 bg-white text-slate-700'
+                        'h-auto w-full justify-start px-4 py-3 text-right',
+                        selectedIndex !== index && 'bg-card'
                       )}
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold">{result.product.name}</p>
                           {result.product.sku && (
-                            <p className="text-xs text-slate-400">SKU: {result.product.sku}</p>
+                            <p className="text-xs opacity-70">SKU: {result.product.sku}</p>
                           )}
                         </div>
                         {locationLabel && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/5 px-2 py-1 text-[10px] font-semibold text-slate-500">
+                          <Badge variant="secondary">
                             <MapPin className="h-3 w-3" />
                             {locationLabel}
-                          </span>
+                          </Badge>
                         )}
                       </div>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -535,7 +530,7 @@ export default function SearchAndUpdateStockPage() {
 
             <div className="space-y-6">
               {activeResult && (
-                <Card className="border-0 bg-white/90 shadow-xl shadow-indigo-100/60">
+                <Card>
                   <div className="flex flex-col gap-6 p-6 md:flex-row md:items-center">
                     <div className="w-full max-w-[180px]">
                       {activeResult.product.imageUrl ? (
@@ -557,38 +552,39 @@ export default function SearchAndUpdateStockPage() {
                           {activeResult.product.name}
                         </h2>
                         {activeResult.product.sku && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50/80 px-3 py-1 text-xs font-semibold text-indigo-600">
+                          <Badge variant="outline">
                             <Barcode className="h-3.5 w-3.5" />
                             {activeResult.product.sku}
-                          </span>
+                          </Badge>
                         )}
                       </div>
                       {activeResult.product.lastUpdatedAt && (
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-muted-foreground">
                           آخر جلب من سلة: {formatDateLabel(activeResult.product.lastUpdatedAt)}
                         </p>
                       )}
                       <div className="grid gap-4 md:grid-cols-2">
-                        <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
-                          <p className="text-xs font-medium text-slate-500">موقع التخزين</p>
+                        <div className="rounded-lg border bg-muted/30 p-4">
+                          <Field className="gap-2">
+                          <FieldLabel>موقع التخزين</FieldLabel>
                           <div className="mt-2 flex items-center gap-4">
-                            <MapPin className="h-5 w-5 text-slate-400" />
-                            <input
+                            <MapPin className="h-5 w-5 text-muted-foreground" />
+                            <Input
                               value={locationInput}
                               onChange={(event) => setLocationInput(event.target.value.toUpperCase())}
                               placeholder="مثال: A3-B2"
-                              className={inputClasses}
                             />
                           </div>
                           {activeResult.product.location?.updatedAt && (
-                            <p className="mt-1 text-[11px] text-slate-400">
+                            <FieldDescription>
                               آخر تحديث: {formatDateLabel(activeResult.product.location.updatedAt)}
-                            </p>
+                            </FieldDescription>
                           )}
+                          </Field>
                         </div>
-                        <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
-                          <p className="text-xs font-medium text-slate-500">ملاحظات سريعة</p>
-                          <ul className="mt-2 space-y-1 text-xs text-slate-500">
+                        <div className="rounded-lg border bg-muted/30 p-4">
+                          <p className="text-xs font-medium text-muted-foreground">ملاحظات سريعة</p>
+                          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                             <li className="flex items-center gap-2">
                               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                               {isIncrementMode
@@ -612,31 +608,24 @@ export default function SearchAndUpdateStockPage() {
               )}
 
               {updateFeedback && (
-                <div
-                  className={cn(
-                    'flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm',
-                    updateFeedback.type === 'success'
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-rose-200 bg-rose-50 text-rose-700'
-                  )}
-                >
+                <Alert variant={updateFeedback.type === 'error' ? 'destructive' : 'default'}>
                   {updateFeedback.type === 'success' ? (
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                   ) : (
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   )}
-                  <p>{updateFeedback.message}</p>
-                </div>
+                  <AlertDescription>{updateFeedback.message}</AlertDescription>
+                </Alert>
               )}
 
               {activeResult && (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-700">
+                      <p className="text-sm font-semibold">
                         المتغيرات ({activeResult.variations.length})
                       </p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-muted-foreground">
                         {isIncrementMode
                           ? 'أدخل كمية الزيادة لكل متغير ليتم إرسالها كزيادة على المخزون الحالي.'
                           : 'أدخل العدد الفعلي بعد الجرد ليتم احتساب المخزون المتاح في سلة.'}
@@ -646,7 +635,6 @@ export default function SearchAndUpdateStockPage() {
                       type="button"
                       variant="ghost"
                       onClick={handleResetCounts}
-                      className="rounded-2xl border border-slate-200 text-slate-600 hover:border-slate-300"
                     >
                       <RefreshCcw className="ms-2 h-4 w-4" />
                       مسح الحقول
@@ -660,29 +648,29 @@ export default function SearchAndUpdateStockPage() {
                       return (
                         <div
                           key={variant.id}
-                          className="rounded-3xl border border-slate-100 bg-white/90 p-4 shadow shadow-slate-100 transition hover:border-indigo-100 hover:shadow-indigo-50"
+                          className="rounded-lg border bg-card p-4"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                              <p className="text-sm font-semibold text-slate-900">{variant.name}</p>
+                              <p className="text-sm font-semibold">{variant.name}</p>
                               {variant.sku && (
-                                <p className="text-xs text-slate-400">SKU: {variant.sku}</p>
+                                <p className="text-xs text-muted-foreground">SKU: {variant.sku}</p>
                               )}
                               {variant.barcode && (
-                                <p className="text-xs text-slate-400">باركود: {variant.barcode}</p>
+                                <p className="text-xs text-muted-foreground">باركود: {variant.barcode}</p>
                               )}
                             </div>
-                            <div className="rounded-2xl bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-500">
+                            <Badge variant="secondary">
                               مخزون سلة الحالي: {variant.sallaStock}
-                            </div>
+                            </Badge>
                           </div>
 
                           <div className="mt-4 grid gap-4 md:grid-cols-3">
-                            <div>
-                              <p className="text-xs font-semibold text-slate-500">
+                            <Field className="gap-2">
+                              <FieldLabel>
                                 {isIncrementMode ? 'الكمية المراد إضافتها' : 'الكمية الفعلية (المخزون)'}
-                              </p>
-                              <input
+                              </FieldLabel>
+                              <Input
                                 type="number"
                                 min="0"
                                 step="1"
@@ -695,17 +683,16 @@ export default function SearchAndUpdateStockPage() {
                                     ? 'أدخل عدد القطع المراد إضافتها'
                                     : 'أدخل العدد بعد الجرد'
                                 }
-                                className={inputClasses}
                               />
-                            </div>
-                            <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4 text-sm text-amber-700">
+                            </Field>
+                            <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
                               <p className="text-xs font-semibold text-amber-600">طلبات جارية</p>
                               <p className="mt-1 text-lg font-bold">{variant.pendingQuantity}</p>
                               <p className="text-[11px] text-amber-600/80">
                                 الطلبات المعينة قيد التحضير يتم خصمها تلقائياً
                               </p>
                             </div>
-                            <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+                            <div className="rounded-lg border bg-muted/30 p-4">
                               <p className="text-xs font-semibold text-indigo-600">
                                 {isIncrementMode
                                   ? 'المخزون بعد تطبيق الزيادة'
@@ -714,24 +701,17 @@ export default function SearchAndUpdateStockPage() {
                               {showDerived ? (
                                 <div className="mt-1 flex flex-col gap-1">
                                   <div className="flex items-center gap-3">
-                                    <div className="text-2xl font-bold text-indigo-700">
+                                    <div className="text-2xl font-bold text-primary">
                                       {entry?.derived}
                                     </div>
                                     {delta !== 0 && (
-                                      <span
-                                        className={cn(
-                                          'rounded-full px-2 py-0.5 text-xs font-semibold',
-                                          delta > 0
-                                            ? 'bg-emerald-100 text-emerald-700'
-                                            : 'bg-rose-100 text-rose-700'
-                                        )}
-                                      >
+                                      <Badge variant={delta > 0 ? 'default' : 'destructive'}>
                                         {delta > 0 ? '+' : '-'}
                                         {Math.abs(delta)}
-                                      </span>
+                                      </Badge>
                                     )}
                                   </div>
-                                  <p className="text-[11px] text-slate-500">
+                                  <p className="text-[11px] text-muted-foreground">
                                     {isIncrementMode
                                       ? `زيادة متوقعة بمقدار ${entry?.counted ?? 0} قطعة على المخزون الحالي.`
                                       : 'القيمة بعد خصم الطلبات الجارية من العدد الفعلي.'}
@@ -755,29 +735,29 @@ export default function SearchAndUpdateStockPage() {
             </div>
           </section>
         )}
-      </main>
+      </div>
 
       {activeResult && (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-slate-200/80 bg-white/90 px-4 py-4 shadow-[0_-10px_30px_rgba(63,63,90,0.12)]">
+        <div className="fixed bottom-0 left-0 right-0 border-t bg-background/95 px-4 py-4 shadow-[0_-10px_30px_rgba(63,63,90,0.12)] backdrop-blur">
           <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 text-sm text-slate-500">
-              <Target className="h-5 w-5 text-indigo-500" />
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <Target className="h-5 w-5 text-primary" />
               <div>
                 {variantsNeedingUpdate > 0 ? (
                   <p>
                     سيتم تعديل{' '}
-                    <span className="font-semibold text-indigo-600">{variantsNeedingUpdate}</span>{' '}
+                    <span className="font-semibold text-primary">{variantsNeedingUpdate}</span>{' '}
                     متغير/ات بناءً على الإدخالات الأخيرة.
                   </p>
                 ) : (
                   <p>أدخل الكميات الفعلية أو حدّث موقع التخزين قبل الإرسال.</p>
                 )}
                 {locationChanged && (
-                  <p className="text-xs text-slate-400">سيتم أيضاً حفظ موقع التخزين الجديد.</p>
+                  <p className="text-xs text-muted-foreground">سيتم أيضاً حفظ موقع التخزين الجديد.</p>
                 )}
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   نمط التحديث الحالي:{' '}
-                  <span className="font-semibold text-slate-600">
+                  <span className="font-semibold text-foreground">
                     {isIncrementMode ? 'زيادة تدريجية (Increment)' : 'تحديث كلي (Override)'}
                   </span>
                 </p>
@@ -787,7 +767,7 @@ export default function SearchAndUpdateStockPage() {
               type="button"
               disabled={!hasUpdateableData || updateLoading}
               onClick={handleUpdateRequest}
-              className="h-12 rounded-2xl bg-indigo-600 px-8 text-sm font-semibold text-white shadow-lg shadow-indigo-400/40 hover:bg-indigo-500 disabled:opacity-70"
+              className="h-12 px-8"
             >
               {updateLoading ? (
                 <>
@@ -805,42 +785,42 @@ export default function SearchAndUpdateStockPage() {
         </div>
       )}
 
-      {confirmingUpdate && activeResult && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-3xl border border-slate-100 bg-white/95 p-6 text-right shadow-2xl shadow-indigo-100">
-            <div className="flex items-center gap-2 text-slate-600">
+      <Dialog open={confirmingUpdate && Boolean(activeResult)} onOpenChange={setConfirmingUpdate}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-right">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              <p className="text-sm font-semibold text-slate-800">تأكيد تحديث المخزون</p>
-            </div>
-            <p className="mt-3 text-sm text-slate-600">
+              تأكيد تحديث المخزون
+            </DialogTitle>
+            <DialogDescription className="text-right">
               سيتم إرسال التغييرات التالية إلى سلة. يرجى التأكد من صحة البيانات قبل الإكمال.
-            </p>
-              <div className="mt-4 space-y-2 rounded-2xl bg-slate-50/80 p-4 text-sm text-slate-600">
+            </DialogDescription>
+          </DialogHeader>
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
                 {variantsNeedingUpdate > 0 && (
                   <p>
                     تعديل{' '}
-                    <span className="font-semibold text-indigo-600">{variantsNeedingUpdate}</span>{' '}
+                    <span className="font-semibold text-primary">{variantsNeedingUpdate}</span>{' '}
                     متغير/متغيرات حسب العد الفعلي.
                   </p>
                 )}
                 {locationChanged && (
                   <p>
                     تحديث موقع التخزين إلى{' '}
-                    <span className="font-semibold text-slate-900">{locationInput.trim()}</span>.
+                    <span className="font-semibold text-foreground">{locationInput.trim()}</span>.
                   </p>
                 )}
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   النمط المختار:{' '}
                   {isIncrementMode ? 'زيادة المخزون تدريجياً (Increment).' : 'تحديث الكمية الفعلية (Override).'}
                 </p>
               </div>
-            <p className="mt-3 text-xs text-slate-400">لا يمكن التراجع عن هذه العملية بعد الإرسال.</p>
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
+            <p className="text-xs text-muted-foreground">لا يمكن التراجع عن هذه العملية بعد الإرسال.</p>
+            <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleCancelConfirmation}
-                className="h-11 rounded-2xl px-6 text-sm font-semibold text-slate-600"
                 disabled={updateLoading}
               >
                 تراجع
@@ -849,24 +829,22 @@ export default function SearchAndUpdateStockPage() {
                 type="button"
                 onClick={handleConfirmUpdate}
                 disabled={updateLoading}
-                className="h-11 rounded-2xl bg-indigo-600 px-6 text-sm font-semibold text-white shadow-lg shadow-indigo-400/40 hover:bg-indigo-500 disabled:opacity-70"
               >
                 تأكيد التحديث
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {overlayMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur">
-          <div className="rounded-3xl border border-slate-100 bg-white/90 px-8 py-6 text-center shadow-2xl shadow-indigo-100">
-            <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-indigo-600" />
-            <p className="text-sm font-semibold text-slate-700">{overlayMessage}</p>
-            <p className="mt-1 text-xs text-slate-400">يرجى عدم إغلاق الصفحة حتى الانتهاء</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur">
+          <div className="rounded-lg border bg-card px-8 py-6 text-center shadow-2xl">
+            <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-primary" />
+            <p className="text-sm font-semibold">{overlayMessage}</p>
+            <p className="mt-1 text-xs text-muted-foreground">يرجى عدم إغلاق الصفحة حتى الانتهاء</p>
           </div>
         </div>
       )}
-    </div>
+    </AppPageShell>
   );
 }
