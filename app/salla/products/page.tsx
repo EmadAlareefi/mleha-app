@@ -28,12 +28,12 @@ const STATUS_OPTIONS = [
   { value: 'out', label: 'نافد' },
 ];
 
-type NewRequestPayload = {
-  requestedFrom: string;
-  requestedAmount: number;
-  requestedRefundAmount?: number | null;
-  requestedFor?: string;
-  notes?: string;
+type ProductOptionSnapshot = {
+  id: string | number | null;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  availableQuantity: number | null;
 };
 
 type QuantityRequestRecord = {
@@ -45,6 +45,7 @@ type QuantityRequestRecord = {
   requestedAmount: number;
   requestedRefundAmount?: number | null;
   requestedFrom: string;
+  productOptions?: ProductOptionSnapshot[] | null;
   requestedBy: string;
   requestedFor?: string | null;
   notes?: string | null;
@@ -54,8 +55,6 @@ type QuantityRequestRecord = {
   providedBy?: string | null;
   providedAmount?: number | null;
 };
-
-type ActionResult = { success: true } | { success: false; error: string };
 
 function formatCurrency(value: number | null | undefined, currency?: string) {
   if (value == null || Number.isNaN(value)) {
@@ -117,7 +116,6 @@ export default function SallaProductsPage() {
   const [variationsLoading, setVariationsLoading] = useState(false);
   const [variationsGlobalError, setVariationsGlobalError] = useState<string | null>(null);
   const [rowVariationsLoading, setRowVariationsLoading] = useState<Record<number, boolean>>({});
-  const [merchantId, setMerchantId] = useState<string | null>(null);
   const variationsRequestId = useRef(0);
 
   useEffect(() => {
@@ -156,7 +154,6 @@ export default function SallaProductsPage() {
 
         setProducts(Array.isArray(data.products) ? data.products : []);
         setPagination(data.pagination ?? null);
-        setMerchantId(typeof data.merchantId === 'string' ? data.merchantId : null);
         setLastUpdated(new Date().toISOString());
       } catch (err) {
         setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء تحميل المنتجات');
@@ -425,51 +422,6 @@ export default function SallaProductsPage() {
     setStatusFilter(value);
   };
 
-  const handleCreateRequest = useCallback(
-    async (product: SallaProductSummary, payload: NewRequestPayload): Promise<ActionResult> => {
-      try {
-        const response = await fetch('/api/salla/requests', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            productId: product.id,
-            productName: product.name,
-            productSku: product.sku,
-            productImageUrl: product.imageUrl,
-            merchantId,
-            requestedAmount: payload.requestedAmount,
-            requestedRefundAmount: payload.requestedRefundAmount ?? undefined,
-            requestedFrom: payload.requestedFrom,
-            requestedFor: payload.requestedFor,
-            notes: payload.notes,
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-          throw new Error(data?.error || 'تعذر إنشاء طلب الكمية');
-        }
-        const created: QuantityRequestRecord = data.request;
-        setProductRequests((prev) => {
-          const updated = { ...prev };
-          const list = updated[product.id] ? [...updated[product.id]] : [];
-          list.push(created);
-          list.sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
-          updated[product.id] = list;
-          return updated;
-        });
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'تعذر إنشاء طلب الكمية',
-        };
-      }
-    },
-    [merchantId]
-  );
-
   if (status === 'loading') {
     return (
       <AppPageShell title="لوحة منتجات سلة" subtitle="عرض منتجات سلة وطلبات الكميات">
@@ -678,7 +630,6 @@ export default function SallaProductsPage() {
                           requests={productRequests[product.id] ?? []}
                           requestsLoading={requestsLoading}
                           requestsError={requestsError}
-                          onCreateRequest={handleCreateRequest}
                           variations={variationsMap[product.id] ?? []}
                           variationsLoading={variationsLoading}
                           rowVariationsLoading={!!rowVariationsLoading[product.id]}
@@ -702,10 +653,6 @@ type ProductRowProps = {
   requests: QuantityRequestRecord[];
   requestsLoading: boolean;
   requestsError?: string | null;
-  onCreateRequest: (
-    product: SallaProductSummary,
-    payload: NewRequestPayload
-  ) => Promise<ActionResult>;
   variations: SallaProductVariation[];
   variationsLoading: boolean;
   rowVariationsLoading: boolean;
@@ -719,7 +666,6 @@ function ProductRow({
   requests,
   requestsLoading,
   requestsError,
-  onCreateRequest,
   variations,
   variationsLoading,
   rowVariationsLoading,
@@ -727,14 +673,6 @@ function ProductRow({
   globalVariationError,
   onRefreshVariations,
 }: ProductRowProps) {
-  const [requestForm, setRequestForm] = useState({
-    requestedAmount: '',
-    requestedRefundAmount: '',
-    requestedFor: '',
-    notes: '',
-  });
-  const [requestSubmitting, setRequestSubmitting] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
   const [variationAdjustments, setVariationAdjustments] = useState<
     Record<string, { quantity: string; mode: 'increment' | 'decrement' }>
   >({});
@@ -759,60 +697,6 @@ function ProductRow({
     setVariationAdjustments({});
     setUpdateFeedback(null);
   }, [product.id]);
-
-  const handleRequestSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const requestedFrom = 'غير محدد';
-    const parsedRequestedAmount = Number.parseInt(requestForm.requestedAmount, 10);
-    const hasRequestedAmount = Number.isFinite(parsedRequestedAmount) && parsedRequestedAmount > 0;
-    const requestedRefundAmount =
-      requestForm.requestedRefundAmount.trim().length > 0
-        ? Number.parseInt(requestForm.requestedRefundAmount, 10)
-        : undefined;
-    const hasRequestedRefund =
-      requestedRefundAmount !== undefined &&
-      Number.isFinite(requestedRefundAmount) &&
-      requestedRefundAmount > 0;
-
-    if (!hasRequestedAmount && !hasRequestedRefund) {
-      setRequestError('يجب إدخال كمية شراء أو كمية مرتجع واحدة على الأقل (رقم أكبر من صفر).');
-      return;
-    }
-
-    if (
-      requestedRefundAmount !== undefined &&
-      (!Number.isFinite(requestedRefundAmount) || requestedRefundAmount <= 0)
-    ) {
-      setRequestError('كمية المرتجع يجب أن تكون رقماً أكبر من صفر.');
-      return;
-    }
-
-    const normalizedRequestedAmount = hasRequestedAmount ? parsedRequestedAmount : 0;
-    const normalizedRefundAmount = hasRequestedRefund ? requestedRefundAmount : undefined;
-
-    setRequestSubmitting(true);
-    const result = await onCreateRequest(product, {
-      requestedFrom,
-      requestedAmount: normalizedRequestedAmount,
-      requestedRefundAmount: normalizedRefundAmount,
-      requestedFor: requestForm.requestedFor || undefined,
-      notes: requestForm.notes.trim() || undefined,
-    });
-    setRequestSubmitting(false);
-
-    if (!result.success) {
-      setRequestError(result.error);
-      return;
-    }
-
-    setRequestForm({
-      requestedAmount: '',
-      requestedRefundAmount: '',
-      requestedFor: '',
-      notes: '',
-    });
-    setRequestError(null);
-  };
 
   const handleAdjustmentQuantityChange = (variationKey: string, value: string) => {
     setVariationAdjustments((prev) => ({
@@ -897,56 +781,15 @@ function ProductRow({
 
   const renderQuantityRequestSection = () => (
     <div className="space-y-4 text-sm">
-      <form onSubmit={handleRequestSubmit} className="space-y-2 rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
-        <p className="text-xs text-gray-500">أضف طلب كمية جديد</p>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            placeholder="الكمية"
-            type="number"
-            min={1}
-            value={requestForm.requestedAmount}
-            onChange={(event) =>
-              setRequestForm((prev) => ({ ...prev, requestedAmount: event.target.value }))
-            }
-          />
-          <Input
-            placeholder="كمية المرتجع (اختياري)"
-            type="number"
-            min={1}
-            value={requestForm.requestedRefundAmount}
-            onChange={(event) =>
-              setRequestForm((prev) => ({
-                ...prev,
-                requestedRefundAmount: event.target.value,
-              }))
-            }
-          />
-        </div>
-        <div>
-          <Input
-            type="date"
-            value={requestForm.requestedFor}
-            onChange={(event) =>
-              setRequestForm((prev) => ({ ...prev, requestedFor: event.target.value }))
-            }
-          />
-        </div>
-        <Input
-          placeholder="ملاحظات (اختياري)"
-          value={requestForm.notes}
-          onChange={(event) => setRequestForm((prev) => ({ ...prev, notes: event.target.value }))}
-        />
-        <Button
-          type="submit"
-          className="flex w-full items-center justify-center gap-2 text-sm"
-          disabled={requestSubmitting}
-        >
-          {requestSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-          <Users className="h-4 w-4" />
-          <span>طلب كمية</span>
+      <div className="space-y-2 rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
+        <p className="text-xs text-slate-500">إنشاء طلب كمية انتقل إلى الصفحة المخصصة.</p>
+        <Button asChild className="w-full text-sm">
+          <Link href="/salla/quantity-request">
+            <Users className="h-4 w-4" />
+            <span>فتح طلب الكميات</span>
+          </Link>
         </Button>
-        {requestError && <p className="text-xs text-red-600">{requestError}</p>}
-      </form>
+      </div>
 
       {requestsError && <p className="text-xs text-red-600">تعذر تحميل الطلبات: {requestsError}</p>}
 
@@ -1190,8 +1033,26 @@ type QuantityRequestCardProps = {
   request: QuantityRequestRecord;
 };
 
+function ProductOptionLine({ option }: { option: ProductOptionSnapshot }) {
+  return (
+    <div className="flex items-start justify-between gap-2 rounded-lg border border-slate-100 bg-white px-2 py-1.5">
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium text-slate-800">{option.name}</p>
+        <p className="truncate text-[11px] text-slate-500">
+          {option.sku ? `SKU: ${option.sku}` : 'SKU غير محدد'}
+          {option.barcode ? ` · باركود: ${option.barcode}` : ''}
+        </p>
+      </div>
+      <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+        {formatNumber(option.availableQuantity)}
+      </span>
+    </div>
+  );
+}
+
 function QuantityRequestCard({ request }: QuantityRequestCardProps) {
   const statusLabel = request.status === 'completed' ? 'تم التنفيذ' : 'بانتظار التوفير';
+  const requestOptions = Array.isArray(request.productOptions) ? request.productOptions : [];
 
   return (
     <div className="rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
@@ -1214,6 +1075,19 @@ function QuantityRequestCard({ request }: QuantityRequestCardProps) {
           <p className="text-slate-600">
             كمية المرتجع المطلوبة: {formatNumber(request.requestedRefundAmount)}
           </p>
+        )}
+        {requestOptions.length > 0 && (
+          <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-2">
+            <p className="mb-1 text-[11px] font-semibold text-slate-600">خيارات المنتج وقت الطلب</p>
+            <div className="space-y-1">
+              {requestOptions.map((option) => (
+                <ProductOptionLine
+                  key={`${option.id ?? option.name}-${option.sku ?? ''}`}
+                  option={option}
+                />
+              ))}
+            </div>
+          </div>
         )}
         {request.status === 'completed' && (
           <p className="text-emerald-700">

@@ -737,25 +737,23 @@ export default function OrderUsersManagementPage() {
   }, [users]);
 
   return (
-    <AppPageShell title="إدارة مستخدمي الطلبات" subtitle="إنشاء وإدارة حسابات الموظفين">
-        <section className="mb-10 grid gap-6 lg:grid-cols-[minmax(0,1.9fr),minmax(0,1.1fr)]">
-          <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-900 via-indigo-700 to-slate-900 p-8 text-white shadow-2xl shadow-indigo-900/40">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#ffffff22,transparent_60%)]" />
-            <div className="relative z-10 space-y-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-white/80">
-                <span>مركز التحكم</span>
-              </div>
+    <AppPageShell
+      title="إدارة مستخدمي الطلبات"
+      subtitle="إنشاء وإدارة حسابات الموظفين"
+      contentClassName="flex flex-1 flex-col gap-4 p-4 md:p-6"
+    >
+        <section className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <Card className="p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-3xl font-semibold leading-snug text-white md:text-4xl">
-                  تحكم كامل بصلاحيات التحضير والمستودع
-                </h2>
-                <p className="mt-3 text-base text-white/80">
-                  راقب حالة الحسابات، امنح الروابط المناسبة، وتابع ارتباط المستودعات قبل أن تبدأ فرقك
-                  يومها.
+                <h2 className="text-lg font-semibold">مستخدمو التحضير والمستودع</h2>
+                <p className="text-sm text-muted-foreground">
+                  إدارة الصلاحيات، المستودعات، الطابعات، والتعيين التلقائي من جدول واحد.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-2">
                 <Button
+                  size="sm"
                   onClick={() => {
                     if (showForm) {
                       setShowForm(false);
@@ -768,45 +766,33 @@ export default function OrderUsersManagementPage() {
                     setShowForm(true);
                   }}
                   disabled={accessDenied}
-                  className="rounded-2xl bg-white/95 px-6 py-5 text-base font-semibold text-slate-900 shadow-lg shadow-slate-900/20 hover:bg-white"
                 >
-                  {showForm ? 'إغلاق نموذج الإدارة' : '+ إضافة مستخدم جديد'}
+                  <UserPlus className="h-4 w-4" />
+                  {showForm ? 'إغلاق النموذج' : 'إضافة مستخدم'}
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={loadUsers}
-                  className="rounded-2xl border border-white/30 bg-white/10 px-6 py-5 text-base text-white hover:bg-white/20"
-                >
+                <Button type="button" size="sm" variant="outline" onClick={loadUsers}>
                   <RefreshCcw className="h-4 w-4" />
-                  <span>تحديث القائمة</span>
+                  تحديث
                 </Button>
               </div>
-              <p className="text-sm text-white/70">
-                نصيحة: حدّث الصلاحيات بعد فتح مستودع جديد أو تغيير مهام فريق التحضير.
-              </p>
             </div>
-          </div>
-          <div className="rounded-3xl border border-white/30 bg-white/90 p-6 shadow-xl shadow-indigo-900/10">
-            <div className="grid grid-cols-2 gap-4">
+          </Card>
+          <Card className="p-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 xl:grid-cols-4">
               {overviewStats.map((stat) => {
                 const Icon = stat.icon;
                 return (
-                  <div
-                    key={stat.label}
-                    className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/80 p-4 text-slate-600"
-                  >
-                    <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <div key={stat.label} className="rounded-md border bg-muted/30 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                       <span>{stat.label}</span>
-                      <Icon className="h-4 w-4 text-indigo-500" />
+                      <Icon className="h-3.5 w-3.5" />
                     </div>
-                    <div className="text-2xl font-bold text-slate-900">{stat.value}</div>
-                    <p className="text-xs text-slate-500">{stat.hint}</p>
+                    <div className="mt-1 text-lg font-semibold">{stat.value}</div>
                   </div>
                 );
               })}
             </div>
-          </div>
+          </Card>
         </section>
 
         {accessDenied ? (
@@ -1153,31 +1139,25 @@ export default function OrderUsersManagementPage() {
                 }
               />
             ) : (
-              <Card className="rounded-3xl border border-white/40 bg-white/95 p-0 shadow-lg shadow-slate-900/10">
-                <Table className="text-xs text-slate-600">
-                  <TableHeader className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    <TableRow className="border-slate-200">
-                      <TableHead className="px-6 py-4 text-right text-slate-500">
-                        المستخدم
-                      </TableHead>
-                      <TableHead className="px-6 py-4 text-right text-slate-500">
-                        التوظيف والمزايا
-                      </TableHead>
-                      <TableHead className="px-6 py-4 text-right text-slate-500">
-                        الوصول والارتباط
-                      </TableHead>
-                      <TableHead className="px-6 py-4 text-right text-slate-500">
-                        الإجراءات
-                      </TableHead>
+              <Card className="overflow-hidden p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="h-9 w-[220px] px-3 text-right">المستخدم</TableHead>
+                      <TableHead className="h-9 px-3 text-right">الروابط</TableHead>
+                      <TableHead className="h-9 px-3 text-right">المستودعات</TableHead>
+                      <TableHead className="h-9 px-3 text-right">الطابعة</TableHead>
+                      <TableHead className="h-9 px-3 text-right">الطلبات</TableHead>
+                      <TableHead className="h-9 px-3 text-right">التوظيف</TableHead>
+                      <TableHead className="h-9 w-[180px] px-3 text-right">الإجراءات</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody className="bg-white text-xs">
+                  <TableBody>
                     {users.map((user) => {
                         const serviceKeysForUser = (user.serviceKeys || []) as ServiceKey[];
                         const derivedRoles = getRolesFromServiceKeys(serviceKeysForUser);
                         const hasOrdersRole = derivedRoles.includes('orders');
                         const hasWarehouseRole = derivedRoles.includes('warehouse');
-                        const hasAccountantRole = derivedRoles.includes('accountant');
                         const serviceBadges =
                           serviceKeysForUser.length > 0 ? serviceKeysForUser : [];
                         const startDateLabel = formatDateForDisplay(user.employmentStartDate);
@@ -1189,201 +1169,107 @@ export default function OrderUsersManagementPage() {
                           user.salaryCurrency
                         );
                         const endedEmployment = Boolean(user.employmentEndDate);
-                        const employmentStatusClasses = endedEmployment
-                          ? 'border-rose-100 bg-rose-50 text-rose-700'
-                          : 'border-emerald-100 bg-emerald-50 text-emerald-700';
 
                         return (
-                          <TableRow key={user.id} className="align-top border-slate-100">
-                            <TableCell className="px-6 py-4">
-                              <div className="flex flex-col gap-2 text-xs">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div>
-                                    <p className="text-base font-semibold text-slate-900">
-                                      {user.name}
-                                    </p>
-                                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">
-                                      @{user.username}
-                                    </p>
-                                  </div>
-                                  <span
-                                    className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                                      user.isActive
-                                        ? 'bg-emerald-50 text-emerald-600'
-                                        : 'bg-slate-100 text-slate-500'
-                                    }`}
-                                  >
-                                    {user.isActive ? 'نشط' : 'غير نشط'}
-                                  </span>
+                          <TableRow key={user.id} className="align-middle">
+                            <TableCell className="px-3 py-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="truncate text-sm font-medium">{user.name}</p>
+                                  <Badge variant={user.isActive ? 'default' : 'secondary'}>
+                                    {user.isActive ? 'نشط' : 'متوقف'}
+                                  </Badge>
                                 </div>
-                                <p className="text-[11px] text-slate-500">
-                                  {user.email || 'لا يوجد بريد'} • {user.phone || 'لا يوجد هاتف'}
+                                <p className="truncate text-xs text-muted-foreground">@{user.username}</p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {user.email || user.phone || 'لا توجد بيانات اتصال'}
                                 </p>
                                 {user.affiliateName && (
-                                  <span className="inline-flex w-fit items-center rounded-md bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-700 ring-1 ring-inset ring-purple-700/10">
+                                  <p className="truncate text-xs text-purple-700">
                                     مسوق: {user.affiliateName} ({Number(user.affiliateCommission || 10)}%)
-                                  </span>
-                                )}
-                                <div className="flex flex-wrap gap-1">
-                                  {serviceBadges.length > 0 ? (
-                                    serviceBadges.map((key) => (
-                                      <span
-                                        key={key}
-                                        className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700"
-                                      >
-                                        {SERVICE_MAP.get(key)?.title || key}
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span className="rounded-full border border-slate-200 px-3 py-1 text-[11px] text-slate-500">
-                                      لا توجد روابط محددة
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="px-6 py-4">
-                              <div className="space-y-2 text-[11px]">
-                                <div className="flex justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 px-3 py-2">
-                                  <span className="text-slate-500">بداية العمل</span>
-                                  <span className="font-semibold text-slate-900">
-                                    {startDateLabel}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 px-3 py-2">
-                                  <span className="text-slate-500">نهاية العمل</span>
-                                  <span className="font-semibold text-slate-900">{endDateLabel}</span>
-                                </div>
-                                <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 px-3 py-2">
-                                  <div className="flex flex-col">
-                                    <span className="text-slate-500">الراتب</span>
-                                    <span className="text-sm font-semibold text-slate-900">
-                                      {salaryLabel}
-                                    </span>
-                                  </div>
-                                  <span
-                                    className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${employmentStatusClasses}`}
-                                  >
-                                    {endedEmployment ? 'انتهت الخدمة' : 'على رأس العمل'}
-                                  </span>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="px-6 py-4">
-                              <div className="space-y-3">
-                                {hasOrdersRole && (
-                                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
-                                    <p className="font-semibold text-indigo-900">وصول التحضير</p>
-                                    <p className="text-indigo-700">
-                                      الطلبات النشطة: {user._count.assignments}
-                                    </p>
-                                    <p className="text-indigo-700">
-                                      التعيين التلقائي: {user.autoAssign ? 'مفعّل' : 'معطّل'}
-                                    </p>
-                                  </div>
-                                )}
-                                {hasWarehouseRole && (
-                                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
-                                    <p className="font-semibold text-emerald-900">مستودعات مرتبطة</p>
-                                    {user.warehouses && user.warehouses.length > 0 ? (
-                                      <ul className="mt-1 space-y-1 text-emerald-700">
-                                        {user.warehouses.map((warehouse) => (
-                                          <li key={warehouse.id}>
-                                            {warehouse.name}
-                                            {warehouse.code ? ` (${warehouse.code})` : ''}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    ) : (
-                                      <p className="mt-1 text-rose-600">لا توجد مستودعات مرتبطة</p>
-                                    )}
-                                  </div>
-                                )}
-                                {hasAccountantRole && (
-                                  <div className="rounded-2xl border border-amber-100 bg-amber-50/70 px-3 py-2">
-                                    <p className="font-semibold text-amber-900">
-                                      صلاحية التقارير والمصروفات
-                                    </p>
-                                    <p className="text-amber-700">
-                                      يمكنه عرض تقارير الطلبات ومراقبة المصروفات.
-                                    </p>
-                                  </div>
-                                )}
-                                <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm">
-                                  <div className="flex items-center justify-between gap-4">
-                                    <div>
-                                      <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                                        <Printer className="h-4 w-4 text-indigo-500" />
-                                        طابعة الشحن
-                                      </p>
-                                      {user.printerLink ? (
-                                        <div className="mt-1 space-y-1 text-xs text-slate-600">
-                                          <p className="font-medium text-slate-800">
-                                            {user.printerLink.printerName || `معرف ${user.printerLink.printerId}`}
-                                          </p>
-                                          {user.printerLink.computerName && (
-                                            <p className="text-slate-500">
-                                              على: {user.printerLink.computerName}
-                                            </p>
-                                          )}
-                                          {user.printerLink.paperName && (
-                                            <p className="text-slate-500">
-                                              الورق: {user.printerLink.paperName}
-                                            </p>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <p className="mt-1 text-xs text-slate-500">
-                                          لم يتم ربط طابعة لهذا المستخدم بعد.
-                                        </p>
-                                      )}
-                                    </div>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      onClick={() => openPrinterDialog(user)}
-                                      className="rounded-2xl border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                                    >
-                                      {user.printerLink ? 'تحديث الطابعة' : 'ربط طابعة'}
-                                    </Button>
-                                  </div>
-                                </div>
-                                {!hasOrdersRole && !hasWarehouseRole && !hasAccountantRole && (
-                                  <p className="text-slate-500">
-                                    {serviceBadges.length > 0
-                                      ? 'يرتبط بالروابط الموضحة أعلاه.'
-                                      : 'لا توجد روابط مرتبطة بهذا المستخدم بعد.'}
                                   </p>
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className="px-6 py-4">
-                              <div className="flex flex-col gap-2">
-                                <div className="flex gap-2">
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => handleEdit(user)}
-                                    className="flex-1 rounded-2xl border-slate-200 text-slate-700 hover:text-slate-900"
-                                  >
-                                    تعديل
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => handleDelete(user.id)}
-                                    className="rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50"
-                                  >
-                                    حذف
-                                  </Button>
+                            <TableCell className="px-3 py-2">
+                              <div className="flex max-w-[260px] flex-wrap gap-1">
+                                {serviceBadges.length > 0 ? (
+                                  serviceBadges.map((key) => (
+                                    <Badge key={key} variant="outline">
+                                      {SERVICE_MAP.get(key)?.title || key}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">لا توجد روابط</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-3 py-2">
+                              {hasWarehouseRole ? (
+                                user.warehouses && user.warehouses.length > 0 ? (
+                                  <div className="max-w-[220px] truncate text-xs">
+                                    {user.warehouses
+                                      .map((warehouse) => warehouse.code || warehouse.name)
+                                      .join('، ')}
+                                  </div>
+                                ) : (
+                                  <Badge variant="destructive">لا توجد</Badge>
+                                )
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-3 py-2">
+                              <div className="flex max-w-[220px] items-center gap-2">
+                                <Printer className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="truncate text-xs">
+                                  {user.printerLink?.printerName || 'غير مرتبطة'}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-3 py-2">
+                              {hasOrdersRole ? (
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={user.autoAssign ? 'default' : 'secondary'}>
+                                    {user.autoAssign ? 'تلقائي' : 'يدوي'}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {user._count.assignments} طلب
+                                  </span>
                                 </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-3 py-2">
+                              <div className="space-y-0.5 text-xs">
+                                <div>{startDateLabel}</div>
+                                <div className="text-muted-foreground">{salaryLabel}</div>
+                                <Badge variant={endedEmployment ? 'destructive' : 'secondary'}>
+                                  {endedEmployment ? `انتهى: ${endDateLabel}` : 'على رأس العمل'}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-3 py-2">
+                              <div className="flex flex-wrap gap-1.5">
+                                <Button size="sm" variant="outline" onClick={() => handleEdit(user)}>
+                                  تعديل
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => openPrinterDialog(user)}>
+                                  طابعة
+                                </Button>
                                 {hasOrdersRole && user._count.assignments > 0 && (
                                   <Button
+                                    size="sm"
                                     variant="outline"
                                     onClick={() => handleResetOrders(user.id, user.name)}
-                                    className="rounded-2xl border-amber-200 text-amber-700 hover:bg-amber-50"
                                   >
-                                    إعادة تعيين الطلبات ({user._count.assignments})
+                                    تصفير
                                   </Button>
                                 )}
+                                <Button size="sm" variant="destructive" onClick={() => handleDelete(user.id)}>
+                                  حذف
+                                </Button>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1448,38 +1334,28 @@ export default function OrderUsersManagementPage() {
                   {printerOptions.map((option) => {
                     const isSelected = printerDialog.selectedPrinterId === option.id;
                     return (
-                      <button
+                      <Button
                         key={option.id}
                         type="button"
                         onClick={() => handlePrinterSelection(option.id)}
-                        className={`w-full rounded-2xl border px-4 py-3 text-right transition hover:shadow-lg ${
-                          isSelected
-                            ? 'border-indigo-400 bg-indigo-50'
-                            : 'border-slate-200 bg-white'
-                        }`}
+                        variant={isSelected ? 'default' : 'outline'}
+                        className="h-auto w-full justify-start px-4 py-3 text-right"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className="text-base font-semibold text-slate-900">{option.label}</p>
+                            <p className="text-base font-semibold">{option.label}</p>
                             {option.description && (
-                              <p className="text-xs text-slate-500">{option.description}</p>
+                              <p className="text-xs opacity-70">{option.description}</p>
                             )}
                             {option.paperName && (
-                              <p className="text-xs text-slate-500">الورق: {option.paperName}</p>
+                              <p className="text-xs opacity-70">الورق: {option.paperName}</p>
                             )}
                             {option.notes && (
-                              <p className="text-xs text-slate-500">ملاحظات: {option.notes}</p>
+                              <p className="text-xs opacity-70">ملاحظات: {option.notes}</p>
                             )}
                           </div>
                           <div className="text-left">
-                            <Badge
-                              variant="outline"
-                              className={
-                                option.source === 'profile'
-                                  ? 'bg-indigo-100 text-indigo-700'
-                                  : 'bg-slate-100 text-slate-600'
-                              }
-                            >
+                            <Badge variant={option.source === 'profile' ? 'secondary' : 'outline'}>
                               {option.source === 'profile' ? 'تكوين مخصص' : 'PrintNode'}
                             </Badge>
                             {option.state && (
@@ -1497,7 +1373,7 @@ export default function OrderUsersManagementPage() {
                             )}
                           </div>
                         </div>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>

@@ -11,6 +11,7 @@ const quantityRequestSelect = {
   requestedAmount: true,
   requestedRefundAmount: true,
   requestedFrom: true,
+  productOptions: true,
   requestedBy: true,
   requestedByUser: true,
   requestedFor: true,
@@ -37,6 +38,7 @@ export type CreateQuantityRequestInput = {
   requestedAmount: number;
   requestedRefundAmount?: number | null;
   requestedFrom: string;
+  productOptions?: Prisma.InputJsonValue;
   requestedBy: string;
   requestedByUser?: string | null;
   requestedFor?: string | Date | null;
@@ -107,6 +109,7 @@ export async function createQuantityRequest(
       requestedAmount: input.requestedAmount,
       requestedRefundAmount: input.requestedRefundAmount ?? null,
       requestedFrom: input.requestedFrom,
+      ...(input.productOptions !== undefined ? { productOptions: input.productOptions } : {}),
       requestedBy: input.requestedBy,
       requestedByUser: input.requestedByUser ?? null,
       requestedFor: normalizedRequestedFor,

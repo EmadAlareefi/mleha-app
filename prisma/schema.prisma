@@ -516,6 +516,7 @@ model SallaProductQuantityRequest {
   requestedAmount  Int
   requestedRefundAmount Int?
   requestedFrom    String
+  productOptions   Json?
   requestedBy      String
   requestedByUser  String?
   requestedFor     DateTime?

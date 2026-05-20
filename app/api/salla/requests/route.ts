@@ -5,6 +5,7 @@ import {
   createQuantityRequest,
   listQuantityRequests,
 } from '@/app/lib/salla-product-requests';
+import type { Prisma } from '@prisma/client';
 
 export const runtime = 'nodejs';
 
@@ -26,6 +27,58 @@ function parseProductIds(searchParams: URLSearchParams): number[] {
   pushValue(combined);
 
   return Array.from(ids);
+}
+
+function sanitizeProductOptions(value: unknown): Prisma.InputJsonValue | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const options = value
+    .map((option) => {
+      if (!option || typeof option !== 'object') {
+        return null;
+      }
+      const record = option as Record<string, unknown>;
+      const name = typeof record.name === 'string' ? record.name.trim() : '';
+      if (!name) {
+        return null;
+      }
+
+      const id =
+        typeof record.id === 'number' || typeof record.id === 'string'
+          ? record.id
+          : undefined;
+      const sku = typeof record.sku === 'string' && record.sku.trim().length > 0
+        ? record.sku.trim()
+        : null;
+      const barcode =
+        typeof record.barcode === 'string' && record.barcode.trim().length > 0
+          ? record.barcode.trim()
+          : null;
+      const availableQuantity =
+        typeof record.availableQuantity === 'number' && Number.isFinite(record.availableQuantity)
+          ? record.availableQuantity
+          : null;
+
+      return {
+        id: id ?? null,
+        name,
+        sku,
+        barcode,
+        availableQuantity,
+      };
+    })
+    .filter((option): option is {
+      id: string | number | null;
+      name: string;
+      sku: string | null;
+      barcode: string | null;
+      availableQuantity: number | null;
+    } => option !== null)
+    .slice(0, 100);
+
+  return options.length > 0 ? options : undefined;
 }
 
 export async function GET(request: NextRequest) {
@@ -97,6 +150,7 @@ export async function POST(request: NextRequest) {
 
     const notes = typeof body.notes === 'string' ? body.notes : undefined;
     const merchantId = typeof body.merchantId === 'string' ? body.merchantId : undefined;
+    const productOptions = sanitizeProductOptions(body.productOptions);
 
     const requestRecord = await createQuantityRequest({
       productId,
@@ -110,6 +164,7 @@ export async function POST(request: NextRequest) {
       requestedAmount: normalizedRequestedAmount,
       requestedRefundAmount: hasRequestedRefund ? requestedRefundAmount : undefined,
       requestedFrom,
+      productOptions,
       requestedBy: (session.user as any)?.name || session.user?.email || 'مستخدم',
       requestedByUser: (session.user as any)?.id || session.user?.email || null,
       requestedFor,
