@@ -14,6 +14,10 @@ export async function GET() {
       where: { key: 'return_fee' },
     });
 
+    const exchangeFeeSetting = await prisma.settings.findUnique({
+      where: { key: 'exchange_fee' },
+    });
+
     const allowMultipleSetting = await prisma.settings.findUnique({
       where: { key: 'allow_multiple_return_requests' },
     });
@@ -21,6 +25,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       returnFee: returnFeeSetting ? Number(returnFeeSetting.value) || 0 : 0,
+      exchangeFee: exchangeFeeSetting ? Number(exchangeFeeSetting.value) || 0 : 0,
       allowMultipleRequests: allowMultipleSetting?.value === 'true',
     });
   } catch (error) {

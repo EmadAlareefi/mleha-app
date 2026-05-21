@@ -199,22 +199,26 @@ export async function POST(request: NextRequest) {
     // Get shipping amount from order (non-refundable) - include tax when available
     const shippingAmount = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
 
-    // Get return fee from settings and apply tax/adjustments
-    let configuredReturnFee = 0;
+    // Get processing fee from settings and apply tax/adjustments
+    const feeSettingKey = body.type === 'exchange' ? 'exchange_fee' : 'return_fee';
+    let configuredProcessingFee = 0;
     try {
       const feeSetting = await prisma.settings.findUnique({
-        where: { key: 'return_fee' },
+        where: { key: feeSettingKey },
       });
       if (feeSetting && feeSetting.value) {
-        configuredReturnFee = parseFloat(feeSetting.value) || 0;
+        configuredProcessingFee = parseFloat(feeSetting.value) || 0;
       }
     } catch (err) {
-      log.warn('Failed to fetch return fee setting', { error: err });
+      log.warn('Failed to fetch return processing fee setting', {
+        key: feeSettingKey,
+        error: err,
+      });
     }
 
     const returnFee =
-      configuredReturnFee > 0
-        ? getEffectiveReturnFee(configuredReturnFee, shippingAmount)
+      configuredProcessingFee > 0
+        ? getEffectiveReturnFee(configuredProcessingFee, shippingAmount)
         : 0;
 
     // Calculate total refund: items total - return fee

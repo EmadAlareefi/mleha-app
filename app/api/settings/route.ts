@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { authOptions } from '@/app/lib/auth';
 
 export const runtime = 'nodejs';
+
+const isAdminSession = async () => {
+  const session = await getServerSession(authOptions);
+  const user = session?.user as any;
+  const roles: string[] = Array.isArray(user?.roles) ? user.roles : [];
+  return user?.role === 'admin' || roles.includes('admin');
+};
 
 /**
  * GET /api/settings
@@ -10,6 +19,13 @@ export const runtime = 'nodejs';
  */
 export async function GET(request: NextRequest) {
   try {
+    if (!(await isAdminSession())) {
+      return NextResponse.json(
+        { error: 'غير مصرح لك بإدارة الإعدادات' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
@@ -65,6 +81,13 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!(await isAdminSession())) {
+      return NextResponse.json(
+        { error: 'غير مصرح لك بتحديث الإعدادات' },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { key, value, description } = body;
 

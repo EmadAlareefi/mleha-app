@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 
 export default function SettingsPage() {
   const [returnFee, setReturnFee] = useState('');
+  const [exchangeFee, setExchangeFee] = useState('');
   const [allowMultipleRequests, setAllowMultipleRequests] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,6 +35,18 @@ export default function SettingsPage() {
 
       if (feeResponse.ok && feeData.setting) {
         setReturnFee(feeData.setting.value);
+      } else {
+        setReturnFee('0');
+      }
+
+      // Load exchange fee
+      const exchangeFeeResponse = await fetch('/api/settings?key=exchange_fee');
+      const exchangeFeeData = await exchangeFeeResponse.json();
+
+      if (exchangeFeeResponse.ok && exchangeFeeData.setting) {
+        setExchangeFee(exchangeFeeData.setting.value);
+      } else {
+        setExchangeFee('0');
       }
 
       // Load allow multiple requests setting
@@ -58,9 +71,14 @@ export default function SettingsPage() {
 
     try {
       const feeValue = parseFloat(returnFee);
+      const exchangeFeeValue = parseFloat(exchangeFee);
 
       if (isNaN(feeValue) || feeValue < 0) {
-        throw new Error('الرجاء إدخال رسوم صحيحة');
+        throw new Error('الرجاء إدخال رسوم إرجاع صحيحة');
+      }
+
+      if (isNaN(exchangeFeeValue) || exchangeFeeValue < 0) {
+        throw new Error('الرجاء إدخال رسوم استبدال صحيحة');
       }
 
       // Save return fee
@@ -80,6 +98,25 @@ export default function SettingsPage() {
 
       if (!feeResponse.ok) {
         throw new Error(feeData.error || 'فشل حفظ رسوم الإرجاع');
+      }
+
+      // Save exchange fee
+      const exchangeFeeResponse = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          key: 'exchange_fee',
+          value: exchangeFeeValue.toString(),
+          description: 'رسوم معالجة طلب الاستبدال',
+        }),
+      });
+
+      const exchangeFeeData = await exchangeFeeResponse.json();
+
+      if (!exchangeFeeResponse.ok) {
+        throw new Error(exchangeFeeData.error || 'فشل حفظ رسوم الاستبدال');
       }
 
       // Save allow multiple requests setting
@@ -139,6 +176,24 @@ export default function SettingsPage() {
                   </FieldDescription>
                 </Field>
 
+                <Field>
+                  <FieldLabel htmlFor="exchangeFee">رسوم معالجة الاستبدال (ريال سعودي)</FieldLabel>
+                  <Input
+                    id="exchangeFee"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={exchangeFee}
+                    onChange={(e) => setExchangeFee(e.target.value)}
+                    placeholder="0.00"
+                    required
+                    disabled={loading || saving}
+                  />
+                  <FieldDescription>
+                    سيتم عرض هذه الرسوم في صفحة طلب الاستبدال وخصمها من قيمة المنتجات المختارة
+                  </FieldDescription>
+                </Field>
+
                 <Field orientation="horizontal" className="justify-between rounded-lg border p-4">
                   <div>
                     <FieldLabel htmlFor="allowMultiple">السماح بطلبات إرجاع متعددة لنفس الطلب</FieldLabel>
@@ -192,7 +247,7 @@ export default function SettingsPage() {
           <div className="mt-8 pt-6 border-t">
             <h3 className="font-semibold mb-2">معلومات إضافية:</h3>
             <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-              <li>رسوم الإرجاع سيتم خصمها تلقائياً من إجمالي المبلغ المسترد (للإرجاع فقط، وليس الاستبدال)</li>
+              <li>رسوم الإرجاع والاستبدال يتم ضبطها من هذه الصفحة وتظهر للعميل قبل تأكيد الطلب</li>
               <li>تكلفة الشحن الأصلية غير قابلة للاسترداد بشكل افتراضي</li>
               <li>سيتم عرض جميع التفاصيل المالية للعميل قبل تأكيد طلب الإرجاع</li>
               <li>عند تعطيل الطلبات المتعددة، سيُسمح بطلب واحد فقط لكل رقم طلب</li>

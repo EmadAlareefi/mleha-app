@@ -166,10 +166,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [returnFee, setReturnFee] = useState(0);
+  const [exchangeFee, setExchangeFee] = useState(0);
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [saleCategoryProducts, setSaleCategoryProducts] = useState<Record<string, boolean>>({});
   const shippingTotal = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
-  const appliedReturnFee = getEffectiveReturnFee(returnFee, shippingTotal);
+  const configuredFee = type === 'return' ? returnFee : exchangeFee;
+  const appliedProcessingFee = getEffectiveReturnFee(configuredFee, shippingTotal);
   const getNumericValue = (value: unknown): number => {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? value : 0;
@@ -217,6 +219,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         const data = await response.json();
         if (typeof data.returnFee === 'number' && !Number.isNaN(data.returnFee)) {
           setReturnFee(data.returnFee);
+        }
+        if (typeof data.exchangeFee === 'number' && !Number.isNaN(data.exchangeFee)) {
+          setExchangeFee(data.exchangeFee);
         }
       } catch (err) {
         console.error('Failed to load return config:', err);
@@ -598,7 +603,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                 return sum + (itemPrice * quantity);
               }, 0);
 
-              const applicableFee = appliedReturnFee;
+              const applicableFee = appliedProcessingFee;
               const finalRefund = Math.max(0, itemsTotal - applicableFee);
 
               return (
@@ -617,7 +622,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
                   {applicableFee > 0 && (
                     <div className="flex justify-between text-sm text-red-600">
-                      <span>رسوم معالجة الإرجاع:</span>
+                      <span>رسوم معالجة {type === 'return' ? 'الإرجاع' : 'الاستبدال'}:</span>
                       <span>-{applicableFee.toFixed(2)} ر.س</span>
                     </div>
                   )}
