@@ -127,7 +127,7 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
           <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
             <li>انتظر اتصال فريق خدمة العملاء للتأكيد</li>
             <li>قم بتجهيز المنتجات للإرجاع في عبوتها الأصلية إن أمكن</li>
-            <li>سيتم ترتيب استلام الشحنة من قبل SMSA</li>
+            <li>سيتم ترتيب استلام الشحنة من قبل شركة الشحن</li>
             <li>بعد استلام المنتجات ومراجعتها، سيتم معالجة الاسترداد</li>
           </ol>
         </div>

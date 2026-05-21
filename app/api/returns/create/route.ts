@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
-import type { SallaOrder } from '@/app/lib/salla-api';
-import { createSMSAReturnShipment } from '@/app/lib/smsa-api';
-import type { ShipmentAddress } from '@/app/lib/smsa-api';
+import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
 import { extractOrderDate } from '@/lib/returns/order-date';
-import {
-  extractSmsaLabelBase64,
-  buildSmsaLabelDataUrl,
-} from '@/lib/returns/smsa-label';
 
 export const runtime = 'nodejs';
 
 const RETURN_PERIOD_DAYS = 8;
 const EPSILON = 0.001; // ~1.5 minutes tolerance
+const CREATE_RETURN_POLICY_ACTION = 'create_return_policy';
 
 interface ReturnItemRequest {
   productId: string;
@@ -48,97 +43,31 @@ interface CreateReturnRequest {
   merchantCoordinates?: string;
 }
 
-const ensureAddressLine = (value: unknown, fallbackLabel: string): string => {
-  const fallback = `${fallbackLabel} address`.trim();
-  if (typeof value === 'string' && value.trim().length >= 10) {
-    return value.trim().slice(0, 100);
-  }
-  return fallback.length >= 10 ? fallback.slice(0, 100) : 'Return address';
-};
+interface SallaOrderActionOperation {
+  operation_id?: string;
+  action_name?: string;
+  status?: string;
+  message?: string;
+  [key: string]: unknown;
+}
 
-const formatCoordinates = (address: Record<string, any>): string | undefined => {
-  if (!address) return undefined;
-  if (typeof address.coordinates === 'string' && address.coordinates.trim()) {
-    return address.coordinates.trim();
-  }
-
-  const lat = address.latitude ?? address.lat;
-  const lng = address.longitude ?? address.lng ?? address.long;
-
-  if (lat && lng) {
-    return `${lat},${lng}`;
-  }
-
-  return undefined;
-};
-
-const buildCustomerAddress = (order: SallaOrder): ShipmentAddress => {
-  // Try to get customer's delivery address from multiple sources
-  // shipping_address is the primary customer delivery address
-  // shipping.pickup_address can also contain customer address in some Salla configurations
-  const shippingAddress = (order as any).shipping_address ?? {};
-  const pickupAddress = order.shipping?.pickup_address ?? {};
-
-  // Prefer shipping_address, fall back to pickup_address, then customer data
-  const addressSource = Object.keys(shippingAddress).length > 0 ? shippingAddress : pickupAddress;
-
-  const city =
-    addressSource.city ??
-    addressSource.city_en ??
-    addressSource.city_ar ??
-    addressSource.region ??
-    order.customer.city ??
-    'Riyadh';
-
-  return {
-    ContactName: `${order.customer.first_name} ${order.customer.last_name}`.trim(),
-    ContactPhoneNumber: String(
-      addressSource.phone ?? addressSource.mobile ?? order.customer.mobile ?? '0000000000'
-    ).trim(),
-    AddressLine1: ensureAddressLine(
-      addressSource.address ??
-        addressSource.street_address ??
-        addressSource.address_line1 ??
-        addressSource.address_line_1 ??
-        addressSource.street ??
-        addressSource.description,
-      `${city} customer`
-    ),
-    AddressLine2:
-      addressSource.address_line2 ??
-      addressSource.district ??
-      addressSource.neighborhood ??
-      addressSource.area,
-    City: city,
-    Country: addressSource.country ?? addressSource.country_code ?? 'SA',
-    Coordinates: formatCoordinates(addressSource),
-    District: addressSource.district ?? addressSource.area ?? undefined,
-    PostalCode: addressSource.postal_code ?? addressSource.zip_code ?? undefined,
-    ShortCode: addressSource.shortcode ?? addressSource.short_code ?? undefined,
+interface SallaOrderActionsResponse {
+  status?: number;
+  success?: boolean;
+  data?: SallaOrderActionOperation[];
+  message?: string;
+  error?: {
+    message?: string;
+    [key: string]: unknown;
   };
-};
-
-const buildReturnAddress = (body: CreateReturnRequest): ShipmentAddress => {
-  const city = body.merchantCity || 'Riyadh';
-  return {
-    ContactName: body.merchantName.trim(),
-    ContactPhoneNumber: `${body.merchantPhone}`.trim(),
-    AddressLine1: ensureAddressLine(body.merchantAddress, `${city} merchant`),
-    AddressLine2: body.merchantAddressLine2 ?? city,
-    City: city,
-    Country: body.merchantCountry ?? 'SA',
-    Coordinates: body.merchantCoordinates,
-    District: body.merchantDistrict,
-    PostalCode: body.merchantPostalCode,
-  };
-};
+}
 
 /**
  * POST /api/returns/create
  *
  * Creates a return/exchange request:
  * 1. Validates the order
- * 2. Creates SMSA return shipment
+ * 2. Creates Salla return policy
  * 3. Stores return request in database
  */
 export async function POST(request: NextRequest) {
@@ -259,13 +188,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate total number of items and weight (estimate)
-    const totalQuantity = body.items.reduce((sum, item) => sum + item.quantity, 0);
-    const parcels = Math.max(1, totalQuantity);
-    const estimatedWeight = totalQuantity * 0.5; // Estimate 0.5 kg per item
-    const shipmentWeight = Math.max(0.5, Number(estimatedWeight.toFixed(2)));
     const orderReference = String(order.reference_id || order.id);
-    const shipmentCurrency = order.amounts?.total?.currency?.toUpperCase() || 'SAR';
 
     // Calculate total items amount
     const totalItemsAmount = body.items.reduce(
@@ -296,65 +219,95 @@ export async function POST(request: NextRequest) {
 
     // Calculate total refund: items total - return fee
     const totalRefundAmount = Math.max(0, totalItemsAmount - returnFee);
-    const declaredValue = Math.max(0.1, Number(totalRefundAmount.toFixed(2)));
 
-    // For return shipments, addresses need to be flipped from the original order:
-    // - PickupAddress: where SMSA picks up FROM = customer's location (where order was delivered)
-    // - ReturnToAddress: where SMSA delivers TO = merchant's warehouse
-    const customerAddress = buildCustomerAddress(order);
-    const merchantAddress = buildReturnAddress(body);
-    const waybillType = process.env.SMSA_WAYBILL_TYPE as 'PDF' | 'ZPL' | undefined;
-    const serviceCode = process.env.SMSA_SERVICE_CODE;
-    const smsRetailId = process.env.SMSA_RETAIL_ID;
+    const parsedOrderId = parseInt(body.orderId, 10);
+    const normalizedOrderId = Number.isNaN(parsedOrderId) ? body.orderId : parsedOrderId;
+    const actionRequestData = {
+      operations: [
+        {
+          action_name: CREATE_RETURN_POLICY_ACTION,
+          value: [normalizedOrderId],
+        },
+      ],
+      filters: {
+        order_ids: [normalizedOrderId],
+      },
+    };
 
-    // Create SMSA return shipment
-    log.info('Creating SMSA return shipment', {
+    log.info('Creating Salla return policy', {
       orderId: body.orderId,
-      totalQuantity: parcels,
-      merchantCity: body.merchantCity,
-      customerCity: customerAddress.City,
-      declaredValue,
+      orderReference,
+      actionRequestData,
     });
 
-    const smsaResult = await createSMSAReturnShipment({
-      OrderNumber: orderReference,
-      DeclaredValue: declaredValue,
-      Parcels: parcels,
-      ShipDate: new Date().toISOString(),
-      ShipmentCurrency: shipmentCurrency,
-      Weight: shipmentWeight,
-      WeightUnit: 'KG',
-      ContentDescription: `Return for Order ${orderReference}`,
-      // Return shipment addresses (C2B - Customer to Business):
-      // - PickupAddress: Customer's location (where SMSA picks up the return FROM)
-      // - ReturnToAddress: Merchant's warehouse (where SMSA delivers the return TO)
-      PickupAddress: customerAddress,      // Customer location
-      ReturnToAddress: merchantAddress,    // Merchant warehouse
-      WaybillType: waybillType,
-      ServiceCode: serviceCode,
-      SMSARetailID: smsRetailId,
-    });
+    const actionResponse = await sallaMakeRequest<SallaOrderActionsResponse>(
+      body.merchantId,
+      '/orders/actions',
+      {
+        method: 'POST',
+        body: JSON.stringify(actionRequestData),
+      }
+    );
 
-    if (!smsaResult.success) {
-      log.error('SMSA shipment creation failed', {
-        error: smsaResult.error,
-        errorCode: smsaResult.errorCode,
-        rawResponse: smsaResult.rawResponse
+    if (!actionResponse || !actionResponse.success) {
+      const errorMessage =
+        actionResponse?.error?.message ||
+        actionResponse?.message ||
+        'فشل إنشاء سياسة الإرجاع';
+
+      log.error('Salla return policy creation failed', {
+        orderId: body.orderId,
+        error: errorMessage,
+        response: actionResponse,
       });
 
-      // Provide user-friendly error message
-      let userMessage = 'فشل إنشاء شحنة الإرجاع';
-      if (smsaResult.errorCode === 'MISSING_CREDENTIALS') {
-        userMessage = 'خطأ في إعدادات النظام. الرجاء التواصل مع الدعم الفني.';
-      } else if (smsaResult.error?.includes('authentication')) {
-        userMessage = 'خطأ في مصادقة خدمة الشحن. الرجاء التواصل مع الدعم الفني.';
-      } else {
-        userMessage = `فشل إنشاء شحنة الإرجاع: ${smsaResult.error}`;
-      }
+      return NextResponse.json(
+        {
+          error: errorMessage,
+          details: actionResponse?.error || undefined,
+        },
+        { status: 400 }
+      );
+    }
+
+    const operations = Array.isArray(actionResponse.data) ? actionResponse.data : [];
+    const returnPolicyOperation =
+      operations.find((op) => op.action_name === CREATE_RETURN_POLICY_ACTION) ??
+      (operations.length === 1 ? operations[0] : undefined);
+
+    if (!returnPolicyOperation) {
+      log.error('No return policy operation found in Salla response', {
+        orderId: body.orderId,
+        operations,
+      });
 
       return NextResponse.json(
-        { error: userMessage },
-        { status: 500 }
+        { error: 'لم يتم العثور على عملية إنشاء سياسة الإرجاع في استجابة سلة' },
+        { status: 400 }
+      );
+    }
+
+    const operationStatus = String(returnPolicyOperation.status || '').toLowerCase();
+    const operationId = returnPolicyOperation.operation_id;
+    const operationMessage =
+      typeof returnPolicyOperation.message === 'string'
+        ? returnPolicyOperation.message
+        : typeof actionResponse.message === 'string'
+          ? actionResponse.message
+          : undefined;
+
+    if (operationStatus !== 'success' && operationStatus !== 'in_progress') {
+      log.error('Salla return policy operation failed', {
+        orderId: body.orderId,
+        operation: returnPolicyOperation,
+      });
+
+      return NextResponse.json(
+        {
+          error: operationMessage || 'فشل إنشاء سياسة الإرجاع',
+          details: `status=${operationStatus || 'unknown'} | opId=${operationId ?? 'n/a'}`,
+        },
+        { status: 400 }
       );
     }
 
@@ -397,13 +350,10 @@ export async function POST(request: NextRequest) {
       // Continue with return request creation even if Salla update fails
     }
 
-    const smsaLabelBase64 = extractSmsaLabelBase64(smsaResult.rawResponse);
-    const smsaLabelDataUrl = buildSmsaLabelDataUrl(smsaLabelBase64);
-
     // Store return request in database
     log.info('Storing return request in database', {
       orderId: body.orderId,
-      smsaTrackingNumber: smsaResult.awbNumber
+      sallaReturnPolicyOperationId: operationId,
     });
 
     const returnRequest = await prisma.returnRequest.create({
@@ -421,9 +371,17 @@ export async function POST(request: NextRequest) {
         reason: body.reason,
         reasonDetails: body.reasonDetails,
 
-        smsaTrackingNumber: smsaResult.awbNumber,
-        smsaAwbNumber: smsaResult.sawb,
-        smsaResponse: smsaResult.rawResponse as any,
+        smsaTrackingNumber: null,
+        smsaAwbNumber: null,
+        smsaResponse: {
+          provider: 'salla',
+          action: CREATE_RETURN_POLICY_ACTION,
+          operationId: operationId ?? null,
+          operationStatus,
+          operation: returnPolicyOperation,
+          request: actionRequestData,
+          response: actionResponse,
+        } as any,
 
         totalRefundAmount,
         returnFee,
@@ -448,7 +406,8 @@ export async function POST(request: NextRequest) {
 
     log.info('Return request created successfully', {
       returnRequestId: returnRequest.id,
-      smsaTrackingNumber: smsaResult.awbNumber
+      sallaReturnPolicyOperationId: operationId,
+      sallaReturnPolicyStatus: operationStatus,
     });
 
     return NextResponse.json({
@@ -459,7 +418,9 @@ export async function POST(request: NextRequest) {
         type: returnRequest.type,
         status: returnRequest.status,
         smsaTrackingNumber: returnRequest.smsaTrackingNumber,
-        smsaLabelDataUrl,
+        smsaLabelDataUrl: null,
+        sallaReturnPolicyOperationId: operationId,
+        sallaReturnPolicyStatus: operationStatus,
         totalRefundAmount: returnRequest.totalRefundAmount,
         createdAt: returnRequest.createdAt,
       },

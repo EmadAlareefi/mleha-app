@@ -5,11 +5,16 @@ type SmsaEnvironment = 'production' | 'sandbox' | 'test';
 const DEFAULT_ENVIRONMENT: SmsaEnvironment = 'sandbox';
 const DEFAULT_BASE_URLS: Record<SmsaEnvironment, string> = {
   production: 'https://ecomapis.smsaexpress.com',
-  sandbox: 'https://ecomapis.smsaexpress.com',
-  test: 'https://ecomapis.smsaexpress.com',
+  sandbox: 'https://ecomapis-sandbox.azurewebsites.net',
+  test: 'https://ecomapis-sandbox.azurewebsites.net',
 };
 
-const rawEnvInput = (process.env.SMSA_API_ENVIRONMENT ?? process.env.SMSA_ENVIRONMENT ?? DEFAULT_ENVIRONMENT).toLowerCase();
+const readEnv = (key: string): string | undefined => {
+  const value = process.env[key]?.trim();
+  return value || undefined;
+};
+
+const rawEnvInput = (readEnv('SMSA_API_ENVIRONMENT') ?? readEnv('SMSA_ENVIRONMENT') ?? DEFAULT_ENVIRONMENT).toLowerCase();
 const isCustomEnv = rawEnvInput === 'custom';
 const resolvedEnv: SmsaEnvironment =
   rawEnvInput === 'production' ? 'production' : rawEnvInput === 'test' ? 'test' : 'sandbox';
@@ -19,7 +24,7 @@ const sanitizeBase = (value: string): string =>
   value.replace(/\/$/, '').replace(/\/api$/, '');
 
 const resolveBaseUrl = (): string => {
-  const configuredBase = process.env.SMSA_API_BASE_URL;
+  const configuredBase = readEnv('SMSA_API_BASE_URL');
   const defaultBase = sanitizeBase(DEFAULT_BASE_URLS[resolvedEnv]);
 
   if (!configuredBase) {
@@ -78,8 +83,9 @@ const enforceBaseForEnv = (base: string): string => {
   return base;
 };
 const resolveApiKey = (): string => {
-  if (process.env.SMSA_API_KEY) {
-    return process.env.SMSA_API_KEY;
+  const apiKeyOverride = readEnv('SMSA_API_KEY');
+  if (apiKeyOverride) {
+    return apiKeyOverride;
   }
 
   if (isCustomEnv) {
@@ -87,11 +93,12 @@ const resolveApiKey = (): string => {
     return '';
   }
 
-  if (resolvedEnv === 'production' && process.env.SMSA_PRODUCTION_API_KEY) {
-    return process.env.SMSA_PRODUCTION_API_KEY;
+  const productionKey = readEnv('SMSA_PRODUCTION_API_KEY');
+  if (resolvedEnv === 'production' && productionKey) {
+    return productionKey;
   }
 
-  const sandboxKey = process.env.SMSA_TEST_API_KEY ?? process.env.SMSA_SANDBOX_API_KEY;
+  const sandboxKey = readEnv('SMSA_TEST_API_KEY') ?? readEnv('SMSA_SANDBOX_API_KEY');
   if (sandboxKey) {
     return sandboxKey;
   }
@@ -101,9 +108,9 @@ const resolveApiKey = (): string => {
 
 const SMSA_API_BASE_URL = enforceBaseForEnv(resolveBaseUrl());
 const SMSA_API_KEY = resolveApiKey();
-const SMSA_SERVICE_CODE = process.env.SMSA_SERVICE_CODE ?? 'EDCR';
-const SMSA_RETAIL_ID = process.env.SMSA_RETAIL_ID;
-const SMSA_WAYBILL_TYPE = (process.env.SMSA_WAYBILL_TYPE as 'PDF' | 'ZPL') ?? 'PDF';
+const SMSA_SERVICE_CODE = readEnv('SMSA_SERVICE_CODE') ?? 'EDCR';
+const SMSA_RETAIL_ID = readEnv('SMSA_RETAIL_ID');
+const SMSA_WAYBILL_TYPE = (readEnv('SMSA_WAYBILL_TYPE') as 'PDF' | 'ZPL') ?? 'PDF';
 
 export interface ShipmentAddress {
   ContactName: string;
@@ -200,7 +207,6 @@ export async function createSMSAReturnShipment(
       url,
       hasApiKey: !!SMSA_API_KEY,
       apiKeyLength: SMSA_API_KEY?.length || 0,
-      apiKeyFirst4: SMSA_API_KEY?.substring(0, 4),
       payloadKeys: Object.keys(payload),
     });
 
@@ -226,16 +232,19 @@ export async function createSMSAReturnShipment(
 
       // Provide more specific error messages
       let errorMessage = `SMSA API error: ${response.status}`;
+      let errorCode = 'API_ERROR';
       if (response.status === 401) {
         errorMessage = 'SMSA API authentication failed. Please verify your API key is correct for the environment.';
+        errorCode = 'AUTHENTICATION_FAILED';
       } else if (response.status === 403) {
         errorMessage = 'SMSA API access forbidden. Your API key may not have the required permissions.';
+        errorCode = 'PERMISSION_DENIED';
       }
 
       return {
         success: false,
         error: errorMessage,
-        errorCode: 'API_ERROR',
+        errorCode,
         rawResponse: errorText,
       };
     }
@@ -515,16 +524,19 @@ export async function createSMSAB2CShipment(
       });
 
       let errorMessage = `SMSA API error: ${response.status}`;
+      let errorCode = 'API_ERROR';
       if (response.status === 401) {
         errorMessage = 'SMSA API authentication failed. Please verify your API key.';
+        errorCode = 'AUTHENTICATION_FAILED';
       } else if (response.status === 403) {
         errorMessage = 'SMSA API access forbidden. Check API key permissions.';
+        errorCode = 'PERMISSION_DENIED';
       }
 
       return {
         success: false,
         error: errorMessage,
-        errorCode: 'API_ERROR',
+        errorCode,
         rawResponse: errorText,
       };
     }
