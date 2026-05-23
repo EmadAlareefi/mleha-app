@@ -338,7 +338,11 @@ export default function WarehouseDashboardClient({
   const handleNextDay = () => handleDateChange(addDays(selectedDate, 1));
   const handlePreviousDay = () => handleDateChange(addDays(selectedDate, -1));
 
-  const handleScan = async (trackingNumber: string, type: 'incoming' | 'outgoing') => {
+  const handleScan = async (
+    trackingNumber: string,
+    type: 'incoming' | 'outgoing',
+    company?: string
+  ) => {
     if (!selectedWarehouse) {
       throw new Error('يرجى اختيار المستودع أولاً');
     }
@@ -346,7 +350,7 @@ export default function WarehouseDashboardClient({
     const response = await fetch('/api/shipments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trackingNumber, type, warehouseId: selectedWarehouse.id }),
+      body: JSON.stringify({ trackingNumber, type, warehouseId: selectedWarehouse.id, company }),
     });
 
     if (!response.ok) {

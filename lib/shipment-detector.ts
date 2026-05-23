@@ -40,6 +40,12 @@ export const SHIPMENT_COMPANIES: Record<string, ShipmentCompany> = {
     nameEn: 'FedEx',
     color: '#4d148c',
   },
+  redbox: {
+    id: 'redbox',
+    nameAr: 'رد بوكس',
+    nameEn: 'RedBox',
+    color: '#dc2626',
+  },
   ups: {
     id: 'ups',
     nameAr: 'يو بي اس',
@@ -86,6 +92,7 @@ export const SHIPMENT_COMPANIES: Record<string, ShipmentCompany> = {
 
 const ORDER_NUMBER_REGEX = /^#?\d{6,9}$/;
 const ORDER_NUMBER_WITH_PREFIX_REGEX = /^#?ORD[-_\s]?\d{3,}$/i;
+export const AMBIGUOUS_NUMERIC_COMPANY_IDS = ['redbox', 'fedex', 'smsa'] as const;
 
 function isLikelyOrderNumber(trackingNumber: string): boolean {
   const cleaned = trackingNumber.trim();
@@ -142,16 +149,23 @@ export function detectShipmentCompany(trackingNumber: string): ShipmentCompany {
     return SHIPMENT_COMPANIES.naqel;
   }
 
-  // SMSA: 12 digits starting with 23, 29, 30, or contains "SMSA"
-  // Pattern: 231234567890, 291536303713, 300123456789
-  // Some older accounts also issue 12-digit numbers starting with 4
-  if (cleaned.startsWith('SMSA') || /^(23|29|30)\d{10}$/.test(cleaned) || /^4\d{11}$/.test(cleaned)) {
+  // RedBox: prefer explicit RedBox prefixes before generic numeric carrier patterns.
+  // Pattern examples: REDBOX123456, RDBX123456, RBX123456
+  if (cleaned.includes('REDBOX') || /^(RDBX|RBX)[A-Z0-9]+$/.test(cleaned)) {
+    return SHIPMENT_COMPANIES.redbox;
+  }
+
+  if (isAmbiguousShipmentCompanyTrackingNumber(cleaned)) {
+    return SHIPMENT_COMPANIES.unknown;
+  }
+
+  // SMSA: explicit SMSA codes only. Plain 12-digit labels are ambiguous with RedBox/FedEx.
+  if (cleaned.startsWith('SMSA')) {
     return SHIPMENT_COMPANIES.smsa;
   }
 
-  // FedEx: Exactly 12 or 15 digits (but not SMSA patterns)
-  // Pattern: 123456789012 (12 digits) or 123456789012345 (15 digits)
-  if ((/^\d{12}$/.test(cleaned) && !cleaned.startsWith('29') && !cleaned.startsWith('30')) || /^\d{15}$/.test(cleaned)) {
+  // FedEx: 15-digit labels can be detected; 12-digit labels require manual selection.
+  if (/^\d{15}$/.test(cleaned)) {
     return SHIPMENT_COMPANIES.fedex;
   }
 
@@ -178,6 +192,11 @@ export function isValidTrackingNumber(trackingNumber: string): boolean {
   const cleaned = trackingNumber.trim();
   // Must be at least 8 characters and contain some alphanumeric characters
   return cleaned.length >= 8 && /[a-zA-Z0-9]/.test(cleaned);
+}
+
+export function isAmbiguousShipmentCompanyTrackingNumber(trackingNumber: string): boolean {
+  const cleaned = trackingNumber.trim().toUpperCase();
+  return /^\d{12}$/.test(cleaned);
 }
 
 /**

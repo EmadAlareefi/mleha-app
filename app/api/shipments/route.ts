@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { detectShipmentCompany, isValidTrackingNumber } from '@/lib/shipment-detector';
+import {
+  AMBIGUOUS_NUMERIC_COMPANY_IDS,
+  SHIPMENT_COMPANIES,
+  detectShipmentCompany,
+  isAmbiguousShipmentCompanyTrackingNumber,
+  isValidTrackingNumber,
+} from '@/lib/shipment-detector';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { resolveWarehouseIds, hasWarehouseFeatureAccess } from '@/app/api/shipments/utils';
@@ -198,7 +204,7 @@ export async function POST(request: NextRequest) {
     const isWarehouseUser = roles.includes('warehouse');
 
     const body = await request.json();
-    const { trackingNumber, type, scannedBy, notes, warehouseId } = body;
+    const { trackingNumber, type, scannedBy, notes, warehouseId, company: requestedCompany } = body;
     const normalizedTrackingNumber =
       typeof trackingNumber === 'string' ? trackingNumber.trim() : '';
 
@@ -264,8 +270,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Detect company
-    const company = detectShipmentCompany(normalizedTrackingNumber);
+    const normalizedRequestedCompany =
+      typeof requestedCompany === 'string' ? requestedCompany.trim().toLowerCase() : '';
+    const isAmbiguousCompany = isAmbiguousShipmentCompanyTrackingNumber(normalizedTrackingNumber);
+    const allowedManualCompanies = new Set<string>(AMBIGUOUS_NUMERIC_COMPANY_IDS);
+
+    if (normalizedRequestedCompany) {
+      if (!SHIPMENT_COMPANIES[normalizedRequestedCompany] || normalizedRequestedCompany === 'unknown') {
+        return NextResponse.json(
+          { error: 'شركة الشحن المحددة غير صالحة' },
+          { status: 400 }
+        );
+      }
+
+      if (isAmbiguousCompany && !allowedManualCompanies.has(normalizedRequestedCompany)) {
+        return NextResponse.json(
+          { error: 'اختر RedBox أو FedEx أو SMSA للأرقام الرقمية المكونة من 12 خانة' },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (isAmbiguousCompany && !normalizedRequestedCompany) {
+      return NextResponse.json(
+        { error: 'يرجى اختيار شركة الشحن لهذا الرقم: RedBox أو FedEx أو SMSA' },
+        { status: 400 }
+      );
+    }
+
+    const detectedCompany = detectShipmentCompany(normalizedTrackingNumber);
+
+    if (
+      normalizedRequestedCompany &&
+      !isAmbiguousCompany &&
+      normalizedRequestedCompany !== detectedCompany.id
+    ) {
+      return NextResponse.json(
+        { error: 'لا يمكن تغيير شركة الشحن لرقم تتبع غير ملتبس' },
+        { status: 400 }
+      );
+    }
+
+    const company = isAmbiguousCompany
+      ? SHIPMENT_COMPANIES[normalizedRequestedCompany]!
+      : detectedCompany;
 
     // Create shipment
     const shipment = await prisma.shipment.create({

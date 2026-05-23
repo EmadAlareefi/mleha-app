@@ -1,10 +1,16 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Scan, CheckCircle, AlertCircle, ArrowUpFromLine, ArrowDownToLine, Camera } from 'lucide-react';
+import {
+  AMBIGUOUS_NUMERIC_COMPANY_IDS,
+  SHIPMENT_COMPANIES,
+  isAmbiguousShipmentCompanyTrackingNumber,
+} from '@/lib/shipment-detector';
 
 type BarcodeDetection = { rawValue?: string };
 type BarcodeDetectorInstance = {
@@ -15,11 +21,17 @@ type BarcodeDetectorConstructor = new (options?: {
 }) => BarcodeDetectorInstance;
 
 interface ScannerInputProps {
-  onScan: (trackingNumber: string, type: 'incoming' | 'outgoing') => Promise<void>;
+  onScan: (
+    trackingNumber: string,
+    type: 'incoming' | 'outgoing',
+    company?: string
+  ) => Promise<void>;
   selectedWarehouseName?: string;
   disabled?: boolean;
   disabledMessage?: string;
 }
+
+const AMBIGUOUS_COMPANY_STORAGE_KEY = 'warehouse-ambiguous-company';
 
 export function ScannerInput({
   onScan,
@@ -29,6 +41,7 @@ export function ScannerInput({
 }: ScannerInputProps) {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [type, setType] = useState<'incoming' | 'outgoing'>('outgoing');
+  const [ambiguousCompany, setAmbiguousCompany] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,6 +52,18 @@ export function ScannerInput({
   const streamRef = useRef<MediaStream | null>(null);
   const barcodeDetectorRef = useRef<BarcodeDetectorInstance | null>(null);
   const scanFrameRef = useRef<number | null>(null);
+  const isAmbiguousCompany = useMemo(
+    () => isAmbiguousShipmentCompanyTrackingNumber(trackingNumber),
+    [trackingNumber]
+  );
+
+  const ambiguousCompanyOptions = useMemo(
+    () =>
+      AMBIGUOUS_NUMERIC_COMPANY_IDS.map((companyId) => SHIPMENT_COMPANIES[companyId]).filter(
+        Boolean
+      ),
+    []
+  );
 
   const stopScanner = useCallback(() => {
     setScannerActive(false);
@@ -77,6 +102,16 @@ export function ScannerInput({
     if (typeof window === 'undefined') {
       return;
     }
+    const savedCompany = localStorage.getItem(AMBIGUOUS_COMPANY_STORAGE_KEY);
+    if (savedCompany && AMBIGUOUS_NUMERIC_COMPANY_IDS.some((company) => company === savedCompany)) {
+      setAmbiguousCompany(savedCompany);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
     setScannerSupported(
       'BarcodeDetector' in window && typeof (window as any).BarcodeDetector === 'function'
     );
@@ -89,11 +124,20 @@ export function ScannerInput({
     e?.preventDefault();
     if (disabled || !trackingNumber.trim() || isScanning) return;
 
+    if (isAmbiguousCompany && !ambiguousCompany) {
+      setMessage({ type: 'error', text: 'اختر شركة الشحن لهذا الرقم' });
+      return;
+    }
+
     setIsScanning(true);
     setMessage(null);
 
     try {
-      await onScan(trackingNumber.trim(), type);
+      const selectedCompany = isAmbiguousCompany ? ambiguousCompany : undefined;
+      await onScan(trackingNumber.trim(), type, selectedCompany);
+      if (selectedCompany && typeof window !== 'undefined') {
+        localStorage.setItem(AMBIGUOUS_COMPANY_STORAGE_KEY, selectedCompany);
+      }
       setMessage({ type: 'success', text: 'تم تسجيل الشحنة بنجاح' });
       setTrackingNumber('');
 
@@ -277,9 +321,36 @@ export function ScannerInput({
             />
           </div>
 
+          {isAmbiguousCompany && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <label htmlFor="ambiguous-company" className="mb-2 block text-sm font-medium text-amber-900">
+                شركة الشحن
+              </label>
+              <Select
+                id="ambiguous-company"
+                value={ambiguousCompany}
+                onChange={(e) => setAmbiguousCompany(e.target.value)}
+                disabled={isScanning || disabled}
+                className="h-12 rounded-xl bg-white"
+              >
+                <option value="">اختر الشركة</option>
+                {ambiguousCompanyOptions.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.nameAr}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+
           <Button
             type="submit"
-            disabled={!trackingNumber.trim() || isScanning || disabled}
+            disabled={
+              !trackingNumber.trim() ||
+              isScanning ||
+              disabled ||
+              (isAmbiguousCompany && !ambiguousCompany)
+            }
             className="w-full"
             size="lg"
           >
