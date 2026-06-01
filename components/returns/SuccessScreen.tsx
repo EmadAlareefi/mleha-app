@@ -19,7 +19,7 @@ interface SuccessScreenProps {
 
 export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenProps) {
   const hasLabel = Boolean(returnRequest.smsaLabelDataUrl);
-  const downloadFileName = `smsa-return-label-${returnRequest.smsaTrackingNumber || returnRequest.orderNumber}.pdf`;
+  const downloadFileName = `return-label-${returnRequest.smsaTrackingNumber || returnRequest.orderNumber}.pdf`;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -62,7 +62,7 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
 
           {returnRequest.smsaTrackingNumber && (
             <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
-              <p className="text-sm text-gray-600 mb-1">رقم تتبع شحنة الإرجاع (SMSA)</p>
+              <p className="text-sm text-gray-600 mb-1">رقم تتبع شحنة الإرجاع</p>
               <p className="text-lg font-mono font-semibold text-blue-700">
                 {returnRequest.smsaTrackingNumber}
               </p>

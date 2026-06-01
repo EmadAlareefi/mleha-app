@@ -46,3 +46,17 @@ test('extracts tracking numbers from courier tracking links as a fallback', () =
     'AJA100014616194'
   );
 });
+
+test('prefers courier tracking links over numeric Salla shipment IDs', () => {
+  assert.equal(
+    extractSallaTrackingNumber({
+      shipping: {
+        shipment: {
+          id: '1428063708',
+          tracking_link: 'https://aj-ex.com/ar/shipment-status/AJA100014616194',
+        },
+      },
+    }),
+    'AJA100014616194'
+  );
+});

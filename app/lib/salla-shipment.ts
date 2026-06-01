@@ -19,6 +19,9 @@ function extractTrackingNumberFromLink(value: unknown): string | null {
       const trackingNumber = normalizeTrackingCandidate(url.searchParams.get(key));
       if (trackingNumber) return trackingNumber;
     }
+
+    const pathCandidate = normalizeTrackingCandidate(url.pathname.split('/').filter(Boolean).pop());
+    if (pathCandidate) return pathCandidate;
   } catch {
     return null;
   }
@@ -75,11 +78,6 @@ export function extractSallaTrackingNumber(order: AnyRecord | null | undefined):
     if (trackingNumber) return trackingNumber;
   }
 
-  for (const candidate of [shippingShipment.id, directShipment.id]) {
-    const trackingNumber = normalizeTrackingCandidate(candidate);
-    if (trackingNumber) return trackingNumber;
-  }
-
   const trackingLinks = [
     ...getTrackingLinkCandidates(shippingShipment),
     ...getTrackingLinkCandidates(directShipment),
@@ -91,6 +89,11 @@ export function extractSallaTrackingNumber(order: AnyRecord | null | undefined):
 
   for (const link of trackingLinks) {
     const trackingNumber = extractTrackingNumberFromLink(link);
+    if (trackingNumber) return trackingNumber;
+  }
+
+  for (const candidate of [shippingShipment.id, directShipment.id]) {
+    const trackingNumber = normalizeTrackingCandidate(candidate);
     if (trackingNumber) return trackingNumber;
   }
 

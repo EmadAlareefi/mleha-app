@@ -558,11 +558,12 @@ function buildAssignmentFromRemoteOrder(order: RemoteSallaOrder) {
   const dates = extractDates(order as any);
   const placedAt = dates.created || new Date();
   const updatedAt = dates.updated;
+  const merchantId = (order as any)?.merchant_id || MERCHANT_ID;
 
   return {
     id: String(order.id),
     orderId: String(order.id),
-    orderNumber: order.reference_id || String(order.id),
+    orderNumber: order.reference_id ? String(order.reference_id) : String(order.id),
     orderData: order,
     status: order.status?.slug || order.status?.name || 'unknown',
     sallaStatus: order.status?.slug,
@@ -573,7 +574,7 @@ function buildAssignmentFromRemoteOrder(order: RemoteSallaOrder) {
     completedAt: updatedAt ? updatedAt.toISOString() : null,
     notes: undefined,
     source: 'salla',
-    merchantId: (order as any)?.merchant_id || MERCHANT_ID,
+    merchantId: String(merchantId),
     assignmentState: 'new',
   };
 }
@@ -681,7 +682,9 @@ async function getShipmentInfoForOrder(params: {
   orderId?: string | null;
   orderNumber?: string | null;
 }) {
-  const { merchantId, orderId, orderNumber } = params;
+  const merchantId = params.merchantId ? String(params.merchantId) : null;
+  const orderId = params.orderId ? String(params.orderId) : null;
+  const orderNumber = params.orderNumber ? String(params.orderNumber) : null;
 
   console.log('[getShipmentInfoForOrder] params:', { merchantId, orderId, orderNumber });
 

@@ -6,6 +6,7 @@ import { log } from '@/app/lib/logger';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
 import { extractOrderDate } from '@/lib/returns/order-date';
+import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
 import {
   getCarrierFee,
   parseCarrierFeeConfig,
@@ -333,6 +334,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const generatedReturnTrackingNumber = extractGeneratedReturnTrackingNumber(
+      {
+        operation: returnPolicyOperation,
+        response: actionResponse,
+      },
+      [
+        body.orderId,
+        normalizedOrderId,
+        order.id,
+        order.reference_id,
+        orderReference,
+        operationId,
+      ]
+    );
+
     // Update Salla order status to 'restoring' (قيد الاسترجاع)
     try {
       const { getSallaAccessToken } = await import('@/app/lib/salla-oauth');
@@ -393,13 +409,14 @@ export async function POST(request: NextRequest) {
         reason: body.reason,
         reasonDetails: body.reasonDetails,
 
-        smsaTrackingNumber: null,
-        smsaAwbNumber: null,
+        smsaTrackingNumber: generatedReturnTrackingNumber,
+        smsaAwbNumber: generatedReturnTrackingNumber,
         smsaResponse: {
           provider: 'salla',
           action: CREATE_RETURN_POLICY_ACTION,
           operationId: operationId ?? null,
           operationStatus,
+          trackingNumber: generatedReturnTrackingNumber,
           operation: returnPolicyOperation,
           request: actionRequestData,
           response: actionResponse,
@@ -430,6 +447,7 @@ export async function POST(request: NextRequest) {
       returnRequestId: returnRequest.id,
       sallaReturnPolicyOperationId: operationId,
       sallaReturnPolicyStatus: operationStatus,
+      generatedReturnTrackingNumber,
     });
 
     return NextResponse.json({
