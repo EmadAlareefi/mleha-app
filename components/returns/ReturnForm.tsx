@@ -6,6 +6,13 @@ import { Card } from '@/components/ui/card';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
+import {
+  buildCarrierFeeConfig,
+  getCarrierFee,
+  resolveReturnCarrierId,
+  returnFeeCarriers,
+  type CarrierFeeConfig,
+} from '@/lib/returns/carrier-fees';
 
 interface OrderItem {
   id: number;
@@ -167,10 +174,18 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [error, setError] = useState('');
   const [returnFee, setReturnFee] = useState(0);
   const [exchangeFee, setExchangeFee] = useState(0);
+  const [carrierFees, setCarrierFees] = useState<CarrierFeeConfig>({});
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [saleCategoryProducts, setSaleCategoryProducts] = useState<Record<string, boolean>>({});
   const shippingTotal = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
-  const configuredFee = type === 'return' ? returnFee : exchangeFee;
+  const carrierId = useMemo(() => resolveReturnCarrierId(order), [order]);
+  const carrier = carrierId ? returnFeeCarriers.find((company) => company.id === carrierId) : null;
+  const configuredFee = getCarrierFee(
+    carrierFees,
+    carrierId,
+    type,
+    type === 'return' ? returnFee : exchangeFee,
+  );
   const appliedProcessingFee = getEffectiveReturnFee(configuredFee, shippingTotal);
   const getNumericValue = (value: unknown): number => {
     if (typeof value === 'number') {
@@ -223,6 +238,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         if (typeof data.exchangeFee === 'number' && !Number.isNaN(data.exchangeFee)) {
           setExchangeFee(data.exchangeFee);
         }
+        setCarrierFees(
+          buildCarrierFeeConfig(data.carrierFees || {}, data.returnFee || 0, data.exchangeFee || 0),
+        );
       } catch (err) {
         console.error('Failed to load return config:', err);
       }
@@ -622,7 +640,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
                   {applicableFee > 0 && (
                     <div className="flex justify-between text-sm text-red-600">
-                      <span>رسوم معالجة {type === 'return' ? 'الإرجاع' : 'الاستبدال'}:</span>
+                      <span>
+                        رسوم معالجة {type === 'return' ? 'الإرجاع' : 'الاستبدال'}
+                        {carrier ? ` (${carrier.nameAr})` : ''}:
+                      </span>
                       <span>-{applicableFee.toFixed(2)} ر.س</span>
                     </div>
                   )}

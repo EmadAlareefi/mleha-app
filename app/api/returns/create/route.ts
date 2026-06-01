@@ -6,6 +6,12 @@ import { log } from '@/app/lib/logger';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
 import { extractOrderDate } from '@/lib/returns/order-date';
+import {
+  getCarrierFee,
+  parseCarrierFeeConfig,
+  resolveReturnCarrierId,
+  RETURN_CARRIER_FEES_SETTING_KEY,
+} from '@/lib/returns/carrier-fees';
 
 export const runtime = 'nodejs';
 
@@ -199,16 +205,28 @@ export async function POST(request: NextRequest) {
     // Get shipping amount from order (non-refundable) - include tax when available
     const shippingAmount = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
 
-    // Get processing fee from settings and apply tax/adjustments
+    // Get processing fee from carrier-specific settings and apply tax/adjustments.
     const feeSettingKey = body.type === 'exchange' ? 'exchange_fee' : 'return_fee';
     let configuredProcessingFee = 0;
     try {
-      const feeSetting = await prisma.settings.findUnique({
-        where: { key: feeSettingKey },
-      });
+      const [feeSetting, carrierFeesSetting] = await Promise.all([
+        prisma.settings.findUnique({
+          where: { key: feeSettingKey },
+        }),
+        prisma.settings.findUnique({
+          where: { key: RETURN_CARRIER_FEES_SETTING_KEY },
+        }),
+      ]);
       if (feeSetting && feeSetting.value) {
         configuredProcessingFee = parseFloat(feeSetting.value) || 0;
       }
+
+      configuredProcessingFee = getCarrierFee(
+        parseCarrierFeeConfig(carrierFeesSetting?.value),
+        resolveReturnCarrierId(order),
+        body.type,
+        configuredProcessingFee,
+      );
     } catch (err) {
       log.warn('Failed to fetch return processing fee setting', {
         key: feeSettingKey,

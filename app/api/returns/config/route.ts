@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import {
+  buildCarrierFeeConfig,
+  parseCarrierFeeConfig,
+  RETURN_CARRIER_FEES_SETTING_KEY,
+} from '@/lib/returns/carrier-fees';
 
 export const runtime = 'nodejs';
 
@@ -22,10 +27,22 @@ export async function GET() {
       where: { key: 'allow_multiple_return_requests' },
     });
 
+    const carrierFeesSetting = await prisma.settings.findUnique({
+      where: { key: RETURN_CARRIER_FEES_SETTING_KEY },
+    });
+
+    const fallbackReturnFee = returnFeeSetting ? Number(returnFeeSetting.value) || 0 : 0;
+    const fallbackExchangeFee = exchangeFeeSetting ? Number(exchangeFeeSetting.value) || 0 : 0;
+
     return NextResponse.json({
       success: true,
-      returnFee: returnFeeSetting ? Number(returnFeeSetting.value) || 0 : 0,
-      exchangeFee: exchangeFeeSetting ? Number(exchangeFeeSetting.value) || 0 : 0,
+      returnFee: fallbackReturnFee,
+      exchangeFee: fallbackExchangeFee,
+      carrierFees: buildCarrierFeeConfig(
+        parseCarrierFeeConfig(carrierFeesSetting?.value),
+        fallbackReturnFee,
+        fallbackExchangeFee,
+      ),
       allowMultipleRequests: allowMultipleSetting?.value === 'true',
     });
   } catch (error) {
