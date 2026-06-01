@@ -7,6 +7,7 @@ import type { OrderGiftFlag, SallaOrder as PrismaSallaOrder } from '@prisma/clie
 import { getSallaOrder, getSallaOrderByReference } from '@/app/lib/salla-api';
 import type { SallaOrder as RemoteSallaOrder } from '@/app/lib/salla-api';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
+import { extractDates } from '@/app/lib/salla-orders';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 import { serializeLocalShipment } from '@/app/lib/local-shipping/serializer';
@@ -27,7 +28,7 @@ const logSallaOrderPayload = (assignment: any) => {
     console.log(
       `[order-assignments/search][server] ${label} for ${identifier}:\n${serialized}`,
     );
-  } catch (error) {
+  } catch {
     console.log(
       `[order-assignments/search][server] ${label} for ${identifier} (object logged separately)`,
       assignment.orderData,
@@ -130,7 +131,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
     }
 
-    const user = session.user as any;
     const allowedServices: ServiceKey[] = [
       'order-prep',
       'order-shipping',
@@ -555,8 +555,9 @@ function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
 }
 
 function buildAssignmentFromRemoteOrder(order: RemoteSallaOrder) {
-  const placedAt = order.date?.created ? new Date(order.date.created) : new Date();
-  const updatedAt = order.date?.updated ? new Date(order.date.updated) : null;
+  const dates = extractDates(order as any);
+  const placedAt = dates.created || new Date();
+  const updatedAt = dates.updated;
 
   return {
     id: String(order.id),
