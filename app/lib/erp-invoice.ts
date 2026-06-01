@@ -364,10 +364,9 @@ function getSalesCenterCode(order: SallaOrder): string {
   if (paymentMethod.includes('tabby')) {
     return '02'; // Tabby
   }
-  if (paymentMethod.includes('mada') || paymentMethod.includes('visa') || paymentMethod.includes('mastercard') || paymentMethod.includes('credit')) {
+  if (paymentMethod.includes('mada') || paymentMethod.includes('stc_pay') || paymentMethod.includes('apple_pay') || paymentMethod.includes('visa') || paymentMethod.includes('mastercard') || paymentMethod.includes('credit')) {
     return '04'; // Mada/Credit Card
   }
-
   // Default for COD and other payment methods
   return '01';
 }
