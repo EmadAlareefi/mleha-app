@@ -17,6 +17,7 @@ import {
   extractCampaign,
 } from '@/app/lib/salla-orders';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
+import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   success: boolean;
@@ -113,7 +114,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       ) ?? undefined,
       paymentMethod: extractPaymentMethod(order) ?? undefined,
       fulfillmentCompany: normalizers.string(order.shipping?.company) ?? undefined,
-      trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
+      trackingNumber: extractSallaTrackingNumber(order) ?? undefined,
       placedAt: dates.created ?? undefined,
       updatedAtRemote: dates.updated ?? undefined,
       campaignSource: campaign.source ?? undefined,
@@ -149,7 +150,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       ) ?? undefined,
       paymentMethod: extractPaymentMethod(order) ?? undefined,
       fulfillmentCompany: normalizers.string(order.shipping?.company) ?? undefined,
-      trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
+      trackingNumber: extractSallaTrackingNumber(order) ?? undefined,
       placedAt: dates.created ?? undefined,
       updatedAtRemote: dates.updated ?? undefined,
       campaignSource: campaign.source ?? undefined,

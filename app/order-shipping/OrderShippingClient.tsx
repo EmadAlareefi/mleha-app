@@ -189,6 +189,61 @@ const generateSkuVariants = (value: unknown): string[] => {
   return Array.from(variants).filter((sku) => sku.length >= 3);
 };
 
+const getItemSku = (item: any): string => {
+  const candidates = [
+    item?.sku,
+    item?.code,
+    item?.product?.sku,
+    item?.product?.code,
+    item?.variant?.sku,
+    item?.variant?.code,
+  ];
+
+  for (const candidate of candidates) {
+    const value = getStringValue(candidate).trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+};
+
+const getItemName = (item: any): string => {
+  return getStringValue(item?.name || item?.product?.name) || 'منتج بدون اسم';
+};
+
+const getItemImage = (item: any): string | null => {
+  const candidates = [
+    item?.thumbnail,
+    item?.product_thumbnail,
+    item?.image,
+    item?.images?.[0],
+    item?.product?.thumbnail,
+    item?.product?.image,
+  ];
+
+  for (const candidate of candidates) {
+    const url = extractHttpUrl(candidate);
+    if (url) {
+      return url;
+    }
+  }
+
+  return null;
+};
+
+const getItemOptions = (item: any): any[] => {
+  const candidates = [
+    item?.options,
+    item?.variant?.options,
+    item?.product?.options,
+    item?.details?.options,
+  ];
+
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length > 0) || [];
+};
+
 const getNumberValue = (value: unknown): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -542,7 +597,7 @@ const currentOrderSkus = useMemo(() => {
     const variants = new Set<string>();
 
     currentOrder.orderData.items.forEach((item: any) => {
-      generateSkuVariants(item?.sku).forEach((variant) => variants.add(variant));
+      generateSkuVariants(getItemSku(item)).forEach((variant) => variants.add(variant));
     });
 
     return Array.from(variants);
@@ -582,7 +637,7 @@ const getPrepStatusForItem = useCallback(
     if (prepItemStatuses.length === 0) {
       return null;
     }
-    const normalized = normalizeSku(item?.sku);
+    const normalized = normalizeSku(getItemSku(item));
     if (normalized) {
       const match = prepItemStatuses.find((entry) => entry.normalizedSku === normalized);
       if (match) {
@@ -780,7 +835,7 @@ const getPrepStatusForItem = useCallback(
     >();
 
     currentOrder.orderData.items.forEach((item: any) => {
-      const normalizedSku = normalizeSku(item?.sku);
+      const normalizedSku = normalizeSku(getItemSku(item));
       if (!normalizedSku) {
         return;
       }
@@ -1567,9 +1622,14 @@ const handleRefreshItems = async () => {
                 {currentOrder.orderData?.items && currentOrder.orderData.items.length > 0 ? (
                   <>
                     {currentOrder.orderData.items.map((item: any, idx: number) => {
-                      const normalizedSku = normalizeSku(item?.sku);
+                      const rawSku = getItemSku(item);
+                      const normalizedSku = normalizeSku(rawSku);
                       const locationInfo = normalizedSku ? getLocationForSku(normalizedSku) : undefined;
-                      const skuDisplay = normalizedSku || getStringValue(item?.sku);
+                      const skuDisplay = normalizedSku || rawSku;
+                      const itemName = getItemName(item);
+                      const itemImage = getItemImage(item);
+                      const itemOptions = getItemOptions(item);
+                      const variantName = getStringValue(item?.variant?.name);
                       const locationUpdatedAt = locationInfo?.updatedAt
                         ? new Date(locationInfo.updatedAt).toLocaleString('ar-SA')
                         : null;
@@ -1580,11 +1640,11 @@ const handleRefreshItems = async () => {
                         <Card key={`item-${idx}`} className="p-4 md:p-6">
                           <div className="flex flex-col md:flex-row gap-4 md:gap-6">
                             <div className="flex-shrink-0">
-                              {(item.thumbnail || item.product_thumbnail || item.product?.thumbnail) ? (
+                              {itemImage ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
-                                  src={item.thumbnail || item.product_thumbnail || item.product?.thumbnail}
-                                  alt={item.name}
+                                  src={itemImage}
+                                  alt={itemName}
                                   className="w-full md:w-40 md:h-40 object-contain rounded-lg border-2 border-gray-200 bg-white"
                                 />
                               ) : (
@@ -1597,7 +1657,11 @@ const handleRefreshItems = async () => {
                             </div>
 
                             <div className="flex-1 space-y-3">
-                              <h3 className="text-2xl font-bold text-gray-900">{item.name}</h3>
+                              <h3 className="text-2xl font-bold text-gray-900">{itemName}</h3>
+
+                              {variantName && (
+                                <p className="text-sm font-semibold text-gray-600">{variantName}</p>
+                              )}
 
                               <div className="flex flex-wrap gap-2">
                                 {skuDisplay && (
@@ -1640,13 +1704,13 @@ const handleRefreshItems = async () => {
                                 )}
                               </div>
 
-                              {item.options && Array.isArray(item.options) && item.options.length > 0 && (
+                              {itemOptions.length > 0 && (
                                 <div className="mt-3">
                                   <h4 className="text-sm font-bold text-gray-700 mb-1">خيارات المنتج:</h4>
                                   <div className="flex flex-wrap gap-2">
-                                    {item.options.map((option: any, optionIdx: number) => (
+                                    {itemOptions.map((option: any, optionIdx: number) => (
                                       <span
-                                        key={`${item.sku}-option-${optionIdx}`}
+                                        key={`${rawSku || idx}-option-${optionIdx}`}
                                         className="inline-flex items-center gap-2 rounded-lg bg-purple-50 px-3 py-1 text-xs font-medium text-purple-800 border border-purple-200"
                                       >
                                         <span className="font-semibold">{getStringValue(option?.name)}:</span>
@@ -1676,7 +1740,7 @@ const handleRefreshItems = async () => {
                       const items = Array.isArray(currentOrder.orderData?.items) ? currentOrder.orderData.items : [];
                       const giftSkuPatterns = ['7571', '6504'];
                       const giftSkuItems = items.filter((item: any) => {
-                        const sku = getStringValue(item?.sku).toUpperCase();
+                        const sku = getItemSku(item).toUpperCase();
                         return sku && giftSkuPatterns.some((pattern) => sku.includes(pattern));
                       });
                       const hasManualGiftFlag = Boolean(currentOrder?.hasGiftFlag);
@@ -1708,8 +1772,8 @@ const handleRefreshItems = async () => {
                               {giftSkuItems.length > 0 && (
                                 <p className="text-sm text-red-700 mt-1">
                                   العناصر: {giftSkuItems.map((item: any) => {
-                                    const name = getStringValue(item?.name);
-                                    const sku = getStringValue(item?.sku);
+                                    const name = getItemName(item);
+                                    const sku = getItemSku(item);
                                     return `${name}${sku ? ` (${sku})` : ''}`;
                                   }).join('، ')}
                                 </p>

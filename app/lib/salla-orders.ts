@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { sallaMakeRequest } from './salla-oauth';
 import { log } from './logger';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
+import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 
 type AnyRecord = Record<string, any>;
 
@@ -505,7 +506,7 @@ async function syncOrdersForMerchant(
             ) ?? undefined,
             paymentMethod: extractPaymentMethod(order) ?? undefined,
             fulfillmentCompany: normalizers.string(order.shipping?.company) ?? undefined,
-            trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
+            trackingNumber: extractSallaTrackingNumber(order) ?? undefined,
             placedAt: dates.created ?? undefined,
             updatedAtRemote: dates.updated ?? undefined,
             campaignSource: campaign.source ?? undefined,
@@ -541,7 +542,7 @@ async function syncOrdersForMerchant(
             ) ?? undefined,
             paymentMethod: extractPaymentMethod(order) ?? undefined,
             fulfillmentCompany: normalizers.string(order.shipping?.company) ?? undefined,
-            trackingNumber: normalizers.string(order.shipping?.tracking_number) ?? undefined,
+            trackingNumber: extractSallaTrackingNumber(order) ?? undefined,
             placedAt: dates.created ?? undefined,
             updatedAtRemote: dates.updated ?? undefined,
             campaignSource: campaign.source ?? undefined,

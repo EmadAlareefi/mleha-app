@@ -5,6 +5,7 @@ import { log } from "@/app/lib/logger";
 import { storeSallaTokens } from "@/app/lib/salla-oauth";
 import { upsertSallaOrderFromPayload } from "@/app/lib/salla-sync";
 import { prisma } from "@/lib/prisma";
+import { extractSallaTrackingNumber } from "@/app/lib/salla-shipment";
 import {
   extractAppliedCouponCodes,
   linkExchangeOrderFromWebhook,
@@ -235,16 +236,12 @@ async function maybePrintShipmentLabelFromStatus(
     orderIdFromPayload ||
     "";
 
-  const trackingNumberValue = (
-    shipmentInfo.tracking_number ||
-    shipmentInfo.trackingNumber ||
-    shipmentInfo.shipping_number ||
-    shipmentInfo.tracking_no ||
-    shipmentInfo.id ||
+  const trackingNumberValue =
+    extractSallaTrackingNumber(order) ||
+    extractSallaTrackingNumber(data) ||
     shipmentReference ||
     trackingLink ||
-    ""
-  ).toString();
+    "";
 
   const resolvedOrderId =
     orderIdFromPayload ||

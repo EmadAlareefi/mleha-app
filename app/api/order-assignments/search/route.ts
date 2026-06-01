@@ -424,7 +424,7 @@ export async function GET(request: NextRequest) {
       });
 
       if (sallaOrder) {
-        const payload = buildSallaAssignmentFromRecord(sallaOrder);
+        const payload = await buildEnrichedSallaAssignmentFromRecord(sallaOrder);
         console.log('[search] Found via SallaOrder, looking up shipment with:', {
           merchantId: payload.merchantId,
           orderId: payload.orderId,
@@ -480,6 +480,39 @@ type SyncedOrderResult = {
   persisted: PrismaSallaOrder | null;
   remote: RemoteSallaOrder;
 };
+
+async function buildEnrichedSallaAssignmentFromRecord(record: PrismaSallaOrder) {
+  try {
+    const liveOrder = await getSallaOrder(record.merchantId, record.orderId);
+
+    if (!liveOrder) {
+      return buildSallaAssignmentFromRecord(record);
+    }
+
+    const orderWithMerchant: RemoteSallaOrder & Record<string, any> = {
+      ...liveOrder,
+      merchant_id: record.merchantId,
+      merchantId: record.merchantId,
+      store: (liveOrder as any).store ?? { id: record.merchantId },
+      store_id: (liveOrder as any).store_id ?? record.merchantId,
+      storeId: (liveOrder as any).storeId ?? record.merchantId,
+    };
+
+    await upsertSallaOrderFromPayload({
+      merchantId: record.merchantId,
+      merchant_id: record.merchantId,
+      order: orderWithMerchant,
+    });
+
+    return buildAssignmentFromRemoteOrder(orderWithMerchant);
+  } catch (error) {
+    console.warn('[search] Failed to enrich cached Salla order with live details', {
+      orderId: record.orderId,
+      error,
+    });
+    return buildSallaAssignmentFromRecord(record);
+  }
+}
 
 function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
   const placedAt = record.placedAt || record.updatedAtRemote || new Date();

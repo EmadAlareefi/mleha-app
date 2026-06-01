@@ -9,6 +9,7 @@ import {
 } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
+import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 
 export const runtime = 'nodejs';
 
@@ -76,16 +77,11 @@ export async function POST(request: NextRequest) {
       (data.shipping?.shipment_reference || shipmentInfo.shipment_reference || shipmentInfo.reference || shipmentInfo.reference_id || '')?.toString() || '';
     const city = data.shipping?.address?.city || shipmentInfo.ship_to?.city || '';
     const status = shipmentInfo.status || data.status?.name || 'created';
-    const trackingNumberValue = (
-      shipmentInfo.tracking_number ||
-      shipmentInfo.trackingNumber ||
-      shipmentInfo.shipping_number ||
-      shipmentInfo.tracking_no ||
-      shipmentInfo.id ||
+    const trackingNumberValue =
+      extractSallaTrackingNumber(data) ||
       shipmentReference ||
       trackingLink ||
-      ''
-    ).toString();
+      '';
 
     log.info('Processing shipment webhook payload', {
       referenceId,
