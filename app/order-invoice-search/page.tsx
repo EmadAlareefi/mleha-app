@@ -25,7 +25,18 @@ interface ShipmentInfo {
   id?: string;
   trackingNumber?: string;
   courierName?: string;
+  courierCode?: string;
   status?: string;
+  deliveryStatus?: {
+    carrier?: 'smsa' | 'ajex' | 'local' | 'other';
+    label?: string | null;
+    code?: string | null;
+    description?: string | null;
+    city?: string | null;
+    timestamp?: string | null;
+    updatedAt?: string | null;
+    source?: string | null;
+  } | null;
   labelUrl?: string | null;
   labelPrinted?: boolean;
   labelPrintedAt?: string | null;
@@ -485,10 +496,36 @@ export default function OrderInvoiceSearchPage() {
   const resolvedTrackingNumber = shipmentInfo?.trackingNumber || fallbackTrackingNumber;
   const resolvedCourierName = shipmentInfo?.courierName || courierName;
   const resolvedShipmentStatus = shipmentInfo?.status || fallbackShipmentStatus;
+  const shipmentDeliveryStatus = shipmentInfo?.deliveryStatus || null;
+  const resolvedDeliveryStatus = shipmentDeliveryStatus?.label || resolvedShipmentStatus;
+  const deliveryStatusMeta = [
+    shipmentDeliveryStatus?.city,
+    shipmentDeliveryStatus?.timestamp ? formatDate(shipmentDeliveryStatus.timestamp) : null,
+  ].filter(Boolean).join(' • ');
+  const deliveryStatusDescription =
+    shipmentDeliveryStatus?.description &&
+    shipmentDeliveryStatus.description !== resolvedDeliveryStatus
+      ? shipmentDeliveryStatus.description
+      : '';
+  const deliveryCarrierLabel: Record<string, string> = {
+    smsa: 'SMSA',
+    ajex: 'AJEX',
+    local: 'شحن محلي',
+    other: 'شركة الشحن',
+  };
+  const resolvedDeliveryCarrier =
+    shipmentDeliveryStatus?.carrier
+      ? deliveryCarrierLabel[shipmentDeliveryStatus.carrier] || resolvedCourierName
+      : resolvedCourierName;
   const shipmentLabelUrl = shipmentInfo?.labelUrl || fallbackLabelUrl;
   const shipmentPrintedAt = shipmentInfo?.labelPrintedAt ? formatDate(shipmentInfo.labelPrintedAt) : null;
   const shipmentPrintCount = shipmentInfo?.printCount ?? null;
-  const canShowShipmentDetails = Boolean(resolvedTrackingNumber || shipmentLabelUrl || resolvedShipmentStatus);
+  const canShowShipmentDetails = Boolean(
+    resolvedTrackingNumber ||
+    shipmentLabelUrl ||
+    resolvedShipmentStatus ||
+    resolvedDeliveryStatus
+  );
   const hasPrintableShipmentLabel = Boolean(shipmentInfo && shipmentLabelUrl);
   const isPrintingShipmentLabel = printingShipmentPrinter !== null;
   const shippingTracking = buildTrackingUrl(resolvedTrackingNumber, resolvedCourierName, shipmentLabelUrl);
@@ -737,7 +774,7 @@ export default function OrderInvoiceSearchPage() {
                       </div>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <p className="text-sm text-gray-500">رقم التتبع</p>
                       <p className="font-medium text-gray-900">
@@ -772,6 +809,21 @@ export default function OrderInvoiceSearchPage() {
                     <div>
                       <p className="text-sm text-gray-500">حالة الشحنة</p>
                       <p className="font-medium text-gray-900">{resolvedShipmentStatus || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">حالة التوصيل</p>
+                      <p className="font-medium text-gray-900">{resolvedDeliveryStatus || '—'}</p>
+                      {(resolvedDeliveryCarrier || shipmentDeliveryStatus?.code) && (
+                        <p className="text-xs text-gray-500">
+                          {[resolvedDeliveryCarrier, shipmentDeliveryStatus?.code].filter(Boolean).join(' • ')}
+                        </p>
+                      )}
+                      {deliveryStatusDescription && (
+                        <p className="text-xs text-gray-600">{deliveryStatusDescription}</p>
+                      )}
+                      {deliveryStatusMeta && (
+                        <p className="text-xs text-gray-500">{deliveryStatusMeta}</p>
+                      )}
                     </div>
                   </div>
                   {(shipmentPrintedAt || shipmentPrintCount !== null) && (

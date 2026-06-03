@@ -11,11 +11,14 @@ import { extractDates } from '@/app/lib/salla-orders';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 import { serializeLocalShipment } from '@/app/lib/local-shipping/serializer';
+import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import type { SmsaLiveStatus } from '@/types/smsa';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
+const DEBUG_SEARCH_LOGS = process.env.ORDER_SEARCH_DEBUG === 'true';
 
 const logSallaOrderPayload = (assignment: any) => {
-  if (!assignment?.orderData) {
+  if (!DEBUG_SEARCH_LOGS || !assignment?.orderData) {
     return;
   }
   const identifier = assignment.orderNumber || assignment.orderId || assignment.id || 'unknown';
@@ -34,6 +37,48 @@ const logSallaOrderPayload = (assignment: any) => {
       assignment.orderData,
     );
   }
+};
+
+const logSearchDebug = (message: string, data?: Record<string, unknown>) => {
+  if (!DEBUG_SEARCH_LOGS) {
+    return;
+  }
+  console.log(`[order-assignments/search] ${message}`, data || {});
+};
+
+const buildResponsePayload = (record: any, type: 'assignment' | 'history') => {
+  const assignedName = type === 'assignment'
+    ? (record.user as any)?.name || (record.user as any)?.username
+    : record.userName;
+
+  return {
+    id: record.id,
+    orderId: record.orderId,
+    orderNumber: record.orderNumber,
+    orderData: record.orderData,
+    merchantId: record.merchantId,
+    status: record.status,
+    sallaStatus: type === 'assignment' ? record.sallaStatus : record.finalSallaStatus,
+    assignedUserId: record.userId,
+    assignedUserName: assignedName || '—',
+    assignedAt: record.assignedAt.toISOString(),
+    startedAt: record.startedAt ? record.startedAt.toISOString() : null,
+    completedAt: type === 'assignment'
+      ? (record.completedAt ? record.completedAt.toISOString() : null)
+      : (record.finishedAt ? record.finishedAt.toISOString() : null),
+    notes: record.notes,
+    source: type,
+    assignmentState: 'assigned',
+  };
+};
+
+const respondWithPayloadAndShipment = async (payload: any) => {
+  const shipment = await getShipmentInfoForOrder({
+    merchantId: payload.merchantId,
+    orderId: payload.orderId,
+    orderNumber: payload.orderNumber,
+  });
+  return respondWithAssignment(payload, shipment);
 };
 
 const respondWithAssignment = async (payload: any, shipment: any) => {
@@ -190,6 +235,87 @@ export async function GET(request: NextRequest) {
     }
     phoneVariants.add(searchQuery);
 
+    const exactVariants = Array.from(normalizedQueryVariants).filter(Boolean);
+    const exactAssignmentFilters = exactVariants.flatMap<Prisma.OrderAssignmentWhereInput>((variant) => [
+      { orderNumber: variant },
+      { orderId: variant },
+    ]);
+    const exactHistoryFilters = exactVariants.flatMap<Prisma.OrderHistoryWhereInput>((variant) => [
+      { orderNumber: variant },
+      { orderId: variant },
+    ]);
+    const exactSallaFilters = exactVariants.flatMap<Prisma.SallaOrderWhereInput>((variant) => [
+      { orderNumber: variant },
+      { referenceId: variant },
+      { orderId: variant },
+      { id: variant },
+      { customerId: variant },
+    ]);
+
+    if (digitsOnlyQuery.length >= 5) {
+      phoneVariants.forEach((variant) => {
+        exactSallaFilters.push({ customerMobile: variant });
+      });
+    }
+
+    const [exactAssignment, exactHistoryEntry, exactSallaOrder] = await Promise.all([
+      exactAssignmentFilters.length > 0
+        ? prisma.orderAssignment.findFirst({
+            where: { OR: exactAssignmentFilters },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  username: true,
+                },
+              },
+            },
+            orderBy: { assignedAt: 'desc' },
+          })
+        : Promise.resolve(null),
+      exactHistoryFilters.length > 0
+        ? prisma.orderHistory.findFirst({
+            where: { OR: exactHistoryFilters },
+            orderBy: { finishedAt: 'desc' },
+          })
+        : Promise.resolve(null),
+      exactSallaFilters.length > 0
+        ? prisma.sallaOrder.findFirst({
+            where: {
+              merchantId: MERCHANT_ID,
+              OR: exactSallaFilters,
+            },
+            orderBy: { updatedAtRemote: 'desc' },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (exactAssignment) {
+      logSearchDebug('Found via exact OrderAssignment', {
+        orderId: exactAssignment.orderId,
+        orderNumber: exactAssignment.orderNumber,
+      });
+      return respondWithPayloadAndShipment(buildResponsePayload(exactAssignment, 'assignment'));
+    }
+
+    if (exactHistoryEntry) {
+      logSearchDebug('Found via exact OrderHistory', {
+        orderId: exactHistoryEntry.orderId,
+        orderNumber: exactHistoryEntry.orderNumber,
+      });
+      return respondWithPayloadAndShipment(buildResponsePayload(exactHistoryEntry, 'history'));
+    }
+
+    if (exactSallaOrder) {
+      logSearchDebug('Found via exact cached SallaOrder', {
+        orderId: exactSallaOrder.orderId,
+        orderNumber: exactSallaOrder.orderNumber,
+        referenceId: exactSallaOrder.referenceId,
+      });
+      return respondWithPayloadAndShipment(buildSallaAssignmentFromRecord(exactSallaOrder));
+    }
+
     const referencePaths = [
       ['reference_id'],
       ['referenceId'],
@@ -330,32 +456,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const buildResponsePayload = (record: any, type: 'assignment' | 'history') => {
-      const assignedName = type === 'assignment'
-        ? (record.user as any)?.name || (record.user as any)?.username
-        : record.userName;
-
-      return {
-        id: record.id,
-        orderId: record.orderId,
-        orderNumber: record.orderNumber,
-        orderData: record.orderData,
-        merchantId: record.merchantId,
-        status: record.status,
-        sallaStatus: type === 'assignment' ? record.sallaStatus : record.finalSallaStatus,
-        assignedUserId: record.userId,
-        assignedUserName: assignedName || '—',
-        assignedAt: record.assignedAt.toISOString(),
-        startedAt: record.startedAt ? record.startedAt.toISOString() : null,
-        completedAt: type === 'assignment'
-          ? (record.completedAt ? record.completedAt.toISOString() : null)
-          : (record.finishedAt ? record.finishedAt.toISOString() : null),
-        notes: record.notes,
-        source: type,
-        assignmentState: 'assigned',
-      };
-    };
-
     // Search for the order assignment
     const assignment = await prisma.orderAssignment.findFirst({
       where: {
@@ -377,19 +477,11 @@ export async function GET(request: NextRequest) {
 
     if (assignment) {
       const payload = buildResponsePayload(assignment, 'assignment');
-      console.log('[search] Found via OrderAssignment, looking up shipment with:', {
-        merchantId: payload.merchantId,
+      logSearchDebug('Found via broad OrderAssignment', {
         orderId: payload.orderId,
         orderNumber: payload.orderNumber,
       });
-      const shipment = await getShipmentInfoForOrder({
-        merchantId: payload.merchantId,
-        orderId: payload.orderId,
-        orderNumber: payload.orderNumber,
-      });
-      console.log('[search] Shipment result:', shipment ? { type: shipment.type, trackingNumber: shipment.trackingNumber } : null);
-
-      return respondWithAssignment(payload, shipment);
+      return respondWithPayloadAndShipment(payload);
     }
 
     const historyEntry = await prisma.orderHistory.findFirst({
@@ -403,13 +495,11 @@ export async function GET(request: NextRequest) {
 
     if (historyEntry) {
       const payload = buildResponsePayload(historyEntry, 'history');
-      const shipment = await getShipmentInfoForOrder({
-        merchantId: payload.merchantId,
+      logSearchDebug('Found via broad OrderHistory', {
         orderId: payload.orderId,
         orderNumber: payload.orderNumber,
       });
-
-      return respondWithAssignment(payload, shipment);
+      return respondWithPayloadAndShipment(payload);
     }
 
     if (sallaFilters.length > 0) {
@@ -424,42 +514,22 @@ export async function GET(request: NextRequest) {
       });
 
       if (sallaOrder) {
-        const payload = await buildEnrichedSallaAssignmentFromRecord(sallaOrder);
-        console.log('[search] Found via SallaOrder, looking up shipment with:', {
-          merchantId: payload.merchantId,
+        const payload = buildSallaAssignmentFromRecord(sallaOrder);
+        logSearchDebug('Found via broad cached SallaOrder', {
           orderId: payload.orderId,
           orderNumber: payload.orderNumber,
         });
-        const shipment = await getShipmentInfoForOrder({
-          merchantId: payload.merchantId,
-          orderId: payload.orderId,
-          orderNumber: payload.orderNumber,
-        });
-        console.log('[search] Shipment result:', shipment ? { type: shipment.type, trackingNumber: shipment.trackingNumber } : null);
-
-        return respondWithAssignment(payload, shipment);
+        return respondWithPayloadAndShipment(payload);
       }
 
       const syncedOrder = await syncOrderFromSalla(normalizedQueryVariants, digitsOnlyQuery);
       if (syncedOrder?.persisted) {
         const payload = buildSallaAssignmentFromRecord(syncedOrder.persisted);
-        const shipment = await getShipmentInfoForOrder({
-          merchantId: payload.merchantId,
-          orderId: payload.orderId,
-          orderNumber: payload.orderNumber,
-        });
-
-        return respondWithAssignment(payload, shipment);
+        return respondWithPayloadAndShipment(payload);
       }
       if (syncedOrder?.remote) {
         const payload = buildAssignmentFromRemoteOrder(syncedOrder.remote);
-        const shipment = await getShipmentInfoForOrder({
-          merchantId: payload.merchantId,
-          orderId: payload.orderId,
-          orderNumber: payload.orderNumber,
-        });
-
-        return respondWithAssignment(payload, shipment);
+        return respondWithPayloadAndShipment(payload);
       }
     }
 
@@ -501,42 +571,6 @@ function mergeStoredFulfillmentData<T extends Record<string, any>>(
       courier_name: order.delivery?.courier_name ?? fulfillmentCompany,
     },
   };
-}
-
-async function buildEnrichedSallaAssignmentFromRecord(record: PrismaSallaOrder) {
-  try {
-    const liveOrder = await getSallaOrder(record.merchantId, record.orderId);
-
-    if (!liveOrder) {
-      return buildSallaAssignmentFromRecord(record);
-    }
-
-    const orderWithMerchant = mergeStoredFulfillmentData(
-      {
-        ...liveOrder,
-        merchant_id: record.merchantId,
-        merchantId: record.merchantId,
-        store: (liveOrder as any).store ?? { id: record.merchantId },
-        store_id: (liveOrder as any).store_id ?? record.merchantId,
-        storeId: (liveOrder as any).storeId ?? record.merchantId,
-      },
-      record,
-    ) as RemoteSallaOrder & Record<string, any>;
-
-    await upsertSallaOrderFromPayload({
-      merchantId: record.merchantId,
-      merchant_id: record.merchantId,
-      order: orderWithMerchant,
-    });
-
-    return buildAssignmentFromRemoteOrder(orderWithMerchant);
-  } catch (error) {
-    console.warn('[search] Failed to enrich cached Salla order with live details', {
-      orderId: record.orderId,
-      error,
-    });
-    return buildSallaAssignmentFromRecord(record);
-  }
 }
 
 function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
@@ -711,31 +745,25 @@ async function getShipmentInfoForOrder(params: {
   const orderId = params.orderId ? String(params.orderId) : null;
   const orderNumber = params.orderNumber ? String(params.orderNumber) : null;
 
-  console.log('[getShipmentInfoForOrder] params:', { merchantId, orderId, orderNumber });
+  logSearchDebug('Shipment lookup params', { merchantId, orderId, orderNumber });
 
   // Check local shipments FIRST — they are explicitly created by users and take priority.
-  // Build multiple search strategies from most specific to broadest.
-  const localWhereConditions: any[] = [];
+  const localOrConditions: Prisma.LocalShipmentWhereInput[] = [];
 
-  // Strategy 1: direct orderNumber match (same query the create API uses)
   if (orderNumber) {
-    localWhereConditions.push({
-      ...(merchantId ? { merchantId } : {}),
-      orderNumber,
-    });
+    localOrConditions.push(
+      merchantId ? { merchantId, orderNumber } : { orderNumber },
+    );
   }
 
-  // Strategy 2: direct orderId match
   if (orderId) {
-    localWhereConditions.push({
-      ...(merchantId ? { merchantId } : {}),
-      orderId,
-    });
+    localOrConditions.push(
+      merchantId ? { merchantId, orderId } : { orderId },
+    );
   }
 
-  // Strategy 3: orderNumber without merchantId filter (broadest)
   if (orderNumber && merchantId) {
-    localWhereConditions.push({ orderNumber });
+    localOrConditions.push({ orderNumber });
   }
 
   const localInclude = {
@@ -748,34 +776,35 @@ async function getShipmentInfoForOrder(params: {
     },
   };
 
-  let localShipment = null;
-  for (const where of localWhereConditions) {
-    localShipment = await prisma.localShipment.findFirst({
-      where,
-      include: localInclude,
-      orderBy: { createdAt: 'desc' as const },
+  const localShipment =
+    localOrConditions.length > 0
+      ? await prisma.localShipment.findFirst({
+          where: { OR: localOrConditions },
+          include: localInclude,
+          orderBy: { createdAt: 'desc' as const },
+        })
+      : null;
+
+  if (localShipment) {
+    logSearchDebug('Found local shipment', {
+      id: localShipment.id,
+      trackingNumber: localShipment.trackingNumber,
+      orderNumber: localShipment.orderNumber,
+      orderId: localShipment.orderId,
+      merchantId: localShipment.merchantId,
     });
-    if (localShipment) {
-      console.log('[getShipmentInfoForOrder] Found local shipment:', {
-        id: localShipment.id,
-        trackingNumber: localShipment.trackingNumber,
-        orderNumber: localShipment.orderNumber,
-        orderId: localShipment.orderId,
-        merchantId: localShipment.merchantId,
-        matchedWith: JSON.stringify(where),
-      });
-      break;
-    }
   }
 
   if (localShipment) {
     const serialized = serializeLocalShipment(localShipment);
     const agent = localShipment.assignment?.deliveryAgent;
+    const deliveryStatus = buildLocalDeliveryStatus(localShipment);
     return {
       id: localShipment.id,
       trackingNumber: localShipment.trackingNumber,
       courierName: 'شحن محلي',
       status: localShipment.status,
+      deliveryStatus,
       labelUrl: serialized.labelUrl,
       labelPrinted: serialized.labelPrinted,
       labelPrintedAt: serialized.labelPrintedAt,
@@ -788,7 +817,7 @@ async function getShipmentInfoForOrder(params: {
     };
   }
 
-  console.log('[getShipmentInfoForOrder] No local shipment found, checking SallaShipment...');
+  logSearchDebug('No local shipment found, checking SallaShipment');
 
   // Fall back to Salla shipments
   const orConditions: Array<{ orderId?: string; orderNumber?: string }> = [];
@@ -814,7 +843,7 @@ async function getShipmentInfoForOrder(params: {
   });
 
   if (shipment) {
-    console.log('[getShipmentInfoForOrder] Found SallaShipment:', {
+    logSearchDebug('Found SallaShipment', {
       id: shipment.id,
       trackingNumber: shipment.trackingNumber,
     });
@@ -825,12 +854,15 @@ async function getShipmentInfoForOrder(params: {
       shipmentData?.label_url ||
       shipmentData?.label?.url ||
       (typeof shipmentData?.label === 'string' ? shipmentData.label : null);
+    const deliveryStatus = await buildCarrierDeliveryStatus(shipment);
 
     return {
       id: shipment.id,
       trackingNumber: shipment.trackingNumber,
       courierName: shipment.courierName,
       status: shipment.status,
+      courierCode: shipment.courierCode,
+      deliveryStatus,
       labelUrl,
       labelPrinted: shipment.labelPrinted,
       labelPrintedAt: shipment.labelPrintedAt ? shipment.labelPrintedAt.toISOString() : null,
@@ -843,6 +875,243 @@ async function getShipmentInfoForOrder(params: {
     };
   }
 
-  console.log('[getShipmentInfoForOrder] No shipment found at all');
+  logSearchDebug('No shipment found');
   return null;
+}
+
+function stringFromValue(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return null;
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = stringFromValue(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function formatDeliveryStatus(status: string | null | undefined): string | null {
+  const normalized = status?.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const statusMap: Record<string, string> = {
+    pending: 'بانتظار التجهيز',
+    assigned: 'تم التعيين للمندوب',
+    picked_up: 'تم الاستلام من المستودع',
+    in_transit: 'قيد التوصيل',
+    delivered: 'تم التسليم',
+    failed: 'فشل التسليم',
+    cancelled: 'ملغي',
+    canceled: 'ملغي',
+    returned: 'مرتجع',
+    shipped: 'تم الشحن',
+    created: 'تم إنشاء الشحنة',
+  };
+
+  return statusMap[normalized.toLowerCase()] || normalized;
+}
+
+function toDeliveryStatusPayload(params: {
+  carrier: 'smsa' | 'ajex' | 'local' | 'other';
+  label: string | null;
+  code?: string | null;
+  description?: string | null;
+  city?: string | null;
+  timestamp?: string | null;
+  updatedAt?: Date | string | null;
+  source: string;
+}) {
+  return {
+    carrier: params.carrier,
+    label: params.label,
+    code: params.code || null,
+    description: params.description || null,
+    city: params.city || null,
+    timestamp: params.timestamp || null,
+    updatedAt:
+      params.updatedAt instanceof Date
+        ? params.updatedAt.toISOString()
+        : params.updatedAt || null,
+    source: params.source,
+  };
+}
+
+function buildLocalDeliveryStatus(localShipment: any) {
+  const assignmentStatus = formatDeliveryStatus(localShipment.assignment?.status);
+  const shipmentStatus = formatDeliveryStatus(localShipment.status);
+  const label = assignmentStatus || shipmentStatus || null;
+
+  return toDeliveryStatusPayload({
+    carrier: 'local',
+    label,
+    code: localShipment.assignment?.status || localShipment.status || null,
+    description: localShipment.assignment?.failureReason || localShipment.deliveryNotes || localShipment.notes || null,
+    timestamp:
+      localShipment.assignment?.deliveredAt?.toISOString?.() ||
+      localShipment.deliveredAt?.toISOString?.() ||
+      localShipment.assignment?.pickedUpAt?.toISOString?.() ||
+      localShipment.assignment?.updatedAt?.toISOString?.() ||
+      localShipment.updatedAt?.toISOString?.() ||
+      null,
+    updatedAt: localShipment.updatedAt,
+    source: 'local-shipping',
+  });
+}
+
+function isSmsaShipment(shipment: any) {
+  const haystack = [shipment.courierCode, shipment.courierName, shipment.trackingNumber, shipment.awbNumber, shipment.sawb]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes('smsa') || haystack.includes('سمسا');
+}
+
+function isAjexShipment(shipment: any) {
+  const haystack = [shipment.courierCode, shipment.courierName, shipment.trackingNumber]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes('ajex') || haystack.includes('aj-ex') || haystack.includes('أيجكس') || haystack.includes('ايجكس');
+}
+
+async function findSmsaLiveStatusForShipment(shipment: any) {
+  const candidates = [
+    shipment.trackingNumber,
+    shipment.awbNumber,
+    shipment.sawb,
+    (shipment.shipmentData as any)?.awb,
+    (shipment.shipmentData as any)?.AWB,
+    (shipment.shipmentData as any)?.tracking_number,
+    (shipment.shipmentData as any)?.trackingNumber,
+  ]
+    .map(stringFromValue)
+    .filter(Boolean) as string[];
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const liveRecord = await prisma.shipment.findFirst({
+    where: {
+      trackingNumber: { in: Array.from(new Set(candidates)) },
+      smsaLiveStatus: { not: Prisma.JsonNull },
+    },
+    orderBy: { smsaLiveStatusUpdatedAt: 'desc' },
+    select: {
+      smsaLiveStatus: true,
+      smsaLiveStatusUpdatedAt: true,
+    },
+  });
+
+  if (!liveRecord?.smsaLiveStatus) {
+    return null;
+  }
+
+  return {
+    status: liveRecord.smsaLiveStatus as SmsaLiveStatus,
+    updatedAt: liveRecord.smsaLiveStatusUpdatedAt,
+  };
+}
+
+function extractAjexDeliveryStatus(shipmentData: any) {
+  const delivery = shipmentData?.delivery || shipmentData?.shipment || shipmentData?.tracking || shipmentData?.data || {};
+  const scans = [
+    ...(Array.isArray(shipmentData?.scans) ? shipmentData.scans : []),
+    ...(Array.isArray(shipmentData?.events) ? shipmentData.events : []),
+    ...(Array.isArray(shipmentData?.tracking_logs) ? shipmentData.tracking_logs : []),
+    ...(Array.isArray(delivery?.scans) ? delivery.scans : []),
+    ...(Array.isArray(delivery?.events) ? delivery.events : []),
+  ];
+  const latestScan = scans.length > 0 ? scans[scans.length - 1] : null;
+
+  return {
+    status: firstString(
+      latestScan?.status,
+      latestScan?.status_name,
+      latestScan?.description,
+      latestScan?.event,
+      delivery?.delivery_status,
+      delivery?.status,
+      delivery?.status_name,
+      shipmentData?.delivery_status,
+      shipmentData?.status,
+      shipmentData?.status_name,
+    ),
+    code: firstString(latestScan?.code, latestScan?.status_code, delivery?.status_code, shipmentData?.status_code),
+    description: firstString(
+      latestScan?.description,
+      latestScan?.event_description,
+      delivery?.description,
+      shipmentData?.description,
+    ),
+    city: firstString(latestScan?.city, latestScan?.location, delivery?.city, shipmentData?.city),
+    timestamp: firstString(
+      latestScan?.created_at,
+      latestScan?.date,
+      latestScan?.time,
+      latestScan?.timestamp,
+      delivery?.updated_at,
+      shipmentData?.updated_at,
+    ),
+  };
+}
+
+async function buildCarrierDeliveryStatus(shipment: any) {
+  if (isSmsaShipment(shipment)) {
+    const liveStatus = await findSmsaLiveStatusForShipment(shipment);
+    const status = liveStatus?.status || null;
+    const label = resolveMajorSmsaStatus(status) || formatDeliveryStatus(shipment.status);
+
+    return toDeliveryStatusPayload({
+      carrier: 'smsa',
+      label,
+      code: status?.code || null,
+      description: status?.description || null,
+      city: status?.city || null,
+      timestamp: status?.timestamp || null,
+      updatedAt: liveStatus?.updatedAt || shipment.updatedAt,
+      source: status ? 'smsa-webhook' : 'salla-shipment',
+    });
+  }
+
+  if (isAjexShipment(shipment)) {
+    const ajexStatus = extractAjexDeliveryStatus(shipment.shipmentData as any);
+    const label = formatDeliveryStatus(ajexStatus.status) || formatDeliveryStatus(shipment.status);
+
+    return toDeliveryStatusPayload({
+      carrier: 'ajex',
+      label,
+      code: ajexStatus.code,
+      description: ajexStatus.description,
+      city: ajexStatus.city,
+      timestamp: ajexStatus.timestamp,
+      updatedAt: shipment.updatedAt,
+      source: ajexStatus.status ? 'salla-shipment-data' : 'salla-shipment',
+    });
+  }
+
+  return toDeliveryStatusPayload({
+    carrier: 'other',
+    label: formatDeliveryStatus(shipment.status),
+    code: shipment.status,
+    updatedAt: shipment.updatedAt,
+    source: 'salla-shipment',
+  });
 }

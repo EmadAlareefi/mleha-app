@@ -406,6 +406,9 @@ model SallaOrder {
 
   @@unique([merchantId, orderId])
   @@index([merchantId, placedAt])
+  @@index([merchantId, orderNumber])
+  @@index([merchantId, referenceId])
+  @@index([merchantId, customerMobile])
   @@index([merchantId, statusSlug])
   @@index([merchantId, erpSyncedAt])
   @@index([merchantId, campaignSource])
@@ -887,6 +890,7 @@ model OrderAssignment {
   @@index([userId])
   @@index([status])
   @@index([merchantId, orderId])
+  @@index([merchantId, orderNumber])
   @@index([assignedAt])
 }
 
@@ -1056,6 +1060,7 @@ model OrderHistory {
   @@index([userId])
   @@index([status])
   @@index([merchantId, orderId])
+  @@index([merchantId, orderNumber])
   @@index([finishedAt])
   @@index([assignedAt])
 }
