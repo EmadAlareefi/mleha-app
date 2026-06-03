@@ -4,7 +4,6 @@ import { log } from '@/app/lib/logger';
 import {
   buildOrderItemsPayload,
   serializeLocalShipment,
-  type LocalShipmentMeta,
 } from '@/app/lib/local-shipping/serializer';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
@@ -106,8 +105,13 @@ export async function POST(request: NextRequest) {
         : null;
 
     const fallbackShippingAddress =
+      (order as any).shipping_address?.address_line ||
+      (order as any).shipping_address?.addressLine ||
       (order as any).shipping_address?.street_address ||
-      (order as any).shipping?.pickup_address?.address ||
+      (order as any).shipping_address?.address ||
+      (order as any).shipping?.address?.address_line ||
+      (order as any).shipping?.address?.address ||
+      (order as any).shipping?.receiver?.address ||
       (order.customer?.city ? `مدينة العميل: ${order.customer.city}` : null) ||
       'لم يتم توفير العنوان';
 
@@ -134,13 +138,15 @@ export async function POST(request: NextRequest) {
     const shippingCity =
       primaryShipTo?.city ||
       (order as any).shipping_address?.city ||
-      (order as any).shipping?.pickup_address?.city ||
+      (order as any).shipping?.address?.city ||
+      (order as any).shipping?.receiver?.city ||
       order.customer?.city ||
       'الرياض';
     const shippingPostcode =
       primaryShipTo?.postalCode ||
       (order as any).shipping_address?.postal_code ||
-      (order as any).shipping?.pickup_address?.postal_code ||
+      (order as any).shipping?.address?.postal_code ||
+      (order as any).shipping?.receiver?.postal_code ||
       '';
 
     // Generate unique tracking number (format: LOCAL-YYYYMMDD-XXXXX)

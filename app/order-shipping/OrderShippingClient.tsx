@@ -158,6 +158,33 @@ const getStringValue = (value: unknown): string => {
   return '';
 };
 
+const getFirstStringValue = (...values: unknown[]): string => {
+  for (const value of values) {
+    const stringValue = getStringValue(value).trim();
+    if (stringValue) {
+      return stringValue;
+    }
+  }
+  return '';
+};
+
+const getCustomerDisplayName = (customer: any): string => {
+  const firstLast = `${getStringValue(customer?.first_name).trim()} ${getStringValue(customer?.last_name).trim()}`.trim();
+  return getFirstStringValue(customer?.name, customer?.full_name, customer?.fullName, firstLast);
+};
+
+const getCustomerDisplayPhone = (customer: any): string => {
+  const phoneCode = getFirstStringValue(customer?.mobile_code, customer?.phone_code, customer?.country_code);
+  const phoneNumber = getFirstStringValue(
+    customer?.mobile,
+    customer?.phone,
+    customer?.mobile_number,
+    customer?.mobileNumber,
+    customer?.telephone,
+  );
+  return [phoneCode, phoneNumber].filter(Boolean).join(' ').trim();
+};
+
 const normalizeSku = (value: unknown): string => {
   const stringValue = getStringValue(value);
   if (!stringValue) return '';
@@ -561,6 +588,30 @@ export default function OrderShippingPage() {
       return null;
     }
     return getShippingAddressSummary(currentOrder.orderData);
+  }, [currentOrder]);
+
+  const customerSummary = useMemo(() => {
+    const customer = currentOrder?.orderData?.customer || {};
+    return {
+      name: getCustomerDisplayName(customer),
+      phone: getCustomerDisplayPhone(customer),
+      email: getFirstStringValue(customer?.email),
+      city: getFirstStringValue(customer?.city, shippingAddressSummary?.city),
+    };
+  }, [currentOrder, shippingAddressSummary]);
+
+  const shippingAmount = useMemo(() => {
+    if (!currentOrder?.orderData) {
+      return 0;
+    }
+    return getNumberValue(
+      currentOrder.orderData?.amounts?.shipping_cost?.amount ??
+        currentOrder.orderData?.amounts?.shipping?.amount ??
+        currentOrder.orderData?.shipping_amount ??
+        currentOrder.orderData?.shippingAmount ??
+        currentOrder.orderData?.shipping?.price ??
+        currentOrder.orderData?.shipping?.cost,
+    );
   }, [currentOrder]);
 
   const resolvedShippingAddressLabel =
@@ -1404,8 +1455,7 @@ const handleRefreshItems = async () => {
                     )}
                   </h2>
                   <p className="text-gray-600 mt-1">
-                    {getStringValue(currentOrder.orderData?.customer?.first_name)}{' '}
-                    {getStringValue(currentOrder.orderData?.customer?.last_name)}
+                    {customerSummary.name || 'عميل غير معروف'}
                   </p>
                   {(() => {
                     const location = getStringValue(currentOrder.orderData?.customer?.location);
@@ -1483,10 +1533,10 @@ const handleRefreshItems = async () => {
                   <div>
                     <h3 className="text-lg font-bold text-gray-900 mb-2">معلومات العميل</h3>
                     <div className="space-y-2 text-sm text-gray-700">
-                      <p>الاسم: {getStringValue(currentOrder.orderData?.customer?.name) || 'غير متوفر'}</p>
-                      <p>رقم الهاتف: {getStringValue(currentOrder.orderData?.customer?.phone) || 'غير متوفر'}</p>
-                      <p>البريد الإلكتروني: {getStringValue(currentOrder.orderData?.customer?.email) || 'غير متوفر'}</p>
-                      <p>المدينة: {getStringValue(currentOrder.orderData?.customer?.city) || 'غير متوفر'}</p>
+                      <p>الاسم: {customerSummary.name || 'غير متوفر'}</p>
+                      <p>رقم الهاتف: {customerSummary.phone || 'غير متوفر'}</p>
+                      <p>البريد الإلكتروني: {customerSummary.email || 'غير متوفر'}</p>
+                      <p>المدينة: {customerSummary.city || 'غير متوفر'}</p>
                     </div>
                   </div>
                   <div>
@@ -1502,10 +1552,7 @@ const handleRefreshItems = async () => {
                       <p>
                         قيمة الشحن:
                         <span className="font-semibold text-gray-900 mr-2">
-                          {getNumberValue(
-                            currentOrder.orderData?.shipping_amount ||
-                            currentOrder.orderData?.shipping?.price
-                          )} ريال
+                          {shippingAmount} ريال
                         </span>
                       </p>
                       <p>

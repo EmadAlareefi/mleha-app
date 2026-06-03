@@ -10,6 +10,15 @@ const toStringValue = (value: unknown): string | null => {
   if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }
+  if (value && typeof value === 'object') {
+    const record = value as UnknownRecord;
+    return (
+      toStringValue(record.name) ||
+      toStringValue(record.label) ||
+      toStringValue(record.title) ||
+      toStringValue(record.value)
+    );
+  }
   return null;
 };
 
@@ -63,7 +72,14 @@ const normalizeShipToDetails = (shipTo: any): ShipToDetails | null => {
 
   return {
     name: toStringValue(shipTo.name) || toStringValue(shipTo.full_name),
-    phone: toStringValue(shipTo.phone) || toStringValue(shipTo.mobile),
+    phone:
+      [
+        toStringValue(shipTo.mobile_code) || toStringValue(shipTo.phone_code),
+        toStringValue(shipTo.phone) || toStringValue(shipTo.mobile),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || null,
     city: toStringValue(shipTo.city),
     district: district || null,
     region: region || null,
@@ -187,6 +203,9 @@ export const extractPrimaryShipTo = (orderData: any): ShipToDetails | null => {
     ...shippingShipments.map((entry: any) => entry?.ship_to ?? entry?.shipTo),
     shippingSection?.ship_to,
     shippingSection?.receiver,
+    orderData?.ship_to,
+    orderData?.shipTo,
+    orderData?.receiver,
     orderData?.delivery?.ship_to,
     orderData?.delivery?.receiver,
   ];
