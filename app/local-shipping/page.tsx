@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Printer } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import {
   Table,
   TableBody,
@@ -60,12 +61,42 @@ const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
 const getAssignmentStatusLabel = (status?: string | null) =>
   status ? ASSIGNMENT_STATUS_LABELS[status] || status : '';
 
+interface DeliveryAgentOption {
+  id: string;
+  name: string;
+  username: string;
+  phone?: string | null;
+  isActive?: boolean;
+}
+
+const normalizeAgentText = (value: string | null | undefined): string => {
+  if (!value) return '';
+  return value.toString().replace(/\s+/g, '').toLowerCase();
+};
+
+const PREFERRED_AGENT_ID = '11';
+const PREFERRED_AGENT_USERNAME = '11';
+const PREFERRED_AGENT_NAME_NORMALIZED = normalizeAgentText('سعيد');
+
+const isPreferredDeliveryAgent = (agent: DeliveryAgentOption): boolean => {
+  const normalizedName = normalizeAgentText(agent.name);
+  return (
+    agent.id === PREFERRED_AGENT_ID ||
+    agent.username === PREFERRED_AGENT_USERNAME ||
+    (normalizedName ? normalizedName.includes(PREFERRED_AGENT_NAME_NORMALIZED) : false)
+  );
+};
+
 export default function LocalShippingPage() {
   const [orderNumber, setOrderNumber] = useState('');
   const [shipment, setShipment] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgentOption[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsError, setAgentsError] = useState('');
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -93,10 +124,42 @@ export default function LocalShippingPage() {
     }
   };
 
+  const fetchDeliveryAgents = useCallback(async () => {
+    try {
+      setAgentsLoading(true);
+      setAgentsError('');
+      const response = await fetch('/api/delivery-agents');
+      const data = await response.json();
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'تعذر تحميل قائمة المناديب');
+      }
+
+      const agents = Array.isArray(data.deliveryAgents)
+        ? data.deliveryAgents.filter((agent: DeliveryAgentOption) => agent?.isActive !== false)
+        : [];
+      setDeliveryAgents(agents);
+      const preferredAgent = agents.find(isPreferredDeliveryAgent) ?? agents[0];
+      setSelectedAgentId((current) => current || preferredAgent?.id || '');
+    } catch (err) {
+      setAgentsError(err instanceof Error ? err.message : 'تعذر تحميل قائمة المناديب');
+      setDeliveryAgents([]);
+      setSelectedAgentId('');
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, []);
+
   const handleGenerateLabel = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setInfo('');
+
+    if (!selectedAgentId) {
+      setError('اختر مندوب التوصيل قبل إنشاء الملصق حتى تظهر الشحنة في صفحة المندوب.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -107,6 +170,7 @@ export default function LocalShippingPage() {
           merchantId: MERCHANT_CONFIG.merchantId,
           orderNumber: orderNumber.trim(),
           generatedBy: 'admin',
+          deliveryAgentId: selectedAgentId,
         }),
       });
 
@@ -117,7 +181,11 @@ export default function LocalShippingPage() {
       }
 
       setShipment(data.shipment);
-      setInfo(data.reused ? 'تم العثور على ملصق سابق لهذا الطلب وتم عرضه.' : '');
+      setInfo(
+        data.reused
+          ? 'تم العثور على ملصق سابق لهذا الطلب وتم تأكيد تعيينه للمندوب.'
+          : 'تم إنشاء الملصق وتعيينه للمندوب.'
+      );
       fetchHistory(dateRange);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
@@ -180,9 +248,10 @@ export default function LocalShippingPage() {
   }
 
   useEffect(() => {
+    fetchDeliveryAgents();
     fetchHistory({ start: todayIso(), end: todayIso() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchDeliveryAgents]);
 
   const handleHistorySubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -232,16 +301,37 @@ export default function LocalShippingPage() {
                 />
               </Field>
 
-              {(error || info) && (
+              <Field>
+                <FieldLabel htmlFor="deliveryAgentId">مندوب التوصيل</FieldLabel>
+                <NativeSelect
+                  id="deliveryAgentId"
+                  value={selectedAgentId}
+                  onChange={(event) => setSelectedAgentId(event.target.value)}
+                  disabled={loading || agentsLoading || deliveryAgents.length === 0}
+                  required
+                >
+                  <NativeSelectOption value="">
+                    {agentsLoading ? 'جاري تحميل المناديب...' : 'اختر المندوب'}
+                  </NativeSelectOption>
+                  {deliveryAgents.map((agent) => (
+                    <NativeSelectOption key={agent.id} value={agent.id}>
+                      {agent.name || agent.username}
+                      {isPreferredDeliveryAgent(agent) ? ' - الافتراضي' : ''}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+
+              {(error || info || agentsError) && (
                 <Alert variant={error ? 'destructive' : 'default'}>
-                  <AlertDescription>{error || info}</AlertDescription>
+                  <AlertDescription>{error || info || agentsError}</AlertDescription>
                 </Alert>
               )}
 
               <Button
                 type="submit"
                 className="w-full"
-                disabled={loading || !orderNumber.trim()}
+                disabled={loading || agentsLoading || !orderNumber.trim() || !selectedAgentId}
               >
                 {loading ? 'جاري الإنشاء...' : 'إنشاء ملصق الشحن'}
               </Button>

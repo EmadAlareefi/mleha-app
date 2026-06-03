@@ -35,6 +35,134 @@ const parsePrinterId = (value: unknown): number | undefined => {
   return undefined;
 };
 
+const getDeliveryAgentId = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed || null;
+};
+
+const ensureShipmentAssignment = async ({
+  shipmentId,
+  deliveryAgentId,
+  assignedBy,
+}: {
+  shipmentId: string;
+  deliveryAgentId: string | null;
+  assignedBy?: string | null;
+}) => {
+  if (!deliveryAgentId) {
+    return null;
+  }
+
+  const deliveryAgent = await prisma.orderUser.findUnique({
+    where: { id: deliveryAgentId },
+    select: {
+      id: true,
+      servicePermissions: {
+        select: { serviceKey: true },
+      },
+    },
+  });
+
+  if (!deliveryAgent) {
+    throw new Error('المندوب غير موجود');
+  }
+
+  const hasDeliveryPermission = deliveryAgent.servicePermissions.some(
+    (permission) => permission.serviceKey === 'my-deliveries'
+  );
+
+  if (!hasDeliveryPermission) {
+    throw new Error('المستخدم المحدد ليس مندوب توصيل');
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const shipment = await tx.localShipment.findUnique({
+      where: { id: shipmentId },
+      include: {
+        assignment: {
+          include: {
+            deliveryAgent: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                phone: true,
+              },
+            },
+          },
+        },
+        codCollection: true,
+      },
+    });
+
+    if (!shipment) {
+      throw new Error('الشحنة غير موجودة');
+    }
+
+    if (shipment.assignment) {
+      if (shipment.assignment.deliveryAgentId !== deliveryAgentId) {
+        throw new Error('الشحنة مُعيّنة بالفعل لمندوب آخر');
+      }
+      if (shipment.status === 'pending') {
+        await tx.localShipment.update({
+          where: { id: shipmentId },
+          data: { status: 'assigned' },
+        });
+      }
+      if (shipment.isCOD && !shipment.codCollection) {
+        await tx.cODCollection.create({
+          data: {
+            shipmentId,
+            collectionAmount: shipment.orderTotal,
+            currency: 'SAR',
+            status: 'pending',
+          },
+        });
+      }
+      return shipment.assignment;
+    }
+
+    const assignment = await tx.shipmentAssignment.create({
+      data: {
+        shipmentId,
+        deliveryAgentId,
+        assignedBy,
+      },
+      include: {
+        deliveryAgent: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            phone: true,
+          },
+        },
+      },
+    });
+
+    await tx.localShipment.update({
+      where: { id: shipmentId },
+      data: { status: 'assigned' },
+    });
+
+    if (shipment.isCOD && !shipment.codCollection) {
+      await tx.cODCollection.create({
+        data: {
+          shipmentId,
+          collectionAmount: shipment.orderTotal,
+          currency: 'SAR',
+          status: 'pending',
+        },
+      });
+    }
+
+    return assignment;
+  });
+};
+
 export const runtime = 'nodejs';
 
 /**
@@ -47,6 +175,8 @@ export async function POST(request: NextRequest) {
     const session = await getServerSession(authOptions).catch(() => null);
     const user = session?.user as any;
     const requestedPrinterId = parsePrinterId(body.printerId);
+    const deliveryAgentId = getDeliveryAgentId(body.deliveryAgentId);
+    const assignedBy = user?.username || user?.name || body.generatedBy || 'local-shipping';
     let printerLink: { printerId: number } | null = null;
 
     if (user?.id) {
@@ -206,14 +336,29 @@ export async function POST(request: NextRequest) {
         action: 'local-shipping-create-reuse',
       });
 
+      const assignment = await ensureShipmentAssignment({
+        shipmentId: existingShipment.id,
+        deliveryAgentId,
+        assignedBy,
+      });
+      const assignedAgent = assignment?.deliveryAgent;
+
       return NextResponse.json({
         success: true,
         reused: true,
         sallaStatusUpdated: statusResult.success,
-        shipment: serializeLocalShipment(existingShipment, {
-          collectionAmount,
-          paymentMethod: paymentLabel,
-        }),
+        assignment,
+        shipment: {
+          ...serializeLocalShipment(existingShipment, {
+            collectionAmount,
+            paymentMethod: paymentLabel,
+          }),
+          assignedAgentId: assignedAgent?.id ?? null,
+          assignedAgentName: assignedAgent ? assignedAgent.name || assignedAgent.username : null,
+          assignedAgentUsername: assignedAgent?.username ?? null,
+          assignedAgentPhone: assignedAgent?.phone ?? null,
+          assignmentStatus: assignment?.status ?? null,
+        },
       });
     }
 
@@ -273,6 +418,12 @@ export async function POST(request: NextRequest) {
       trackingNumber: localShipment.trackingNumber,
     });
 
+    const assignment = await ensureShipmentAssignment({
+      shipmentId: localShipment.id,
+      deliveryAgentId,
+      assignedBy,
+    });
+
     let refreshedShipment = localShipment;
     let autoPrintResult: Awaited<ReturnType<typeof printLocalShipmentLabel>> | null = null;
 
@@ -329,10 +480,20 @@ export async function POST(request: NextRequest) {
           }
         : null,
       sallaStatusUpdated,
-      shipment: serializeLocalShipment(refreshedShipment, {
-        collectionAmount,
-        paymentMethod: paymentLabel,
-      }),
+      assignment,
+      shipment: {
+        ...serializeLocalShipment(refreshedShipment, {
+          collectionAmount,
+          paymentMethod: paymentLabel,
+        }),
+        assignedAgentId: assignment?.deliveryAgent?.id ?? null,
+        assignedAgentName: assignment?.deliveryAgent
+          ? assignment.deliveryAgent.name || assignment.deliveryAgent.username
+          : null,
+        assignedAgentUsername: assignment?.deliveryAgent?.username ?? null,
+        assignedAgentPhone: assignment?.deliveryAgent?.phone ?? null,
+        assignmentStatus: assignment?.status ?? null,
+      },
     });
 
   } catch (error) {

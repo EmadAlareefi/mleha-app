@@ -1249,6 +1249,7 @@ const handleRefreshItems = async () => {
             merchantId: resolvedMerchantId,
             orderNumber: currentOrder.orderNumber,
             generatedBy: user?.username || user?.name || 'order-shipping',
+            deliveryAgentId: agent.id,
           }),
         });
 
@@ -1269,28 +1270,18 @@ const handleRefreshItems = async () => {
             error?: string | null;
             jobId?: number | null;
           } | null;
+          assignment?: {
+            id: string;
+            status: string;
+          } | null;
         }>(createResponse, 'POST /api/local-shipping/create');
 
         if (!createResponse.ok || createData.success === false || !createData.shipment) {
           throw new Error(createData?.error || 'تعذر إنشاء الشحنة المحلية');
         }
 
-        const assignmentResponse = await fetch('/api/shipment-assignments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            shipmentId: createData.shipment.id,
-            deliveryAgentId: agent.id,
-          }),
-        });
-
-        const assignmentData = await parseJsonResponse<{
-          success?: boolean;
-          error?: string;
-        }>(assignmentResponse, 'POST /api/shipment-assignments');
-
-        if (!assignmentResponse.ok || assignmentData.success === false) {
-          throw new Error(assignmentData?.error || 'تم إنشاء الشحنة ولكن فشل تعيينها للمندوب');
+        if (!createData.assignment) {
+          throw new Error('تم إنشاء الشحنة ولكن فشل تعيينها للمندوب');
         }
 
         const agentDisplayName = agent.name || agent.username || 'المندوب المختار';
