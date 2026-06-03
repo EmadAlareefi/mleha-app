@@ -168,11 +168,6 @@ const getFirstStringValue = (...values: unknown[]): string => {
   return '';
 };
 
-const getCustomerDisplayName = (customer: any): string => {
-  const firstLast = `${getStringValue(customer?.first_name).trim()} ${getStringValue(customer?.last_name).trim()}`.trim();
-  return getFirstStringValue(customer?.name, customer?.full_name, customer?.fullName, firstLast);
-};
-
 const getCustomerDisplayPhone = (customer: any): string => {
   const phoneCode = getFirstStringValue(customer?.mobile_code, customer?.phone_code, customer?.country_code);
   const phoneNumber = getFirstStringValue(
@@ -183,6 +178,52 @@ const getCustomerDisplayPhone = (customer: any): string => {
     customer?.telephone,
   );
   return [phoneCode, phoneNumber].filter(Boolean).join(' ').trim();
+};
+
+const getOrderCustomerSummary = (orderData: any, shippingSummary?: { name: string | null; phone: string | null; city: string | null } | null) => {
+  const customer = orderData?.customer || {};
+  const firstLast = `${getStringValue(customer?.first_name ?? customer?.firstName ?? customer?.firstname).trim()} ${getStringValue(
+    customer?.last_name ?? customer?.lastName ?? customer?.lastname,
+  ).trim()}`.trim();
+  const receiver = orderData?.receiver || orderData?.shipping?.receiver || orderData?.delivery?.receiver;
+  const shipTo =
+    orderData?.ship_to ||
+    orderData?.shipTo ||
+    orderData?.shipping?.ship_to ||
+    orderData?.shipping?.shipTo ||
+    orderData?.delivery?.ship_to ||
+    orderData?.delivery?.shipTo;
+
+  return {
+    name: getFirstStringValue(
+      customer?.name,
+      customer?.full_name,
+      customer?.fullName,
+      firstLast,
+      orderData?.customer_name,
+      orderData?.customerName,
+      receiver?.name,
+      receiver?.full_name,
+      shipTo?.name,
+      shipTo?.full_name,
+      shippingSummary?.name,
+    ),
+    phone:
+      getCustomerDisplayPhone(customer) ||
+      getFirstStringValue(
+        customer?.mobile,
+        customer?.phone,
+        orderData?.customer_mobile,
+        orderData?.customer_phone,
+        receiver?.phone,
+        receiver?.mobile,
+        shipTo?.phone,
+        shipTo?.mobile,
+        shippingSummary?.phone,
+      ),
+    email: getFirstStringValue(customer?.email, receiver?.email, orderData?.customer_email),
+    city: getFirstStringValue(customer?.city, shipTo?.city, receiver?.city, shippingSummary?.city),
+  };
 };
 
 const normalizeSku = (value: unknown): string => {
@@ -591,14 +632,24 @@ export default function OrderShippingPage() {
   }, [currentOrder]);
 
   const customerSummary = useMemo(() => {
-    const customer = currentOrder?.orderData?.customer || {};
-    return {
-      name: getCustomerDisplayName(customer),
-      phone: getCustomerDisplayPhone(customer),
-      email: getFirstStringValue(customer?.email),
-      city: getFirstStringValue(customer?.city, shippingAddressSummary?.city),
-    };
+    return getOrderCustomerSummary(currentOrder?.orderData || {}, shippingAddressSummary);
   }, [currentOrder, shippingAddressSummary]);
+
+  const orderTotal = useMemo(() => {
+    if (!currentOrder?.orderData) {
+      return 0;
+    }
+    return getNumberValue(
+      currentOrder.orderData?.amounts?.total?.amount ??
+        currentOrder.orderData?.amounts?.total ??
+        currentOrder.orderData?.total?.amount ??
+        currentOrder.orderData?.total ??
+        currentOrder.orderData?.total_amount ??
+        currentOrder.orderData?.totalAmount ??
+        currentOrder.orderData?.order_total ??
+        currentOrder.orderData?.orderTotal,
+    );
+  }, [currentOrder]);
 
   const shippingAmount = useMemo(() => {
     if (!currentOrder?.orderData) {
@@ -1543,12 +1594,12 @@ const handleRefreshItems = async () => {
                     <h3 className="text-lg font-bold text-gray-900 mb-2">ملخص الطلب</h3>
                     <div className="space-y-2 text-sm text-gray-700">
                       <p>حالة الطلب: {currentOrder.status || 'غير معروفة'}</p>
-                      <p>
-                        الإجمالي:
-                        <span className="font-semibold text-gray-900 mr-2">
-                          {getNumberValue(currentOrder.orderData?.total)} ريال
-                        </span>
-                      </p>
+	                      <p>
+	                        الإجمالي:
+	                        <span className="font-semibold text-gray-900 mr-2">
+	                          {orderTotal} ريال
+	                        </span>
+	                      </p>
                       <p>
                         قيمة الشحن:
                         <span className="font-semibold text-gray-900 mr-2">
