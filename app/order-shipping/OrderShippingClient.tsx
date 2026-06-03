@@ -226,6 +226,84 @@ const getOrderCustomerSummary = (orderData: any, shippingSummary?: { name: strin
   };
 };
 
+const getOrderShippingCompanyName = (orderData: any): string => {
+  if (!orderData || typeof orderData !== 'object') {
+    return '';
+  }
+
+  const shipping = orderData.shipping || {};
+  const delivery = orderData.delivery || {};
+  const shipment = shipping.shipment || delivery.shipment || orderData.shipment || {};
+  const shippingMethod = orderData.shipping_method || orderData.shippingMethod || shipping.method || {};
+  const courier = shipping.courier || delivery.courier || shipment.courier || orderData.courier || {};
+  const carrier = shipping.carrier || delivery.carrier || shipment.carrier || orderData.carrier || {};
+  const fulfillment = orderData.fulfillment || {};
+
+  const shipmentCandidates = [
+    ...(Array.isArray(orderData.shipments) ? orderData.shipments : []),
+    ...(Array.isArray(shipping.shipments) ? shipping.shipments : []),
+    ...(Array.isArray(delivery.shipments) ? delivery.shipments : []),
+  ];
+
+  return getFirstStringValue(
+    shipping.company,
+    shipping.company_name,
+    shipping.name,
+    shipping.label,
+    shipping.courier_name,
+    shipping.courierName,
+    shipping.shipping_company,
+    shipping.shippingCompany,
+    shippingMethod,
+    shippingMethod.name,
+    shippingMethod.label,
+    shippingMethod.title,
+    shippingMethod.company,
+    delivery.company,
+    delivery.company_name,
+    delivery.courier_name,
+    delivery.courierName,
+    delivery.shipping_company,
+    shipment.company,
+    shipment.company_name,
+    shipment.courier_name,
+    shipment.courierName,
+    shipment.shipping_company,
+    courier,
+    courier.name,
+    courier.label,
+    courier.title,
+    carrier,
+    carrier.name,
+    carrier.label,
+    carrier.title,
+    fulfillment.company,
+    fulfillment.company_name,
+    fulfillment.courier_name,
+    fulfillment.name,
+    orderData.fulfillmentCompany,
+    orderData.shippingCompany,
+    orderData.shipping_company,
+    orderData.delivery_company,
+    orderData.courier_name,
+    orderData.courierName,
+    orderData.carrier_name,
+    orderData.carrierName,
+    ...shipmentCandidates.flatMap((entry: any) => [
+      entry?.company,
+      entry?.company_name,
+      entry?.courier_name,
+      entry?.courierName,
+      entry?.shipping_company,
+      entry?.courier,
+      entry?.carrier,
+      entry?.name,
+      entry?.label,
+    ]),
+    getShippingCompanyName(orderData),
+  );
+};
+
 const normalizeSku = (value: unknown): string => {
   const stringValue = getStringValue(value);
   if (!stringValue) return '';
@@ -597,10 +675,7 @@ export default function OrderShippingPage() {
 
   const resolvedShippingCompanyName = useMemo(() => {
     const normalize = (value: unknown): string | null => {
-      if (typeof value !== 'string') {
-        return null;
-      }
-      const trimmed = value.trim();
+      const trimmed = getStringValue(value).trim();
       return trimmed || null;
     };
 
@@ -615,7 +690,7 @@ export default function OrderShippingPage() {
     }
 
     if (currentOrder?.orderData) {
-      const derived = getShippingCompanyName(currentOrder.orderData);
+      const derived = getOrderShippingCompanyName(currentOrder.orderData);
       if (derived) {
         return derived;
       }

@@ -481,6 +481,28 @@ type SyncedOrderResult = {
   remote: RemoteSallaOrder;
 };
 
+function mergeStoredFulfillmentData<T extends Record<string, any>>(
+  order: T,
+  record: PrismaSallaOrder,
+): T {
+  const fulfillmentCompany = record.fulfillmentCompany || null;
+  if (!fulfillmentCompany) {
+    return order;
+  }
+
+  return {
+    ...order,
+    fulfillmentCompany: order.fulfillmentCompany ?? fulfillmentCompany,
+    shippingCompany: order.shippingCompany ?? fulfillmentCompany,
+    shipping_company: order.shipping_company ?? fulfillmentCompany,
+    shipping_method: order.shipping_method ?? fulfillmentCompany,
+    delivery: {
+      ...(order.delivery || {}),
+      courier_name: order.delivery?.courier_name ?? fulfillmentCompany,
+    },
+  };
+}
+
 async function buildEnrichedSallaAssignmentFromRecord(record: PrismaSallaOrder) {
   try {
     const liveOrder = await getSallaOrder(record.merchantId, record.orderId);
@@ -489,14 +511,17 @@ async function buildEnrichedSallaAssignmentFromRecord(record: PrismaSallaOrder) 
       return buildSallaAssignmentFromRecord(record);
     }
 
-    const orderWithMerchant: RemoteSallaOrder & Record<string, any> = {
-      ...liveOrder,
-      merchant_id: record.merchantId,
-      merchantId: record.merchantId,
-      store: (liveOrder as any).store ?? { id: record.merchantId },
-      store_id: (liveOrder as any).store_id ?? record.merchantId,
-      storeId: (liveOrder as any).storeId ?? record.merchantId,
-    };
+    const orderWithMerchant = mergeStoredFulfillmentData(
+      {
+        ...liveOrder,
+        merchant_id: record.merchantId,
+        merchantId: record.merchantId,
+        store: (liveOrder as any).store ?? { id: record.merchantId },
+        store_id: (liveOrder as any).store_id ?? record.merchantId,
+        storeId: (liveOrder as any).storeId ?? record.merchantId,
+      },
+      record,
+    ) as RemoteSallaOrder & Record<string, any>;
 
     await upsertSallaOrderFromPayload({
       merchantId: record.merchantId,
@@ -516,7 +541,7 @@ async function buildEnrichedSallaAssignmentFromRecord(record: PrismaSallaOrder) 
 
 function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
   const placedAt = record.placedAt || record.updatedAtRemote || new Date();
-  const orderData = (record.rawOrder as any) || {
+  const orderData = mergeStoredFulfillmentData((record.rawOrder as any) || {
     id: record.orderId,
     reference_id: record.referenceId,
     customer: {
@@ -533,7 +558,7 @@ function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
       courier_name: record.fulfillmentCompany,
       tracking_number: record.trackingNumber,
     },
-  };
+  }, record);
 
   return {
     id: record.id,
