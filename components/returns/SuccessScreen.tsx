@@ -50,10 +50,6 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
 
         {/* Reference Numbers */}
         <div className="space-y-4 mb-8">
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-600 mb-1">رقم المرجع</p>
-            <p className="text-lg font-mono font-semibold">{returnRequest.id}</p>
-          </div>
 
           <div className="p-4 bg-gray-50 rounded-lg">
             <p className="text-sm text-gray-600 mb-1">رقم الطلب الأصلي</p>
@@ -125,7 +121,6 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
           <h3 className="font-semibold mb-2">الخطوات التالية:</h3>
           <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
-            <li>انتظر اتصال فريق خدمة العملاء للتأكيد</li>
             <li>قم بتجهيز المنتجات للإرجاع في عبوتها الأصلية إن أمكن</li>
             <li>سيتم ترتيب استلام الشحنة من قبل شركة الشحن</li>
             <li>بعد استلام المنتجات ومراجعتها، سيتم معالجة الاسترداد</li>
