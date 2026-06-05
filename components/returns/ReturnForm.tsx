@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
+import { isDiscountedCategory } from '@/lib/returns/categories';
 import {
   buildCarrierFeeConfig,
   getCarrierFee,
@@ -109,7 +110,6 @@ const RETURN_REASONS = [
   { value: 'changed_mind', label: 'تغيير في الرأي' },
   { value: 'other', label: 'أخرى' },
 ];
-const SALE_CATEGORY_NAME = 'التخفيضات';
 const PRODUCT_OBJECT_ID_KEYS = ['id', 'product_id', 'productId', 'productID'] as const;
 const PRODUCT_ID_PROPERTY_KEYS = ['product_id', 'productId', 'productID'] as const;
 
@@ -176,7 +176,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [exchangeFee, setExchangeFee] = useState(0);
   const [carrierFees, setCarrierFees] = useState<CarrierFeeConfig>({});
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
-  const [saleCategoryProducts, setSaleCategoryProducts] = useState<Record<string, boolean>>({});
+  const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const shippingTotal = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
   const carrierId = useMemo(() => resolveReturnCarrierId(order), [order]);
   const carrier = carrierId ? returnFeeCarriers.find((company) => company.id === carrierId) : null;
@@ -206,7 +206,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     const discountAmount = getItemDiscountAmount(item);
     return priceWithoutTax + taxAmount - discountAmount;
   };
-  const saleCategoryItemIds = useMemo(() => {
+  const discountedCategoryItemIds = useMemo(() => {
     const ids = new Set<number>();
     order.items?.forEach((item) => {
       const productId = getOrderItemProductId(item);
@@ -214,13 +214,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
         return;
       }
       const categoryName = itemCategories[productId];
-      const isSaleProduct = saleCategoryProducts[productId] || categoryName?.trim() === SALE_CATEGORY_NAME;
-      if (isSaleProduct) {
+      const isDiscountedProduct =
+        discountedCategoryProducts[productId] || isDiscountedCategory(categoryName);
+      if (isDiscountedProduct) {
         ids.add(item.id);
       }
     });
     return ids;
-  }, [order, itemCategories, saleCategoryProducts]);
+  }, [order, itemCategories, discountedCategoryProducts]);
 
   // Load return fee setting on mount
   useEffect(() => {
@@ -254,12 +255,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     const fetchCategories = async () => {
       if (!order.items || order.items.length === 0) {
         setItemCategories({});
-        setSaleCategoryProducts({});
+        setDiscountedCategoryProducts({});
         return;
       }
 
       const categories: Record<string, string> = {};
-      const saleCategories: Record<string, boolean> = {};
+      const discountedCategories: Record<string, boolean> = {};
       const productIds = new Set<string>();
 
       // Get unique product IDs
@@ -272,7 +273,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
 
       if (productIds.size === 0) {
         setItemCategories({});
-        setSaleCategoryProducts({});
+        setDiscountedCategoryProducts({});
         return;
       }
 
@@ -296,11 +297,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                   }
                 }
               }
-              const hasSaleCategory = availableCategories.some(
-                (name) => name === SALE_CATEGORY_NAME
-              );
-              if (hasSaleCategory) {
-                saleCategories[productId] = true;
+              const hasDiscountedCategory = availableCategories.some(isDiscountedCategory);
+              if (hasDiscountedCategory) {
+                discountedCategories[productId] = true;
               }
               if (data.category && typeof data.category === 'string') {
                 const normalizedCategory = data.category.trim();
@@ -318,14 +317,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       );
 
       setItemCategories(categories);
-      setSaleCategoryProducts(saleCategories);
+      setDiscountedCategoryProducts(discountedCategories);
     };
 
     fetchCategories();
   }, [order, merchantId]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
-    if (type === 'return' && saleCategoryItemIds.has(itemId)) {
+    if (discountedCategoryItemIds.has(itemId)) {
       return;
     }
     const newSelectedItems = new Map(selectedItems);
@@ -363,12 +362,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       return;
     }
 
-    if (type === 'return') {
-      for (const itemId of selectedItems.keys()) {
-        if (saleCategoryItemIds.has(itemId)) {
-          setError('لا يمكن إرجاع المنتجات ضمن فئة التخفيضات. يمكنك فقط طلب استبدال لها.');
-          return;
-        }
+    for (const itemId of selectedItems.keys()) {
+      if (discountedCategoryItemIds.has(itemId)) {
+        setError('لا يمكن إرجاع أو استبدال المنتجات ضمن فئات التخفيضات.');
+        return;
       }
     }
 
@@ -498,10 +495,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const maxQuantity = item.quantity || 1;
               const productIdForCategory = getOrderItemProductId(item);
               const category = productIdForCategory ? itemCategories[productIdForCategory] : undefined;
-              const isSaleProduct = productIdForCategory ? saleCategoryProducts[productIdForCategory] : false;
-              const isSaleCategory =
-                isSaleProduct || category?.trim() === SALE_CATEGORY_NAME || saleCategoryItemIds.has(item.id);
-              const isReturnBlocked = type === 'return' && isSaleCategory;
+              const isDiscountedProduct = productIdForCategory
+                ? discountedCategoryProducts[productIdForCategory]
+                : false;
+              const isDiscountedCategoryItem =
+                isDiscountedProduct || isDiscountedCategory(category) || discountedCategoryItemIds.has(item.id);
               const { color, size } = getItemAttributes(item);
 
               // Debug: log the full structure on first render
@@ -516,17 +514,17 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const itemPrice = calculateItemPrice(item);
 
               return (
-                <button
-                  key={`item-${item.id}-${index}`}
-                  type="button"
-                  onClick={() => handleItemClick(item.id, maxQuantity)}
-                  disabled={isReturnBlocked}
-                  className={`relative flex items-start gap-4 p-4 border-2 rounded-lg text-right transition-all hover:shadow-md ${
-                    isReturnBlocked
-                      ? 'border-gray-200 bg-gray-100 opacity-60 cursor-not-allowed'
-                      : isSelected
-                      ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+	                <button
+	                  key={`item-${item.id}-${index}`}
+	                  type="button"
+	                  onClick={() => handleItemClick(item.id, maxQuantity)}
+	                  disabled={isDiscountedCategoryItem}
+	                  className={`relative flex items-start gap-4 p-4 border-2 rounded-lg text-right transition-all hover:shadow-md ${
+	                    isDiscountedCategoryItem
+	                      ? 'border-gray-200 bg-gray-100 opacity-60 cursor-not-allowed'
+	                      : isSelected
+	                      ? 'border-blue-600 bg-blue-50'
+	                      : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
                   {/* Product Image */}
@@ -578,14 +576,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     {item.variant?.name && (
                       <p className="text-sm text-gray-600 mb-1">{item.variant.name}</p>
                     )}
-                    <p className="text-sm text-gray-600 mb-2">
-                      السعر: {Number(itemPrice).toFixed(2)} {item.currency || order.amounts?.total?.currency || 'SAR'}
-                    </p>
-                    {isSaleCategory && (
-                      <p className="text-xs text-red-600 font-medium">
-                        هذا المنتج ضمن فئة التخفيضات ولا يمكن إرجاعه ويمكن فقط استبداله
-                      </p>
-                    )}
+	                    <p className="text-sm text-gray-600 mb-2">
+	                      السعر: {Number(itemPrice).toFixed(2)} {item.currency || order.amounts?.total?.currency || 'SAR'}
+	                    </p>
+	                    {isDiscountedCategoryItem && (
+	                      <p className="text-xs text-red-600 font-medium">
+	                        هذا المنتج ضمن فئات التخفيضات ولا يمكن إرجاعه أو استبداله
+	                      </p>
+	                    )}
                     <p className="text-xs text-gray-500">
                       الكمية المتوفرة: {maxQuantity}
                     </p>

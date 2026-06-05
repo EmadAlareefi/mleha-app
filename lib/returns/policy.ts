@@ -2,9 +2,14 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getSallaProduct, type SallaOrderItem } from '@/app/lib/salla-api';
 import { extractOrderDate } from '@/lib/returns/order-date';
+import {
+  EVENING_DRESS_CATEGORY,
+  isEveningDressCategory,
+  isDiscountedCategory,
+  normalizeCategoryName,
+} from '@/lib/returns/categories';
 
 const EPSILON_DAYS = 0.001; // ~1.5 minutes tolerance
-const EVENING_DRESS_CATEGORY = 'فساتين سهرات';
 const EVENING_DRESS_WINDOW_HOURS = 24;
 const DEFAULT_RETURN_WINDOW_DAYS = 3;
 const HOUR_MS = 1000 * 60 * 60;
@@ -26,17 +31,6 @@ export interface ReturnWindowEvaluation {
   elapsedHours: number;
   daysSinceDelivery: number;
 }
-
-const normalizeCategoryName = (value: unknown): string | null => {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  return normalized || null;
-};
-
-export const isEveningDressCategory = (value: unknown): boolean =>
-  normalizeCategoryName(value) === EVENING_DRESS_CATEGORY;
 
 export const getReturnWindowPolicy = (categoryNames: string[]): ReturnWindowPolicy => {
   if (categoryNames.some(isEveningDressCategory)) {
@@ -343,6 +337,16 @@ export const getProductIdsForOrderItems = (items: Array<SallaOrderItem | AnyReco
   items
     .map((item) => getOrderItemProductId(item as AnyRecord))
     .filter((productId): productId is string => Boolean(productId));
+
+export const getDiscountedProductIds = (categoriesByProductId: Record<string, string[]>): Set<string> => {
+  const productIds = new Set<string>();
+  Object.entries(categoriesByProductId).forEach(([productId, categoryNames]) => {
+    if (categoryNames.some(isDiscountedCategory)) {
+      productIds.add(productId);
+    }
+  });
+  return productIds;
+};
 
 export const evaluateReturnWindow = (params: {
   categoryNames: string[];

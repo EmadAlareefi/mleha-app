@@ -8,7 +8,8 @@ import { getShippingTotal } from '@/lib/returns/shipping';
 import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
 import {
   evaluateReturnWindow,
-  getCategoryNamesForProductIds,
+  getCategoryNamesByProductId,
+  getDiscountedProductIds,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
 import {
@@ -143,6 +144,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const selectedProductIds = body.items.map((item) => item.productId).filter(Boolean);
+    const selectedCategoriesByProductId = await getCategoryNamesByProductId(body.merchantId, selectedProductIds);
+    const discountedProductIds = getDiscountedProductIds(selectedCategoriesByProductId);
+    const discountedItem = body.items.find((item) => discountedProductIds.has(item.productId));
+    if (discountedItem) {
+      log.warn('Rejected return request for discounted category item', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        productId: discountedItem.productId,
+        productName: discountedItem.productName,
+        categories: selectedCategoriesByProductId[discountedItem.productId],
+        type: body.type,
+      });
+
+      return NextResponse.json({
+        error: 'منتجات التخفيضات غير قابلة للإرجاع أو الاستبدال',
+        errorCode: 'DISCOUNTED_CATEGORY_NOT_RETURNABLE',
+        message: 'لا يمكن إرجاع أو استبدال المنتجات ضمن فئات التخفيضات.',
+        productId: discountedItem.productId,
+        productName: discountedItem.productName,
+      }, { status: 400 });
+    }
+
     // Check if shipment delivery date exceeds the category-specific return window.
     const deliveryDateResult = await resolveReturnDeliveryDate(body.merchantId, order as any);
     const deliveryDate = deliveryDateResult.date;
@@ -161,8 +185,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const selectedProductIds = body.items.map((item) => item.productId).filter(Boolean);
-    const selectedCategoryNames = await getCategoryNamesForProductIds(body.merchantId, selectedProductIds);
+    const selectedCategoryNames = Object.values(selectedCategoriesByProductId).flat();
     const windowEvaluation = evaluateReturnWindow({
       categoryNames: selectedCategoryNames,
       deliveryDate,

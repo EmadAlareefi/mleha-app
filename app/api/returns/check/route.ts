@@ -5,6 +5,7 @@ import { getSallaOrder } from '@/app/lib/salla-api';
 import {
   evaluateReturnWindow,
   getCategoryNamesByProductId,
+  getDiscountedProductIds,
   getProductIdsForOrderItems,
   isEveningDressCategory,
   resolveReturnDeliveryDate,
@@ -57,6 +58,16 @@ export async function GET(request: NextRequest) {
 
     const productIds = getProductIdsForOrderItems(order.items || []);
     const categoriesByProductId = await getCategoryNamesByProductId(merchantId, productIds);
+    const discountedProductIds = getDiscountedProductIds(categoriesByProductId);
+    if (productIds.length > 0 && productIds.every((productId) => discountedProductIds.has(productId))) {
+      return NextResponse.json({
+        error: 'منتجات التخفيضات غير قابلة للإرجاع أو الاستبدال',
+        errorCode: 'DISCOUNTED_CATEGORY_NOT_RETURNABLE',
+        message: 'جميع منتجات هذا الطلب ضمن فئات التخفيضات، ولا يمكن إنشاء طلب إرجاع أو استبدال لها.',
+        canCreateNew: false,
+      }, { status: 400 });
+    }
+
     const productCategoryGroups = Object.values(categoriesByProductId);
     const allDetectedProductsAreEveningDresses =
       productCategoryGroups.length > 0 &&
