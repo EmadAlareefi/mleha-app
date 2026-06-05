@@ -33,71 +33,6 @@ const buildWhatsappSupportAction = (orderNumber?: string) => {
 
 type Step = 'lookup' | 'existing' | 'form' | 'success';
 
-const DATE_OBJECT_KEYS = ['date', 'datetime', 'value', 'timestamp'] as const;
-
-const isNumericLike = (value: string) => /^-?\d+(\.\d+)?$/.test(value);
-
-const timestampToIso = (timestamp: number): string | undefined => {
-  if (!Number.isFinite(timestamp)) {
-    return undefined;
-  }
-  const normalized = timestamp > 1e12 ? timestamp : timestamp * 1000;
-  const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-};
-
-const normalizeOrderDate = (value: unknown): string | undefined => {
-  if (value === null || value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-
-    if (isNumericLike(trimmed)) {
-      return timestampToIso(Number(trimmed));
-    }
-
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString();
-    }
-
-    if (trimmed.includes(' ')) {
-      const isoCandidate = trimmed.replace(' ', 'T');
-      const fallback = new Date(isoCandidate);
-      if (!Number.isNaN(fallback.getTime())) {
-        return fallback.toISOString();
-      }
-    }
-
-    return undefined;
-  }
-
-  if (typeof value === 'number') {
-    return timestampToIso(value);
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
-  }
-
-  if (typeof value === 'object') {
-    for (const key of DATE_OBJECT_KEYS) {
-      const nestedValue = (value as Record<string, unknown>)[key];
-      const normalized = normalizeOrderDate(nestedValue);
-      if (normalized) {
-        return normalized;
-      }
-    }
-  }
-
-  return undefined;
-};
-
 const SAUDI_COUNTRY_CODES = new Set(['SA', 'SAU', 'KSA']);
 const SAUDI_COUNTRY_KEYWORDS_EN = [
   'saudi',
@@ -399,94 +334,9 @@ export default function ReturnsPage() {
 
       setOrder(orderData.order);
 
-      // Debug: Log the full order structure to see what fields are available
-      console.log('Full order data received:', orderData.order);
-      console.log('All possible date fields:', {
-        'date.updated': orderData.order.date?.updated,
-        'date.created': orderData.order.date?.created,
-        'updated_at': orderData.order.updated_at,
-        'created_at': orderData.order.created_at,
-        'updatedAt': orderData.order.updatedAt,
-        'createdAt': orderData.order.createdAt,
-        'updatedAtRemote': orderData.order.updatedAtRemote,
-        'placedAt': orderData.order.placedAt,
-      });
-
-      // Check if there are existing return requests for this order
-      // Priority: Use updatedAt (most recent activity), fallback to created date
-      // Try multiple possible field locations based on different API response structures
-      let orderUpdatedAtRaw =
-        orderData.order.date?.updated ||      // Salla API: date.updated (ISO string or object)
-        orderData.order.date?.created ||      // Salla API: date.created (fallback)
-        orderData.order.updated_at ||         // Snake case variation
-        orderData.order.created_at ||         // Snake case created
-        orderData.order.updatedAt ||          // Camel case updatedAt
-        orderData.order.createdAt ||          // Camel case createdAt
-        orderData.order.updatedAtRemote ||    // Database field
-        orderData.order.placedAt;             // Database placedAt field
-
-      const orderUpdatedAt = normalizeOrderDate(orderUpdatedAtRaw);
-
-      if (typeof orderUpdatedAtRaw === 'object' && orderUpdatedAtRaw !== null) {
-        console.log('Date is an object, extracted:', {
-          originalObject: orderUpdatedAtRaw,
-          extractedDate: orderUpdatedAt,
-        });
-      } else {
-        console.log('Date normalization result:', {
-          rawValue: orderUpdatedAtRaw,
-          rawType: typeof orderUpdatedAtRaw,
-          normalizedDate: orderUpdatedAt,
-        });
-      }
-
-      // Log which date field was used (helps debug date extraction issues)
-      const dateSource = orderData.order.date?.updated
-        ? 'date.updated'
-        : orderData.order.date?.created
-        ? 'date.created'
-        : orderData.order.updated_at
-        ? 'updated_at'
-        : orderData.order.created_at
-        ? 'created_at'
-        : orderData.order.updatedAt
-        ? 'updatedAt'
-        : orderData.order.createdAt
-        ? 'createdAt'
-        : orderData.order.updatedAtRemote
-        ? 'updatedAtRemote'
-        : orderData.order.placedAt
-        ? 'placedAt'
-        : 'none';
-
-      console.log('Return eligibility check:', {
-        orderId: orderData.order.id,
-        dateSource,
-        dateValue: orderUpdatedAt,
-      });
-
-      // Validate date before proceeding
-      if (!orderUpdatedAt) {
-        console.error('No date found for return validation', {
-          orderId: orderData.order.id,
-          orderData: orderData.order,
-        });
-
-        setErrorDetails({
-          title: 'خطأ في التحقق من الطلب',
-          message: 'لا يمكن التحقق من تاريخ الطلب',
-          description: 'لم نتمكن من العثور على تاريخ الطلب. يرجى الاتصال بالدعم.',
-          variant: 'error',
-        });
-        setErrorDialogOpen(true);
-        setLoading(false);
-        return;
-      }
-
       const checkUrl = new URL('/api/returns/check', window.location.origin);
       checkUrl.searchParams.set('merchantId', MERCHANT_CONFIG.merchantId);
       checkUrl.searchParams.set('orderId', orderData.order.id.toString());
-      checkUrl.searchParams.set('orderUpdatedAt', orderUpdatedAt);
 
       let returnsResponse: Response;
       let returnsData: any;
@@ -508,8 +358,8 @@ export default function ReturnsPage() {
           setErrorDetails({
             title: 'انتهت مدة الإرجاع',
             message: returnsData.message || returnsData.error,
-            description: returnsData.daysSinceUpdate
-              ? `مرت ${returnsData.daysSinceUpdate} يوم على آخر تحديث للطلب. الحد الأقصى المسموح به هو 3 أيام.`
+            description: returnsData.allowedHours
+              ? `الحد الأقصى المسموح به هو ${returnsData.allowedHours === 24 ? '24 ساعة' : `${Math.floor(returnsData.allowedHours / 24)} أيام`} من وقت وصول الشحنة للعميل.`
               : undefined,
             variant: 'error',
           });

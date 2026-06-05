@@ -1,55 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { getSallaOrder } from '@/app/lib/salla-api';
+import {
+  evaluateReturnWindow,
+  getCategoryNamesByProductId,
+  getProductIdsForOrderItems,
+  isEveningDressCategory,
+  resolveReturnDeliveryDate,
+} from '@/lib/returns/policy';
 
 export const runtime = 'nodejs';
-
-const RETURN_PERIOD_DAYS = 8;
-const EPSILON = 0.001; // ~1.5 minutes tolerance
-const NUMERIC_TIMESTAMP_REGEX = /^-?\d+(\.\d+)?$/;
-
-const normalizeTimestamp = (value: number) => {
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-  const normalized = value > 1e12 ? value : value * 1000;
-  const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const parseOrderDate = (value: string | null) => {
-  if (!value) {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (NUMERIC_TIMESTAMP_REGEX.test(trimmed)) {
-    const numeric = Number(trimmed);
-    const normalizedDate = normalizeTimestamp(numeric);
-    if (normalizedDate) {
-      return normalizedDate;
-    }
-  }
-
-  const parsed = new Date(trimmed);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed;
-  }
-
-  if (trimmed.includes(' ')) {
-    const isoCandidate = trimmed.replace(' ', 'T');
-    const fallback = new Date(isoCandidate);
-    if (!Number.isNaN(fallback.getTime())) {
-      return fallback;
-    }
-  }
-
-  return null;
-};
 
 /**
  * GET /api/returns/check
@@ -61,7 +22,6 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const merchantId = searchParams.get('merchantId');
     const orderId = searchParams.get('orderId');
-    const orderUpdatedAt = searchParams.get('orderUpdatedAt'); // ISO date string from order.date.updated
 
     if (!merchantId || !orderId) {
       return NextResponse.json(
@@ -70,49 +30,64 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    log.info('Checking for existing return requests', { merchantId, orderId, orderUpdatedAt });
+    log.info('Checking for existing return requests', { merchantId, orderId });
 
-    // Check if order last updated date exceeds allowed return window
-    if (!orderUpdatedAt) {
-      log.warn('No orderUpdatedAt provided for validation', { merchantId, orderId });
+    const order = await getSallaOrder(merchantId, orderId);
+    if (!order) {
+      return NextResponse.json(
+        { error: 'لم يتم العثور على الطلب', canCreateNew: false },
+        { status: 404 }
+      );
+    }
+
+    const deliveryDateResult = await resolveReturnDeliveryDate(merchantId, order as any);
+    if (!deliveryDateResult.date) {
+      log.warn('No delivery date found for return validation', {
+        merchantId,
+        orderId,
+        orderDateCandidates: deliveryDateResult.fallbackCandidates,
+      });
       return NextResponse.json({
         error: 'لا يمكن التحقق من تاريخ الطلب',
         errorCode: 'MISSING_ORDER_DATE',
-        message: 'لم يتم تقديم تاريخ الطلب للتحقق من صلاحية الإرجاع.',
+        message: 'لم يتم العثور على تاريخ وصول الشحنة للتحقق من صلاحية الإرجاع.',
         canCreateNew: false,
       }, { status: 400 });
     }
 
-    const updatedDate = parseOrderDate(orderUpdatedAt);
+    const productIds = getProductIdsForOrderItems(order.items || []);
+    const categoriesByProductId = await getCategoryNamesByProductId(merchantId, productIds);
+    const productCategoryGroups = Object.values(categoriesByProductId);
+    const allDetectedProductsAreEveningDresses =
+      productCategoryGroups.length > 0 &&
+      productCategoryGroups.every((categoryNames) => categoryNames.some(isEveningDressCategory));
+    const categoryNamesForPreCheck = allDetectedProductsAreEveningDresses
+      ? Object.values(categoriesByProductId).flat()
+      : [];
+    const windowEvaluation = evaluateReturnWindow({
+      categoryNames: categoryNamesForPreCheck,
+      deliveryDate: deliveryDateResult.date,
+    });
 
-    // Validate that the date is valid
-    if (!updatedDate) {
-      log.error('Invalid date format', { merchantId, orderId, orderUpdatedAt });
-      return NextResponse.json({
-        error: 'تاريخ الطلب غير صالح',
-        errorCode: 'INVALID_DATE_FORMAT',
-        message: 'تاريخ الطلب المقدم غير صالح.',
-        canCreateNew: false,
-      }, { status: 400 });
-    }
-
-    const now = new Date();
-    const daysDifference = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24);
-
-    // Allow returns within configured window (exceeds means > RETURN_PERIOD_DAYS, with small epsilon for floating point)
-    if (daysDifference > RETURN_PERIOD_DAYS + EPSILON) {
-      log.warn('Order update date exceeds allowed window', {
+    if (!windowEvaluation.eligible) {
+      log.warn('Shipment delivery date exceeds allowed return window', {
         merchantId,
         orderId,
-        orderUpdatedAt,
-        daysDifference: daysDifference.toFixed(2),
+        deliveryDate: deliveryDateResult.date.toISOString(),
+        deliveryDateSource: deliveryDateResult.source,
+        elapsedHours: windowEvaluation.elapsedHours.toFixed(2),
+        policyWindowHours: windowEvaluation.policy.windowHours,
       });
 
       return NextResponse.json({
         error: 'انتهت مدة الإرجاع المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
-        message: 'لقد تجاوز الطلب مدة 8 أيام من آخر تحديث. لا يمكن إنشاء طلب إرجاع.',
-        daysSinceUpdate: Math.floor(daysDifference),
+        message: windowEvaluation.policy.message,
+        daysSinceDelivery: Math.floor(windowEvaluation.daysSinceDelivery),
+        elapsedHours: Math.floor(windowEvaluation.elapsedHours),
+        allowedHours: windowEvaluation.policy.windowHours,
+        deliveryDate: deliveryDateResult.date.toISOString(),
+        deliveryDateSource: deliveryDateResult.source,
         canCreateNew: false,
       }, { status: 400 });
     }

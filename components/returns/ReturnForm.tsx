@@ -419,7 +419,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'فشل إنشاء طلب الإرجاع');
+        throw new Error(data.message || data.error || 'فشل إنشاء طلب الإرجاع');
       }
 
       onSuccess(data.returnRequest);

@@ -5,8 +5,12 @@ import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
 import { getShippingTotal } from '@/lib/returns/shipping';
-import { extractOrderDate } from '@/lib/returns/order-date';
 import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
+import {
+  evaluateReturnWindow,
+  getCategoryNamesForProductIds,
+  resolveReturnDeliveryDate,
+} from '@/lib/returns/policy';
 import {
   getCarrierFee,
   parseCarrierFeeConfig,
@@ -16,8 +20,6 @@ import {
 
 export const runtime = 'nodejs';
 
-const RETURN_PERIOD_DAYS = 8;
-const EPSILON = 0.001; // ~1.5 minutes tolerance
 const CREATE_RETURN_POLICY_ACTION = 'create_return_policy';
 
 interface ReturnItemRequest {
@@ -141,48 +143,59 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if order last updated date exceeds allowed return window
-    const orderDateResult = extractOrderDate(order);
-    const updatedDate = orderDateResult.date;
+    // Check if shipment delivery date exceeds the category-specific return window.
+    const deliveryDateResult = await resolveReturnDeliveryDate(body.merchantId, order as any);
+    const deliveryDate = deliveryDateResult.date;
 
-    if (!updatedDate) {
-      log.error('No date found on order for return window validation', {
+    if (!deliveryDate) {
+      log.error('No delivery date found for return window validation', {
         merchantId: body.merchantId,
         orderId: body.orderId,
-        orderDateCandidates: orderDateResult.candidates,
+        orderDateCandidates: deliveryDateResult.fallbackCandidates,
       });
 
       return NextResponse.json({
         error: 'لا يمكن التحقق من تاريخ الطلب',
         errorCode: 'MISSING_ORDER_DATE',
-        message: 'لم يتم العثور على تاريخ الطلب للتحقق من صلاحية الإرجاع.',
+        message: 'لم يتم العثور على تاريخ وصول الشحنة للتحقق من صلاحية الإرجاع.',
       }, { status: 400 });
     }
 
-    log.info('Using order date for validation', {
-      merchantId: body.merchantId,
-      orderId: body.orderId,
-      dateSource: orderDateResult.source,
-      normalizedDate: updatedDate.toISOString(),
+    const selectedProductIds = body.items.map((item) => item.productId).filter(Boolean);
+    const selectedCategoryNames = await getCategoryNamesForProductIds(body.merchantId, selectedProductIds);
+    const windowEvaluation = evaluateReturnWindow({
+      categoryNames: selectedCategoryNames,
+      deliveryDate,
     });
 
-    const now = new Date();
-    const daysDifference = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24);
+    log.info('Using shipment delivery date for return window validation', {
+      merchantId: body.merchantId,
+      orderId: body.orderId,
+      dateSource: deliveryDateResult.source,
+      normalizedDate: deliveryDate.toISOString(),
+      selectedCategoryNames,
+      policyWindowHours: windowEvaluation.policy.windowHours,
+    });
 
-    // Allow returns within configured window (exceeds means > RETURN_PERIOD_DAYS, with small epsilon for floating point)
-    if (daysDifference > RETURN_PERIOD_DAYS + EPSILON) {
-      log.warn('Order update date exceeds allowed window', {
+    if (!windowEvaluation.eligible) {
+      log.warn('Shipment delivery date exceeds allowed return window', {
         merchantId: body.merchantId,
         orderId: body.orderId,
-        orderUpdatedAt: updatedDate.toISOString(),
-        daysDifference: daysDifference.toFixed(2),
+        deliveryDate: deliveryDate.toISOString(),
+        deliveryDateSource: deliveryDateResult.source,
+        elapsedHours: windowEvaluation.elapsedHours.toFixed(2),
+        policyWindowHours: windowEvaluation.policy.windowHours,
       });
 
       return NextResponse.json({
         error: 'انتهت مدة الإرجاع المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
-        message: 'لقد تجاوز الطلب مدة 8 أيام من آخر تحديث. لا يمكن إنشاء طلب إرجاع.',
-        daysSinceUpdate: Math.floor(daysDifference),
+        message: windowEvaluation.policy.message,
+        daysSinceDelivery: Math.floor(windowEvaluation.daysSinceDelivery),
+        elapsedHours: Math.floor(windowEvaluation.elapsedHours),
+        allowedHours: windowEvaluation.policy.windowHours,
+        deliveryDate: deliveryDate.toISOString(),
+        deliveryDateSource: deliveryDateResult.source,
       }, { status: 400 });
     }
 
