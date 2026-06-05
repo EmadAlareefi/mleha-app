@@ -2,6 +2,7 @@ export const EVENING_DRESS_CATEGORY = 'فساتين سهرة';
 export const EVENING_DRESS_CATEGORY_ALIASES = new Set(['فساتين سهرة', 'فساتين سهرات']);
 
 export const DISCOUNTED_CATEGORY_ALIASES = new Set([
+  'اوتلت مليحة',
   'فساتين بـ 195 ريال',
   'فستانين بـ 95 ريال',
   'فستان بـ 95 ريال',
