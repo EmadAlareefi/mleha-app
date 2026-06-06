@@ -173,7 +173,7 @@ function toWindowsPathFromWslPath(input: string): string | null {
 }
 
 function getWorkbookPathCandidates(): string[] {
-  const cwd = process.cwd();
+  const cwd = /* turbopackIgnore: true */ process.cwd();
   const candidates = new Set<string>();
 
   const addCandidate = (candidate: string | null | undefined) => {
@@ -220,11 +220,11 @@ function resolveWorkbookFilePath(): string {
 
   for (const candidate of candidates) {
     try {
-      if (!fs.existsSync(candidate)) {
+      if (!fs.existsSync(/* turbopackIgnore: true */ candidate)) {
         continue;
       }
 
-      fs.accessSync(candidate, fs.constants.R_OK);
+      fs.accessSync(/* turbopackIgnore: true */ candidate, fs.constants.R_OK);
       return candidate;
     } catch {
       continue;
@@ -239,7 +239,7 @@ function resolveWorkbookFilePath(): string {
 
 function readWorkbookState(sheetName?: string): WorkbookState {
   const workbookFilePath = resolveWorkbookFilePath();
-  const workbookBuffer = fs.readFileSync(workbookFilePath);
+  const workbookBuffer = fs.readFileSync(/* turbopackIgnore: true */ workbookFilePath);
   const workbook = XLSX.read(workbookBuffer, {
     type: 'buffer',
   });
@@ -474,7 +474,7 @@ function writeRefundInvoiceIdForRow(state: WorkbookState, rowNumber: number, erp
     bookType: 'xlsx',
   }) as Buffer;
 
-  fs.writeFileSync(state.filePath, nextWorkbookBuffer);
+  fs.writeFileSync(/* turbopackIgnore: true */ state.filePath, nextWorkbookBuffer);
 
   return [row.rowNumber];
 }
@@ -491,7 +491,7 @@ export async function listInvoiceRefundWorkbookRows(): Promise<InvoiceRefundWork
   const orderSummaries = await fetchOrderSummaries(
     workbookState.rows.flatMap((row) => (row.orderNumber ? [row.orderNumber] : []))
   );
-  const stats = fs.statSync(workbookState.filePath);
+  const stats = fs.statSync(/* turbopackIgnore: true */ workbookState.filePath);
 
   const rows: InvoiceRefundListRow[] = workbookState.rows.map((row) => {
     const orderSummary = row.orderNumber ? orderSummaries.get(row.orderNumber) || null : null;

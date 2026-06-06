@@ -27,6 +27,8 @@ interface OrderUser {
   name: string;
 }
 
+const ASSIGNMENTS_PAGE_LIMIT = 200;
+
 interface OrderAssignment {
   id: string;
   orderId: string;
@@ -271,6 +273,9 @@ export default function AdminOrderPrepPage() {
 
   const [assignments, setAssignments] = useState<OrderAssignment[]>([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+  const [assignmentsPage, setAssignmentsPage] = useState(1);
+  const [assignmentsHasMore, setAssignmentsHasMore] = useState(false);
+  const [assignmentsLoadingMore, setAssignmentsLoadingMore] = useState(false);
   const [users, setUsers] = useState<OrderUser[]>([]);
   const [liveOrders, setLiveOrders] = useState<LiveOrdersSummary | null>(null);
   const [liveOrdersLoading, setLiveOrdersLoading] = useState(false);
@@ -308,12 +313,20 @@ export default function AdminOrderPrepPage() {
     }
   }, []);
 
-  const loadAssignmentsData = useCallback(async () => {
-    setAssignmentsLoading(true);
+  const loadAssignmentsData = useCallback(async (page = 1, options: { append?: boolean } = {}) => {
+    const append = options.append === true;
+    if (append) {
+      setAssignmentsLoadingMore(true);
+    } else {
+      setAssignmentsLoading(true);
+    }
+
     try {
       const params = new URLSearchParams({
         timeFilter: 'active',
         statusFilter: 'all',
+        page: String(page),
+        limit: String(ASSIGNMENTS_PAGE_LIMIT),
       });
 
       const assignmentsRes = await fetch(`/api/admin/order-assignments/list?${params}`);
@@ -324,18 +337,43 @@ export default function AdminOrderPrepPage() {
           status: assignmentsRes.status,
           bodySnippet: assignmentsBody.slice(0, 200),
         });
-        setAssignments([]);
+        if (!append) {
+          setAssignments([]);
+          setAssignmentsPage(1);
+          setAssignmentsHasMore(false);
+        }
         setError('فشل تحميل الطلبات النشطة من الخادم.');
       } else {
-        const assignmentsData = parseJsonSafely<{ success?: boolean; assignments?: OrderAssignment[]; error?: string }>(
+        const assignmentsData = parseJsonSafely<{
+          success?: boolean;
+          assignments?: OrderAssignment[];
+          error?: string;
+          pagination?: { page?: number; hasMore?: boolean };
+        }>(
           assignmentsBody,
           'Admin assignments list',
         );
         if (assignmentsData?.success && Array.isArray(assignmentsData.assignments)) {
-          setAssignments(assignmentsData.assignments);
+          setAssignments((prev) => {
+            if (!append) {
+              return assignmentsData.assignments || [];
+            }
+
+            const existingIds = new Set(prev.map((assignment) => assignment.id));
+            const uniqueNext = (assignmentsData.assignments || []).filter(
+              (assignment) => !existingIds.has(assignment.id)
+            );
+            return [...prev, ...uniqueNext];
+          });
+          setAssignmentsPage(assignmentsData.pagination?.page ?? page);
+          setAssignmentsHasMore(Boolean(assignmentsData.pagination?.hasMore));
           setError(null);
         } else {
-          setAssignments([]);
+          if (!append) {
+            setAssignments([]);
+            setAssignmentsPage(1);
+            setAssignmentsHasMore(false);
+          }
           setError(assignmentsData?.error || 'تعذر تحميل الطلبات');
         }
       }
@@ -343,7 +381,11 @@ export default function AdminOrderPrepPage() {
       console.error('Failed to load assignments data:', loadError);
       setError('فشل تحميل بيانات الطلبات');
     } finally {
-      setAssignmentsLoading(false);
+      if (append) {
+        setAssignmentsLoadingMore(false);
+      } else {
+        setAssignmentsLoading(false);
+      }
     }
   }, []);
 
@@ -947,6 +989,13 @@ export default function AdminOrderPrepPage() {
   const liveTotals = liveOrders?.totals || { new: 0, assigned: 0 };
   const lastUpdatedLabel = lastUpdated ? formatDate(lastUpdated.toISOString()) : null;
   const isRefreshing = dashboardLoading || assignmentsLoading || liveOrdersLoading;
+  const handleLoadMoreAssignments = () => {
+    if (assignmentsLoadingMore || !assignmentsHasMore) {
+      return;
+    }
+
+    loadAssignmentsData(assignmentsPage + 1, { append: true });
+  };
   const searchedCustomerName = useMemo(() => {
     if (!orderSearchResult?.orderData) {
       return null;
@@ -1240,18 +1289,32 @@ export default function AdminOrderPrepPage() {
             </Alert>
           )}
 
-          <div className="grid grid-cols-1 gap-4">
-            <Card className="p-5">
-              <p className="text-sm text-gray-500">الطلبات المرتبطة حالياً</p>
-              <p className="text-3xl font-bold text-gray-900">{liveOrdersTotal}</p>
-              <p className="text-xs text-gray-400 mt-1">عدد الطلبات التي تم تعيينها ويتم العمل عليها الآن</p>
-              <p className="text-xs text-gray-500 mt-2">
-                بانتظار التعيين: <span className="font-semibold">{liveTotals.new}</span> • مرتبطة بالمستخدمين:{' '}
-                <span className="font-semibold">{liveTotals.assigned}</span>
-              </p>
-              {liveOrdersTimestamp && (
-                <p className="text-[11px] text-gray-400 mt-1">
-                  تم الجلب من سلة في {formatDate(liveOrdersTimestamp.toISOString())}
+	          <div className="grid grid-cols-1 gap-4">
+	            <Card className="p-5">
+	              <p className="text-sm text-gray-500">الطلبات المرتبطة حالياً</p>
+	              <p className="text-3xl font-bold text-gray-900">{liveOrdersTotal}</p>
+	              <p className="text-xs text-gray-400 mt-1">عدد الطلبات التي تم تعيينها ويتم العمل عليها الآن</p>
+	              <p className="text-xs text-gray-500 mt-2">
+	                بانتظار التعيين: <span className="font-semibold">{liveTotals.new}</span> • مرتبطة بالمستخدمين:{' '}
+	                <span className="font-semibold">{liveTotals.assigned}</span>
+	              </p>
+	              <div className="mt-4 flex flex-col gap-2 border-t pt-3 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+	                <span>بيانات التعيينات المحملة: {assignments.length}</span>
+	                {assignmentsHasMore && (
+	                  <Button
+	                    type="button"
+	                    variant="outline"
+	                    size="sm"
+	                    onClick={handleLoadMoreAssignments}
+	                    disabled={assignmentsLoadingMore}
+	                  >
+	                    {assignmentsLoadingMore ? 'جاري تحميل المزيد...' : 'تحميل المزيد'}
+	                  </Button>
+	                )}
+	              </div>
+	              {liveOrdersTimestamp && (
+	                <p className="text-[11px] text-gray-400 mt-1">
+	                  تم الجلب من سلة في {formatDate(liveOrdersTimestamp.toISOString())}
                 </p>
               )}
             </Card>

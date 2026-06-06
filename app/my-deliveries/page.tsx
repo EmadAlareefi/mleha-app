@@ -25,6 +25,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { MapPin, MessageCircle } from 'lucide-react';
 
 const ADMIN_DELIVERABLE_STATUSES = ['assigned', 'picked_up', 'in_transit'];
+const ASSIGNMENTS_PAGE_LIMIT = 200;
 
 interface LocalShipmentMeta {
   paymentMethod?: string | null;
@@ -469,6 +470,9 @@ export default function MyDeliveriesPage() {
     (typeof sessionUser?.role === 'string' && sessionUser.role === 'admin');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [assignmentsPage, setAssignmentsPage] = useState(1);
+  const [assignmentsHasMore, setAssignmentsHasMore] = useState(false);
+  const [assignmentsLoadingMore, setAssignmentsLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -608,23 +612,49 @@ export default function MyDeliveriesPage() {
     });
   }, [assignments, isAdminUser]);
 
-  const fetchAssignments = async () => {
+  const fetchAssignments = async (page = 1, options: { append?: boolean } = {}) => {
+    const append = options.append === true;
     try {
-      setLoading(true);
+      if (append) {
+        setAssignmentsLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
       setError('');
 
-      const response = await fetch('/api/shipment-assignments');
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(ASSIGNMENTS_PAGE_LIMIT),
+      });
+      const response = await fetch(`/api/shipment-assignments?${params}`);
       const data = await parseJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(data?.error || 'فشل في تحميل الشحنات');
       }
 
-      setAssignments(data.assignments || []);
+      const nextAssignments = Array.isArray(data.assignments) ? data.assignments : [];
+      setAssignments((prev) => {
+        if (!append) {
+          return nextAssignments;
+        }
+
+        const existingIds = new Set(prev.map((assignment) => assignment.id));
+        const uniqueNext = nextAssignments.filter(
+          (assignment: Assignment) => !existingIds.has(assignment.id)
+        );
+        return [...prev, ...uniqueNext];
+      });
+      setAssignmentsPage(data.pagination?.page ?? page);
+      setAssignmentsHasMore(Boolean(data.pagination?.hasMore));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل الشحنات');
     } finally {
-      setLoading(false);
+      if (append) {
+        setAssignmentsLoadingMore(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
@@ -1146,6 +1176,38 @@ export default function MyDeliveriesPage() {
     totalCOD: outstandingCodAmount,
   };
   const recentWalletTransactions = walletInfo?.recentTransactions?.slice(0, 5) ?? [];
+  const handleLoadMoreAssignments = () => {
+    if (assignmentsLoadingMore || !assignmentsHasMore) {
+      return;
+    }
+
+    fetchAssignments(assignmentsPage + 1, { append: true });
+  };
+  const renderAssignmentsPaginationFooter = () => {
+    if (!assignmentsHasMore && assignments.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 flex flex-col gap-2 border-t pt-4 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+        <span>
+          تم تحميل {assignments.length} شحنة
+          {hasAssignmentSearch ? '، والبحث يطبق على الشحنات المحملة حالياً' : ''}
+        </span>
+        {assignmentsHasMore && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleLoadMoreAssignments}
+            disabled={assignmentsLoadingMore}
+          >
+            {assignmentsLoadingMore ? 'جاري تحميل المزيد...' : 'تحميل المزيد'}
+          </Button>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <AppPageShell title="شحناتي" subtitle="إدارة ومتابعة الشحنات المُعيّنة لك">
@@ -1572,8 +1634,8 @@ export default function MyDeliveriesPage() {
                   description={activeAssignments.length === 0 ? undefined : 'غيّر البحث ثم حاول مرة أخرى.'}
                 />
               ) : (
-                <div className="space-y-4">
-                  {filteredActiveAssignments.map((assignment) => {
+	                <div className="space-y-4">
+	                  {filteredActiveAssignments.map((assignment) => {
                     const fullAddress = getFullAddressLabel(assignment.shipment);
                     const whatsappLink = getWhatsAppLink(assignment.shipment);
                     const mapsLink = getMapsLink(assignment.shipment);
@@ -1785,11 +1847,12 @@ export default function MyDeliveriesPage() {
                     </div>
                   );
                 })}
-                </div>
-              )}
-            </Card>
-          ) : (
-            <Card className="p-6">
+	                </div>
+	              )}
+	              {renderAssignmentsPaginationFooter()}
+	            </Card>
+	          ) : (
+	            <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">الشحنات المكتملة</h3>
               <div className="overflow-x-auto">
                 <Table className="min-w-full text-sm">
@@ -1903,10 +1966,11 @@ export default function MyDeliveriesPage() {
                       })
                     )}
                   </TableBody>
-                </Table>
-              </div>
-            </Card>
-          )}
+	                </Table>
+	              </div>
+	              {renderAssignmentsPaginationFooter()}
+	            </Card>
+	          )}
         </TabsContent>
         </Tabs>
 

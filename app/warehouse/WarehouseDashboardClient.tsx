@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { ScannerInput } from '@/components/warehouse/scanner-input';
@@ -33,6 +33,7 @@ interface WarehouseDashboardClientProps {
   initialAdminWarehouses?: WarehouseInfo[];
   defaultWarehouseId: string | null;
   initialShipments?: Shipment[];
+  initialShipmentsHasMore?: boolean;
   initialStats?: Stats;
   initialDateIso: string;
   initialWarehouseError?: string | null;
@@ -45,6 +46,7 @@ const EMPTY_STATS: Stats = {
   handoverConfirmed: 0,
   byCompany: [],
 };
+const SHIPMENTS_PAGE_LIMIT = 300;
 
 export default function WarehouseDashboardClient({
   isAdmin,
@@ -53,6 +55,7 @@ export default function WarehouseDashboardClient({
   initialAdminWarehouses = [],
   defaultWarehouseId,
   initialShipments = [],
+  initialShipmentsHasMore = false,
   initialStats = EMPTY_STATS,
   initialDateIso,
   initialWarehouseError = null,
@@ -61,6 +64,11 @@ export default function WarehouseDashboardClient({
   const [warehousesLoading, setWarehousesLoading] = useState(false);
   const [warehouseError, setWarehouseError] = useState<string | null>(initialWarehouseError);
   const [shipments, setShipments] = useState<Shipment[]>(initialShipments);
+  const [shipmentsPage, setShipmentsPage] = useState(1);
+  const [shipmentsHasMore, setShipmentsHasMore] = useState(initialShipmentsHasMore);
+  const [shipmentsLoadingMore, setShipmentsLoadingMore] = useState(false);
+  const shipmentsPageRef = useRef(1);
+  const shipmentIdsRef = useRef(new Set(initialShipments.map((shipment) => shipment.id)));
   const [stats, setStats] = useState<Stats>(initialStats);
   const [selectedDate, setSelectedDate] = useState(() => {
     const parsed = initialDateIso ? new Date(initialDateIso) : new Date();
@@ -254,6 +262,8 @@ export default function WarehouseDashboardClient({
   const fetchData = useCallback(async () => {
     if (!selectedWarehouseId) {
       setShipments([]);
+      setShipmentsPage(1);
+      setShipmentsHasMore(false);
       setStats(EMPTY_STATS);
       setLoading(false);
       return;
@@ -265,6 +275,8 @@ export default function WarehouseDashboardClient({
       const params = new URLSearchParams({
         date: formattedDate,
         warehouseId: selectedWarehouseId,
+        page: '1',
+        limit: String(SHIPMENTS_PAGE_LIMIT),
       });
 
       const queryString = params.toString();
@@ -278,13 +290,19 @@ export default function WarehouseDashboardClient({
         if (contentType.includes('application/json')) {
           const shipmentsData = await shipmentsRes.json();
           setShipments(shipmentsData);
+          setShipmentsPage(Number(shipmentsRes.headers.get('X-Pagination-Page')) || 1);
+          setShipmentsHasMore(shipmentsRes.headers.get('X-Pagination-Has-More') === 'true');
         } else {
           console.warn('Shipments response is not JSON, resetting list');
           setShipments([]);
+          setShipmentsPage(1);
+          setShipmentsHasMore(false);
         }
       } else {
         console.error('Failed to load shipments', await shipmentsRes.text());
         setShipments([]);
+        setShipmentsPage(1);
+        setShipmentsHasMore(false);
       }
 
       if (statsRes.ok) {
@@ -307,17 +325,80 @@ export default function WarehouseDashboardClient({
     } catch (error) {
       console.error('Error fetching data:', error);
       setShipments([]);
+      setShipmentsPage(1);
+      setShipmentsHasMore(false);
       setStats(EMPTY_STATS);
     } finally {
       setLoading(false);
     }
   }, [formattedDate, selectedWarehouseId]);
 
+  const loadMoreShipments = useCallback(async () => {
+    if (!selectedWarehouseId || shipmentsLoadingMore || !shipmentsHasMore) {
+      return;
+    }
+
+    setShipmentsLoadingMore(true);
+
+    try {
+      const nextPage = shipmentsPage + 1;
+      const params = new URLSearchParams({
+        date: formattedDate,
+        warehouseId: selectedWarehouseId,
+        page: String(nextPage),
+        limit: String(SHIPMENTS_PAGE_LIMIT),
+      });
+      const response = await fetch(`/api/shipments?${params.toString()}`);
+
+      if (!response.ok) {
+        console.error('Failed to load more shipments', await response.text());
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.warn('Load-more shipments response is not JSON');
+        return;
+      }
+
+      const nextShipments: Shipment[] = await response.json();
+      setShipments((prev) => {
+        const existingIds = new Set(prev.map((shipment) => shipment.id));
+        const uniqueNext = nextShipments.filter((shipment) => !existingIds.has(shipment.id));
+        return [...prev, ...uniqueNext];
+      });
+      setShipmentsPage(Number(response.headers.get('X-Pagination-Page')) || nextPage);
+      setShipmentsHasMore(response.headers.get('X-Pagination-Has-More') === 'true');
+    } catch (error) {
+      console.error('Error loading more shipments:', error);
+    } finally {
+      setShipmentsLoadingMore(false);
+    }
+  }, [
+    formattedDate,
+    selectedWarehouseId,
+    shipmentsHasMore,
+    shipmentsLoadingMore,
+    shipmentsPage,
+  ]);
+
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(() => {
+      if (shipmentsPageRef.current <= 1) {
+        fetchData();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  useEffect(() => {
+    shipmentsPageRef.current = shipmentsPage;
+  }, [shipmentsPage]);
+
+  useEffect(() => {
+    shipmentIdsRef.current = new Set(shipments.map((shipment) => shipment.id));
+  }, [shipments]);
 
   useEffect(() => {
     if (!highlightedShipmentId) {
@@ -338,6 +419,49 @@ export default function WarehouseDashboardClient({
   const handleNextDay = () => handleDateChange(addDays(selectedDate, 1));
   const handlePreviousDay = () => handleDateChange(addDays(selectedDate, -1));
 
+  const addCreatedShipmentToState = useCallback(
+    (shipment: Shipment) => {
+      const shipmentDate = format(new Date(shipment.scannedAt), 'yyyy-MM-dd');
+      const shipmentWarehouseId = shipment.warehouse?.id || selectedWarehouseId;
+
+      if (shipmentDate !== formattedDate || shipmentWarehouseId !== selectedWarehouseId) {
+        return;
+      }
+
+      const alreadyListed = shipmentIdsRef.current.has(shipment.id);
+      shipmentIdsRef.current.add(shipment.id);
+
+      setShipments((prev) => [
+        shipment,
+        ...prev.filter((existingShipment) => existingShipment.id !== shipment.id),
+      ]);
+      setHighlightedShipmentId(shipment.id);
+
+      if (alreadyListed) {
+        return;
+      }
+
+      setStats((prev) => {
+        const byCompany = prev.byCompany.some((item) => item.company === shipment.company)
+          ? prev.byCompany.map((item) =>
+              item.company === shipment.company
+                ? { ...item, count: item.count + 1 }
+                : item
+            )
+          : [...prev.byCompany, { company: shipment.company, count: 1 }];
+
+        return {
+          ...prev,
+          total: prev.total + 1,
+          incoming: prev.incoming + (shipment.type === 'incoming' ? 1 : 0),
+          outgoing: prev.outgoing + (shipment.type === 'outgoing' ? 1 : 0),
+          byCompany,
+        };
+      });
+    },
+    [formattedDate, selectedWarehouseId]
+  );
+
   const handleScan = async (
     trackingNumber: string,
     type: 'incoming' | 'outgoing',
@@ -354,11 +478,13 @@ export default function WarehouseDashboardClient({
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'فشل في تسجيل الشحنة');
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.error || 'فشل في تسجيل الشحنة');
     }
 
-    await fetchData();
+    const createdShipment = (await response.json()) as Shipment;
+    addCreatedShipmentToState(createdShipment);
+    void fetchData();
   };
 
   const handleDelete = async (id: string) => {
@@ -701,6 +827,23 @@ export default function WarehouseDashboardClient({
               onDelete={handleDelete}
               highlightedId={highlightedShipmentId}
             />
+            <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                تم تحميل {shipments.length} شحنة
+                {companyFilter !== 'all' ? `، المعروض بعد التصفية: ${filteredShipments.length}` : ''}
+              </span>
+              {shipmentsHasMore && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={loadMoreShipments}
+                  disabled={shipmentsLoadingMore}
+                  className="rounded-xl"
+                >
+                  {shipmentsLoadingMore ? 'جاري تحميل المزيد...' : 'تحميل المزيد'}
+                </Button>
+              )}
+            </div>
           </>
         )}
       </main>

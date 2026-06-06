@@ -120,8 +120,6 @@ export default function SallaNotifyPage() {
   const [error, setError] = useState<string | null>(null);
   const [variationsMap, setVariationsMap] = useState<Record<number, SallaProductVariation[]>>({});
   const [productVariationErrors, setProductVariationErrors] = useState<Record<number, string>>({});
-  const [variationsLoading, setVariationsLoading] = useState(false);
-  const [variationsGlobalError, setVariationsGlobalError] = useState<string | null>(null);
   const [rowVariationsLoading, setRowVariationsLoading] = useState<Record<number, boolean>>({});
   const [availabilityRequests, setAvailabilityRequests] = useState<
     Record<number, AvailabilityRequestRecord[]>
@@ -149,7 +147,6 @@ export default function SallaNotifyPage() {
     null
   );
   const [merchantId, setMerchantId] = useState<string | null>(null);
-  const variationsRequestId = useRef(0);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -189,87 +186,6 @@ export default function SallaNotifyPage() {
         setPagination(null);
       } finally {
         setLoading(false);
-      }
-    },
-    []
-  );
-
-  const fetchVariations = useCallback(
-    async (items: SallaProductSummary[]) => {
-      if (!items || items.length === 0) {
-        setVariationsMap({});
-        setProductVariationErrors({});
-        setVariationsGlobalError(null);
-        setVariationsLoading(false);
-        setRowVariationsLoading({});
-        return;
-      }
-
-      const ids = items.map((item) => item.id);
-      const requestId = Date.now();
-      variationsRequestId.current = requestId;
-      setVariationsLoading(true);
-      setVariationsGlobalError(null);
-      setProductVariationErrors({});
-      setRowVariationsLoading({});
-
-      try {
-        const response = await fetch('/api/salla/products/variations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ productIds: ids }),
-        });
-        const data = await response.json();
-
-        if (variationsRequestId.current !== requestId) {
-          return;
-        }
-
-        if (!response.ok || !data.success) {
-          throw new Error(data?.error || 'تعذر تحميل متغيرات المنتجات');
-        }
-
-        const normalized: Record<number, SallaProductVariation[]> = {};
-        Object.entries(data.variations ?? {}).forEach(([key, value]) => {
-          const parsed = Number.parseInt(key, 10);
-          if (Number.isFinite(parsed)) {
-            normalized[parsed] = Array.isArray(value) ? value : [];
-          }
-        });
-        items.forEach((item) => {
-          if (!normalized[item.id]) {
-            normalized[item.id] = [];
-          }
-        });
-
-        const perProductErrors: Record<number, string> = {};
-        if (Array.isArray(data.failed)) {
-          data.failed.forEach((entry: { productId?: number; message?: string }) => {
-            if (!entry || typeof entry.productId !== 'number') {
-              return;
-            }
-            perProductErrors[entry.productId] =
-              entry.message || 'تعذر تحميل متغيرات هذا المنتج من سلة';
-          });
-        }
-
-        setVariationsMap(normalized);
-        setProductVariationErrors(perProductErrors);
-        setVariationsGlobalError(null);
-      } catch (err) {
-        if (variationsRequestId.current !== requestId) {
-          return;
-        }
-        const message =
-          err instanceof Error ? err.message : 'تعذر تحميل متغيرات المنتجات';
-        setVariationsMap({});
-        setProductVariationErrors({});
-        setVariationsGlobalError(message);
-        setRowVariationsLoading({});
-      } finally {
-        if (variationsRequestId.current === requestId) {
-          setVariationsLoading(false);
-        }
       }
     },
     []
@@ -377,12 +293,41 @@ export default function SallaNotifyPage() {
     if (products.length === 0) {
       setVariationsMap({});
       setProductVariationErrors({});
-      setVariationsGlobalError(null);
-      setVariationsLoading(false);
+      setRowVariationsLoading({});
       return;
     }
-    fetchVariations(products);
-  }, [status, products, fetchVariations]);
+    const visibleProductIds = new Set(products.map((product) => product.id));
+    setVariationsMap((prev) => {
+      const next: Record<number, SallaProductVariation[]> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const productId = Number.parseInt(key, 10);
+        if (visibleProductIds.has(productId)) {
+          next[productId] = value;
+        }
+      });
+      return next;
+    });
+    setProductVariationErrors((prev) => {
+      const next: Record<number, string> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const productId = Number.parseInt(key, 10);
+        if (visibleProductIds.has(productId)) {
+          next[productId] = value;
+        }
+      });
+      return next;
+    });
+    setRowVariationsLoading((prev) => {
+      const next: Record<number, boolean> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const productId = Number.parseInt(key, 10);
+        if (visibleProductIds.has(productId)) {
+          next[productId] = value;
+        }
+      });
+      return next;
+    });
+  }, [status, products]);
 
   useEffect(() => {
     if (status !== 'authenticated') {
@@ -792,6 +737,11 @@ export default function SallaNotifyPage() {
         return;
       }
       setRowVariationsLoading((prev) => ({ ...prev, [productId]: true }));
+      setProductVariationErrors((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
       try {
         const response = await fetch('/api/salla/products/variations', {
           method: 'POST',
@@ -1117,8 +1067,12 @@ export default function SallaNotifyPage() {
                 key={product.id}
                 product={product}
                 variations={variationsMap[product.id] ?? []}
-                variationError={productVariationErrors[product.id] || variationsGlobalError}
-                rowLoading={!!rowVariationsLoading[product.id] || variationsLoading}
+                variationsLoaded={Object.prototype.hasOwnProperty.call(
+                  variationsMap,
+                  product.id
+                )}
+                variationError={productVariationErrors[product.id]}
+                rowLoading={!!rowVariationsLoading[product.id]}
                 onRefreshVariations={() => refreshVariationsForProduct(product.id)}
                 requests={availabilityRequests[product.id] ?? []}
                 availabilityLoading={availabilityLoading}
@@ -1421,6 +1375,7 @@ function ParentProductSelect({ id, options, value, onChange }: ParentProductSele
 type ProductNotifyCardProps = {
   product: SallaProductSummary;
   variations: SallaProductVariation[];
+  variationsLoaded: boolean;
   variationError?: string | null;
   rowLoading: boolean;
   onRefreshVariations: () => void;
@@ -1439,6 +1394,7 @@ type ProductNotifyCardProps = {
 function ProductNotifyCard({
   product,
   variations,
+  variationsLoaded,
   variationError,
   rowLoading,
   onRefreshVariations,
@@ -1537,8 +1493,13 @@ function ProductNotifyCard({
     });
   };
 
-  const selectLabel =
-    variations.length > 0 ? 'اختر المقاس من المتغيرات (اختياري)' : 'لا يوجد متغيرات لهذا المنتج';
+  const selectLabel = rowLoading
+    ? 'جاري تحميل المقاسات من سلة...'
+    : !variationsLoaded
+      ? 'حمّل المقاسات من سلة عند الحاجة (اختياري)'
+      : variations.length > 0
+        ? 'اختر المقاس من المتغيرات (اختياري)'
+        : 'لا يوجد متغيرات لهذا المنتج';
 
   return (
     <Card className="border border-slate-100 shadow-lg shadow-slate-200/40">
@@ -1580,9 +1541,22 @@ function ProductNotifyCard({
           <p className="text-xs text-slate-600">أدخل المقاس وبيانات الاتصال لحجز طلب “أبلغني”.</p>
           <form onSubmit={handleSubmit} className="mt-3 space-y-2">
             <div>
-              <label className="text-xs text-slate-500">{selectLabel}</label>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <label className="text-xs text-slate-500">{selectLabel}</label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl border-slate-200"
+                  onClick={onRefreshVariations}
+                  disabled={rowLoading}
+                >
+                  {rowLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                  {variationsLoaded ? 'تحديث المقاسات' : 'تحميل المقاسات'}
+                </Button>
+              </div>
               <NativeSelect
-                disabled={variations.length === 0}
+                disabled={!variationsLoaded || rowLoading || variations.length === 0}
                 value={form.variationKey}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, variationKey: event.target.value }))
@@ -1670,13 +1644,24 @@ function ProductNotifyCard({
               disabled={rowLoading}
             >
               {rowLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              تحديث
+              {variationsLoaded ? 'تحديث' : 'تحميل'}
             </Button>
           </div>
           {variationError && (
             <p className="mt-2 text-xs text-red-600">{variationError}</p>
           )}
-          {!variationError && variations.length === 0 && !rowLoading && (
+          {!variationError && rowLoading && !variationsLoaded && (
+            <p className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              جاري تحميل مقاسات هذا المنتج...
+            </p>
+          )}
+          {!variationError && !variationsLoaded && !rowLoading && (
+            <p className="mt-2 text-sm text-slate-500">
+              حمّل المقاسات عند الحاجة لاختيار متغير أو التحقق من كمياته.
+            </p>
+          )}
+          {!variationError && variationsLoaded && variations.length === 0 && !rowLoading && (
             <p className="mt-2 text-sm text-slate-500">لا توجد متغيرات متاحة لهذا المنتج.</p>
           )}
           <div className="mt-3 flex flex-wrap gap-2">

@@ -1,14 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-
-type BarcodeDetection = { rawValue?: string };
-type BarcodeDetectorInstance = {
-  detect: (source: HTMLVideoElement) => Promise<BarcodeDetection[]>;
-};
-type BarcodeDetectorConstructor = new (options?: {
-  formats?: string[];
-}) => BarcodeDetectorInstance;
 import Link from 'next/link';
 import Image from 'next/image';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
@@ -35,6 +27,16 @@ import {
 } from '@/app/lib/returns/inspection';
 import { resolveReturnItemImage } from '@/app/lib/returns/item-images';
 import { cn } from '@/lib/utils';
+
+type BarcodeDetection = { rawValue?: string };
+type BarcodeDetectorInstance = {
+  detect: (source: HTMLVideoElement) => Promise<BarcodeDetection[]>;
+};
+type BarcodeDetectorConstructor = new (options?: {
+  formats?: string[];
+}) => BarcodeDetectorInstance;
+
+const SCANNER_DETECTION_INTERVAL_MS = 150;
 
 interface ReturnRequestItem {
   id: string;
@@ -183,6 +185,7 @@ export default function ReturnInspectionPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const barcodeDetectorRef = useRef<BarcodeDetectorInstance | null>(null);
   const scanFrameRef = useRef<number | null>(null);
+  const lastDetectionAtRef = useRef(0);
 
   const inspectionSummary = useMemo(() => summarizeItemConditions(items), [items]);
 
@@ -258,6 +261,12 @@ export default function ReturnInspectionPage() {
           scanFrameRef.current = requestAnimationFrame(scanLoop);
           return;
         }
+        const now = performance.now();
+        if (now - lastDetectionAtRef.current < SCANNER_DETECTION_INTERVAL_MS) {
+          scanFrameRef.current = requestAnimationFrame(scanLoop);
+          return;
+        }
+        lastDetectionAtRef.current = now;
         try {
           const barcodes = await barcodeDetectorRef.current.detect(videoElement);
           if (barcodes.length > 0) {

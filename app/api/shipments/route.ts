@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
   AMBIGUOUS_NUMERIC_COMPANY_IDS,
@@ -11,6 +11,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { resolveWarehouseIds, hasWarehouseFeatureAccess } from '@/app/api/shipments/utils';
 import { markSallaOrderDelivering } from '@/app/lib/local-shipping/salla-status';
+import { log } from '@/app/lib/logger';
 
 interface AutoMarkAssignmentResult {
   updated: boolean;
@@ -19,6 +20,25 @@ interface AutoMarkAssignmentResult {
     orderId: string;
     orderNumber: string;
     trackingNumber: string;
+  };
+}
+
+const DEFAULT_SHIPMENTS_LIMIT = 300;
+const MAX_SHIPMENTS_LIMIT = 1000;
+
+function getPagination(searchParams: URLSearchParams) {
+  const pageParam = Number.parseInt(searchParams.get('page') || '', 10);
+  const limitParam = Number.parseInt(searchParams.get('limit') || '', 10);
+
+  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const requestedLimit =
+    Number.isFinite(limitParam) && limitParam > 0 ? limitParam : DEFAULT_SHIPMENTS_LIMIT;
+  const limit = Math.min(requestedLimit, MAX_SHIPMENTS_LIMIT);
+
+  return {
+    page,
+    limit,
+    skip: (page - 1) * limit,
   };
 }
 
@@ -88,8 +108,115 @@ async function autoMarkAssignmentPickedUp(trackingNumber: string): Promise<AutoM
   };
 }
 
+async function runPostCreateShipmentSideEffects({
+  type,
+  trackingNumber,
+  warehouseId,
+}: {
+  type: 'incoming' | 'outgoing';
+  trackingNumber: string;
+  warehouseId: string;
+}) {
+  if (type === 'incoming') {
+    const returnRequest = await prisma.returnRequest.findUnique({
+      where: { smsaTrackingNumber: trackingNumber },
+    });
+
+    if (!returnRequest) {
+      return;
+    }
+
+    await prisma.returnRequest.update({
+      where: { id: returnRequest.id },
+      data: {
+        status: 'delivered',
+        updatedAt: new Date(),
+      },
+    });
+
+    log.info('Updated return request status from warehouse scan', {
+      returnRequestId: returnRequest.id,
+      trackingNumber,
+      warehouseId,
+      status: 'delivered',
+    });
+
+    try {
+      const { getSallaAccessToken } = await import('@/app/lib/salla-oauth');
+      const accessToken = await getSallaAccessToken(returnRequest.merchantId);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const baseUrl = 'https://api.salla.dev/admin/v2';
+      const url = `${baseUrl}/orders/${returnRequest.orderId}/status`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ slug: 'restoring' }),
+      });
+
+      if (response.ok) {
+        log.info('Salla order status updated to restoring from warehouse scan', {
+          orderId: returnRequest.orderId,
+          returnRequestId: returnRequest.id,
+          trackingNumber,
+        });
+      } else {
+        const errorText = await response.text();
+        log.warn('Failed to update Salla order status to restoring from warehouse scan', {
+          orderId: returnRequest.orderId,
+          returnRequestId: returnRequest.id,
+          trackingNumber,
+          error: errorText,
+        });
+      }
+    } catch (error) {
+      log.error('Error updating Salla order status to restoring from warehouse scan', {
+        trackingNumber,
+        error,
+      });
+    }
+    return;
+  }
+
+  try {
+    const autoMarkResult = await autoMarkAssignmentPickedUp(trackingNumber);
+    if (!autoMarkResult.updated) {
+      return;
+    }
+
+    log.info('Auto-marked assignment as picked up from warehouse scan', {
+      trackingNumber,
+      warehouseId,
+    });
+
+    if (autoMarkResult.localShipment) {
+      await markSallaOrderDelivering({
+        merchantId: autoMarkResult.localShipment.merchantId,
+        orderId: autoMarkResult.localShipment.orderId,
+        orderNumber: autoMarkResult.localShipment.orderNumber,
+        trackingNumber: autoMarkResult.localShipment.trackingNumber,
+        action: 'warehouse-scan',
+      });
+    }
+  } catch (error) {
+    log.error('Failed to auto mark assignment as picked up from warehouse scan', {
+      trackingNumber,
+      warehouseId,
+      error,
+    });
+  }
+}
+
 // GET /api/shipments - Get all shipments with optional filtering
 export async function GET(request: NextRequest) {
+  const requestStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -114,9 +241,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type'); // 'incoming' or 'outgoing'
     const company = searchParams.get('company');
     const date = searchParams.get('date'); // ISO date string
-    const limitParam = searchParams.get('limit');
-    const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : NaN;
-    const limit = Number.isFinite(parsedLimit) ? parsedLimit : undefined;
+    const { page, limit, skip } = getPagination(searchParams);
     const requestedWarehouseId = searchParams.get('warehouseId') || undefined;
 
     const where: any = {};
@@ -154,7 +279,18 @@ export async function GET(request: NextRequest) {
       orderBy: {
         scannedAt: 'desc',
       },
-      include: {
+      select: {
+        id: true,
+        trackingNumber: true,
+        company: true,
+        type: true,
+        scannedAt: true,
+        scannedBy: true,
+        handoverScannedAt: true,
+        handoverScannedBy: true,
+        notes: true,
+        smsaLiveStatus: true,
+        smsaLiveStatusUpdatedAt: true,
         warehouse: {
           select: {
             id: true,
@@ -163,17 +299,40 @@ export async function GET(request: NextRequest) {
           },
         },
       },
+      skip,
+      take: limit + 1,
     };
 
-    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
-      shipmentsQuery.take = limit;
-    }
+    const queryStartedAt = Date.now();
+    const shipmentsPage = await prisma.shipment.findMany(shipmentsQuery);
+    const queryDurationMs = Date.now() - queryStartedAt;
+    const hasMore = shipmentsPage.length > limit;
+    const shipments = hasMore ? shipmentsPage.slice(0, limit) : shipmentsPage;
 
-    const shipments = await prisma.shipment.findMany(shipmentsQuery);
+    log.info('Warehouse shipments list query completed', {
+      durationMs: Date.now() - requestStartedAt,
+      queryDurationMs,
+      page,
+      limit,
+      count: shipments.length,
+      hasMore,
+      filteredByDate: Boolean(date),
+      filteredByWarehouse: Boolean(where.warehouseId),
+      filteredByCompany: Boolean(company),
+      filteredByType: Boolean(type),
+    });
 
-    return NextResponse.json(shipments);
+    return NextResponse.json(shipments, {
+      headers: {
+        'X-Pagination-Page': String(page),
+        'X-Pagination-Limit': String(limit),
+        'X-Pagination-Count': String(shipments.length),
+        'X-Pagination-Has-More': String(hasMore),
+        'X-Pagination-Next-Page': hasMore ? String(page + 1) : '',
+      },
+    });
   } catch (error) {
-    console.error('Error fetching shipments:', error);
+    log.error('Error fetching shipments', { error });
     return NextResponse.json(
       { error: 'فشل في جلب الشحنات' },
       { status: 500 }
@@ -183,6 +342,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/shipments - Create a new shipment
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -223,6 +383,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const shipmentType = type as 'incoming' | 'outgoing';
 
     if (!warehouseId || typeof warehouseId !== 'string') {
       return NextResponse.json(
@@ -320,7 +481,7 @@ export async function POST(request: NextRequest) {
       data: {
         trackingNumber: normalizedTrackingNumber,
         company: company.id,
-        type,
+        type: shipmentType,
         warehouseId,
         scannedBy:
           scannedBy ||
@@ -341,80 +502,34 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // If this is an incoming shipment, check if it's linked to a return request
-    if (type === 'incoming') {
-      const returnRequest = await prisma.returnRequest.findUnique({
-        where: { smsaTrackingNumber: normalizedTrackingNumber },
-      });
-
-      if (returnRequest) {
-        // Update return request status to 'delivered'
-        await prisma.returnRequest.update({
-          where: { id: returnRequest.id },
-          data: {
-            status: 'delivered',
-            updatedAt: new Date(),
-          },
-        });
-
-        console.log(`Updated return request ${returnRequest.id} status to 'delivered'`);
-
-        // Update Salla order status to 'restoring' (قيد الاسترجاع)
-        try {
-          const { getSallaAccessToken } = await import('@/app/lib/salla-oauth');
-          const accessToken = await getSallaAccessToken(returnRequest.merchantId);
-
-          if (accessToken) {
-            const baseUrl = 'https://api.salla.dev/admin/v2';
-            const url = `${baseUrl}/orders/${returnRequest.orderId}/status`;
-
-            const response = await fetch(url, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ slug: 'restoring' }),
-            });
-
-            if (response.ok) {
-              console.log(`Salla order status updated to restoring for order ${returnRequest.orderId}`);
-            } else {
-              const errorText = await response.text();
-              console.warn(`Failed to update Salla order status to restoring: ${errorText}`);
-            }
-          }
-        } catch (error) {
-          console.error('Error updating Salla order status to restoring:', error);
-          // Continue even if Salla update fails
-        }
-      }
-    } else if (type === 'outgoing') {
+    after(async () => {
       try {
-        const autoMarkResult = await autoMarkAssignmentPickedUp(normalizedTrackingNumber);
-        if (autoMarkResult.updated) {
-          console.info('Auto-marked assignment as picked up from warehouse scan', {
-            trackingNumber: normalizedTrackingNumber,
-            warehouseId,
-          });
-          if (autoMarkResult.localShipment) {
-            await markSallaOrderDelivering({
-              merchantId: autoMarkResult.localShipment.merchantId,
-              orderId: autoMarkResult.localShipment.orderId,
-              orderNumber: autoMarkResult.localShipment.orderNumber,
-              trackingNumber: autoMarkResult.localShipment.trackingNumber,
-              action: 'warehouse-scan',
-            });
-          }
-        }
-      } catch (autoError) {
-        console.error('Failed to auto mark assignment as picked up', autoError);
+        await runPostCreateShipmentSideEffects({
+          type: shipmentType,
+          trackingNumber: normalizedTrackingNumber,
+          warehouseId,
+        });
+      } catch (error) {
+        log.error('Failed to run post-create shipment side effects', {
+          trackingNumber: normalizedTrackingNumber,
+          warehouseId,
+          type: shipmentType,
+          error,
+        });
       }
-    }
+    });
+
+    log.info('Warehouse shipment created', {
+      durationMs: Date.now() - requestStartedAt,
+      shipmentId: shipment.id,
+      trackingNumber: normalizedTrackingNumber,
+      warehouseId,
+      type: shipmentType,
+    });
 
     return NextResponse.json(shipment, { status: 201 });
   } catch (error) {
-    console.error('Error creating shipment:', error);
+    log.error('Error creating shipment', { error });
     return NextResponse.json(
       { error: 'فشل في إنشاء الشحنة' },
       { status: 500 }

@@ -28,7 +28,6 @@ import {
   Megaphone,
   FileSpreadsheet,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import {
   getERPOrderSyncError,
   hasSuccessfulERPSync,
@@ -395,6 +394,7 @@ export default function OrderReportsPage() {
         return trimmedRow;
       });
 
+      const XLSX = await import('xlsx');
       const worksheet = XLSX.utils.json_to_sheet(trimmedRows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Order Reports');

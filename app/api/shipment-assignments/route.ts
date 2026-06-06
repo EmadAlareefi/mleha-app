@@ -6,11 +6,31 @@ import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
+const DEFAULT_ASSIGNMENTS_LIMIT = 200;
+const MAX_ASSIGNMENTS_LIMIT = 500;
+
+function getPagination(searchParams: URLSearchParams) {
+  const pageParam = Number.parseInt(searchParams.get('page') || '', 10);
+  const limitParam = Number.parseInt(searchParams.get('limit') || '', 10);
+
+  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const requestedLimit =
+    Number.isFinite(limitParam) && limitParam > 0 ? limitParam : DEFAULT_ASSIGNMENTS_LIMIT;
+  const limit = Math.min(requestedLimit, MAX_ASSIGNMENTS_LIMIT);
+
+  return {
+    page,
+    limit,
+    skip: (page - 1) * limit,
+  };
+}
+
 /**
  * GET /api/shipment-assignments
  * Get all shipment assignments (filtered by role)
  */
 export async function GET(request: NextRequest) {
+  const requestStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
 
@@ -22,6 +42,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const status = searchParams.get('status');
     const deliveryAgentId = searchParams.get('deliveryAgentId');
+    const { page, limit, skip } = getPagination(searchParams);
 
     // Build filter based on user role
     const where: any = {};
@@ -38,13 +59,94 @@ export async function GET(request: NextRequest) {
       where.status = status;
     }
 
-    const assignments = await prisma.shipmentAssignment.findMany({
+    const assignmentsQueryStartedAt = Date.now();
+    const assignmentsPage = await prisma.shipmentAssignment.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        shipmentId: true,
+        deliveryAgentId: true,
+        status: true,
+        assignedAt: true,
+        assignedBy: true,
+        pickedUpAt: true,
+        deliveredAt: true,
+        failedAt: true,
+        cancelledAt: true,
+        failureReason: true,
+        cancellationReason: true,
+        deliveryProofUrl: true,
+        recipientName: true,
+        recipientSignature: true,
+        notes: true,
+        deliveryOtpRequestedAt: true,
+        deliveryOtpExpiresAt: true,
+        deliveryOtpVerifiedAt: true,
+        deliveryOtpAttemptCount: true,
+        updatedAt: true,
         shipment: {
-          include: {
-            warehouse: true,
-            codCollection: true,
+          select: {
+            id: true,
+            merchantId: true,
+            orderId: true,
+            orderNumber: true,
+            customerName: true,
+            customerPhone: true,
+            shippingAddress: true,
+            shippingCity: true,
+            shippingPostcode: true,
+            orderTotal: true,
+            itemsCount: true,
+            orderItems: true,
+            paymentMethod: true,
+            isCOD: true,
+            status: true,
+            deliveryNotes: true,
+            deliveredAt: true,
+            cancelledAt: true,
+            cancellationReason: true,
+            trackingNumber: true,
+            generatedBy: true,
+            notes: true,
+            smsaLiveStatus: true,
+            smsaLiveStatusUpdatedAt: true,
+            warehouseId: true,
+            createdAt: true,
+            updatedAt: true,
+            warehouse: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                location: true,
+              },
+            },
+            codCollection: {
+              select: {
+                id: true,
+                shipmentId: true,
+                collectionAmount: true,
+                collectedAmount: true,
+                currency: true,
+                status: true,
+                collectedAt: true,
+                depositedAt: true,
+                reconciledAt: true,
+                collectedBy: true,
+                depositedBy: true,
+                reconciledBy: true,
+                receiptUrl: true,
+                depositMethod: true,
+                depositReference: true,
+                depositNotes: true,
+                reconciliationNotes: true,
+                discrepancyAmount: true,
+                discrepancyReason: true,
+                notes: true,
+                createdAt: true,
+                updatedAt: true,
+              },
+            },
           },
         },
         deliveryAgent: {
@@ -59,7 +161,13 @@ export async function GET(request: NextRequest) {
       orderBy: {
         assignedAt: 'desc',
       },
+      skip,
+      take: limit + 1,
     });
+    const assignmentsQueryDurationMs = Date.now() - assignmentsQueryStartedAt;
+
+    const hasMore = assignmentsPage.length > limit;
+    const assignments = hasMore ? assignmentsPage.slice(0, limit) : assignmentsPage;
 
     const trackingNumbers = assignments
       .map((assignment) => assignment.shipment?.trackingNumber)
@@ -135,10 +243,30 @@ export async function GET(request: NextRequest) {
           : null,
       };
     });
+    log.info('Shipment assignments list query completed', {
+      durationMs: Date.now() - requestStartedAt,
+      assignmentsQueryDurationMs,
+      page,
+      limit,
+      count: enrichedAssignments.length,
+      hasMore,
+      filteredByStatus: Boolean(status),
+      filteredByDeliveryAgent: Boolean(where.deliveryAgentId),
+      trackingLookupCount: trackingNumbers.length,
+      exchangeLookupCount: orderNumbers.length,
+    });
 
     return NextResponse.json({
       success: true,
       assignments: enrichedAssignments,
+      count: enrichedAssignments.length,
+      pagination: {
+        page,
+        limit,
+        count: enrichedAssignments.length,
+        hasMore,
+        nextPage: hasMore ? page + 1 : null,
+      },
     });
   } catch (error) {
     log.error('Error fetching shipment assignments', {

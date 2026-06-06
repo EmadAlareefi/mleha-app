@@ -11,7 +11,7 @@ const SALLA_OAUTH_URL = 'https://accounts.salla.sa/oauth2/token';
 const TOKEN_REFRESH_BEFORE_EXPIRY_MS = 2 * 24 * 60 * 60 * 1000; // Refresh 2 days before expiry
 const FORCED_REFRESH_INTERVAL_MS = 10 * 24 * 60 * 60 * 1000; // Force refresh every 10 days (Salla tokens expire every 14 days)
 const SALLA_CA_BUNDLE_PATH =
-  process.env.SALLA_CA_BUNDLE_PATH || path.join(process.cwd(), 'certs/salla-chain.pem');
+  process.env.SALLA_CA_BUNDLE_PATH || path.join(/* turbopackIgnore: true */ process.cwd(), 'certs/salla-chain.pem');
 
 type SallaRequestOptions = UndiciRequestInit & { dispatcher?: Dispatcher };
 
@@ -292,13 +292,13 @@ function getSallaDispatcher(): Dispatcher | null {
   }
 
   try {
-    if (!SALLA_CA_BUNDLE_PATH || !fs.existsSync(SALLA_CA_BUNDLE_PATH)) {
+    if (!SALLA_CA_BUNDLE_PATH || !fs.existsSync(/* turbopackIgnore: true */ SALLA_CA_BUNDLE_PATH)) {
       log.warn('Salla CA bundle not found on disk', { caPath: SALLA_CA_BUNDLE_PATH });
       sallaDispatcher = null;
       return null;
     }
 
-    const caBundle = fs.readFileSync(SALLA_CA_BUNDLE_PATH, 'utf8');
+    const caBundle = fs.readFileSync(/* turbopackIgnore: true */ SALLA_CA_BUNDLE_PATH, 'utf8');
     const caChain = [...rootCertificates, caBundle];
     sallaDispatcher = new Agent({
       connect: {

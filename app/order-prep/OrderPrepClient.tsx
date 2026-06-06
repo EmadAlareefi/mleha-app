@@ -1438,7 +1438,7 @@ function AssignmentCard({
                       )}
                       {!isUnavailable && !unavailableRecord && normalizedItemSku && (
                         <span className="text-xs text-gray-500">
-                          سيظهر إشعار التسجيل إذا تم اختيار "غير متوفر".
+                          سيظهر إشعار التسجيل إذا تم اختيار &quot;غير متوفر&quot;.
                         </span>
                       )}
                       {!normalizedItemSku && (

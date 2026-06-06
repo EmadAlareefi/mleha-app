@@ -218,6 +218,9 @@ model Shipment {
   @@index([type])
   @@index([scannedAt, type])
   @@index([warehouseId])
+  @@index([warehouseId, scannedAt])
+  @@index([warehouseId, company, scannedAt])
+  @@index([warehouseId, type, scannedAt])
 }
 
 model SallaShipment {
@@ -618,6 +621,7 @@ model ReturnRequest {
   @@index([orderId])
   @@index([status])
   @@index([type])
+  @@index([type, exchangeOrderNumber])
   @@index([createdAt])
   @@index([smsaTrackingNumber])
   @@index([exchangeOrderId])
@@ -892,6 +896,8 @@ model OrderAssignment {
   @@index([merchantId, orderId])
   @@index([merchantId, orderNumber])
   @@index([assignedAt])
+  @@index([completedAt, assignedAt])
+  @@index([sallaStatus, assignedAt])
 }
 
 model OrderPrepAssignment {
@@ -1152,6 +1158,9 @@ model ShipmentAssignment {
   @@index([status])
   @@index([assignedAt])
   @@index([deliveredAt])
+  @@index([deliveryAgentId, assignedAt])
+  @@index([status, assignedAt])
+  @@index([deliveryAgentId, status, assignedAt])
 }
 
 model CODCollection {

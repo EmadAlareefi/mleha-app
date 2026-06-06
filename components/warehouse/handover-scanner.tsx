@@ -13,6 +13,7 @@ type BarcodeDetectorInstance = {
   detect: (source: HTMLVideoElement) => Promise<BarcodeDetection[]>;
 };
 type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
+const SCANNER_DETECTION_INTERVAL_MS = 150;
 
 type HandoverOutcome = 'confirmed' | 'already_confirmed' | 'missing_first_scan';
 
@@ -58,6 +59,7 @@ export function HandoverScanner({
   const streamRef = useRef<MediaStream | null>(null);
   const barcodeDetectorRef = useRef<BarcodeDetectorInstance | null>(null);
   const scanFrameRef = useRef<number | null>(null);
+  const lastDetectionAtRef = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
 
   const stopScanner = useCallback(() => {
@@ -232,6 +234,12 @@ export function HandoverScanner({
           scanFrameRef.current = requestAnimationFrame(scanLoop);
           return;
         }
+        const now = performance.now();
+        if (now - lastDetectionAtRef.current < SCANNER_DETECTION_INTERVAL_MS) {
+          scanFrameRef.current = requestAnimationFrame(scanLoop);
+          return;
+        }
+        lastDetectionAtRef.current = now;
         try {
           const barcodes = await barcodeDetectorRef.current.detect(videoRef.current);
           if (barcodes.length > 0) {

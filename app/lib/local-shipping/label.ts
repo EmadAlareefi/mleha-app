@@ -31,8 +31,8 @@ const PAGE_PADDING = 18;
 
 const FONT_FILENAME = 'NotoNaskhArabic-Regular.ttf';
 const FONT_CANDIDATE_PATHS = [
-  path.join(process.cwd(), 'public', 'fonts', 'local-shipping', FONT_FILENAME),
-  path.join(process.cwd(), 'app', 'lib', 'local-shipping', 'fonts', FONT_FILENAME),
+  path.join(/* turbopackIgnore: true */ process.cwd(), 'public', 'fonts', 'local-shipping', FONT_FILENAME),
+  path.join(/* turbopackIgnore: true */ process.cwd(), 'app', 'lib', 'local-shipping', 'fonts', FONT_FILENAME),
 ];
 let cachedFontData: Promise<Uint8Array> | null = null;
 
@@ -609,7 +609,7 @@ async function loadArabicFont(): Promise<Uint8Array> {
     cachedFontData = (async () => {
       for (const candidate of FONT_CANDIDATE_PATHS) {
         try {
-          return await fs.readFile(candidate);
+          return await fs.readFile(/* turbopackIgnore: true */ candidate);
         } catch {
           // Ignore and try the next candidate
         }

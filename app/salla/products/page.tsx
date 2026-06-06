@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -113,10 +113,7 @@ export default function SallaProductsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [variationsMap, setVariationsMap] = useState<Record<number, SallaProductVariation[]>>({});
   const [productVariationErrors, setProductVariationErrors] = useState<Record<number, string>>({});
-  const [variationsLoading, setVariationsLoading] = useState(false);
-  const [variationsGlobalError, setVariationsGlobalError] = useState<string | null>(null);
   const [rowVariationsLoading, setRowVariationsLoading] = useState<Record<number, boolean>>({});
-  const variationsRequestId = useRef(0);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -161,90 +158,6 @@ export default function SallaProductsPage() {
         setPagination(null);
       } finally {
         setLoading(false);
-      }
-    },
-    []
-  );
-
-  const fetchVariations = useCallback(
-    async (items: SallaProductSummary[]) => {
-      if (!items || items.length === 0) {
-        setVariationsMap({});
-        setProductVariationErrors({});
-        setVariationsGlobalError(null);
-        setVariationsLoading(false);
-        setRowVariationsLoading({});
-        return;
-      }
-
-      const ids = items.map((item) => item.id);
-      const requestId = Date.now();
-      variationsRequestId.current = requestId;
-      setVariationsLoading(true);
-      setVariationsGlobalError(null);
-      setProductVariationErrors({});
-      setRowVariationsLoading({});
-
-      try {
-        const response = await fetch('/api/salla/products/variations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ productIds: ids }),
-        });
-        const data = await response.json();
-
-        if (variationsRequestId.current !== requestId) {
-          return;
-        }
-
-        if (!response.ok || !data.success) {
-          throw new Error(data?.error || 'تعذر تحميل متغيرات المنتجات');
-        }
-
-        const normalized: Record<number, SallaProductVariation[]> = {};
-        Object.entries(data.variations ?? {}).forEach(([key, value]) => {
-          const parsed = Number.parseInt(key, 10);
-          if (Number.isFinite(parsed)) {
-            normalized[parsed] = Array.isArray(value) ? value : [];
-          }
-        });
-
-        items.forEach((item) => {
-          if (!normalized[item.id]) {
-            normalized[item.id] = [];
-          }
-        });
-
-        const perProductErrors: Record<number, string> = {};
-        if (Array.isArray(data.failed)) {
-          data.failed.forEach((entry: { productId?: number; message?: string }) => {
-            if (!entry || typeof entry.productId !== 'number') {
-              return;
-            }
-            perProductErrors[entry.productId] =
-              entry.message || 'تعذر تحميل متغيرات هذا المنتج من سلة';
-          });
-        }
-
-        setVariationsMap(normalized);
-        setProductVariationErrors(perProductErrors);
-        setVariationsGlobalError(null);
-      } catch (err) {
-        if (variationsRequestId.current !== requestId) {
-          return;
-        }
-        const message =
-          err instanceof Error ? err.message : 'تعذر تحميل متغيرات المنتجات';
-        setVariationsMap({});
-        setProductVariationErrors({});
-        setVariationsGlobalError(message);
-        setRowVariationsLoading({});
-      } finally {
-        if (variationsRequestId.current === requestId) {
-          setVariationsLoading(false);
-        }
       }
     },
     []
@@ -316,12 +229,41 @@ export default function SallaProductsPage() {
     if (products.length === 0) {
       setVariationsMap({});
       setProductVariationErrors({});
-      setVariationsGlobalError(null);
-      setVariationsLoading(false);
+      setRowVariationsLoading({});
       return;
     }
-    fetchVariations(products);
-  }, [status, products, fetchVariations]);
+    const visibleProductIds = new Set(products.map((product) => product.id));
+    setVariationsMap((prev) => {
+      const next: Record<number, SallaProductVariation[]> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const productId = Number.parseInt(key, 10);
+        if (visibleProductIds.has(productId)) {
+          next[productId] = value;
+        }
+      });
+      return next;
+    });
+    setProductVariationErrors((prev) => {
+      const next: Record<number, string> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const productId = Number.parseInt(key, 10);
+        if (visibleProductIds.has(productId)) {
+          next[productId] = value;
+        }
+      });
+      return next;
+    });
+    setRowVariationsLoading((prev) => {
+      const next: Record<number, boolean> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const productId = Number.parseInt(key, 10);
+        if (visibleProductIds.has(productId)) {
+          next[productId] = value;
+        }
+      });
+      return next;
+    });
+  }, [status, products]);
 
   useEffect(() => {
     if (status !== 'authenticated') {
@@ -345,6 +287,11 @@ export default function SallaProductsPage() {
         return;
       }
       setRowVariationsLoading((prev) => ({ ...prev, [productId]: true }));
+      setProductVariationErrors((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
       try {
         const response = await fetch('/api/salla/products/variations', {
           method: 'POST',
@@ -631,10 +578,12 @@ export default function SallaProductsPage() {
                           requestsLoading={requestsLoading}
                           requestsError={requestsError}
                           variations={variationsMap[product.id] ?? []}
-                          variationsLoading={variationsLoading}
+                          variationsLoaded={Object.prototype.hasOwnProperty.call(
+                            variationsMap,
+                            product.id
+                          )}
                           rowVariationsLoading={!!rowVariationsLoading[product.id]}
                           variationError={productVariationErrors[product.id]}
-                          globalVariationError={variationsGlobalError}
                           onRefreshVariations={() => refreshVariationsForProduct(product.id)}
                         />
                       ))}
@@ -654,10 +603,9 @@ type ProductRowProps = {
   requestsLoading: boolean;
   requestsError?: string | null;
   variations: SallaProductVariation[];
-  variationsLoading: boolean;
+  variationsLoaded: boolean;
   rowVariationsLoading: boolean;
   variationError?: string | null;
-  globalVariationError?: string | null;
   onRefreshVariations: () => void;
 };
 
@@ -667,10 +615,9 @@ function ProductRow({
   requestsLoading,
   requestsError,
   variations,
-  variationsLoading,
+  variationsLoaded,
   rowVariationsLoading,
   variationError,
-  globalVariationError,
   onRefreshVariations,
 }: ProductRowProps) {
   const [variationAdjustments, setVariationAdjustments] = useState<
@@ -679,8 +626,8 @@ function ProductRow({
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateFeedback, setUpdateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const variationList = variations ?? [];
-  const variationMessage = variationError || globalVariationError;
-  const rowLoading = variationsLoading || rowVariationsLoading;
+  const variationMessage = variationError;
+  const rowLoading = rowVariationsLoading;
   const hasPendingAdjustments = Object.values(variationAdjustments).some(
     (entry) => Number.parseInt(entry.quantity, 10) > 0
   );
@@ -822,19 +769,33 @@ function ProductRow({
     <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold text-slate-800">
-          المتغيرات ({formatNumber(variationList.length)})
+          المتغيرات {variationsLoaded ? `(${formatNumber(variationList.length)})` : ''}
         </p>
-        {rowLoading && (
-          <span className="inline-flex items-center gap-2 text-xs text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            جاري تحميل المتغيرات...
-          </span>
-        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-xl border-slate-200"
+          onClick={onRefreshVariations}
+          disabled={rowLoading || updateLoading}
+        >
+          {rowLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+          {variationsLoaded ? 'تحديث المتغيرات' : 'تحميل المتغيرات'}
+        </Button>
       </div>
-      {variationMessage ? (
+      {rowLoading && !variationsLoaded ? (
+        <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          جاري تحميل متغيرات هذا المنتج...
+        </p>
+      ) : variationMessage ? (
         <Alert className="mt-3">
           <AlertDescription>{variationMessage}</AlertDescription>
         </Alert>
+      ) : !variationsLoaded && !rowLoading ? (
+        <p className="mt-3 text-sm text-slate-500">
+          حمّل متغيرات هذا المنتج عند الحاجة لتعديل كميات المقاسات.
+        </p>
       ) : variationList.length === 0 && !rowLoading ? (
         <p className="mt-3 text-sm text-slate-500">لا توجد متغيرات مسجلة لهذا المنتج.</p>
       ) : (

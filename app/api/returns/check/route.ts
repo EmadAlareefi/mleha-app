@@ -7,9 +7,9 @@ import {
   getCategoryNamesByProductId,
   getDiscountedProductIds,
   getProductIdsForOrderItems,
-  isEveningDressCategory,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
+import { isEveningDressCategory } from '@/lib/returns/categories';
 
 export const runtime = 'nodejs';
 

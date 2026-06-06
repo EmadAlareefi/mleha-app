@@ -2,7 +2,6 @@
 
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import { Badge } from '@/components/ui/badge';
@@ -262,12 +261,13 @@ export default function ExpensesPage() {
     return 'secondary';
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!expenses.length) {
       alert('لا توجد مصروفات لتصديرها');
       return;
     }
 
+    const XLSX = await import('xlsx');
     const rows = expenses.map((expense) => ({
       المعرف: expense.id,
       التاريخ: new Date(expense.expenseDate).toLocaleDateString('ar-SA'),

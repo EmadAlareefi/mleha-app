@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -501,14 +502,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const isDiscountedCategoryItem =
                 isDiscountedProduct || isDiscountedCategory(category) || discountedCategoryItemIds.has(item.id);
               const { color, size } = getItemAttributes(item);
-
-              // Debug: log the full structure on first render
-              if (index === 0 && typeof window !== 'undefined') {
-                console.log('Full order item:', item);
-                console.log('Item keys:', Object.keys(item));
-                console.log('Full order object:', order);
-                console.log('Order amounts:', order.amounts);
-              }
+              const imageSrc = item.images?.[0]?.image || item.product?.thumbnail || item.thumbnail;
 
               // Calculate price: (price without tax + tax) - discount
               const itemPrice = calculateItemPrice(item);
@@ -528,10 +522,13 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                   }`}
                 >
                   {/* Product Image */}
-                  {(item.images?.[0]?.image || item.product?.thumbnail || item.thumbnail) ? (
-                    <img
-                      src={item.images?.[0]?.image || item.product?.thumbnail || item.thumbnail}
+                  {imageSrc ? (
+                    <Image
+                      src={imageSrc}
                       alt={item.name || item.product?.name || 'Product'}
+                      width={80}
+                      height={80}
+                      sizes="80px"
                       className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
                     />
                   ) : (

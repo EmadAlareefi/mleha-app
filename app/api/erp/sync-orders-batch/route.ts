@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Build query
-    let whereClause: any = {};
+    const whereClause: any = {};
 
     if (orderIds && orderIds.length > 0) {
       whereClause.orderId = { in: orderIds };

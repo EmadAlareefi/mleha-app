@@ -27,6 +27,7 @@ const EMPTY_STATS: Stats = {
   handoverConfirmed: 0,
   byCompany: [],
 };
+const WAREHOUSE_SHIPMENTS_PAGE_LIMIT = 300;
 
 function extractUserRoles(session: Session | null): string[] {
   if (!session?.user) {
@@ -147,9 +148,9 @@ async function loadWarehouseSnapshot({
 }: {
   date: Date;
   warehouseId: string | null;
-}): Promise<{ shipments: Shipment[]; stats: Stats }> {
+}): Promise<{ shipments: Shipment[]; stats: Stats; hasMore: boolean }> {
   if (!warehouseId) {
-    return { shipments: [], stats: EMPTY_STATS };
+    return { shipments: [], stats: EMPTY_STATS, hasMore: false };
   }
 
   const startOfDay = new Date(date);
@@ -180,7 +181,12 @@ async function loadWarehouseSnapshot({
       orderBy: {
         scannedAt: 'desc',
       },
+      take: WAREHOUSE_SHIPMENTS_PAGE_LIMIT + 1,
     });
+    const hasMore = shipmentsRaw.length > WAREHOUSE_SHIPMENTS_PAGE_LIMIT;
+    const visibleShipments = hasMore
+      ? shipmentsRaw.slice(0, WAREHOUSE_SHIPMENTS_PAGE_LIMIT)
+      : shipmentsRaw;
 
     const handoverWhere = {
       ...where,
@@ -209,7 +215,7 @@ async function loadWarehouseSnapshot({
       }),
     ]);
 
-    const shipments: Shipment[] = shipmentsRaw.map((shipment) => ({
+    const shipments: Shipment[] = visibleShipments.map((shipment) => ({
       id: shipment.id,
       trackingNumber: shipment.trackingNumber,
       company: shipment.company,
@@ -245,10 +251,10 @@ async function loadWarehouseSnapshot({
       })),
     };
 
-    return { shipments, stats };
+    return { shipments, stats, hasMore };
   } catch (error) {
     console.error('Failed to load warehouse snapshot', error);
-    return { shipments: [], stats: EMPTY_STATS };
+    return { shipments: [], stats: EMPTY_STATS, hasMore: false };
   }
 }
 
@@ -334,12 +340,12 @@ export default async function WarehousePage() {
   );
 
   const today = new Date();
-  const { shipments, stats } = defaultWarehouseId
+  const { shipments, stats, hasMore: initialShipmentsHasMore } = defaultWarehouseId
     ? await loadWarehouseSnapshot({
         date: today,
         warehouseId: defaultWarehouseId,
       })
-    : { shipments: [], stats: EMPTY_STATS };
+    : { shipments: [], stats: EMPTY_STATS, hasMore: false };
 
   return (
     <WarehouseDashboardClient
@@ -349,6 +355,7 @@ export default async function WarehousePage() {
       initialAdminWarehouses={adminWarehouses}
       defaultWarehouseId={defaultWarehouseId}
       initialShipments={shipments}
+      initialShipmentsHasMore={initialShipmentsHasMore}
       initialStats={stats}
       initialDateIso={today.toISOString()}
       initialWarehouseError={adminWarehouseError}

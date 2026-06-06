@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/use-toast';
 
+const ASSIGNMENTS_PAGE_LIMIT = 200;
+
 interface LocalShipment {
   id: string;
   orderNumber: string;
@@ -66,6 +68,9 @@ export default function ShipmentAssignmentsPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [assignmentsPage, setAssignmentsPage] = useState(1);
+  const [assignmentsHasMore, setAssignmentsHasMore] = useState(false);
+  const [assignmentsLoadingMore, setAssignmentsLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string>('');
@@ -91,7 +96,7 @@ export default function ShipmentAssignmentsPage() {
 
       const [shipmentsRes, assignmentsRes, agentsRes] = await Promise.all([
         fetch('/api/local-shipping/list?status=pending'),
-        fetch('/api/shipment-assignments'),
+        fetch(`/api/shipment-assignments?page=1&limit=${ASSIGNMENTS_PAGE_LIMIT}`),
         fetch('/api/delivery-agents?includeStats=true'),
       ]);
 
@@ -105,11 +110,48 @@ export default function ShipmentAssignmentsPage() {
 
       setPendingShipments(shipmentsData.shipments || []);
       setAssignments(assignmentsData.assignments || []);
+      setAssignmentsPage(assignmentsData.pagination?.page ?? 1);
+      setAssignmentsHasMore(Boolean(assignmentsData.pagination?.hasMore));
       setDeliveryAgents(agentsData.deliveryAgents || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل البيانات');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMoreAssignments = async () => {
+    if (assignmentsLoadingMore || !assignmentsHasMore) {
+      return;
+    }
+
+    try {
+      setAssignmentsLoadingMore(true);
+      setError('');
+      const nextPage = assignmentsPage + 1;
+      const response = await fetch(
+        `/api/shipment-assignments?page=${nextPage}&limit=${ASSIGNMENTS_PAGE_LIMIT}`
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'فشل في تحميل المزيد من الشحنات');
+      }
+
+      const nextAssignments = Array.isArray(data.assignments) ? data.assignments : [];
+      setAssignments((prev) => {
+        const existingIds = new Set(prev.map((assignment) => assignment.id));
+        const uniqueNext = nextAssignments.filter(
+          (assignment: Assignment) => !existingIds.has(assignment.id)
+        );
+        return [...prev, ...uniqueNext];
+      });
+      setAssignmentsPage(data.pagination?.page ?? nextPage);
+      setAssignmentsHasMore(Boolean(data.pagination?.hasMore));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء تحميل المزيد من الشحنات');
+    } finally {
+      setAssignmentsLoadingMore(false);
     }
   };
 
@@ -585,8 +627,8 @@ export default function ShipmentAssignmentsPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <Table>
+	          <div className="overflow-x-auto">
+	            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-center">
@@ -663,10 +705,23 @@ export default function ShipmentAssignmentsPage() {
                   })
                 )}
               </TableBody>
-            </Table>
-          </div>
-          </CardContent>
-        </Card>
+	            </Table>
+	          </div>
+	          <div className="mt-4 flex flex-col gap-2 border-t pt-4 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+	            <span>تم تحميل {assignments.length} شحنة معينة</span>
+	            {assignmentsHasMore && (
+	              <Button
+	                type="button"
+	                variant="outline"
+	                onClick={loadMoreAssignments}
+	                disabled={assignmentsLoadingMore}
+	              >
+	                {assignmentsLoadingMore ? 'جاري تحميل المزيد...' : 'تحميل المزيد'}
+	              </Button>
+	            )}
+	          </div>
+	          </CardContent>
+	        </Card>
       </div>
     </AppPageShell>
   );

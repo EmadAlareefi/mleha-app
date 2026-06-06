@@ -32,6 +32,7 @@ interface ScannerInputProps {
 }
 
 const AMBIGUOUS_COMPANY_STORAGE_KEY = 'warehouse-ambiguous-company';
+const SCANNER_DETECTION_INTERVAL_MS = 150;
 
 export function ScannerInput({
   onScan,
@@ -52,6 +53,7 @@ export function ScannerInput({
   const streamRef = useRef<MediaStream | null>(null);
   const barcodeDetectorRef = useRef<BarcodeDetectorInstance | null>(null);
   const scanFrameRef = useRef<number | null>(null);
+  const lastDetectionAtRef = useRef(0);
   const isAmbiguousCompany = useMemo(
     () => isAmbiguousShipmentCompanyTrackingNumber(trackingNumber),
     [trackingNumber]
@@ -195,6 +197,12 @@ export function ScannerInput({
           scanFrameRef.current = requestAnimationFrame(scanLoop);
           return;
         }
+        const now = performance.now();
+        if (now - lastDetectionAtRef.current < SCANNER_DETECTION_INTERVAL_MS) {
+          scanFrameRef.current = requestAnimationFrame(scanLoop);
+          return;
+        }
+        lastDetectionAtRef.current = now;
         try {
           const barcodes = await barcodeDetectorRef.current.detect(videoElement);
           if (barcodes.length > 0) {
