@@ -137,8 +137,10 @@ interface AffiliateManagementResponse {
 
 type RangePreset = '30' | '90' | 'all' | 'custom';
 
-const DATE_FORMATTER = new Intl.DateTimeFormat('ar-SA', { dateStyle: 'medium' });
-const NUMBER_FORMATTER = new Intl.NumberFormat('ar-SA', { maximumFractionDigits: 1 });
+const DISPLAY_LOCALE = 'ar-SA-u-ca-gregory-nu-latn';
+const DATE_FORMATTER = new Intl.DateTimeFormat(DISPLAY_LOCALE, { dateStyle: 'medium' });
+const NUMBER_FORMATTER = new Intl.NumberFormat(DISPLAY_LOCALE, { maximumFractionDigits: 1 });
+const INTEGER_FORMATTER = new Intl.NumberFormat(DISPLAY_LOCALE, { maximumFractionDigits: 0 });
 const CURRENCY = 'SAR';
 const payoutStatusLabels: Record<AffiliatePayoutEntry['status'], string> = {
   PENDING: 'قيد المراجعة',
@@ -157,11 +159,18 @@ const formatCurrency = (value?: number, currency: string = CURRENCY) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return '-';
   }
-  return new Intl.NumberFormat('ar-SA', {
+  return new Intl.NumberFormat(DISPLAY_LOCALE, {
     style: 'currency',
     currency,
     maximumFractionDigits: 0,
   }).format(value);
+};
+
+const formatNumber = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '-';
+  }
+  return INTEGER_FORMATTER.format(value);
 };
 
 const formatPercent = (value?: number) => {
@@ -382,8 +391,8 @@ export default function AffiliateManagementPage() {
               </Field>
               <div className="flex flex-wrap gap-2">
                 {([
-                  { key: '30', label: 'آخر ٣٠ يوماً' },
-                  { key: '90', label: 'آخر ٩٠ يوماً' },
+                  { key: '30', label: 'آخر 30 يوماً' },
+                  { key: '90', label: 'آخر 90 يوماً' },
                   { key: 'all', label: 'منذ البداية' },
                   { key: 'custom', label: 'تاريخ مخصص' },
                 ] as { key: RangePreset; label: string }[]).map((preset) => (
@@ -452,8 +461,10 @@ export default function AffiliateManagementPage() {
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card className="p-4">
             <p className="text-sm text-gray-500">عدد المسوقين النشطين</p>
-            <p className="mt-2 text-3xl font-bold text-slate-900">{data?.summary.activeAffiliates ?? 0}</p>
-            <p className="text-xs text-gray-400">من أصل {data?.summary.totalAffiliates ?? 0}</p>
+            <p className="mt-2 text-3xl font-bold text-slate-900">
+              {formatNumber(data?.summary.activeAffiliates ?? 0)}
+            </p>
+            <p className="text-xs text-gray-400">من أصل {formatNumber(data?.summary.totalAffiliates ?? 0)}</p>
           </Card>
           <Card className="p-4">
             <div className="flex items-center justify-between">
@@ -493,7 +504,7 @@ export default function AffiliateManagementPage() {
               <p className="text-sm text-gray-500">نظرة سريعة</p>
               <CardTitle>قائمة المسوقين والعمولات</CardTitle>
             </div>
-            <Badge variant="secondary">{filteredAffiliates.length} مسوق</Badge>
+            <Badge variant="secondary">{formatNumber(filteredAffiliates.length)} مسوق</Badge>
           </CardHeader>
           <Table>
             <TableHeader>
@@ -522,9 +533,10 @@ export default function AffiliateManagementPage() {
                     <p className="text-xs text-gray-400">{formatPercent(affiliate.commissionRate)}</p>
                   </TableCell>
                   <TableCell>
-                    <div className="font-semibold">{affiliate.stats.totalOrders}</div>
+                    <div className="font-semibold">{formatNumber(affiliate.stats.totalOrders)}</div>
                     <p className="text-xs text-gray-500">
-                      {affiliate.stats.deliveredOrders} مكتمل / {affiliate.stats.pendingOrders} قيد التنفيذ
+                      {formatNumber(affiliate.stats.deliveredOrders)} مكتمل /{' '}
+                      {formatNumber(affiliate.stats.pendingOrders)} قيد التنفيذ
                     </p>
                   </TableCell>
                   <TableCell>{formatCurrency(affiliate.stats.netSales)}</TableCell>
@@ -582,7 +594,9 @@ export default function AffiliateManagementPage() {
                   <p className="mt-2 text-xl font-semibold text-amber-700">
                     {formatCurrency(highlightedAffiliate.stats.commissionPending)}
                   </p>
-                  <p className="text-xs text-amber-600">من {highlightedAffiliate.stats.pendingOrders} طلب</p>
+                  <p className="text-xs text-amber-600">
+                    من {formatNumber(highlightedAffiliate.stats.pendingOrders)} طلب
+                  </p>
                 </div>
               </div>
               <div className="mt-6">
@@ -592,7 +606,7 @@ export default function AffiliateManagementPage() {
                     <div key={status.key} className="rounded-xl border bg-white/80 p-3">
                       <p className="text-sm font-semibold text-slate-900">{status.label}</p>
                       <p className="text-xs text-gray-500">
-                        {status.count} طلب — {formatCurrency(status.netAmount)}
+                        {formatNumber(status.count)} طلب — {formatCurrency(status.netAmount)}
                       </p>
                       <p className="text-xs text-indigo-600 mt-1">
                         {formatCurrency(status.commissionEarned)} عمولة مكتسبة
@@ -639,7 +653,7 @@ export default function AffiliateManagementPage() {
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{transaction.label}</p>
                         <p className="text-xs text-gray-500">
-                          {DATE_FORMATTER.format(new Date(transaction.date))} • {transaction.orders} طلب
+                          {DATE_FORMATTER.format(new Date(transaction.date))} • {formatNumber(transaction.orders)} طلب
                         </p>
                       </div>
                       <div className="text-right">
@@ -810,7 +824,7 @@ export default function AffiliateManagementPage() {
                     <TableRow key={report.period}>
                       <TableCell>{report.label}</TableCell>
                       <TableCell>
-                        {report.deliveredOrders} مكتمل / {report.totalOrders} الكل
+                        {formatNumber(report.deliveredOrders)} مكتمل / {formatNumber(report.totalOrders)} الكل
                       </TableCell>
                       <TableCell>{formatCurrency(report.netSales)}</TableCell>
                       <TableCell>{formatCurrency(report.commissionEarned)}</TableCell>
@@ -901,7 +915,7 @@ export default function AffiliateManagementPage() {
                     <TableRow key={report.period}>
                       <TableCell>{report.label}</TableCell>
                       <TableCell>
-                        {report.deliveredOrders} مكتمل / {report.totalOrders} إجمالي
+                        {formatNumber(report.deliveredOrders)} مكتمل / {formatNumber(report.totalOrders)} إجمالي
                       </TableCell>
                       <TableCell>{formatCurrency(report.netSales)}</TableCell>
                       <TableCell>{formatCurrency(report.commissionEarned)}</TableCell>

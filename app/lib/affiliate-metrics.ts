@@ -46,7 +46,7 @@ export function getMonthLabel(date: Date | null | undefined): string {
   if (!date) {
     return 'غير معروف';
   }
-  const monthFormatter = new Intl.DateTimeFormat('ar', {
+  const monthFormatter = new Intl.DateTimeFormat('ar-u-ca-gregory-nu-latn', {
     month: 'long',
     year: 'numeric',
     timeZone: 'UTC',
