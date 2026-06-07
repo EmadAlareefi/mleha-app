@@ -13,6 +13,9 @@ const nextConfig = {
       },
     ],
   },
+  outputFileTracingIncludes: {
+    '/api/local-shipping/*': ['./public/fonts/local-shipping/**/*'],
+  },
 } satisfies NextConfig;
 
 export default nextConfig;

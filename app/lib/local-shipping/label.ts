@@ -31,9 +31,10 @@ const PAGE_PADDING = 18;
 
 const FONT_FILENAME = 'NotoNaskhArabic-Regular.ttf';
 const FONT_CANDIDATE_PATHS = [
+  process.env.LOCAL_SHIPPING_ARABIC_FONT_PATH,
   path.join(/* turbopackIgnore: true */ process.cwd(), 'public', 'fonts', 'local-shipping', FONT_FILENAME),
   path.join(/* turbopackIgnore: true */ process.cwd(), 'app', 'lib', 'local-shipping', 'fonts', FONT_FILENAME),
-];
+].filter((candidate): candidate is string => Boolean(candidate));
 let cachedFontData: Promise<Uint8Array> | null = null;
 
 const CODE39_PATTERNS: Record<string, string> = {
