@@ -772,6 +772,7 @@ model OrderUser {
   walletTransactionsCreated DeliveryAgentWalletTransaction[] @relation("WalletTransactionsCreated")
   affiliatePayouts     AffiliatePayout[] @relation("AffiliatePayoutAffiliate")
   affiliatePayoutsRecorded AffiliatePayout[] @relation("AffiliatePayoutRecorder")
+  affiliateCampaignRequests AffiliateCampaignRequest[] @relation("AffiliateCampaignRequestAffiliate")
 
   @@index([username])
   @@index([isActive])
@@ -800,6 +801,23 @@ model AffiliatePayout {
   recordedBy   OrderUser?              @relation("AffiliatePayoutRecorder", fields: [recordedById], references: [id])
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
+
+  @@index([affiliateId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AffiliateCampaignRequest {
+  id          String    @id @default(cuid())
+  affiliateId String
+  affiliate   OrderUser @relation("AffiliateCampaignRequestAffiliate", fields: [affiliateId], references: [id], onDelete: Cascade)
+  amount      Decimal   @db.Decimal(12, 2)
+  currency    String    @default("SAR")
+  platform    String
+  notes       String?   @db.Text
+  status      String    @default("PENDING")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([affiliateId])
   @@index([status])

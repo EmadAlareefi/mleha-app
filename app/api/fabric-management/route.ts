@@ -6,6 +6,7 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 
 const FABRIC_SERVICE = 'fabric-management';
+const YARD_TO_METER = 0.9144;
 
 function toNumber(value: unknown, fallback = 0) {
   const numberValue = Number(value);
@@ -22,6 +23,19 @@ function toPositiveDecimal(value: unknown, field: string) {
 
 function toDecimal(value: unknown, fallback = 0) {
   return new Prisma.Decimal(toNumber(value, fallback));
+}
+
+function lengthToMeters(value: unknown, unit: unknown, field: string) {
+  const length = toPositiveDecimal(value, field);
+  return unit === 'yard' ? length.mul(YARD_TO_METER) : length;
+}
+
+function costToPerMeter(value: unknown, unit: unknown) {
+  const cost = toDecimal(value);
+  if (unit === 'yard') {
+    return cost.div(YARD_TO_METER);
+  }
+  return cost;
 }
 
 function serializeIssue(issue: any) {
@@ -165,9 +179,9 @@ export async function POST(request: NextRequest) {
           color: body.color || null,
           fabricType: body.fabricType || null,
           supplier: body.supplier || null,
-          unitCost: toDecimal(body.unitCost),
-          stockLength: toDecimal(body.stockLength),
-          minStock: toDecimal(body.minStock),
+          unitCost: costToPerMeter(body.unitCost, body.lengthUnit),
+          stockLength: body.stockLength ? lengthToMeters(body.stockLength, body.lengthUnit, 'الطول في المخزون') : toDecimal(0),
+          minStock: body.minStock ? lengthToMeters(body.minStock, body.lengthUnit, 'حد التنبيه') : toDecimal(0),
           notes: body.notes || null,
         },
       });
@@ -195,7 +209,7 @@ export async function POST(request: NextRequest) {
 
     if (action === 'add-fabric-stock') {
       const fabricId = String(body.fabricId || '');
-      const purchasedLength = toPositiveDecimal(body.purchasedLength, 'الكمية المضافة');
+      const purchasedLength = lengthToMeters(body.purchasedLength, body.lengthUnit, 'الكمية المضافة');
 
       if (!fabricId) {
         return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
@@ -213,7 +227,7 @@ export async function POST(request: NextRequest) {
           supplier: body.supplier || existingFabric.supplier,
           unitCost:
             body.unitCost !== undefined && body.unitCost !== ''
-              ? toDecimal(body.unitCost)
+              ? costToPerMeter(body.unitCost, body.lengthUnit)
               : existingFabric.unitCost,
           notes: body.notes
             ? [existingFabric.notes, `توريد جديد: ${body.notes}`].filter(Boolean).join('\n')
@@ -227,7 +241,7 @@ export async function POST(request: NextRequest) {
     if (action === 'issue-fabric') {
       const fabricId = String(body.fabricId || '');
       const tailorId = String(body.tailorId || '');
-      const issuedLength = toPositiveDecimal(body.issuedLength, 'الكمية المسلمة');
+      const issuedLength = lengthToMeters(body.issuedLength, body.lengthUnit, 'الكمية المسلمة');
 
       if (!fabricId || !tailorId) {
         return NextResponse.json({ error: 'القماش والخياط مطلوبان' }, { status: 400 });
@@ -269,8 +283,12 @@ export async function POST(request: NextRequest) {
       }
 
       const deliveredDressCount = Math.max(0, Math.trunc(toNumber(body.deliveredDressCount)));
-      const consumedLength = toDecimal(body.consumedLength);
-      const returnedLength = toDecimal(body.returnedLength);
+      const consumedLength = body.consumedLength
+        ? lengthToMeters(body.consumedLength, body.lengthUnit, 'المستهلك من القماش')
+        : toDecimal(0);
+      const returnedLength = body.returnedLength
+        ? lengthToMeters(body.returnedLength, body.lengthUnit, 'المرتجع للمخزون')
+        : toDecimal(0);
 
       const issue = await prisma.$transaction(async (tx) => {
         const existing = await tx.tailorFabricIssue.findUnique({ where: { id: issueId } });

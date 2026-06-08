@@ -43,7 +43,9 @@ type GateData = {
 
 const numberFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', { maximumFractionDigits: 2 });
 const dateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', { dateStyle: 'medium' });
-const formatMeters = (value: number) => `${numberFormatter.format(value)} م`;
+const METER_TO_YARD = 1.0936132983;
+const formatDualLength = (meters: number) =>
+  `${numberFormatter.format(meters)} م / ${numberFormatter.format(meters * METER_TO_YARD)} ياردة`;
 const formatDate = (value: string) => dateFormatter.format(new Date(value));
 
 export default function TailorFabricGatePage() {
@@ -52,6 +54,7 @@ export default function TailorFabricGatePage() {
   const [data, setData] = useState<GateData | null>(null);
   const [fabricId, setFabricId] = useState('');
   const [requestedLength, setRequestedLength] = useState('');
+  const [lengthUnit, setLengthUnit] = useState<'meter' | 'yard'>('meter');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -102,6 +105,7 @@ export default function TailorFabricGatePage() {
           accessCode: activeCode,
           fabricId,
           requestedLength,
+          lengthUnit,
           notes,
         }),
       });
@@ -178,7 +182,7 @@ export default function TailorFabricGatePage() {
                         <TableCell>{fabric.fabricType || '-'}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            {formatMeters(fabric.stockLength)}
+                            {formatDualLength(fabric.stockLength)}
                             {fabric.isLowStock && <Badge variant="secondary">كمية محدودة</Badge>}
                           </div>
                         </TableCell>
@@ -209,18 +213,25 @@ export default function TailorFabricGatePage() {
                       <NativeSelect value={fabricId} onChange={(event) => setFabricId(event.target.value)}>
                         {data.fabrics.map((fabric) => (
                           <NativeSelectOption key={fabric.id} value={fabric.id}>
-                            {fabric.name} - {formatMeters(fabric.stockLength)}
+                            {fabric.name} - {formatDualLength(fabric.stockLength)}
                           </NativeSelectOption>
                         ))}
                       </NativeSelect>
                     </Field>
                     {selectedFabric && (
                       <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-                        المتوفر الآن: {formatMeters(selectedFabric.stockLength)}
+                        المتوفر الآن: {formatDualLength(selectedFabric.stockLength)}
                       </div>
                     )}
                     <Field>
-                      <FieldLabel>الكمية المطلوبة بالمتر</FieldLabel>
+                      <FieldLabel>وحدة الطلب</FieldLabel>
+                      <NativeSelect value={lengthUnit} onChange={(event) => setLengthUnit(event.target.value as 'meter' | 'yard')}>
+                        <NativeSelectOption value="meter">متر</NativeSelectOption>
+                        <NativeSelectOption value="yard">ياردة</NativeSelectOption>
+                      </NativeSelect>
+                    </Field>
+                    <Field>
+                      <FieldLabel>{lengthUnit === 'yard' ? 'الكمية المطلوبة بالياردة' : 'الكمية المطلوبة بالمتر'}</FieldLabel>
                       <Input
                         type="number"
                         min="0"
@@ -257,7 +268,7 @@ export default function TailorFabricGatePage() {
                   {data.requests.map((request) => (
                     <TableRow key={request.id}>
                       <TableCell className="font-medium">{request.fabric.name}</TableCell>
-                      <TableCell>{formatMeters(request.requestedLength)}</TableCell>
+                      <TableCell>{formatDualLength(request.requestedLength)}</TableCell>
                       <TableCell>
                         <Badge variant={request.status === 'pending' ? 'secondary' : 'default'}>{request.status}</Badge>
                       </TableCell>

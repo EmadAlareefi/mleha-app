@@ -2,9 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
+const YARD_TO_METER = 0.9144;
+
 function toNumber(value: unknown, fallback = 0) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function lengthToMeters(value: unknown, unit: unknown) {
+  const length = toNumber(value, NaN);
+  if (!Number.isFinite(length) || length <= 0) {
+    return NaN;
+  }
+  return unit === 'yard' ? length * YARD_TO_METER : length;
 }
 
 function serializeFabric(fabric: any) {
@@ -86,7 +96,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const accessCode = String(body.accessCode || '').trim();
     const fabricId = String(body.fabricId || '');
-    const requestedLength = toNumber(body.requestedLength, NaN);
+    const requestedLength = lengthToMeters(body.requestedLength, body.lengthUnit);
 
     if (!accessCode || !fabricId || !Number.isFinite(requestedLength) || requestedLength <= 0) {
       return NextResponse.json(
