@@ -281,7 +281,7 @@ export default function FabricManagementPage() {
           </div>
 
           <Tabs defaultValue="stock" className="w-full">
-            <TabsList className="flex h-auto w-full flex-wrap justify-start">
+            <TabsList dir="rtl" className="flex h-auto w-full flex-row-reverse flex-wrap justify-end">
               <TabsTrigger value="stock">المخزون</TabsTrigger>
               <TabsTrigger value="tailors">الخياطون</TabsTrigger>
               <TabsTrigger value="issues">تسليم الأقمشة</TabsTrigger>
