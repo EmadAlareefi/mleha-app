@@ -1113,6 +1113,107 @@ model Expense {
   @@index([createdAt])
 }
 
+model Fabric {
+  id String @id @default(cuid())
+
+  name        String
+  sku         String?  @unique
+  color       String?
+  fabricType  String?
+  supplier    String?
+  unitCost    Decimal @default(0) @db.Decimal(10, 2)
+  stockLength Decimal @default(0) @db.Decimal(12, 2)
+  minStock    Decimal @default(0) @db.Decimal(12, 2)
+  isActive    Boolean @default(true)
+  notes       String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  issues   TailorFabricIssue[]
+  requests TailorFabricRequest[]
+
+  @@index([name])
+  @@index([sku])
+  @@index([isActive])
+  @@index([stockLength])
+}
+
+model Tailor {
+  id String @id @default(cuid())
+
+  name         String
+  workshopName String?
+  phone        String?
+  accessCode   String  @unique
+  isActive     Boolean @default(true)
+  notes        String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  issues   TailorFabricIssue[]
+  requests TailorFabricRequest[]
+
+  @@index([name])
+  @@index([accessCode])
+  @@index([isActive])
+}
+
+model TailorFabricIssue {
+  id String @id @default(cuid())
+
+  fabricId String
+  fabric   Fabric @relation(fields: [fabricId], references: [id], onDelete: Restrict)
+  tailorId String
+  tailor   Tailor @relation(fields: [tailorId], references: [id], onDelete: Restrict)
+
+  issuedLength   Decimal  @db.Decimal(12, 2)
+  unitCostAtIssue Decimal @default(0) @db.Decimal(10, 2)
+  issueDate      DateTime @default(now())
+  reference      String?
+  status         String   @default("with_tailor")
+
+  deliveredDressCount Int?
+  consumedLength      Decimal? @db.Decimal(12, 2)
+  returnedLength      Decimal? @db.Decimal(12, 2)
+  tailoringCost       Decimal? @db.Decimal(12, 2)
+  extraCost           Decimal? @db.Decimal(12, 2)
+  deliveryDate        DateTime?
+
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fabricId])
+  @@index([tailorId])
+  @@index([status])
+  @@index([issueDate])
+  @@index([deliveryDate])
+}
+
+model TailorFabricRequest {
+  id String @id @default(cuid())
+
+  fabricId String
+  fabric   Fabric @relation(fields: [fabricId], references: [id], onDelete: Restrict)
+  tailorId String
+  tailor   Tailor @relation(fields: [tailorId], references: [id], onDelete: Restrict)
+
+  requestedLength Decimal @db.Decimal(12, 2)
+  status          String  @default("pending")
+  notes           String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  fulfilledAt DateTime?
+
+  @@index([fabricId])
+  @@index([tailorId])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model ShipmentAssignment {
   id String @id @default(cuid())
 

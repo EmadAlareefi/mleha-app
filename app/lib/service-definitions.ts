@@ -447,6 +447,16 @@ const serviceDefinitionsData = [
     defaultRoles: ['admin', 'accountant'],
     grantsRoles: ['accountant'],
   },
+  {
+    key: 'fabric-management',
+    title: 'إدارة الأقمشة',
+    description: 'تتبع مخزون الأقمشة والكميات المسلمة للخياطين وتكلفة الفساتين',
+    icon: '🧵',
+    href: '/fabric-management',
+    color: 'from-teal-500 to-cyan-600',
+    defaultRoles: ['admin', 'store_manager', 'warehouse', 'accountant'],
+    grantsRoles: ['store_manager', 'warehouse', 'accountant'],
+  },
 ] as const satisfies ReadonlyArray<ServiceDefinitionSeed>;
 
 export type ServiceKey = (typeof serviceDefinitionsData)[number]['key'];

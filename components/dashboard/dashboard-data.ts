@@ -34,6 +34,7 @@ import {
   Printer,
   Scale,
   Satellite,
+  Scissors,
 } from 'lucide-react';
 import {
   serviceDefinitions,
@@ -127,6 +128,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   'invoices-and-refund-invoices': 'finance',
   settlements: 'finance',
   expenses: 'finance',
+  'fabric-management': 'warehouse',
   'salla-products': 'store',
   'salla-notify': 'store',
   'salla-requests': 'store',
@@ -183,6 +185,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'salla-notify': Bell,
   'salla-requests': ClipboardList,
   expenses: Wallet,
+  'fabric-management': Scissors,
 };
 
 const categoryAccentMap: Record<DashboardCategoryId, string> = {
@@ -205,6 +208,7 @@ const priorityMap: Partial<Record<ServiceKey, number>> = {
   'order-reports': 80,
   'admin-order-prep': 76,
   'cod-tracker': 72,
+  'fabric-management': 70,
 };
 
 export function getRoleLabel(role?: string | null) {
