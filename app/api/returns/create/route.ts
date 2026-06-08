@@ -10,6 +10,7 @@ import {
   evaluateReturnWindow,
   getCategoryNamesByProductId,
   getDiscountedProductIds,
+  getOutletProductIds,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
 import {
@@ -146,6 +147,27 @@ export async function POST(request: NextRequest) {
 
     const selectedProductIds = body.items.map((item) => item.productId).filter(Boolean);
     const selectedCategoriesByProductId = await getCategoryNamesByProductId(body.merchantId, selectedProductIds);
+    const outletProductIds = getOutletProductIds(selectedCategoriesByProductId);
+    const outletItem = body.items.find((item) => outletProductIds.has(item.productId));
+    if (outletItem && body.type === 'return') {
+      log.warn('Rejected return request for outlet category item', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        productId: outletItem.productId,
+        productName: outletItem.productName,
+        categories: selectedCategoriesByProductId[outletItem.productId],
+        type: body.type,
+      });
+
+      return NextResponse.json({
+        error: 'منتجات اوتليت مليحة متاحة للاستبدال فقط',
+        errorCode: 'OUTLET_CATEGORY_EXCHANGE_ONLY',
+        message: 'لا يمكن إرجاع منتجات اوتليت مليحة. يمكنك إنشاء طلب استبدال فقط.',
+        productId: outletItem.productId,
+        productName: outletItem.productName,
+      }, { status: 400 });
+    }
+
     const discountedProductIds = getDiscountedProductIds(selectedCategoriesByProductId);
     const discountedItem = body.items.find((item) => discountedProductIds.has(item.productId));
     if (discountedItem) {

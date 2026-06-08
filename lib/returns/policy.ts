@@ -6,6 +6,7 @@ import {
   EVENING_DRESS_CATEGORY,
   isEveningDressCategory,
   isDiscountedCategory,
+  isOutletCategory,
   normalizeCategoryName,
 } from '@/lib/returns/categories';
 
@@ -342,6 +343,16 @@ export const getDiscountedProductIds = (categoriesByProductId: Record<string, st
   const productIds = new Set<string>();
   Object.entries(categoriesByProductId).forEach(([productId, categoryNames]) => {
     if (categoryNames.some(isDiscountedCategory)) {
+      productIds.add(productId);
+    }
+  });
+  return productIds;
+};
+
+export const getOutletProductIds = (categoriesByProductId: Record<string, string[]>): Set<string> => {
+  const productIds = new Set<string>();
+  Object.entries(categoriesByProductId).forEach(([productId, categoryNames]) => {
+    if (categoryNames.some(isOutletCategory)) {
       productIds.add(productId);
     }
   });

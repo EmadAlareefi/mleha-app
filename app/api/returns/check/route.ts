@@ -6,6 +6,7 @@ import {
   evaluateReturnWindow,
   getCategoryNamesByProductId,
   getDiscountedProductIds,
+  getOutletProductIds,
   getProductIdsForOrderItems,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
@@ -59,7 +60,11 @@ export async function GET(request: NextRequest) {
     const productIds = getProductIdsForOrderItems(order.items || []);
     const categoriesByProductId = await getCategoryNamesByProductId(merchantId, productIds);
     const discountedProductIds = getDiscountedProductIds(categoriesByProductId);
-    if (productIds.length > 0 && productIds.every((productId) => discountedProductIds.has(productId))) {
+    const outletProductIds = getOutletProductIds(categoriesByProductId);
+    const fullyBlockedDiscountProductIds = new Set(
+      Array.from(discountedProductIds).filter((productId) => !outletProductIds.has(productId))
+    );
+    if (productIds.length > 0 && productIds.every((productId) => fullyBlockedDiscountProductIds.has(productId))) {
       return NextResponse.json({
         error: 'منتجات التخفيضات غير قابلة للإرجاع أو الاستبدال',
         errorCode: 'DISCOUNTED_CATEGORY_NOT_RETURNABLE',
