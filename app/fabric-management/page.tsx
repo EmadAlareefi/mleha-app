@@ -4,6 +4,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   CheckCircle2,
+  Check,
+  ChevronsUpDown,
   ExternalLink,
   PackagePlus,
   RefreshCw,
@@ -18,12 +20,21 @@ import { LoadingState } from '@/components/dashboard/states';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 type Fabric = {
   id: string;
@@ -108,6 +119,80 @@ const formatCurrency = (value?: number | null) =>
   value === null || value === undefined || Number.isNaN(value) ? '-' : currencyFormatter.format(value);
 const formatDate = (value?: string | null) => (value ? dateFormatter.format(new Date(value)) : '-');
 
+type SelectOption = {
+  value: string;
+  label: string;
+  description?: string;
+};
+
+const EMPTY_OPTION: SelectOption = { value: '', label: 'غير محدد' };
+
+const FABRIC_COLOR_OPTIONS: SelectOption[] = [
+  'أبيض',
+  'أوف وايت',
+  'عاجي',
+  'بيج',
+  'ذهبي',
+  'فضي',
+  'أسود',
+  'رمادي',
+  'وردي فاتح',
+  'وردي',
+  'فوشيا',
+  'أحمر',
+  'عنابي',
+  'بنفسجي',
+  'لافندر',
+  'أزرق فاتح',
+  'أزرق ملكي',
+  'كحلي',
+  'تركواز',
+  'أخضر فاتح',
+  'زيتي',
+  'أخضر زمردي',
+  'بني',
+  'نحاسي',
+  'متعدد الألوان',
+].map((value) => ({ value, label: value }));
+
+const FABRIC_TYPE_OPTIONS: SelectOption[] = [
+  'ساتان',
+  'شيفون',
+  'تول',
+  'دانتيل',
+  'كريب',
+  'حرير',
+  'مخمل',
+  'ترتر',
+  'جاكار',
+  'أورجانزا',
+  'بطانة',
+  'قطن',
+  'كتان',
+  'ليكرا',
+  'مطرز',
+  'مشجر',
+  'مخلوط',
+].map((value) => ({ value, label: value }));
+
+const SUPPLIER_OPTIONS: SelectOption[] = [
+  'مخزون سابق',
+  'مورد محلي',
+  'سوق الجملة',
+  'استيراد',
+  'طلب خاص',
+  'تحويل من فرع',
+].map((value) => ({ value, label: value }));
+
+const WORKSHOP_OPTIONS: SelectOption[] = [
+  'ورشة داخلية',
+  'ورشة خارجية',
+  'خياط مستقل',
+  'فرع الإنتاج',
+  'تطريز خارجي',
+  'تعديل ومقاسات',
+].map((value) => ({ value, label: value }));
+
 const initialFabricForm = {
   name: '',
   sku: '',
@@ -137,6 +222,14 @@ const initialIssueForm = {
   notes: '',
 };
 
+const initialStockForm = {
+  fabricId: '',
+  purchasedLength: '',
+  unitCost: '',
+  supplier: '',
+  notes: '',
+};
+
 const initialDeliveryForm = {
   issueId: '',
   deliveredDressCount: '',
@@ -155,6 +248,7 @@ export default function FabricManagementPage() {
   const [fabricForm, setFabricForm] = useState(initialFabricForm);
   const [tailorForm, setTailorForm] = useState(initialTailorForm);
   const [issueForm, setIssueForm] = useState(initialIssueForm);
+  const [stockForm, setStockForm] = useState(initialStockForm);
   const [deliveryForm, setDeliveryForm] = useState(initialDeliveryForm);
 
   const fetchData = useCallback(async () => {
@@ -169,6 +263,10 @@ export default function FabricManagementPage() {
         ...current,
         fabricId: current.fabricId || payload.fabrics[0]?.id || '',
         tailorId: current.tailorId || payload.tailors[0]?.id || '',
+      }));
+      setStockForm((current) => ({
+        ...current,
+        fabricId: current.fabricId || payload.fabrics[0]?.id || '',
       }));
       setDeliveryForm((current) => ({
         ...current,
@@ -188,6 +286,50 @@ export default function FabricManagementPage() {
   const openIssues = useMemo(
     () => (data?.issues || []).filter((issue) => issue.status !== 'closed'),
     [data?.issues]
+  );
+
+  const fabricColorOptions = useMemo(
+    () => mergeOptions(FABRIC_COLOR_OPTIONS, data?.fabrics.map((fabric) => fabric.color) || [], true),
+    [data?.fabrics]
+  );
+  const fabricTypeOptions = useMemo(
+    () => mergeOptions(FABRIC_TYPE_OPTIONS, data?.fabrics.map((fabric) => fabric.fabricType) || [], true),
+    [data?.fabrics]
+  );
+  const supplierOptions = useMemo(
+    () => mergeOptions(SUPPLIER_OPTIONS, data?.fabrics.map((fabric) => fabric.supplier) || [], true),
+    [data?.fabrics]
+  );
+  const workshopOptions = useMemo(
+    () => mergeOptions(WORKSHOP_OPTIONS, data?.tailors.map((tailor) => tailor.workshopName) || [], true),
+    [data?.tailors]
+  );
+  const fabricOptions = useMemo(
+    () =>
+      (data?.fabrics || []).map((fabric) => ({
+        value: fabric.id,
+        label: fabric.name,
+        description: `${fabric.color || 'بدون لون'} - ${formatMeters(fabric.stockLength)}`,
+      })),
+    [data?.fabrics]
+  );
+  const tailorOptions = useMemo(
+    () =>
+      (data?.tailors || []).map((tailor) => ({
+        value: tailor.id,
+        label: tailor.name,
+        description: tailor.workshopName || tailor.phone || undefined,
+      })),
+    [data?.tailors]
+  );
+  const issueOptions = useMemo(
+    () =>
+      openIssues.map((issue) => ({
+        value: issue.id,
+        label: `${issue.fabric.name} - ${issue.tailor.name}`,
+        description: `${formatMeters(issue.issuedLength)} مسلم | ${formatMeters(issue.remainingAtTailor)} لدى الخياط`,
+      })),
+    [openIssues]
   );
 
   const postAction = async (payload: Record<string, unknown>) => {
@@ -234,6 +376,17 @@ export default function FabricManagementPage() {
     event.preventDefault();
     const saved = await postAction({ action: 'issue-fabric', ...issueForm });
     if (saved) setIssueForm({ ...initialIssueForm, fabricId: data?.fabrics[0]?.id || '', tailorId: data?.tailors[0]?.id || '' });
+  };
+
+  const handleStockSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const saved = await postAction({ action: 'add-fabric-stock', ...stockForm });
+    if (saved) {
+      setStockForm({
+        ...initialStockForm,
+        fabricId: data?.fabrics[0]?.id || '',
+      });
+    }
   };
 
   const handleDeliverySubmit = async (event: FormEvent) => {
@@ -305,9 +458,9 @@ export default function FabricManagementPage() {
                   <form onSubmit={handleFabricSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                     <TextInput label="اسم القماش" value={fabricForm.name} onChange={(name) => setFabricForm({ ...fabricForm, name })} required />
                     <TextInput label="SKU" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
-                    <TextInput label="اللون" value={fabricForm.color} onChange={(color) => setFabricForm({ ...fabricForm, color })} />
-                    <TextInput label="نوع القماش" value={fabricForm.fabricType} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} />
-                    <TextInput label="المورد" value={fabricForm.supplier} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} />
+                    <SearchableSelect label="اللون" value={fabricForm.color} options={fabricColorOptions} onChange={(color) => setFabricForm({ ...fabricForm, color })} />
+                    <SearchableSelect label="نوع القماش" value={fabricForm.fabricType} options={fabricTypeOptions} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} />
+                    <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} />
                     <TextInput label="تكلفة المتر" type="number" value={fabricForm.unitCost} onChange={(unitCost) => setFabricForm({ ...fabricForm, unitCost })} />
                     <TextInput label="الطول في المخزون" type="number" value={fabricForm.stockLength} onChange={(stockLength) => setFabricForm({ ...fabricForm, stockLength })} />
                     <TextInput label="حد التنبيه" type="number" value={fabricForm.minStock} onChange={(minStock) => setFabricForm({ ...fabricForm, minStock })} />
@@ -318,6 +471,53 @@ export default function FabricManagementPage() {
                     <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
                       <PackagePlus className="size-4" />
                       حفظ القماش
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+              <Card className="rounded-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Ruler className="size-4" />
+                    إضافة كمية لمخزون موجود
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleStockSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
+                    <SearchableSelect
+                      label="القماش"
+                      value={stockForm.fabricId}
+                      options={fabricOptions}
+                      onChange={(fabricId) => setStockForm({ ...stockForm, fabricId })}
+                      placeholder="اختر القماش"
+                      required
+                    />
+                    <TextInput
+                      label="الكمية المشتراة بالمتر"
+                      type="number"
+                      value={stockForm.purchasedLength}
+                      onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })}
+                      required
+                    />
+                    <TextInput
+                      label="تكلفة المتر الجديدة"
+                      type="number"
+                      value={stockForm.unitCost}
+                      onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })}
+                    />
+                    <SearchableSelect
+                      label="المورد"
+                      value={stockForm.supplier}
+                      options={supplierOptions}
+                      onChange={(supplier) => setStockForm({ ...stockForm, supplier })}
+                    />
+                    <Field className="md:col-span-2">
+                      <FieldLabel>مرجع أو ملاحظات الشراء</FieldLabel>
+                      <Textarea value={stockForm.notes} onChange={(event) => setStockForm({ ...stockForm, notes: event.target.value })} />
+                    </Field>
+                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length}>
+                      <Ruler className="size-4" />
+                      إضافة للمخزون
                     </Button>
                   </form>
                 </CardContent>
@@ -336,7 +536,7 @@ export default function FabricManagementPage() {
                 <CardContent>
                   <form onSubmit={handleTailorSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-2">
                     <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
-                    <TextInput label="اسم الورشة" value={tailorForm.workshopName} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} />
+                    <SearchableSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} />
                     <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
                     <TextInput label="رمز الدخول للبوابة" value={tailorForm.accessCode} onChange={(accessCode) => setTailorForm({ ...tailorForm, accessCode })} required />
                     <Field className="md:col-span-2">
@@ -363,20 +563,8 @@ export default function FabricManagementPage() {
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleIssueSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                    <SelectField label="القماش" value={issueForm.fabricId} onChange={(fabricId) => setIssueForm({ ...issueForm, fabricId })}>
-                      {(data?.fabrics || []).map((fabric) => (
-                        <NativeSelectOption key={fabric.id} value={fabric.id}>
-                          {fabric.name} - {formatMeters(fabric.stockLength)}
-                        </NativeSelectOption>
-                      ))}
-                    </SelectField>
-                    <SelectField label="الخياط" value={issueForm.tailorId} onChange={(tailorId) => setIssueForm({ ...issueForm, tailorId })}>
-                      {(data?.tailors || []).map((tailor) => (
-                        <NativeSelectOption key={tailor.id} value={tailor.id}>
-                          {tailor.name}
-                        </NativeSelectOption>
-                      ))}
-                    </SelectField>
+                    <SearchableSelect label="القماش" value={issueForm.fabricId} options={fabricOptions} onChange={(fabricId) => setIssueForm({ ...issueForm, fabricId })} placeholder="اختر القماش" required />
+                    <SearchableSelect label="الخياط" value={issueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setIssueForm({ ...issueForm, tailorId })} placeholder="اختر الخياط" required />
                     <TextInput label="الطول المسلم بالمتر" type="number" value={issueForm.issuedLength} onChange={(issuedLength) => setIssueForm({ ...issueForm, issuedLength })} required />
                     <TextInput label="تاريخ التسليم" type="date" value={issueForm.issueDate} onChange={(issueDate) => setIssueForm({ ...issueForm, issueDate })} />
                     <TextInput label="مرجع" value={issueForm.reference} onChange={(reference) => setIssueForm({ ...issueForm, reference })} />
@@ -404,13 +592,7 @@ export default function FabricManagementPage() {
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleDeliverySubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                    <SelectField label="سجل القماش" value={deliveryForm.issueId} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })}>
-                      {openIssues.map((issue) => (
-                        <NativeSelectOption key={issue.id} value={issue.id}>
-                          {issue.fabric.name} - {issue.tailor.name} - {formatMeters(issue.issuedLength)}
-                        </NativeSelectOption>
-                      ))}
-                    </SelectField>
+                    <SearchableSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" required />
                     <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
                     <TextInput label="المستهلك من القماش" type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
                     <TextInput label="المرتجع للمخزون" type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
@@ -480,23 +662,91 @@ function TextInput({
   );
 }
 
-function SelectField({
+function mergeOptions(baseOptions: SelectOption[], values: Array<string | null | undefined>, includeEmpty = false) {
+  const optionMap = new Map<string, SelectOption>();
+  if (includeEmpty) {
+    optionMap.set(EMPTY_OPTION.value, EMPTY_OPTION);
+  }
+  baseOptions.forEach((option) => optionMap.set(option.value, option));
+  values.forEach((rawValue) => {
+    const value = rawValue?.trim();
+    if (value && !optionMap.has(value)) {
+      optionMap.set(value, { value, label: value });
+    }
+  });
+  return Array.from(optionMap.values());
+}
+
+function SearchableSelect({
   label,
   value,
+  options,
   onChange,
-  children,
+  placeholder = 'اختر',
+  required,
 }: {
   label: string;
   value: string;
+  options: SelectOption[];
   onChange: (value: string) => void;
-  children: React.ReactNode;
+  placeholder?: string;
+  required?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const selectedOption = options.find((option) => option.value === value);
+
   return (
     <Field>
       <FieldLabel>{label}</FieldLabel>
-      <NativeSelect value={value} onChange={(event) => onChange(event.target.value)}>
-        {children}
-      </NativeSelect>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            aria-required={required}
+            className={cn(
+              'h-9 w-full justify-between px-3 text-right font-normal',
+              !selectedOption && 'text-muted-foreground'
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate text-right">
+              {selectedOption?.label || placeholder}
+            </span>
+            <ChevronsUpDown className="size-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0" dir="rtl">
+          <Command dir="rtl" className="text-right">
+            <CommandInput className="text-right" placeholder="بحث..." />
+            <CommandList>
+              <CommandEmpty>لا توجد نتائج</CommandEmpty>
+              <CommandGroup>
+                {options.map((option) => (
+                  <CommandItem
+                    key={option.value || '__empty__'}
+                    value={`${option.label} ${option.description || ''}`}
+                    onSelect={() => {
+                      onChange(option.value);
+                      setOpen(false);
+                    }}
+                    className="justify-between text-right"
+                  >
+                    <Check className={cn('size-4', value === option.value ? 'opacity-100' : 'opacity-0')} />
+                    <span className="flex min-w-0 flex-1 flex-col items-end">
+                      <span className="truncate">{option.label}</span>
+                      {option.description && (
+                        <span className="truncate text-xs text-muted-foreground">{option.description}</span>
+                      )}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </Field>
   );
 }

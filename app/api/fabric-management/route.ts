@@ -193,6 +193,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(tailor, { status: 201 });
     }
 
+    if (action === 'add-fabric-stock') {
+      const fabricId = String(body.fabricId || '');
+      const purchasedLength = toPositiveDecimal(body.purchasedLength, 'الكمية المضافة');
+
+      if (!fabricId) {
+        return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
+      }
+
+      const existingFabric = await prisma.fabric.findUnique({ where: { id: fabricId } });
+      if (!existingFabric) {
+        return NextResponse.json({ error: 'القماش غير موجود' }, { status: 404 });
+      }
+
+      const updatedFabric = await prisma.fabric.update({
+        where: { id: fabricId },
+        data: {
+          stockLength: { increment: purchasedLength },
+          supplier: body.supplier || existingFabric.supplier,
+          unitCost:
+            body.unitCost !== undefined && body.unitCost !== ''
+              ? toDecimal(body.unitCost)
+              : existingFabric.unitCost,
+          notes: body.notes
+            ? [existingFabric.notes, `توريد جديد: ${body.notes}`].filter(Boolean).join('\n')
+            : existingFabric.notes,
+        },
+      });
+
+      return NextResponse.json(serializeFabric(updatedFabric));
+    }
+
     if (action === 'issue-fabric') {
       const fabricId = String(body.fabricId || '');
       const tailorId = String(body.tailorId || '');
