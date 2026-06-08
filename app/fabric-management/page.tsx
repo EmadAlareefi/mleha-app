@@ -252,25 +252,26 @@ export default function FabricManagementPage() {
       title="إدارة الأقمشة"
       subtitle="تتبع مخزون الأقمشة والكميات لدى الخياطين وتكلفة الفساتين النهائية"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button onClick={() => void fetchData()} variant="outline" size="sm" disabled={loading}>
-          <RefreshCw className="size-4" />
-          تحديث
-        </Button>
-        <Button asChild variant="secondary" size="sm">
-          <Link href="/tailor-fabric-gate" target="_blank" prefetch={false}>
-            <ExternalLink className="size-4" />
-            بوابة الخياطين
-          </Link>
-        </Button>
-      </div>
+      <div dir="rtl" className="space-y-6 text-right [&_input]:text-right [&_table]:text-right [&_textarea]:text-right">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button onClick={() => void fetchData()} variant="outline" size="sm" disabled={loading}>
+            <RefreshCw className="size-4" />
+            تحديث
+          </Button>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/tailor-fabric-gate" target="_blank" prefetch={false}>
+              <ExternalLink className="size-4" />
+              بوابة الخياطين
+            </Link>
+          </Button>
+        </div>
 
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      {loading && !data ? (
-        <LoadingState label="جاري تحميل بيانات الأقمشة" />
-      ) : (
-        <>
+        {loading && !data ? (
+          <LoadingState label="جاري تحميل بيانات الأقمشة" />
+        ) : (
+          <>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <StatCard title="أنواع الأقمشة" value={formatNumber(summary?.fabricsCount)} icon={<Scissors className="size-4" />} />
             <StatCard title="الخياطون النشطون" value={formatNumber(summary?.activeTailorsCount)} icon={<Shirt className="size-4" />} />
@@ -426,8 +427,9 @@ export default function FabricManagementPage() {
               <RequestsTable requests={data?.requests || []} onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)} saving={saving} />
             </TabsContent>
           </Tabs>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </AppPageShell>
   );
 }
