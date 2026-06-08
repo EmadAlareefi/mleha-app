@@ -298,7 +298,7 @@ export default function FabricManagementPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleFabricSubmit} className="grid gap-3 md:grid-cols-3">
+                  <form onSubmit={handleFabricSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                     <TextInput label="اسم القماش" value={fabricForm.name} onChange={(name) => setFabricForm({ ...fabricForm, name })} required />
                     <TextInput label="SKU" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
                     <TextInput label="اللون" value={fabricForm.color} onChange={(color) => setFabricForm({ ...fabricForm, color })} />
@@ -311,7 +311,7 @@ export default function FabricManagementPage() {
                       <FieldLabel>ملاحظات</FieldLabel>
                       <Textarea value={fabricForm.notes} onChange={(event) => setFabricForm({ ...fabricForm, notes: event.target.value })} />
                     </Field>
-                    <Button className="md:w-fit" type="submit" disabled={saving}>
+                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
                       <PackagePlus className="size-4" />
                       حفظ القماش
                     </Button>
@@ -330,7 +330,7 @@ export default function FabricManagementPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleTailorSubmit} className="grid gap-3 md:grid-cols-2">
+                  <form onSubmit={handleTailorSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-2">
                     <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
                     <TextInput label="اسم الورشة" value={tailorForm.workshopName} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} />
                     <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
@@ -339,7 +339,7 @@ export default function FabricManagementPage() {
                       <FieldLabel>ملاحظات</FieldLabel>
                       <Textarea value={tailorForm.notes} onChange={(event) => setTailorForm({ ...tailorForm, notes: event.target.value })} />
                     </Field>
-                    <Button className="md:w-fit" type="submit" disabled={saving}>
+                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
                       <UserPlus className="size-4" />
                       حفظ الخياط
                     </Button>
@@ -358,7 +358,7 @@ export default function FabricManagementPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleIssueSubmit} className="grid gap-3 md:grid-cols-3">
+                  <form onSubmit={handleIssueSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                     <SelectField label="القماش" value={issueForm.fabricId} onChange={(fabricId) => setIssueForm({ ...issueForm, fabricId })}>
                       {(data?.fabrics || []).map((fabric) => (
                         <NativeSelectOption key={fabric.id} value={fabric.id}>
@@ -380,7 +380,7 @@ export default function FabricManagementPage() {
                       <FieldLabel>ملاحظات</FieldLabel>
                       <Textarea value={issueForm.notes} onChange={(event) => setIssueForm({ ...issueForm, notes: event.target.value })} />
                     </Field>
-                    <Button className="md:w-fit" type="submit" disabled={saving || !data?.fabrics.length || !data?.tailors.length}>
+                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length || !data?.tailors.length}>
                       <Send className="size-4" />
                       تسجيل التسليم
                     </Button>
@@ -399,7 +399,7 @@ export default function FabricManagementPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleDeliverySubmit} className="grid gap-3 md:grid-cols-3">
+                  <form onSubmit={handleDeliverySubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                     <SelectField label="سجل القماش" value={deliveryForm.issueId} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })}>
                       {openIssues.map((issue) => (
                         <NativeSelectOption key={issue.id} value={issue.id}>
@@ -413,7 +413,7 @@ export default function FabricManagementPage() {
                     <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
                     <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
                     <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
-                    <Button className="md:w-fit" type="submit" disabled={saving || !openIssues.length}>
+                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !openIssues.length}>
                       <CheckCircle2 className="size-4" />
                       حفظ التسليم
                     </Button>
