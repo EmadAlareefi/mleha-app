@@ -73,12 +73,13 @@ const buildResponsePayload = (record: any, type: 'assignment' | 'history') => {
 };
 
 const respondWithPayloadAndShipment = async (payload: any) => {
+  const enrichedPayload = await enrichPayloadItemDetails(payload);
   const shipment = await getShipmentInfoForOrder({
-    merchantId: payload.merchantId,
-    orderId: payload.orderId,
-    orderNumber: payload.orderNumber,
+    merchantId: enrichedPayload.merchantId,
+    orderId: enrichedPayload.orderId,
+    orderNumber: enrichedPayload.orderNumber,
   });
-  return respondWithAssignment(payload, shipment);
+  return respondWithAssignment(enrichedPayload, shipment);
 };
 
 const respondWithAssignment = async (payload: any, shipment: any) => {
@@ -572,6 +573,352 @@ function mergeStoredFulfillmentData<T extends Record<string, any>>(
     },
   };
 }
+
+const ITEM_ARRAY_PATHS = [
+  ['options'],
+  ['product_options'],
+  ['productOptions'],
+  ['option_values'],
+  ['optionValues'],
+  ['attributes'],
+  ['metadata', 'options'],
+  ['details', 'options'],
+  ['variant', 'options'],
+  ['variant', 'attributes'],
+  ['variant', 'values'],
+  ['variant', 'option_values'],
+  ['product', 'options'],
+  ['product', 'attributes'],
+];
+
+const isRecord = (value: unknown): value is Record<string, any> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+
+const normalizeKeyPart = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  return normalized || null;
+};
+
+const normalizeFilterValue = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const normalized = String(value).trim();
+  return normalized || null;
+};
+
+const getPathValue = (source: unknown, path: string[]): unknown => {
+  let current = source;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return current;
+};
+
+const setPathValue = (target: Record<string, any>, path: string[], value: unknown) => {
+  let current = target;
+  path.slice(0, -1).forEach((segment) => {
+    if (!isRecord(current[segment])) {
+      current[segment] = {};
+    }
+    current = current[segment];
+  });
+  current[path[path.length - 1]] = value;
+};
+
+const getOptionEntryValue = (entry: unknown): string => {
+  if (entry === null || entry === undefined) {
+    return '';
+  }
+  if (typeof entry === 'string' || typeof entry === 'number') {
+    return String(entry).trim();
+  }
+  if (!isRecord(entry)) {
+    return '';
+  }
+  const value = entry.value;
+  if (isRecord(value)) {
+    return normalizeKeyPart(value.name ?? value.label ?? value.value) ?? '';
+  }
+  return normalizeKeyPart(value ?? entry.name ?? entry.label) ?? '';
+};
+
+const optionArrayScore = (value: unknown): number => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return 0;
+  }
+  return value.reduce((score, entry) => score + (getOptionEntryValue(entry) ? 2 : 1), 0);
+};
+
+const itemOptionScore = (item: unknown): number => {
+  if (!isRecord(item)) {
+    return 0;
+  }
+
+  const optionScore = ITEM_ARRAY_PATHS.reduce(
+    (score, path) => score + optionArrayScore(getPathValue(item, path)),
+    0,
+  );
+  const variantName =
+    normalizeKeyPart(item.variant?.name ?? item.variantName ?? item.variant_name) ? 1 : 0;
+
+  return optionScore + variantName;
+};
+
+const hasItemIdentity = (item: unknown): boolean => {
+  if (!isRecord(item)) {
+    return false;
+  }
+  return Boolean(
+    normalizeKeyPart(
+      item.id ??
+        item.item_id ??
+        item.order_item_id ??
+        item.sku ??
+        item.code ??
+        item.variant_id ??
+        item.variantId ??
+        item.variant?.id ??
+        item.variant?.sku ??
+        item.product_id ??
+        item.productId ??
+        item.product?.id ??
+        item.product?.sku,
+    ),
+  );
+};
+
+const itemMayHaveVariantOptions = (item: unknown): boolean => {
+  if (!isRecord(item)) {
+    return false;
+  }
+
+  const itemSku = normalizeKeyPart(item.sku ?? item.code);
+  const productSku = normalizeKeyPart(item.product?.sku ?? item.product?.code);
+
+  return Boolean(
+    normalizeKeyPart(
+      item.variant_id ??
+        item.variantId ??
+        item.variant?.id ??
+        item.variant?.sku ??
+        item.variant?.name ??
+        item.variantName ??
+        item.variant_name,
+    ) ||
+      (itemSku && productSku && itemSku !== productSku),
+  );
+};
+
+const orderNeedsItemEnrichment = (orderData: unknown): boolean => {
+  const items = isRecord(orderData) && Array.isArray(orderData.items) ? orderData.items : [];
+  return items.some(
+    (item) => hasItemIdentity(item) && itemMayHaveVariantOptions(item) && itemOptionScore(item) === 0,
+  );
+};
+
+const getBestArray = (primary: unknown, fallback: unknown): unknown => {
+  return optionArrayScore(primary) >= optionArrayScore(fallback) ? primary : fallback;
+};
+
+const mergeNestedRecord = (primary: unknown, fallback: unknown): Record<string, any> | undefined => {
+  if (!isRecord(primary) && !isRecord(fallback)) {
+    return undefined;
+  }
+  return {
+    ...(isRecord(fallback) ? fallback : {}),
+    ...(isRecord(primary) ? primary : {}),
+  };
+};
+
+const buildItemKeys = (item: unknown, index: number): string[] => {
+  if (!isRecord(item)) {
+    return [`index:${index}`];
+  }
+
+  const candidates: Array<[string, unknown]> = [
+    ['id', item.id],
+    ['id', item.item_id],
+    ['id', item.order_item_id],
+    ['sku', item.sku],
+    ['sku', item.code],
+    ['sku', item.product?.sku],
+    ['sku', item.variant?.sku],
+    ['variant', item.variant_id],
+    ['variant', item.variantId],
+    ['variant', item.variant?.id],
+    ['product', item.product_id],
+    ['product', item.productId],
+    ['product', item.product?.id],
+  ];
+
+  const keys = candidates
+    .map(([prefix, value]) => {
+      const normalized = normalizeKeyPart(value);
+      return normalized ? `${prefix}:${normalized}` : null;
+    })
+    .filter((value): value is string => Boolean(value));
+
+  keys.push(`index:${index}`);
+  return keys;
+};
+
+const buildItemLookup = (items: unknown[]): Map<string, any> => {
+  const lookup = new Map<string, any>();
+  items.forEach((item, index) => {
+    buildItemKeys(item, index).forEach((key) => {
+      if (!lookup.has(key)) {
+        lookup.set(key, item);
+      }
+    });
+  });
+  return lookup;
+};
+
+const findMatchingItem = (item: unknown, index: number, lookup: Map<string, any>): any | null => {
+  for (const key of buildItemKeys(item, index)) {
+    const match = lookup.get(key);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+};
+
+const mergeItemWithFallback = (primaryItem: unknown, fallbackItem: unknown): any => {
+  if (!isRecord(primaryItem)) {
+    return fallbackItem ?? primaryItem;
+  }
+  if (!isRecord(fallbackItem)) {
+    return primaryItem;
+  }
+
+  const merged: Record<string, any> = {
+    ...fallbackItem,
+    ...primaryItem,
+  };
+
+  for (const key of ['product', 'variant', 'details', 'metadata']) {
+    const nested = mergeNestedRecord(primaryItem[key], fallbackItem[key]);
+    if (nested) {
+      merged[key] = nested;
+    }
+  }
+
+  for (const path of ITEM_ARRAY_PATHS) {
+    const best = getBestArray(getPathValue(primaryItem, path), getPathValue(fallbackItem, path));
+    if (Array.isArray(best) && best.length > 0) {
+      setPathValue(merged, path, best);
+    }
+  }
+
+  return merged;
+};
+
+const mergeOrderDataWithFallback = (primaryOrderData: unknown, fallbackOrderData: unknown): unknown => {
+  if (!isRecord(primaryOrderData) || !isRecord(fallbackOrderData)) {
+    return primaryOrderData;
+  }
+
+  const primaryItems = Array.isArray(primaryOrderData.items) ? primaryOrderData.items : [];
+  const fallbackItems = Array.isArray(fallbackOrderData.items) ? fallbackOrderData.items : [];
+  if (primaryItems.length === 0 && fallbackItems.length === 0) {
+    return primaryOrderData;
+  }
+
+  const fallbackLookup = buildItemLookup(fallbackItems);
+  const mergedItems =
+    primaryItems.length > 0
+      ? primaryItems.map((item, index) =>
+          mergeItemWithFallback(item, findMatchingItem(item, index, fallbackLookup)),
+        )
+      : fallbackItems;
+
+  return {
+    ...fallbackOrderData,
+    ...primaryOrderData,
+    items: mergedItems,
+  };
+};
+
+const findCachedSallaOrderForPayload = async (payload: any): Promise<PrismaSallaOrder | null> => {
+  const merchantId = normalizeFilterValue(payload?.merchantId) || MERCHANT_ID;
+  const orderId = normalizeFilterValue(payload?.orderId);
+  const orderNumber = normalizeFilterValue(payload?.orderNumber);
+
+  const filters: Prisma.SallaOrderWhereInput[] = [];
+  if (orderId) {
+    filters.push({ orderId }, { id: orderId });
+  }
+  if (orderNumber) {
+    filters.push({ orderNumber }, { referenceId: orderNumber }, { orderId: orderNumber });
+  }
+
+  if (filters.length === 0) {
+    return null;
+  }
+
+  return prisma.sallaOrder.findFirst({
+    where: {
+      merchantId,
+      OR: filters,
+    },
+    orderBy: {
+      updatedAt: 'desc',
+    },
+  });
+};
+
+const enrichPayloadItemDetails = async (payload: any) => {
+  if (!payload?.orderData || !isRecord(payload.orderData)) {
+    return payload;
+  }
+
+  let orderData: unknown = payload.orderData;
+  const cachedOrder = await findCachedSallaOrderForPayload(payload);
+  if (cachedOrder?.rawOrder) {
+    orderData = mergeOrderDataWithFallback(orderData, cachedOrder.rawOrder);
+  }
+
+  if (orderNeedsItemEnrichment(orderData) && payload.orderId) {
+    try {
+      const merchantId = payload.merchantId || MERCHANT_ID;
+      const remoteOrder = await getSallaOrder(merchantId, String(payload.orderId));
+      if (remoteOrder) {
+        orderData = mergeOrderDataWithFallback(orderData, remoteOrder);
+        await upsertSallaOrderFromPayload({
+          merchantId,
+          merchant_id: merchantId,
+          order: {
+            ...remoteOrder,
+            merchant_id: merchantId,
+            merchantId,
+          },
+        });
+      }
+    } catch (error) {
+      logSearchDebug('Failed to enrich item options from Salla', {
+        orderId: payload.orderId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (orderData === payload.orderData) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    orderData,
+  };
+};
 
 function buildSallaAssignmentFromRecord(record: PrismaSallaOrder) {
   const placedAt = record.placedAt || record.updatedAtRemote || new Date();

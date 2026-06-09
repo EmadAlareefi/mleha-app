@@ -14,6 +14,7 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
 import { detectMessengerShipments, buildShipToArabicLabel } from '@/app/lib/local-shipping/messenger';
+import { getItemColor, getItemSize } from '@/lib/returns/item-attributes';
 
 interface OrderUser {
   id: string;
@@ -379,15 +380,70 @@ const getItemImage = (item: any): string | null => {
   return null;
 };
 
+const OPTION_LABELS = {
+  color: 'اللون',
+  size: 'المقاس',
+};
+
+const optionNameIncludes = (option: any, needles: string[]) => {
+  const name = getFirstStringValue(
+    option?.name,
+    option?.label,
+    option?.title,
+    option?.key,
+    option?.option,
+    option?.option_name,
+    option?.optionName,
+  ).toLowerCase();
+  return Boolean(name && needles.some((needle) => name.includes(needle)));
+};
+
+const hasOptionValue = (option: any) => {
+  return Boolean(
+    getFirstStringValue(
+      option?.value,
+      option?.value?.name,
+      option?.value?.label,
+      option?.name,
+      option?.label,
+    ),
+  );
+};
+
 const getItemOptions = (item: any): any[] => {
   const candidates = [
     item?.options,
+    item?.product_options,
+    item?.productOptions,
+    item?.option_values,
+    item?.optionValues,
+    item?.attributes,
+    item?.metadata?.options,
     item?.variant?.options,
+    item?.variant?.attributes,
+    item?.variant?.values,
+    item?.variant?.option_values,
     item?.product?.options,
+    item?.product?.attributes,
     item?.details?.options,
   ];
 
-  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length > 0) || [];
+  const options = candidates
+    .filter((candidate) => Array.isArray(candidate) && candidate.length > 0)
+    .flat()
+    .filter(hasOptionValue);
+
+  const hasColor = options.some((option) => optionNameIncludes(option, ['color', 'colour', 'لون']));
+  const hasSize = options.some((option) => optionNameIncludes(option, ['size', 'مقاس', 'قياس']));
+
+  const color = hasColor ? null : getItemColor(item);
+  const size = hasSize ? null : getItemSize(item);
+
+  return [
+    ...options,
+    ...(color ? [{ name: OPTION_LABELS.color, value: color }] : []),
+    ...(size ? [{ name: OPTION_LABELS.size, value: size }] : []),
+  ];
 };
 
 const getNumberValue = (value: unknown): number => {
