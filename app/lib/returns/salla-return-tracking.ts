@@ -124,3 +124,11 @@ export const extractGeneratedReturnTrackingNumber = (
   const candidates = collectTrackingValues(payload, excluded);
   return candidates[0] ?? null;
 };
+
+export const extractGeneratedReturnTrackingNumbers = (
+  payload: unknown,
+  excludedValues: unknown[] = []
+) => {
+  const excluded = normalizeExcludedValues(excludedValues);
+  return Array.from(new Set(collectTrackingValues(payload, excluded)));
+};

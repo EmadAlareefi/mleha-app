@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractGeneratedReturnTrackingNumber } from '../returns/salla-return-tracking';
+import {
+  extractGeneratedReturnTrackingNumber,
+  extractGeneratedReturnTrackingNumbers,
+} from '../returns/salla-return-tracking';
 
 test('extracts generated AJ-EX return tracking from Salla action tracking links', () => {
   assert.equal(
@@ -43,5 +46,25 @@ test('extracts generated return awb values without using order identifiers', () 
       ['251263484', 'op-123']
     ),
     '607123456789'
+  );
+});
+
+test('extracts all generated return tracking candidates', () => {
+  assert.deepEqual(
+    extractGeneratedReturnTrackingNumbers(
+      {
+        operation_id: 'op-123',
+        shipment: {
+          tracking_link: 'https://aj-ex.com/ar/shipment-status/AJA100014616194',
+        },
+        result: {
+          return_shipment: {
+            awb_number: '607123456789',
+          },
+        },
+      },
+      ['op-123']
+    ),
+    ['AJA100014616194', '607123456789']
   );
 });

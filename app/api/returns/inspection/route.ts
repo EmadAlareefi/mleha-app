@@ -11,6 +11,7 @@ import {
   isReturnItemCondition,
 } from '@/app/lib/returns/inspection';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
+import { extractGeneratedReturnTrackingNumbers } from '@/app/lib/returns/salla-return-tracking';
 
 export const runtime = 'nodejs';
 
@@ -52,7 +53,10 @@ const buildFilters = (raw: {
     filters.push(
       { smsaTrackingNumber: value },
       { smsaTrackingNumber: { equals: value, mode: 'insensitive' } },
-      { smsaTrackingNumber: compact }
+      { smsaTrackingNumber: compact },
+      { smsaAwbNumber: value },
+      { smsaAwbNumber: { equals: value, mode: 'insensitive' } },
+      { smsaAwbNumber: compact }
     );
   };
 
@@ -145,24 +149,75 @@ const buildTrackingLookupValues = (...values: Array<string | null | undefined>) 
   return Array.from(candidates);
 };
 
-const findSallaShipmentByTracking = async (trackingValues: string[]) => {
+const sameTrackingValue = (first: string, second: string) =>
+  first.replace(/\s+/g, '').toLowerCase() === second.replace(/\s+/g, '').toLowerCase();
+
+const findReturnRequestFromStoredPayload = async (
+  trackingValues: string[]
+): Promise<{ returnRequest: ReturnRequestWithItems; trackingNumber: string | null } | null> => {
+  for (const value of trackingValues.filter((candidate) => candidate.length >= 5)) {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`
+        SELECT id
+        FROM "ReturnRequest"
+        WHERE "smsaResponse"::text ILIKE ${`%${value}%`}
+        ORDER BY "createdAt" DESC
+        LIMIT 25
+      `
+    );
+
+    for (const row of rows) {
+      const returnRequest = await prisma.returnRequest.findUnique({
+        where: { id: row.id },
+        include: { items: true },
+      });
+
+      if (!returnRequest) {
+        continue;
+      }
+
+      const extractedTrackingNumbers = extractGeneratedReturnTrackingNumbers(
+        returnRequest.smsaResponse,
+        [
+          returnRequest.id,
+          returnRequest.orderId,
+          returnRequest.orderNumber,
+          returnRequest.customerId,
+        ]
+      );
+
+      if (extractedTrackingNumbers.some((trackingNumber) => sameTrackingValue(trackingNumber, value))) {
+        return {
+          returnRequest,
+          trackingNumber: value,
+        };
+      }
+    }
+  }
+
+  return null;
+};
+
+const findSallaShipmentsByTracking = async (trackingValues: string[]) => {
   const shipmentFilters: Prisma.SallaShipmentWhereInput[] = trackingValues.flatMap((value) => [
     { trackingNumber: { equals: value, mode: 'insensitive' } },
     { awbNumber: { equals: value, mode: 'insensitive' } },
     { sawb: { equals: value, mode: 'insensitive' } },
   ]);
 
-  const shipment = await prisma.sallaShipment.findFirst({
+  const directShipments = await prisma.sallaShipment.findMany({
     where: { OR: shipmentFilters },
     orderBy: { updatedAt: 'desc' },
+    take: 25,
   });
 
-  if (shipment) {
-    return {
-      shipment,
-      matchedTrackingNumber: shipment.trackingNumber || shipment.awbNumber || shipment.sawb || null,
-    };
-  }
+  const matches: Array<{
+    shipment: Prisma.SallaShipmentGetPayload<object>;
+    matchedTrackingNumber: string | null;
+  }> = directShipments.map((shipment) => ({
+    shipment,
+    matchedTrackingNumber: shipment.trackingNumber || shipment.awbNumber || shipment.sawb || null,
+  }));
 
   for (const value of trackingValues.filter((candidate) => candidate.length >= 5)) {
     const rows = await prisma.$queryRaw<Array<{ id: string }>>(
@@ -171,28 +226,29 @@ const findSallaShipmentByTracking = async (trackingValues: string[]) => {
         FROM "SallaShipment"
         WHERE "shipmentData"::text ILIKE ${`%${value}%`}
         ORDER BY "updatedAt" DESC
-        LIMIT 1
+        LIMIT 25
       `
     );
 
-    const matchedId = rows[0]?.id;
-    if (!matchedId) {
-      continue;
-    }
+    for (const row of rows) {
+      if (matches.some((match) => match.shipment.id === row.id)) {
+        continue;
+      }
 
-    const jsonMatchedShipment = await prisma.sallaShipment.findUnique({
-      where: { id: matchedId },
-    });
+      const jsonMatchedShipment = await prisma.sallaShipment.findUnique({
+        where: { id: row.id },
+      });
 
-    if (jsonMatchedShipment) {
-      return {
-        shipment: jsonMatchedShipment,
-        matchedTrackingNumber: value,
-      };
+      if (jsonMatchedShipment) {
+        matches.push({
+          shipment: jsonMatchedShipment,
+          matchedTrackingNumber: value,
+        });
+      }
     }
   }
 
-  return null;
+  return matches;
 };
 
 const findReturnRequestFromSallaShipment = async (
@@ -202,34 +258,37 @@ const findReturnRequestFromSallaShipment = async (
     return null;
   }
 
-  const shipmentMatch = await findSallaShipmentByTracking(trackingValues);
-  if (!shipmentMatch) {
+  const shipmentMatches = await findSallaShipmentsByTracking(trackingValues);
+  if (shipmentMatches.length === 0) {
     return null;
   }
 
-  const { shipment, matchedTrackingNumber } = shipmentMatch;
-  const returnRequest = await prisma.returnRequest.findFirst({
-    where: {
-      merchantId: shipment.merchantId,
-      OR: [
-        { orderId: shipment.orderId },
-        { orderNumber: shipment.orderId },
-        { orderId: shipment.orderNumber },
-        { orderNumber: shipment.orderNumber },
-      ],
-    },
-    include: { items: true },
-    orderBy: { createdAt: 'desc' },
-  });
+  for (const { shipment, matchedTrackingNumber } of shipmentMatches) {
+    const returnRequest = await prisma.returnRequest.findFirst({
+      where: {
+        merchantId: shipment.merchantId,
+        OR: [
+          { orderId: shipment.orderId },
+          { orderNumber: shipment.orderId },
+          { orderId: shipment.orderNumber },
+          { orderNumber: shipment.orderNumber },
+        ],
+      },
+      include: { items: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
-  if (!returnRequest) {
-    return null;
+    if (!returnRequest) {
+      continue;
+    }
+
+    return {
+      returnRequest,
+      trackingNumber: matchedTrackingNumber,
+    };
   }
 
-  return {
-    returnRequest,
-    trackingNumber: matchedTrackingNumber,
-  };
+  return null;
 };
 
 const backfillReturnTrackingNumber = async (
@@ -298,8 +357,14 @@ export async function GET(request: NextRequest) {
   });
 
   if (!returnRequest) {
-    const sallaShipmentMatch = await findReturnRequestFromSallaShipment(
-      buildTrackingLookupValues(searchParams.get('query'), searchParams.get('trackingNumber'))
+    const trackingLookupValues = buildTrackingLookupValues(
+      searchParams.get('query'),
+      searchParams.get('trackingNumber')
+    );
+
+    const storedPayloadMatch = await findReturnRequestFromStoredPayload(trackingLookupValues);
+    const sallaShipmentMatch = storedPayloadMatch ?? await findReturnRequestFromSallaShipment(
+      trackingLookupValues
     );
 
     if (sallaShipmentMatch) {
