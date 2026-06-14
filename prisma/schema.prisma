@@ -82,36 +82,36 @@ model ZokoAgent {
 }
 
 model ZokoChat {
-  id               String   @id
+  id               String    @id
   customerName     String?
   platform         String?
   platformSenderId String?
   chatType         String?
-  status           String   @default("open")
-  openedAt         DateTime @default(now())
+  status           String    @default("open")
+  openedAt         DateTime  @default(now())
   closedAt         DateTime?
   lastMessageAt    DateTime?
   lastDirection    String?
-  lastMessageText  String?  @db.Text
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  lastMessageText  String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  messages     ZokoMessage[]
-  assignments  ZokoChatAssignment[]
-  closures     ZokoChatClosure[]
+  messages    ZokoMessage[]
+  assignments ZokoChatAssignment[]
+  closures    ZokoChatClosure[]
 
   @@index([status])
   @@index([lastMessageAt])
 }
 
 model ZokoMessage {
-  id                String   @id
+  id                String    @id
   chatId            String
-  chat              ZokoChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chat              ZokoChat  @relation(fields: [chatId], references: [id], onDelete: Cascade)
   event             String?
   direction         String?
   type              String?
-  text              String?  @db.Text
+  text              String?   @db.Text
   deliveryStatus    String?
   platform          String?
   platformSenderId  String?
@@ -119,7 +119,7 @@ model ZokoMessage {
   agentEmail        String?
   platformTimestamp DateTime?
   payload           Json?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
 
   @@index([chatId])
   @@index([platformTimestamp])
@@ -127,44 +127,44 @@ model ZokoMessage {
 }
 
 model ZokoChatAssignment {
-  id         String   @id @default(cuid())
+  id         String     @id @default(cuid())
   chatId     String
-  chat       ZokoChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chat       ZokoChat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
   agentId    String?
   agent      ZokoAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   status     String
   eventAt    DateTime
   rawPayload Json?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime   @default(now())
 
+  @@unique([chatId, status, eventAt])
   @@index([chatId])
   @@index([agentId])
-  @@unique([chatId, status, eventAt])
 }
 
 model ZokoChatClosure {
-  id         String   @id @default(cuid())
+  id         String     @id @default(cuid())
   chatId     String
-  chat       ZokoChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chat       ZokoChat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
   agentId    String?
   agent      ZokoAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   status     String
   eventAt    DateTime
   rawPayload Json?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime   @default(now())
 
+  @@unique([chatId, status, eventAt])
   @@index([chatId])
   @@index([agentId])
-  @@unique([chatId, status, eventAt])
 }
 
 model SmsaWebhookShipment {
-  id                 String   @id @default(cuid())
-  awb                String   @unique
+  id                 String            @id @default(cuid())
+  awb                String            @unique
   reference          String?
   pieces             Int?
-  codAmount          Decimal? @db.Decimal(12, 2)
-  contentDesc        String?  @db.Text
+  codAmount          Decimal?          @db.Decimal(12, 2)
+  contentDesc        String?           @db.Text
   recipientName      String?
   originCity         String?
   originCountry      String?
@@ -173,8 +173,8 @@ model SmsaWebhookShipment {
   isDelivered        Boolean?
   rawPayload         Json?
   lastScanDateTime   String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
   scans              SmsaWebhookScan[]
 
   @@index([reference])
@@ -182,7 +182,7 @@ model SmsaWebhookShipment {
 }
 
 model SmsaWebhookScan {
-  id              String   @id @default(cuid())
+  id              String              @id @default(cuid())
   shipmentId      String
   shipment        SmsaWebhookShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   referenceId     Int?
@@ -192,25 +192,25 @@ model SmsaWebhookScan {
   scanDateTime    String?
   scanTimeZone    String?
   receivedBy      String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime            @default(now())
 
   @@index([shipmentId])
 }
 
 model Shipment {
-  id             String     @id @default(cuid())
-  trackingNumber String     @unique
-  company        String // Detected company (e.g., "aramex", "smsa", "dhl", etc.)
-  type           String // "incoming" or "outgoing"
-  scannedAt      DateTime   @default(now())
-  scannedBy      String? // Optional: user who scanned
-  handoverScannedAt DateTime?
-  handoverScannedBy String?
-  notes          String?    @db.Text
-  smsaLiveStatus Json?
+  id                      String     @id @default(cuid())
+  trackingNumber          String     @unique
+  company                 String // Detected company (e.g., "aramex", "smsa", "dhl", etc.)
+  type                    String // "incoming" or "outgoing"
+  scannedAt               DateTime   @default(now())
+  scannedBy               String? // Optional: user who scanned
+  handoverScannedAt       DateTime?
+  handoverScannedBy       String?
+  notes                   String?    @db.Text
+  smsaLiveStatus          Json?
   smsaLiveStatusUpdatedAt DateTime?
-  warehouseId    String?
-  warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  warehouseId             String?
+  warehouse               Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([scannedAt])
   @@index([handoverScannedAt])
@@ -224,26 +224,26 @@ model Shipment {
 }
 
 model SallaShipment {
-  id             String   @id @default(cuid())
-  merchantId     String
-  orderId        String
-  orderNumber    String
-  trackingNumber String
-  courierName    String // e.g., "SMSA Express"
-  courierCode    String // e.g., "smsa"
-  awbNumber      String? // Air Waybill Number
-  sawb           String? // SMSA AWB
-  status         String // "created", "picked_up", "in_transit", "delivered", etc.
-  labelUrl       String?
-  labelPrinted   Boolean  @default(false)
-  labelPrintedAt DateTime?
-  labelPrintedBy String?
+  id                 String    @id @default(cuid())
+  merchantId         String
+  orderId            String
+  orderNumber        String
+  trackingNumber     String
+  courierName        String // e.g., "SMSA Express"
+  courierCode        String // e.g., "smsa"
+  awbNumber          String? // Air Waybill Number
+  sawb               String? // SMSA AWB
+  status             String // "created", "picked_up", "in_transit", "delivered", etc.
+  labelUrl           String?
+  labelPrinted       Boolean   @default(false)
+  labelPrintedAt     DateTime?
+  labelPrintedBy     String?
   labelPrintedByName String?
-  printJobId     String?
-  printCount     Int      @default(0)
-  shipmentData   Json? // Raw response from courier API
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  printJobId         String?
+  printCount         Int       @default(0)
+  shipmentData       Json? // Raw response from courier API
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@unique([merchantId, orderId])
   @@index([merchantId])
@@ -253,50 +253,50 @@ model SallaShipment {
 }
 
 model ManualSmsaShipment {
-  id             String   @id @default(cuid())
-  merchantId     String
-  orderId        String?
-  orderNumber    String
+  id          String  @id @default(cuid())
+  merchantId  String
+  orderId     String?
+  orderNumber String
 
-  customerName   String
-  customerPhone  String
-  customerEmail  String?
-  addressLine1   String
-  addressLine2   String?
-  city           String
-  country        String?
-  district       String?
-  postalCode     String?
-  shortCode      String?
+  customerName  String
+  customerPhone String
+  customerEmail String?
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  country       String?
+  district      String?
+  postalCode    String?
+  shortCode     String?
 
-  declaredValue  Decimal? @db.Decimal(10, 2)
-  currency       String   @default("SAR")
-  parcels        Int      @default(1)
-  weight         Decimal? @db.Decimal(8, 2)
-  weightUnit     String   @default("KG")
+  declaredValue      Decimal? @db.Decimal(10, 2)
+  currency           String   @default("SAR")
+  parcels            Int      @default(1)
+  weight             Decimal? @db.Decimal(8, 2)
+  weightUnit         String   @default("KG")
   contentDescription String?
-  codAmount      Decimal? @db.Decimal(10, 2)
+  codAmount          Decimal? @db.Decimal(10, 2)
 
-  shipmentItems  Json?
-  orderSnapshot  Json?
+  shipmentItems    Json?
+  orderSnapshot    Json?
   consigneeAddress Json?
-  shipperAddress Json?
+  shipperAddress   Json?
 
-  status         String   @default("created")
-  smsaAwbNumber  String?  @unique
+  status             String  @default("created")
+  smsaAwbNumber      String? @unique
   smsaTrackingNumber String? @unique
-  smsaResponse   Json?
-  smsaLabelDataUrl String?
+  smsaResponse       Json?
+  smsaLabelDataUrl   String?
 
-  createdById    String?
-  createdByName  String?
-  cancelledAt    DateTime?
-  cancellationReason String? @db.Text
+  createdById          String?
+  createdByName        String?
+  cancelledAt          DateTime?
+  cancellationReason   String?   @db.Text
   cancellationResponse Json?
-  deletedAt      DateTime?
+  deletedAt            DateTime?
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([merchantId, orderNumber])
   @@index([orderId])
@@ -390,9 +390,9 @@ model SallaOrder {
   rawOrder           Json
 
   // Campaign tracking
-  campaignSource String?
-  campaignMedium String?
-  campaignName   String?
+  campaignSource      String?
+  campaignMedium      String?
+  campaignName        String?
   affiliateCommission Decimal? @db.Decimal(5, 2)
 
   // ERP sync tracking
@@ -402,7 +402,7 @@ model SallaOrder {
   erpSyncAttempts Int       @default(0)
 
   erpRefundOrderSync ERPRefundOrderSync?
-  settlements OrderSettlement[]
+  settlements        OrderSettlement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -419,17 +419,17 @@ model SallaOrder {
 }
 
 model ERPRefundOrderSync {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   merchantId      String
-  orderRecordId   String   @unique
+  orderRecordId   String    @unique
   orderId         String
   orderNumber     String?
   erpInvoiceId    String?
   erpSyncedAt     DateTime?
-  erpSyncError    String?  @db.Text
-  erpSyncAttempts Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  erpSyncError    String?   @db.Text
+  erpSyncAttempts Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   order SallaOrder @relation(fields: [orderRecordId], references: [id], onDelete: Cascade)
 
@@ -437,7 +437,7 @@ model ERPRefundOrderSync {
 }
 
 model SettlementUpload {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   provider         String
   statementDate    DateTime?
   originalFileName String
@@ -445,15 +445,15 @@ model SettlementUpload {
   contentType      String?
   uploadedById     String?
   uploadedByName   String?
-  status           String   @default("completed")
-  recordCount      Int      @default(0)
-  matchedCount     Int      @default(0)
-  unmatchedCount   Int      @default(0)
-  errorMessage     String?  @db.Text
-  notes            String?  @db.Text
+  status           String    @default("completed")
+  recordCount      Int       @default(0)
+  matchedCount     Int       @default(0)
+  unmatchedCount   Int       @default(0)
+  errorMessage     String?   @db.Text
+  notes            String?   @db.Text
   fileData         Bytes?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   settlements OrderSettlement[]
 
@@ -462,27 +462,27 @@ model SettlementUpload {
 }
 
 model OrderSettlement {
-  id             String    @id @default(cuid())
-  uploadId       String?
-  provider       String
-  merchantId     String?
-  orderId        String?
-  orderNumber    String?
-  awbNumber      String?
-  paymentMethod  String?
-  eventType      String?
-  settlementDate DateTime?
-  grossAmount    Decimal?  @db.Decimal(14, 2)
-  feeAmount      Decimal?  @db.Decimal(14, 2)
-  taxAmount      Decimal?  @db.Decimal(14, 2)
-  netAmount      Decimal?  @db.Decimal(14, 2)
-  currency       String?   @default("SAR")
+  id              String    @id @default(cuid())
+  uploadId        String?
+  provider        String
+  merchantId      String?
+  orderId         String?
+  orderNumber     String?
+  awbNumber       String?
+  paymentMethod   String?
+  eventType       String?
+  settlementDate  DateTime?
+  grossAmount     Decimal?  @db.Decimal(14, 2)
+  feeAmount       Decimal?  @db.Decimal(14, 2)
+  taxAmount       Decimal?  @db.Decimal(14, 2)
+  netAmount       Decimal?  @db.Decimal(14, 2)
+  currency        String?   @default("SAR")
   sourceReference String?
-  sourceHash     String    @unique
-  rawData        Json?
-  linkedOrderId  String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  sourceHash      String    @unique
+  rawData         Json?
+  linkedOrderId   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   upload     SettlementUpload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
   sallaOrder SallaOrder?       @relation(fields: [linkedOrderId], references: [id], onDelete: SetNull)
@@ -513,54 +513,54 @@ model SallaProductLocation {
 }
 
 model SallaProductQuantityRequest {
-  id               String   @id @default(cuid())
-  merchantId       String?
-  productId        Int
-  productName      String
-  productSku       String?
-  productImageUrl  String?
-  requestedAmount  Int
+  id                    String    @id @default(cuid())
+  merchantId            String?
+  productId             Int
+  productName           String
+  productSku            String?
+  productImageUrl       String?
+  requestedAmount       Int
   requestedRefundAmount Int?
-  requestedFrom    String
-  productOptions   Json?
-  requestedBy      String
-  requestedByUser  String?
-  requestedFor     DateTime?
-  notes            String?  @db.Text
-  status           String   @default("pending")
-  requestedAt      DateTime @default(now())
-  fulfilledAt      DateTime?
-  providedBy       String?
-  providedAmount   Int?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  requestedFrom         String
+  productOptions        Json?
+  requestedBy           String
+  requestedByUser       String?
+  requestedFor          DateTime?
+  notes                 String?   @db.Text
+  status                String    @default("pending")
+  requestedAt           DateTime  @default(now())
+  fulfilledAt           DateTime?
+  providedBy            String?
+  providedAmount        Int?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@index([productId, status])
   @@index([requestedAt])
 }
 
 model SallaProductAvailabilityRequest {
-  id               String   @id @default(cuid())
-  merchantId       String?
-  productId        Int
-  productName      String
-  productSku       String?
-  productImageUrl  String?
-  variationId      String?
-  variationName    String?
-  requestedSize    String?
+  id                String    @id @default(cuid())
+  merchantId        String?
+  productId         Int
+  productName       String
+  productSku        String?
+  productImageUrl   String?
+  variationId       String?
+  variationName     String?
+  requestedSize     String?
   customerFirstName String?
-  customerLastName String?
-  customerEmail    String?
-  customerPhone    String
-  notes            String?  @db.Text
-  status           String   @default("pending")
-  requestedBy      String
-  requestedByUser  String?
-  notifiedAt       DateTime?
-  notifiedBy       String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  customerLastName  String?
+  customerEmail     String?
+  customerPhone     String
+  notes             String?   @db.Text
+  status            String    @default("pending")
+  requestedBy       String
+  requestedByUser   String?
+  notifiedAt        DateTime?
+  notifiedBy        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([productId, status])
   @@index([customerPhone])
@@ -583,10 +583,10 @@ model ReturnRequest {
   reasonDetails String? @db.Text // Free-text explanation
 
   // SMSA shipment info
-  smsaTrackingNumber String? @unique
-  smsaAwbNumber      String?
-  smsaResponse       Json? // Raw SMSA API response
-  smsaLiveStatus     Json?
+  smsaTrackingNumber      String?   @unique
+  smsaAwbNumber           String?
+  smsaResponse            Json? // Raw SMSA API response
+  smsaLiveStatus          Json?
   smsaLiveStatusUpdatedAt DateTime?
 
   // Financial details
@@ -632,18 +632,18 @@ model ReturnItem {
   returnRequestId String
   returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
 
-  productId   String // Salla product ID
-  productName String
-  productSku  String?
-  variantId   String? // If product has variants
-  variantName String?
-  quantity    Int
-  price       Decimal @db.Decimal(10, 2)
-  conditionStatus     String?   // good, worn, missing_parts, damaged
-  conditionNotes      String?   @db.Text
-  preInspectionNotes  String?   @db.Text
-  inspectedBy         String?
-  inspectedAt         DateTime?
+  productId          String // Salla product ID
+  productName        String
+  productSku         String?
+  variantId          String? // If product has variants
+  variantName        String?
+  quantity           Int
+  price              Decimal   @db.Decimal(10, 2)
+  conditionStatus    String? // good, worn, missing_parts, damaged
+  conditionNotes     String?   @db.Text
+  preInspectionNotes String?   @db.Text
+  inspectedBy        String?
+  inspectedAt        DateTime?
 
   createdAt DateTime @default(now())
 
@@ -692,13 +692,13 @@ model LocalShipment {
   cancellationReason String?   @db.Text
 
   // Label Info
-  trackingNumber String     @unique // Generated local tracking number
-  generatedBy    String? // User who generated the label
-  notes          String?    @db.Text
-  smsaLiveStatus Json?
+  trackingNumber          String     @unique // Generated local tracking number
+  generatedBy             String? // User who generated the label
+  notes                   String?    @db.Text
+  smsaLiveStatus          Json?
   smsaLiveStatusUpdatedAt DateTime?
-  warehouseId    String?
-  warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  warehouseId             String?
+  warehouse               Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -731,24 +731,24 @@ enum RewardPenaltyType {
 }
 
 model OrderUser {
-  id       String        @id @default(cuid())
-  username String        @unique
-  password String // Hashed password
-  name     String
-  email    String?
-  phone    String?
+  id                  String        @id @default(cuid())
+  username            String        @unique
+  password            String // Hashed password
+  name                String
+  email               String?
+  phone               String?
   employmentStartDate DateTime?
   employmentEndDate   DateTime?
-  salaryAmount        Decimal?   @db.Decimal(12, 2)
+  salaryAmount        Decimal?      @db.Decimal(12, 2)
   salaryCurrency      String?
-  role     OrderUserRole @default(ORDERS)
+  role                OrderUserRole @default(ORDERS)
 
   // Affiliate info
   affiliateName       String?  @unique
   affiliateCommission Decimal? @default(10.00) @db.Decimal(5, 2)
 
   // Order type assignment
-  orderType String // "all", "cod", "prepaid", "specific_status"
+  orderType      String // "all", "cod", "prepaid", "specific_status"
   specificStatus String? // If orderType is "specific_status"
 
   // Settings
@@ -759,20 +759,20 @@ model OrderUser {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignments          OrderAssignment[]
-  prepAssignments      OrderPrepAssignment[]
-  warehouseAssignments WarehouseAssignment[]
-  deliveryAssignments  ShipmentAssignment[]  @relation("DeliveryAssignments")
-  printerLink          OrderUserPrinterLink?
-  servicePermissions   UserServicePermission[]
-  recognitions         UserRecognition[]
-  deliveryTasks        DeliveryAgentTask[] @relation("DeliveryAgentTasks")
-  createdDeliveryTasks DeliveryAgentTask[] @relation("CreatedDeliveryAgentTasks")
-  walletTransactions   DeliveryAgentWalletTransaction[] @relation("AgentWalletTransactions")
+  assignments               OrderAssignment[]
+  prepAssignments           OrderPrepAssignment[]
+  warehouseAssignments      WarehouseAssignment[]
+  deliveryAssignments       ShipmentAssignment[]             @relation("DeliveryAssignments")
+  printerLink               OrderUserPrinterLink?
+  servicePermissions        UserServicePermission[]
+  recognitions              UserRecognition[]
+  deliveryTasks             DeliveryAgentTask[]              @relation("DeliveryAgentTasks")
+  createdDeliveryTasks      DeliveryAgentTask[]              @relation("CreatedDeliveryAgentTasks")
+  walletTransactions        DeliveryAgentWalletTransaction[] @relation("AgentWalletTransactions")
   walletTransactionsCreated DeliveryAgentWalletTransaction[] @relation("WalletTransactionsCreated")
-  affiliatePayouts     AffiliatePayout[] @relation("AffiliatePayoutAffiliate")
-  affiliatePayoutsRecorded AffiliatePayout[] @relation("AffiliatePayoutRecorder")
-  affiliateCampaignRequests AffiliateCampaignRequest[] @relation("AffiliateCampaignRequestAffiliate")
+  affiliatePayouts          AffiliatePayout[]                @relation("AffiliatePayoutAffiliate")
+  affiliatePayoutsRecorded  AffiliatePayout[]                @relation("AffiliatePayoutRecorder")
+  affiliateCampaignRequests AffiliateCampaignRequest[]       @relation("AffiliateCampaignRequestAffiliate")
 
   @@index([username])
   @@index([isActive])
@@ -786,21 +786,21 @@ enum AffiliatePayoutStatus {
 }
 
 model AffiliatePayout {
-  id           String                  @id @default(cuid())
+  id           String                @id @default(cuid())
   affiliateId  String
-  affiliate    OrderUser               @relation("AffiliatePayoutAffiliate", fields: [affiliateId], references: [id], onDelete: Cascade)
-  amount       Decimal                 @db.Decimal(12, 2)
-  currency     String                  @default("SAR")
-  status       AffiliatePayoutStatus   @default(PENDING)
+  affiliate    OrderUser             @relation("AffiliatePayoutAffiliate", fields: [affiliateId], references: [id], onDelete: Cascade)
+  amount       Decimal               @db.Decimal(12, 2)
+  currency     String                @default("SAR")
+  status       AffiliatePayoutStatus @default(PENDING)
   reference    String?
   memo         String?
   periodStart  DateTime?
   periodEnd    DateTime?
   paidAt       DateTime?
   recordedById String?
-  recordedBy   OrderUser?              @relation("AffiliatePayoutRecorder", fields: [recordedById], references: [id])
-  createdAt    DateTime                @default(now())
-  updatedAt    DateTime                @updatedAt
+  recordedBy   OrderUser?            @relation("AffiliatePayoutRecorder", fields: [recordedById], references: [id])
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
 
   @@index([affiliateId])
   @@index([status])
@@ -825,14 +825,14 @@ model AffiliateCampaignRequest {
 }
 
 model UserRecognition {
-  id                String             @id @default(cuid())
+  id                String            @id @default(cuid())
   userId            String
   kind              RewardPenaltyType
   title             String
-  description       String?            @db.Text
-  points            Int                @default(0)
-  effectiveDate     DateTime           @default(now())
-  createdAt         DateTime           @default(now())
+  description       String?           @db.Text
+  points            Int               @default(0)
+  effectiveDate     DateTime          @default(now())
+  createdAt         DateTime          @default(now())
   createdById       String?
   createdByName     String?
   createdByUsername String?
@@ -844,28 +844,28 @@ model UserRecognition {
 }
 
 model OrderUserPrinterLink {
-  id            String   @id @default(cuid())
-  userId        String   @unique
-  printerId     Int
-  printerName   String?
-  computerId    Int?
-  computerName  String?
-  paperName     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  printerId    Int
+  printerName  String?
+  computerId   Int?
+  computerName String?
+  paperName    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user OrderUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model PrinterProfile {
-  id         String   @id @default(cuid())
-  printerId  Int      @unique
-  label      String
-  location   String?
-  paperName  String?
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  printerId Int      @unique
+  label     String
+  location  String?
+  paperName String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // New table for multiple role support
@@ -919,7 +919,7 @@ model OrderAssignment {
 }
 
 model OrderPrepAssignment {
-  id        String   @id @default(cuid())
+  id         String @id @default(cuid())
   merchantId String
 
   userId   String
@@ -931,8 +931,8 @@ model OrderPrepAssignment {
   orderReference String?
   orderData      Json
 
-  status      String   @default("assigned")
-  assignedAt  DateTime @default(now())
+  status      String    @default("assigned")
+  assignedAt  DateTime  @default(now())
   startedAt   DateTime?
   waitingAt   DateTime?
   completedAt DateTime?
@@ -947,38 +947,38 @@ model OrderPrepAssignment {
 }
 
 model OrderPrepUnavailableItem {
-  id            String   @id @default(cuid())
-  merchantId    String
-  orderId       String
-  orderNumber   String?
-  sku           String
-  normalizedSku String
-  itemName      String?
+  id             String    @id @default(cuid())
+  merchantId     String
+  orderId        String
+  orderNumber    String?
+  sku            String
+  normalizedSku  String
+  itemName       String?
   reportedById   String?
   reportedByName String?
-  createdAt     DateTime @default(now())
-  resolvedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
   resolvedById   String?
   resolvedByName String?
 
+  @@unique([merchantId, orderId, normalizedSku])
   @@index([merchantId])
   @@index([orderId])
   @@index([normalizedSku])
-  @@unique([merchantId, orderId, normalizedSku])
 }
 
 model OrderPrepEscalation {
-  id            String   @id @default(cuid())
-  merchantId    String
-  orderId       String
-  orderNumber   String?
-  reason        String
-  statusTarget  String?
-  notes         String?  @db.Text
-  createdById   String?
-  createdByName String?
-  createdAt     DateTime @default(now())
-  resolvedAt    DateTime?
+  id             String    @id @default(cuid())
+  merchantId     String
+  orderId        String
+  orderNumber    String?
+  reason         String
+  statusTarget   String?
+  notes          String?   @db.Text
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
   resolvedById   String?
   resolvedByName String?
 
@@ -1135,7 +1135,7 @@ model Fabric {
   id String @id @default(cuid())
 
   name        String
-  sku         String?  @unique
+  sku         String? @unique
   color       String?
   fabricType  String?
   supplier    String?
@@ -1186,17 +1186,17 @@ model TailorFabricIssue {
   tailorId String
   tailor   Tailor @relation(fields: [tailorId], references: [id], onDelete: Restrict)
 
-  issuedLength   Decimal  @db.Decimal(12, 2)
-  unitCostAtIssue Decimal @default(0) @db.Decimal(10, 2)
-  issueDate      DateTime @default(now())
-  reference      String?
-  status         String   @default("with_tailor")
+  issuedLength    Decimal  @db.Decimal(12, 2)
+  unitCostAtIssue Decimal  @default(0) @db.Decimal(10, 2)
+  issueDate       DateTime @default(now())
+  reference       String?
+  status          String   @default("with_tailor")
 
   deliveredDressCount Int?
-  consumedLength      Decimal? @db.Decimal(12, 2)
-  returnedLength      Decimal? @db.Decimal(12, 2)
-  tailoringCost       Decimal? @db.Decimal(12, 2)
-  extraCost           Decimal? @db.Decimal(12, 2)
+  consumedLength      Decimal?  @db.Decimal(12, 2)
+  returnedLength      Decimal?  @db.Decimal(12, 2)
+  tailoringCost       Decimal?  @db.Decimal(12, 2)
+  extraCost           Decimal?  @db.Decimal(12, 2)
   deliveryDate        DateTime?
 
   notes     String?  @db.Text
@@ -1213,21 +1213,31 @@ model TailorFabricIssue {
 model TailorFabricRequest {
   id String @id @default(cuid())
 
-  fabricId String
-  fabric   Fabric @relation(fields: [fabricId], references: [id], onDelete: Restrict)
+  fabricId String?
+  fabric   Fabric? @relation(fields: [fabricId], references: [id], onDelete: Restrict)
   tailorId String
-  tailor   Tailor @relation(fields: [tailorId], references: [id], onDelete: Restrict)
+  tailor   Tailor  @relation(fields: [tailorId], references: [id], onDelete: Restrict)
 
-  requestedLength Decimal @db.Decimal(12, 2)
-  status          String  @default("pending")
-  notes           String? @db.Text
+  requestedLength    Decimal  @db.Decimal(12, 2)
+  requestType        String   @default("stock_request")
+  purchaseName       String?
+  purchaseSku        String?
+  purchaseColor      String?
+  purchaseFabricType String?
+  purchaseSupplier   String?
+  purchaseUnitCost   Decimal? @db.Decimal(10, 2)
+  status             String   @default("pending")
+  notes              String?  @db.Text
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   fulfilledAt DateTime?
+  approvedBy  String?
+  approvedAt  DateTime?
 
   @@index([fabricId])
   @@index([tailorId])
+  @@index([requestType])
   @@index([status])
   @@index([createdAt])
 }
@@ -1269,7 +1279,7 @@ model ShipmentAssignment {
   deliveryOtpRequestedAt  DateTime?
   deliveryOtpExpiresAt    DateTime?
   deliveryOtpVerifiedAt   DateTime?
-  deliveryOtpAttemptCount Int      @default(0)
+  deliveryOtpAttemptCount Int       @default(0)
 
   updatedAt DateTime @updatedAt
 
@@ -1334,25 +1344,25 @@ model CODCollection {
 }
 
 model DeliveryAgentTask {
-  id             String        @id @default(cuid())
+  id              String    @id @default(cuid())
   deliveryAgentId String
-  deliveryAgent  OrderUser     @relation("DeliveryAgentTasks", fields: [deliveryAgentId], references: [id], onDelete: Cascade)
+  deliveryAgent   OrderUser @relation("DeliveryAgentTasks", fields: [deliveryAgentId], references: [id], onDelete: Cascade)
 
-  createdById String?
-  createdBy   OrderUser? @relation("CreatedDeliveryAgentTasks", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById       String?
+  createdBy         OrderUser? @relation("CreatedDeliveryAgentTasks", fields: [createdById], references: [id], onDelete: SetNull)
   createdByName     String?
   createdByUsername String?
 
-  title         String
-  requestType   String   @default("purchase")
-  requestedItem String?
-  quantity      Int?
-  details       String?  @db.Text
-  status        String   @default("pending") // pending, in_progress, agent_completed, completed, cancelled
-  priority      String?  // low, normal, high
-  dueDate       DateTime?
-  completedAt   DateTime?
-  completionNotes String? @db.Text
+  title           String
+  requestType     String    @default("purchase")
+  requestedItem   String?
+  quantity        Int?
+  details         String?   @db.Text
+  status          String    @default("pending") // pending, in_progress, agent_completed, completed, cancelled
+  priority        String? // low, normal, high
+  dueDate         DateTime?
+  completedAt     DateTime?
+  completionNotes String?   @db.Text
 
   relatedShipmentId String?
   relatedShipment   LocalShipment? @relation("LocalShipmentTasks", fields: [relatedShipmentId], references: [id], onDelete: SetNull)
@@ -1374,19 +1384,19 @@ enum DeliveryAgentWalletTransactionType {
 }
 
 model DeliveryAgentWalletTransaction {
-  id              String                              @id @default(cuid())
+  id              String    @id @default(cuid())
   deliveryAgentId String
-  deliveryAgent   OrderUser                           @relation("AgentWalletTransactions", fields: [deliveryAgentId], references: [id], onDelete: Cascade)
+  deliveryAgent   OrderUser @relation("AgentWalletTransactions", fields: [deliveryAgentId], references: [id], onDelete: Cascade)
 
-  type        DeliveryAgentWalletTransactionType
-  amount      Decimal                                 @db.Decimal(10, 2)
-  referenceId String?
+  type          DeliveryAgentWalletTransactionType
+  amount        Decimal                            @db.Decimal(10, 2)
+  referenceId   String?
   referenceType String?
-  notes       String?                                 @db.Text
-  metadata    Json?
+  notes         String?                            @db.Text
+  metadata      Json?
 
-  createdAt    DateTime  @default(now())
-  createdById  String?
+  createdAt     DateTime   @default(now())
+  createdById   String?
   createdByName String?
   createdBy     OrderUser? @relation("WalletTransactionsCreated", fields: [createdById], references: [id], onDelete: SetNull)
 

@@ -25,10 +25,17 @@ type GateFabric = {
 type GateRequest = {
   id: string;
   requestedLength: number;
+  requestType: string;
+  purchaseName?: string | null;
+  purchaseSku?: string | null;
+  purchaseColor?: string | null;
+  purchaseFabricType?: string | null;
+  purchaseSupplier?: string | null;
+  purchaseUnitCost?: number | null;
   status: string;
   notes?: string | null;
   createdAt: string;
-  fabric: GateFabric;
+  fabric?: GateFabric | null;
 };
 
 type GateData = {
@@ -43,10 +50,17 @@ type GateData = {
 
 const numberFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', { maximumFractionDigits: 2 });
 const dateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', { dateStyle: 'medium' });
+const currencyFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', {
+  style: 'currency',
+  currency: 'SAR',
+  maximumFractionDigits: 2,
+});
 const METER_TO_YARD = 1.0936132983;
 const formatDualLength = (meters: number) =>
   `${numberFormatter.format(meters)} م / ${numberFormatter.format(meters * METER_TO_YARD)} ياردة`;
 const formatDate = (value: string) => dateFormatter.format(new Date(value));
+const formatCurrency = (value?: number | null) =>
+  value === null || value === undefined || Number.isNaN(value) ? '-' : currencyFormatter.format(value);
 
 export default function TailorFabricGatePage() {
   const [accessCode, setAccessCode] = useState('');
@@ -56,6 +70,15 @@ export default function TailorFabricGatePage() {
   const [requestedLength, setRequestedLength] = useState('');
   const [lengthUnit, setLengthUnit] = useState<'meter' | 'yard'>('meter');
   const [notes, setNotes] = useState('');
+  const [purchaseName, setPurchaseName] = useState('');
+  const [purchaseSku, setPurchaseSku] = useState('');
+  const [purchaseColor, setPurchaseColor] = useState('');
+  const [purchaseFabricType, setPurchaseFabricType] = useState('');
+  const [purchaseSupplier, setPurchaseSupplier] = useState('');
+  const [purchaseLength, setPurchaseLength] = useState('');
+  const [purchaseLengthUnit, setPurchaseLengthUnit] = useState<'meter' | 'yard'>('meter');
+  const [purchaseUnitCost, setPurchaseUnitCost] = useState('');
+  const [purchaseNotes, setPurchaseNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +144,46 @@ export default function TailorFabricGatePage() {
     }
   };
 
+  const handlePurchase = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/tailor-fabric-gate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'purchase-fabric',
+          accessCode: activeCode,
+          purchaseName,
+          purchaseSku,
+          purchaseColor,
+          purchaseFabricType,
+          purchaseSupplier,
+          requestedLength: purchaseLength,
+          lengthUnit: purchaseLengthUnit,
+          purchaseUnitCost,
+          notes: purchaseNotes,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'فشل في إرسال شراء القماش');
+      setPurchaseName('');
+      setPurchaseSku('');
+      setPurchaseColor('');
+      setPurchaseFabricType('');
+      setPurchaseSupplier('');
+      setPurchaseLength('');
+      setPurchaseUnitCost('');
+      setPurchaseNotes('');
+      await loadGate(activeCode);
+    } catch (purchaseError: any) {
+      setError(purchaseError.message || 'فشل في إرسال شراء القماش');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <PublicPageShell title="بوابة الخياطين" subtitle="عرض الأقمشة المتوفرة وطلب كميات جديدة" showHomeLink={false}>
       <div className="w-full space-y-4">
@@ -167,7 +230,7 @@ export default function TailorFabricGatePage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>القماش</TableHead>
-                      <TableHead>SKU</TableHead>
+                      <TableHead>رمز القماش</TableHead>
                       <TableHead>اللون</TableHead>
                       <TableHead>النوع</TableHead>
                       <TableHead>المتوفر</TableHead>
@@ -199,59 +262,134 @@ export default function TailorFabricGatePage() {
                 </Table>
               </div>
 
-              <Card className="rounded-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <PackagePlus className="size-4" />
-                    طلب قماش
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleRequest} className="space-y-3">
-                    <Field>
-                      <FieldLabel>القماش</FieldLabel>
-                      <NativeSelect value={fabricId} onChange={(event) => setFabricId(event.target.value)}>
-                        {data.fabrics.map((fabric) => (
-                          <NativeSelectOption key={fabric.id} value={fabric.id}>
-                            {fabric.name} - {formatDualLength(fabric.stockLength)}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    </Field>
-                    {selectedFabric && (
-                      <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-                        المتوفر الآن: {formatDualLength(selectedFabric.stockLength)}
+              <div className="space-y-4">
+                <Card className="rounded-lg">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <PackagePlus className="size-4" />
+                      طلب قماش من المخزون
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleRequest} className="space-y-3">
+                      <Field>
+                        <FieldLabel>القماش</FieldLabel>
+                        <NativeSelect value={fabricId} onChange={(event) => setFabricId(event.target.value)}>
+                          {data.fabrics.map((fabric) => (
+                            <NativeSelectOption key={fabric.id} value={fabric.id}>
+                              {fabric.name} - {formatDualLength(fabric.stockLength)}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      </Field>
+                      {selectedFabric && (
+                        <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                          المتوفر الآن: {formatDualLength(selectedFabric.stockLength)}
+                        </div>
+                      )}
+                      <Field>
+                        <FieldLabel>وحدة الطلب</FieldLabel>
+                        <NativeSelect value={lengthUnit} onChange={(event) => setLengthUnit(event.target.value as 'meter' | 'yard')}>
+                          <NativeSelectOption value="meter">متر</NativeSelectOption>
+                          <NativeSelectOption value="yard">ياردة</NativeSelectOption>
+                        </NativeSelect>
+                      </Field>
+                      <Field>
+                        <FieldLabel>{lengthUnit === 'yard' ? 'الكمية المطلوبة بالياردة' : 'الكمية المطلوبة بالمتر'}</FieldLabel>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={requestedLength}
+                          onChange={(event) => setRequestedLength(event.target.value)}
+                          required
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>ملاحظات</FieldLabel>
+                        <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+                      </Field>
+                      <Button type="submit" className="w-full" disabled={saving || !data.fabrics.length}>
+                        <Send className="size-4" />
+                        إرسال الطلب
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-lg">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <PackagePlus className="size-4" />
+                      تسجيل شراء قماش
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handlePurchase} className="space-y-3">
+                      <Field>
+                        <FieldLabel>اسم القماش</FieldLabel>
+                        <Input value={purchaseName} onChange={(event) => setPurchaseName(event.target.value)} required />
+                      </Field>
+                      <Field>
+                        <FieldLabel>رمز القماش</FieldLabel>
+                        <Input value={purchaseSku} onChange={(event) => setPurchaseSku(event.target.value)} />
+                      </Field>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel>اللون</FieldLabel>
+                          <Input value={purchaseColor} onChange={(event) => setPurchaseColor(event.target.value)} />
+                        </Field>
+                        <Field>
+                          <FieldLabel>نوع القماش</FieldLabel>
+                          <Input value={purchaseFabricType} onChange={(event) => setPurchaseFabricType(event.target.value)} />
+                        </Field>
                       </div>
-                    )}
-                    <Field>
-                      <FieldLabel>وحدة الطلب</FieldLabel>
-                      <NativeSelect value={lengthUnit} onChange={(event) => setLengthUnit(event.target.value as 'meter' | 'yard')}>
-                        <NativeSelectOption value="meter">متر</NativeSelectOption>
-                        <NativeSelectOption value="yard">ياردة</NativeSelectOption>
-                      </NativeSelect>
-                    </Field>
-                    <Field>
-                      <FieldLabel>{lengthUnit === 'yard' ? 'الكمية المطلوبة بالياردة' : 'الكمية المطلوبة بالمتر'}</FieldLabel>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={requestedLength}
-                        onChange={(event) => setRequestedLength(event.target.value)}
-                        required
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>ملاحظات</FieldLabel>
-                      <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
-                    </Field>
-                    <Button type="submit" className="w-full" disabled={saving || !data.fabrics.length}>
-                      <Send className="size-4" />
-                      إرسال الطلب
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                      <Field>
+                        <FieldLabel>المورد</FieldLabel>
+                        <Input value={purchaseSupplier} onChange={(event) => setPurchaseSupplier(event.target.value)} />
+                      </Field>
+                      <Field>
+                        <FieldLabel>وحدة التكلفة والطول</FieldLabel>
+                        <NativeSelect value={purchaseLengthUnit} onChange={(event) => setPurchaseLengthUnit(event.target.value as 'meter' | 'yard')}>
+                          <NativeSelectOption value="meter">متر</NativeSelectOption>
+                          <NativeSelectOption value="yard">ياردة</NativeSelectOption>
+                        </NativeSelect>
+                      </Field>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel>{purchaseLengthUnit === 'yard' ? 'الطول المشترى بالياردة' : 'الطول المشترى بالمتر'}</FieldLabel>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={purchaseLength}
+                            onChange={(event) => setPurchaseLength(event.target.value)}
+                            required
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>{purchaseLengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'}</FieldLabel>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={purchaseUnitCost}
+                            onChange={(event) => setPurchaseUnitCost(event.target.value)}
+                          />
+                        </Field>
+                      </div>
+                      <Field>
+                        <FieldLabel>ملاحظات الشراء</FieldLabel>
+                        <Textarea value={purchaseNotes} onChange={(event) => setPurchaseNotes(event.target.value)} />
+                      </Field>
+                      <Button type="submit" className="w-full" disabled={saving}>
+                        <Send className="size-4" />
+                        إرسال للاعتماد
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
 
             <div className="overflow-hidden rounded-lg border bg-card">
@@ -260,6 +398,7 @@ export default function TailorFabricGatePage() {
                   <TableRow>
                     <TableHead>طلباتي الأخيرة</TableHead>
                     <TableHead>الكمية</TableHead>
+                    <TableHead>التكلفة</TableHead>
                     <TableHead>الحالة</TableHead>
                     <TableHead>التاريخ</TableHead>
                   </TableRow>
@@ -267,8 +406,16 @@ export default function TailorFabricGatePage() {
                 <TableBody>
                   {data.requests.map((request) => (
                     <TableRow key={request.id}>
-                      <TableCell className="font-medium">{request.fabric.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {request.requestType === 'purchase'
+                          ? request.purchaseName || request.fabric?.name || '-'
+                          : request.fabric?.name || '-'}
+                        {request.requestType === 'purchase' && (
+                          <Badge className="ms-2" variant="secondary">شراء</Badge>
+                        )}
+                      </TableCell>
                       <TableCell>{formatDualLength(request.requestedLength)}</TableCell>
+                      <TableCell>{formatCurrency(request.purchaseUnitCost)}</TableCell>
                       <TableCell>
                         <Badge variant={request.status === 'pending' ? 'secondary' : 'default'}>{request.status}</Badge>
                       </TableCell>
@@ -277,7 +424,7 @@ export default function TailorFabricGatePage() {
                   ))}
                   {!data.requests.length && (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                      <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                         لم يتم إرسال طلبات بعد
                       </TableCell>
                     </TableRow>

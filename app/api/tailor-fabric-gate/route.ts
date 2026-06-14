@@ -17,6 +17,15 @@ function lengthToMeters(value: unknown, unit: unknown) {
   return unit === 'yard' ? length * YARD_TO_METER : length;
 }
 
+function costToPerMeter(value: unknown, unit: unknown) {
+  const cost = toNumber(value, 0);
+  return unit === 'yard' ? cost / YARD_TO_METER : cost;
+}
+
+function cleanText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function serializeFabric(fabric: any) {
   return {
     id: fabric.id,
@@ -33,6 +42,15 @@ function serializeRequest(request: any) {
   return {
     id: request.id,
     requestedLength: toNumber(request.requestedLength),
+    requestType: request.requestType,
+    purchaseName: request.purchaseName,
+    purchaseSku: request.purchaseSku,
+    purchaseColor: request.purchaseColor,
+    purchaseFabricType: request.purchaseFabricType,
+    purchaseSupplier: request.purchaseSupplier,
+    purchaseUnitCost: request.purchaseUnitCost === null || request.purchaseUnitCost === undefined
+      ? null
+      : toNumber(request.purchaseUnitCost),
     status: request.status,
     notes: request.notes,
     createdAt: request.createdAt,
@@ -95,12 +113,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const accessCode = String(body.accessCode || '').trim();
-    const fabricId = String(body.fabricId || '');
+    const action = String(body.action || 'request-fabric');
     const requestedLength = lengthToMeters(body.requestedLength, body.lengthUnit);
 
-    if (!accessCode || !fabricId || !Number.isFinite(requestedLength) || requestedLength <= 0) {
+    if (!accessCode || !Number.isFinite(requestedLength) || requestedLength <= 0) {
       return NextResponse.json(
-        { error: 'رمز الدخول والقماش والكمية المطلوبة مطلوبة' },
+        { error: 'رمز الدخول والكمية مطلوبة' },
         { status: 400 }
       );
     }
@@ -108,6 +126,44 @@ export async function POST(request: NextRequest) {
     const tailor = await findTailor(accessCode);
     if (!tailor) {
       return NextResponse.json({ error: 'رمز الدخول غير صحيح أو غير مفعل' }, { status: 401 });
+    }
+
+    if (action === 'purchase-fabric') {
+      const purchaseName = cleanText(body.purchaseName);
+      const purchaseSku = cleanText(body.purchaseSku) || null;
+      const purchaseUnitCost = costToPerMeter(body.purchaseUnitCost, body.lengthUnit);
+
+      if (!purchaseName) {
+        return NextResponse.json({ error: 'اسم القماش المشترى مطلوب' }, { status: 400 });
+      }
+
+      const existingFabric = purchaseSku
+        ? await prisma.fabric.findUnique({ where: { sku: purchaseSku } })
+        : null;
+
+      const createdRequest = await prisma.tailorFabricRequest.create({
+        data: {
+          requestType: 'purchase',
+          fabricId: existingFabric?.id,
+          tailorId: tailor.id,
+          requestedLength: new Prisma.Decimal(requestedLength),
+          purchaseName,
+          purchaseSku,
+          purchaseColor: cleanText(body.purchaseColor) || null,
+          purchaseFabricType: cleanText(body.purchaseFabricType) || null,
+          purchaseSupplier: cleanText(body.purchaseSupplier) || null,
+          purchaseUnitCost: new Prisma.Decimal(purchaseUnitCost),
+          notes: body.notes || null,
+        },
+        include: { fabric: true },
+      });
+
+      return NextResponse.json(serializeRequest(createdRequest), { status: 201 });
+    }
+
+    const fabricId = String(body.fabricId || '');
+    if (!fabricId) {
+      return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
     }
 
     const fabric = await prisma.fabric.findFirst({
@@ -119,6 +175,7 @@ export async function POST(request: NextRequest) {
 
     const createdRequest = await prisma.tailorFabricRequest.create({
       data: {
+        requestType: 'stock_request',
         fabricId,
         tailorId: tailor.id,
         requestedLength: new Prisma.Decimal(requestedLength),

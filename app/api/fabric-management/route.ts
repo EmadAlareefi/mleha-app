@@ -38,6 +38,16 @@ function costToPerMeter(value: unknown, unit: unknown) {
   return cost;
 }
 
+function getAuditUser(session: any) {
+  return (
+    session?.user?.username ||
+    session?.user?.name ||
+    session?.user?.email ||
+    session?.user?.id ||
+    'admin'
+  );
+}
+
 function serializeIssue(issue: any) {
   const issued = toNumber(issue.issuedLength);
   const consumed = toNumber(issue.consumedLength);
@@ -87,6 +97,9 @@ function serializeRequest(request: any) {
   return {
     ...request,
     requestedLength: toNumber(request.requestedLength),
+    purchaseUnitCost: request.purchaseUnitCost === null || request.purchaseUnitCost === undefined
+      ? null
+      : toNumber(request.purchaseUnitCost),
     fabric: request.fabric ? serializeFabric(request.fabric) : undefined,
   };
 }
@@ -334,13 +347,81 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'حالة الطلب غير صالحة' }, { status: 400 });
       }
 
-      const updatedRequest = await prisma.tailorFabricRequest.update({
-        where: { id: requestId },
-        data: {
-          status,
-          fulfilledAt: status === 'fulfilled' ? new Date() : null,
-        },
-        include: { fabric: true, tailor: true },
+      const updatedRequest = await prisma.$transaction(async (tx) => {
+        const existingRequest = await tx.tailorFabricRequest.findUnique({
+          where: { id: requestId },
+          include: { fabric: true, tailor: true },
+        });
+        if (!existingRequest) throw new Error('طلب القماش غير موجود');
+
+        let fabricId = existingRequest.fabricId;
+        const isPurchaseApproval =
+          existingRequest.requestType === 'purchase' &&
+          status === 'approved' &&
+          !['approved', 'fulfilled'].includes(existingRequest.status);
+
+        if (isPurchaseApproval) {
+          const purchaseName = existingRequest.purchaseName?.trim();
+          if (!purchaseName) throw new Error('اسم القماش المشترى مطلوب قبل الاعتماد');
+
+          const purchaseSku = existingRequest.purchaseSku?.trim() || null;
+          const matchingFabric = fabricId
+            ? existingRequest.fabric
+            : purchaseSku
+              ? await tx.fabric.findUnique({ where: { sku: purchaseSku } })
+              : null;
+
+          const stockLength = existingRequest.requestedLength;
+          const unitCost = existingRequest.purchaseUnitCost || new Prisma.Decimal(0);
+
+          if (matchingFabric) {
+            const notes = [
+              matchingFabric.notes,
+              `شراء معتمد من ${existingRequest.tailor.name}: ${existingRequest.notes || ''}`.trim(),
+            ]
+              .filter(Boolean)
+              .join('\n');
+
+            const updatedFabric = await tx.fabric.update({
+              where: { id: matchingFabric.id },
+              data: {
+                stockLength: { increment: stockLength },
+                unitCost,
+                color: existingRequest.purchaseColor || matchingFabric.color,
+                fabricType: existingRequest.purchaseFabricType || matchingFabric.fabricType,
+                supplier: existingRequest.purchaseSupplier || matchingFabric.supplier,
+                notes,
+              },
+            });
+            fabricId = updatedFabric.id;
+          } else {
+            const createdFabric = await tx.fabric.create({
+              data: {
+                name: purchaseName,
+                sku: purchaseSku,
+                color: existingRequest.purchaseColor || null,
+                fabricType: existingRequest.purchaseFabricType || null,
+                supplier: existingRequest.purchaseSupplier || null,
+                unitCost,
+                stockLength,
+                notes: existingRequest.notes || null,
+              },
+            });
+            fabricId = createdFabric.id;
+          }
+        }
+
+        return tx.tailorFabricRequest.update({
+          where: { id: requestId },
+          data: {
+            fabricId,
+            status,
+            fulfilledAt: status === 'fulfilled' ? new Date() : existingRequest.fulfilledAt,
+            approvedAt: status === 'approved' ? new Date() : existingRequest.approvedAt,
+            approvedBy: status === 'approved' ? getAuditUser(access.session) : existingRequest.approvedBy,
+          },
+          include: { fabric: true, tailor: true },
+        });
       });
 
       return NextResponse.json(serializeRequest(updatedRequest));

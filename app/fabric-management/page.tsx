@@ -84,10 +84,19 @@ type TailorFabricIssue = {
 type TailorFabricRequest = {
   id: string;
   requestedLength: number;
+  requestType: string;
+  purchaseName?: string | null;
+  purchaseSku?: string | null;
+  purchaseColor?: string | null;
+  purchaseFabricType?: string | null;
+  purchaseSupplier?: string | null;
+  purchaseUnitCost?: number | null;
   status: string;
   notes?: string | null;
   createdAt: string;
-  fabric: Fabric;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  fabric?: Fabric | null;
   tailor: Tailor;
 };
 
@@ -949,8 +958,10 @@ function RequestsTable({
         <TableHeader>
           <TableRow>
             <TableHead>الخياط</TableHead>
-            <TableHead>القماش</TableHead>
+            <TableHead>نوع الطلب</TableHead>
+            <TableHead>القماش / التفاصيل</TableHead>
             <TableHead>الكمية</TableHead>
+            <TableHead>التكلفة</TableHead>
             <TableHead>الحالة</TableHead>
             <TableHead>التاريخ</TableHead>
             <TableHead>إجراء</TableHead>
@@ -960,16 +971,43 @@ function RequestsTable({
           {requests.map((request) => (
             <TableRow key={request.id}>
               <TableCell className="font-medium">{request.tailor.name}</TableCell>
-              <TableCell>{request.fabric.name}</TableCell>
+              <TableCell>
+                <Badge variant={request.requestType === 'purchase' ? 'default' : 'secondary'}>
+                  {request.requestType === 'purchase' ? 'شراء قماش' : 'طلب مخزون'}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <div className="space-y-1">
+                  <p className="font-medium">
+                    {request.requestType === 'purchase'
+                      ? request.purchaseName || request.fabric?.name || '-'
+                      : request.fabric?.name || '-'}
+                  </p>
+                  {request.requestType === 'purchase' && (
+                    <p className="text-xs text-muted-foreground">
+                      {[request.purchaseSku && `رمز: ${request.purchaseSku}`, request.purchaseColor, request.purchaseFabricType, request.purchaseSupplier]
+                        .filter(Boolean)
+                        .join(' · ') || 'تفاصيل الشراء غير مكتملة'}
+                    </p>
+                  )}
+                  {request.notes && <p className="text-xs text-muted-foreground">{request.notes}</p>}
+                </div>
+              </TableCell>
               <TableCell>{formatDualLength(request.requestedLength)}</TableCell>
+              <TableCell>{formatCurrency(request.purchaseUnitCost)}</TableCell>
               <TableCell>
                 <Badge variant={request.status === 'pending' ? 'secondary' : 'default'}>{request.status}</Badge>
+                {request.approvedBy && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    بواسطة {request.approvedBy}
+                  </p>
+                )}
               </TableCell>
               <TableCell>{formatDate(request.createdAt)}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-2">
                   <Button size="xs" variant="outline" disabled={saving} onClick={() => onStatusChange(request.id, 'approved')}>
-                    موافقة
+                    {request.requestType === 'purchase' ? 'اعتماد وإدخال' : 'موافقة'}
                   </Button>
                   <Button size="xs" variant="outline" disabled={saving} onClick={() => onStatusChange(request.id, 'fulfilled')}>
                     تم التوريد
@@ -983,7 +1021,7 @@ function RequestsTable({
           ))}
           {!requests.length && (
             <TableRow>
-              <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+              <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                 لا توجد طلبات من الخياطين
               </TableCell>
             </TableRow>
