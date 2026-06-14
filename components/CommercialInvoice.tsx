@@ -1,5 +1,6 @@
 import React from 'react';
 import { applyCommercialInvoiceDeclaredValue } from '@/lib/commercial-invoice-valuation';
+import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
 
 interface CommercialInvoiceProps {
   orderData: any;
@@ -40,9 +41,6 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
       return 0;
     };
 
-    const customer = orderData?.customer || {};
-    const shippingAddress = orderData?.shipping_address || customer;
-    const billingAddress = orderData?.billing_address || customer;
     const normalizeItems = (items: unknown): any[] => {
       if (Array.isArray(items)) {
         return items;
@@ -56,13 +54,15 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
 
     const items = normalizeItems(orderData?.items);
     const amounts = orderData?.amounts || {};
+    const consignee = resolveCommercialInvoiceConsignee(orderData);
 
-    const customerName = `${getStringValue(customer.first_name)} ${getStringValue(customer.last_name)}`.trim();
-    const country = getStringValue(shippingAddress.country || customer.country || billingAddress.country);
-    const city = getStringValue(shippingAddress.city || customer.city || billingAddress.city);
-    const address = getStringValue(shippingAddress.address || customer.address || billingAddress.address);
-    const phone = getStringValue(customer.mobile_code || '') + getStringValue(customer.mobile || customer.phone);
-    const email = getStringValue(customer.email);
+    const customerName = consignee.name;
+    const country = consignee.country;
+    const city = consignee.city;
+    const address = consignee.address;
+    const postalCode = consignee.postalCode;
+    const phone = consignee.phone;
+    const email = consignee.email;
 
     const subtotal = getNumberValue(amounts.sub_total?.amount);
     const shipping = getNumberValue(amounts.shipping_cost?.amount);
@@ -118,6 +118,7 @@ export const CommercialInvoice = React.forwardRef<HTMLDivElement, CommercialInvo
               <p className="font-bold">{customerName}</p>
               <p>{address}</p>
               <p>{city}</p>
+              {postalCode && <p>{postalCode}</p>}
               <p>{country}</p>
               {phone && <p>Tel: {phone}</p>}
               {email && <p>Email: {email}</p>}

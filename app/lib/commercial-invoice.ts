@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { applyCommercialInvoiceDeclaredValue } from '@/lib/commercial-invoice-valuation';
+import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
 
 const SAUDI_CODES = ['SA', 'SAU', 'SAUDI ARABIA', 'السعودية', 'المملكة العربية السعودية'];
 const SHIPPER_INFO = [
@@ -160,22 +161,17 @@ export const detectInternationalOrder = (orderData: any): { isInternational: boo
 };
 
 export async function generateCommercialInvoicePdf(orderData: any, orderNumber: string): Promise<Buffer> {
-  const customer = orderData?.customer || {};
-  const shippingAddress = orderData?.shipping_address || customer;
-  const billingAddress = orderData?.billing_address || customer;
+  const consignee = resolveCommercialInvoiceConsignee(orderData);
   const items = normalizeItems(orderData?.items);
   const amounts = orderData?.amounts || {};
 
-  const customerName =
-    `${getEnglishString(customer.first_name)} ${getEnglishString(customer.last_name)}`.trim() ||
-    getEnglishString(customer.name);
-  const country = getEnglishString(shippingAddress.country || customer.country || billingAddress.country);
-  const city = getEnglishString(shippingAddress.city || customer.city || billingAddress.city);
-  const address = getEnglishString(shippingAddress.address || customer.address || billingAddress.address);
-  const phone = ensureEnglishText(
-    `${getStringValue(customer.mobile_code || '')}${getStringValue(customer.mobile || customer.phone)}`
-  );
-  const email = getEnglishString(customer.email);
+  const customerName = ensureEnglishText(consignee.name);
+  const country = ensureEnglishText(consignee.country);
+  const city = ensureEnglishText(consignee.city);
+  const address = ensureEnglishText(consignee.address);
+  const postalCode = ensureEnglishText(consignee.postalCode);
+  const phone = ensureEnglishText(consignee.phone);
+  const email = ensureEnglishText(consignee.email);
 
   const subtotal = getNumberValue(amounts.sub_total?.amount);
   const shipping = getNumberValue(amounts.shipping_cost?.amount);
@@ -257,6 +253,7 @@ export async function generateCommercialInvoicePdf(orderData: any, orderNumber: 
       customerName || 'N/A',
       address || 'N/A',
       city || '',
+      postalCode || '',
       country || '',
       phone ? `Tel: ${phone}` : '',
       email ? `Email: ${email}` : '',
