@@ -62,3 +62,51 @@ test('falls back to legacy shipping address when shipment destination is absent'
   assert.equal(consignee.country, 'United Arab Emirates');
   assert.equal(consignee.phone, '+966511111111');
 });
+
+test('uses shipment ship_to country instead of stale customer profile country', () => {
+  const consignee = resolveCommercialInvoiceConsignee({
+    customer: {
+      full_name: 'Hassna Ahmed Alali',
+      city: 'Arlington',
+      country: 'امريكا',
+      mobile_code: '+971',
+      mobile: '504890690',
+    },
+    shipping: {
+      address: {
+        city: 'مدينة الفجيرة',
+        block: 'Murashid',
+        country: 'AE',
+        postal_code: '00000',
+        street_number: 'Airport street',
+        shipping_address: 'Airport street, Murashid, 44-59, FUJAIRAH CITY, AE',
+      },
+      receiver: {
+        name: 'Amnah ahmed',
+        phone: '971503131515',
+      },
+    },
+    shipments: [
+      {
+        ship_to: {
+          city: 'FUJAIRAH CITY',
+          name: 'Amnah ahmed',
+          block: 'Murashid',
+          phone: '971050 313 1515',
+          country: 'United Arab Emirates',
+          country_code: 'AE',
+          postal_code: '00000',
+          address_line: 'Airport street, Murashid, FUJAIRAH CITY, AE',
+          address_line_two: '44-59',
+        },
+      },
+    ],
+  });
+
+  assert.equal(consignee.name, 'Amnah ahmed');
+  assert.equal(consignee.address, 'Airport street, Murashid, FUJAIRAH CITY, AE, 44-59');
+  assert.equal(consignee.city, 'FUJAIRAH CITY');
+  assert.equal(consignee.country, 'United Arab Emirates');
+  assert.equal(consignee.postalCode, '00000');
+  assert.equal(consignee.phone, '971050 313 1515');
+});

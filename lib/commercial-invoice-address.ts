@@ -6,6 +6,8 @@ const ADDRESS_LINE_KEYS = [
   'address2',
   'address_line',
   'addressLine',
+  'address_line_two',
+  'addressLineTwo',
   'street',
   'street_1',
   'street1',
@@ -35,7 +37,7 @@ const CITY_FIELD_KEYS = ['city', 'city_name', 'cityName', 'region', 'state', 'pr
 const COUNTRY_FIELD_KEYS = ['country', 'country_name', 'countryName'] as const;
 const POSTAL_FIELD_KEYS = ['postal_code', 'postalCode', 'zip', 'zip_code', 'zipcode', 'postcode'] as const;
 const NAME_FIELD_KEYS = ['name', 'recipient', 'recipient_name', 'receiver_name', 'full_name', 'fullName'] as const;
-const PHONE_CODE_KEYS = ['mobile_code', 'phone_code', 'country_code', 'dial_code'] as const;
+const PHONE_CODE_KEYS = ['mobile_code', 'phone_code', 'dial_code'] as const;
 const PHONE_NUMBER_KEYS = ['mobile', 'phone', 'telephone', 'tel', 'contact', 'contact_number'] as const;
 
 type UnknownRecord = Record<string, unknown>;
@@ -82,7 +84,9 @@ const collectAddressParts = (records: Array<UnknownRecord | null>) => {
     if (!record) continue;
     for (const key of ADDRESS_LINE_KEYS) {
       const value = normalizeText(record[key]);
-      if (value && !parts.includes(value)) {
+      const normalizedValue = value.toLowerCase();
+      const alreadyIncluded = parts.some((part) => part.toLowerCase().includes(normalizedValue));
+      if (value && !alreadyIncluded) {
         parts.push(value);
       }
     }
@@ -108,6 +112,22 @@ const buildPhone = (records: Array<UnknownRecord | null>) => {
   return '';
 };
 
+const getShipmentDestinationRecords = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((shipment) => {
+    const record = asRecord(shipment);
+    return [
+      asRecord(record?.ship_to),
+      asRecord(record?.shipTo),
+      asRecord(record?.receiver),
+      asRecord(record?.destination),
+    ];
+  });
+};
+
 const getPrimaryDestinationRecords = (orderData: UnknownRecord) => {
   const shipping = asRecord(orderData.shipping);
   const delivery = asRecord(orderData.delivery);
@@ -118,6 +138,12 @@ const getPrimaryDestinationRecords = (orderData: UnknownRecord) => {
   const nestedShipment = asRecord(nestedShipping?.shipment);
 
   return [
+    ...getShipmentDestinationRecords(orderData.shipments),
+    ...getShipmentDestinationRecords(shipping?.shipments),
+    ...getShipmentDestinationRecords(delivery?.shipments),
+    ...getShipmentDestinationRecords(nestedOrder?.shipments),
+    ...getShipmentDestinationRecords(nestedShipping?.shipments),
+    ...getShipmentDestinationRecords(nestedDelivery?.shipments),
     asRecord(shipping?.ship_to),
     asRecord(shipping?.shipTo),
     asRecord(shipping?.receiver),
