@@ -15,6 +15,7 @@ import { CommercialInvoice } from '@/components/CommercialInvoice';
 import { Search, Printer, AlertCircle } from 'lucide-react';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
+import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
 
 const LABEL_PRINTER_OPTIONS = [
   { id: 75062490, label: 'الطابعة الرئيسية (75062490)' },
@@ -412,29 +413,21 @@ export default function OrderInvoiceSearchPage() {
     });
   };
 
-  const shippingAddress = order?.orderData?.shipping_address || order?.orderData?.customer || null;
   const billingAddress = order?.orderData?.billing_address || order?.orderData?.customer || null;
   const customerFirstName = getStringValue(order?.orderData?.customer?.first_name);
   const customerLastName = getStringValue(order?.orderData?.customer?.last_name);
   const fallbackCustomerName = getStringValue(order?.orderData?.customer?.name || order?.orderData?.customer?.full_name);
   const customerName = [customerFirstName, customerLastName].filter(Boolean).join(' ').trim() || fallbackCustomerName;
-  const shippingName = getStringValue((shippingAddress as any)?.name) || customerName;
+  const resolvedShippingAddress = resolveCommercialInvoiceConsignee(order?.orderData);
+  const shippingName = resolvedShippingAddress.name || customerName;
   const billingName = getStringValue((billingAddress as any)?.name) || customerName;
-  const shippingCountry = getStringValue((shippingAddress as any)?.country || order?.orderData?.customer?.country || (billingAddress as any)?.country);
-  const shippingCity = getStringValue((shippingAddress as any)?.city || order?.orderData?.customer?.city || (billingAddress as any)?.city);
-  const shippingStreet = [
-    getStringValue((shippingAddress as any)?.address),
-    getStringValue((shippingAddress as any)?.address_2 || (shippingAddress as any)?.address2),
-    getStringValue((shippingAddress as any)?.street),
-  ].filter(Boolean).join('، ');
-  const shippingPostalCode = getStringValue((shippingAddress as any)?.zip_code || (shippingAddress as any)?.postal_code);
-  const shippingPhoneParts = [
-    getStringValue(order?.orderData?.customer?.mobile_code || (shippingAddress as any)?.mobile_code),
-    getStringValue(order?.orderData?.customer?.mobile || order?.orderData?.customer?.phone || (shippingAddress as any)?.phone),
-  ].filter(Boolean);
-  const shippingPhone = shippingPhoneParts.join(' ');
+  const shippingCountry = resolvedShippingAddress.country;
+  const shippingCity = resolvedShippingAddress.city;
+  const shippingStreet = resolvedShippingAddress.address;
+  const shippingPostalCode = resolvedShippingAddress.postalCode;
+  const shippingPhone = resolvedShippingAddress.phone;
   const shippingLocationLabel = [shippingCity, shippingCountry].filter(Boolean).join('، ');
-  const customerEmail = getStringValue(order?.orderData?.customer?.email);
+  const customerEmail = resolvedShippingAddress.email || getStringValue(order?.orderData?.customer?.email);
 
   const billingStreet = [
     getStringValue((billingAddress as any)?.address),
