@@ -8,6 +8,7 @@ import {
   ChevronsUpDown,
   ExternalLink,
   PackagePlus,
+  Plus,
   RefreshCw,
   Ruler,
   Scissors,
@@ -468,13 +469,13 @@ export default function FabricManagementPage() {
                 <CardContent>
                   <form onSubmit={handleFabricSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                     <TextInput label="اسم القماش" value={fabricForm.name} onChange={(name) => setFabricForm({ ...fabricForm, name })} required />
-                    <TextInput label="SKU" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
-                    <SearchableSelect label="اللون" value={fabricForm.color} options={fabricColorOptions} onChange={(color) => setFabricForm({ ...fabricForm, color })} />
-                    <SearchableSelect label="نوع القماش" value={fabricForm.fabricType} options={fabricTypeOptions} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} />
-                    <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} />
+                    <TextInput label="رمز القماش" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
+                    <SearchableSelect label="اللون" value={fabricForm.color} options={fabricColorOptions} onChange={(color) => setFabricForm({ ...fabricForm, color })} allowCreate />
+                    <SearchableSelect label="نوع القماش" value={fabricForm.fabricType} options={fabricTypeOptions} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} allowCreate />
+                    <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} allowCreate />
+                    <SearchableSelect label="وحدة التكلفة والطول" value={fabricForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setFabricForm({ ...fabricForm, lengthUnit })} required />
                     <TextInput label={fabricForm.lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'} type="number" value={fabricForm.unitCost} onChange={(unitCost) => setFabricForm({ ...fabricForm, unitCost })} />
                     <TextInput label={fabricForm.lengthUnit === 'yard' ? 'الطول في المخزون بالياردة' : 'الطول في المخزون بالمتر'} type="number" value={fabricForm.stockLength} onChange={(stockLength) => setFabricForm({ ...fabricForm, stockLength })} />
-                    <SearchableSelect label="وحدة الطول والتكلفة" value={fabricForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setFabricForm({ ...fabricForm, lengthUnit })} required />
                     <TextInput label={fabricForm.lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر'} type="number" value={fabricForm.minStock} onChange={(minStock) => setFabricForm({ ...fabricForm, minStock })} />
                     <Field className="md:col-span-3">
                       <FieldLabel>ملاحظات</FieldLabel>
@@ -529,6 +530,7 @@ export default function FabricManagementPage() {
                       value={stockForm.supplier}
                       options={supplierOptions}
                       onChange={(supplier) => setStockForm({ ...stockForm, supplier })}
+                      allowCreate
                     />
                     <Field className="md:col-span-2">
                       <FieldLabel>مرجع أو ملاحظات الشراء</FieldLabel>
@@ -555,7 +557,7 @@ export default function FabricManagementPage() {
                 <CardContent>
                   <form onSubmit={handleTailorSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-2">
                     <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
-                    <SearchableSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} />
+                    <SearchableSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} allowCreate />
                     <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
                     <TextInput label="رمز الدخول للبوابة" value={tailorForm.accessCode} onChange={(accessCode) => setTailorForm({ ...tailorForm, accessCode })} required />
                     <Field className="md:col-span-2">
@@ -705,6 +707,7 @@ function SearchableSelect({
   onChange,
   placeholder = 'اختر',
   required,
+  allowCreate = false,
 }: {
   label: string;
   value: string;
@@ -712,14 +715,42 @@ function SearchableSelect({
   onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
+  allowCreate?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const selectedOption = options.find((option) => option.value === value);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredOptions = normalizedSearch
+    ? options.filter((option) => {
+        const searchableText = `${option.label} ${option.value} ${option.description || ''}`.toLowerCase();
+        return searchableText.includes(normalizedSearch);
+      })
+    : options;
+  const creatableValue = search.trim();
+  const hasExactOption = options.some(
+    (option) =>
+      option.value.trim().toLowerCase() === normalizedSearch ||
+      option.label.trim().toLowerCase() === normalizedSearch
+  );
+  const showCreateOption = allowCreate && creatableValue.length > 0 && !hasExactOption;
+
+  const selectValue = (nextValue: string) => {
+    onChange(nextValue);
+    setSearch('');
+    setOpen(false);
+  };
 
   return (
     <Field>
       <FieldLabel>{label}</FieldLabel>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setSearch('');
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
             type="button"
@@ -739,19 +770,31 @@ function SearchableSelect({
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0" dir="rtl">
-          <Command dir="rtl" className="text-right">
-            <CommandInput className="text-right" placeholder="بحث..." />
+          <Command dir="rtl" className="text-right" shouldFilter={false}>
+            <CommandInput
+              className="text-right"
+              placeholder={allowCreate ? 'بحث أو إضافة...' : 'بحث...'}
+              value={search}
+              onValueChange={setSearch}
+            />
             <CommandList>
-              <CommandEmpty>لا توجد نتائج</CommandEmpty>
+              {!filteredOptions.length && !showCreateOption && <CommandEmpty>لا توجد نتائج</CommandEmpty>}
               <CommandGroup>
-                {options.map((option) => (
+                {showCreateOption && (
+                  <CommandItem
+                    value={creatableValue}
+                    onSelect={() => selectValue(creatableValue)}
+                    className="justify-between text-right"
+                  >
+                    <Plus className="size-4" />
+                    <span className="min-w-0 flex-1 truncate text-right">إضافة {creatableValue}</span>
+                  </CommandItem>
+                )}
+                {filteredOptions.map((option) => (
                   <CommandItem
                     key={option.value || '__empty__'}
                     value={`${option.label} ${option.description || ''}`}
-                    onSelect={() => {
-                      onChange(option.value);
-                      setOpen(false);
-                    }}
+                    onSelect={() => selectValue(option.value)}
                     className="justify-between text-right"
                   >
                     <Check className={cn('size-4', value === option.value ? 'opacity-100' : 'opacity-0')} />
@@ -779,7 +822,7 @@ function FabricTable({ fabrics }: { fabrics: Fabric[] }) {
         <TableHeader>
           <TableRow>
             <TableHead>القماش</TableHead>
-            <TableHead>SKU</TableHead>
+            <TableHead>رمز القماش</TableHead>
             <TableHead>اللون</TableHead>
             <TableHead>النوع</TableHead>
             <TableHead>المخزون</TableHead>
