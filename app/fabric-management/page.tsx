@@ -193,12 +193,11 @@ const FABRIC_TYPE_OPTIONS: SelectOption[] = [
 ].map((value) => ({ value, label: value }));
 
 const SUPPLIER_OPTIONS: SelectOption[] = [
+  'جملة بفاتورة',
+  'استيراد الصين',
   'مخزون سابق',
-  'مورد محلي',
-  'سوق الجملة',
-  'استيراد',
+  'مكتب محلي',
   'طلب خاص',
-  'تحويل من فرع',
 ].map((value) => ({ value, label: value }));
 
 const WORKSHOP_OPTIONS: SelectOption[] = [
@@ -247,6 +246,7 @@ const initialStockForm = {
   lengthUnit: 'meter',
   unitCost: '',
   supplier: '',
+  purchaseBill: '',
   notes: '',
 };
 
@@ -317,10 +317,7 @@ export default function FabricManagementPage() {
     () => mergeOptions(FABRIC_TYPE_OPTIONS, data?.fabrics.map((fabric) => fabric.fabricType) || [], true),
     [data?.fabrics]
   );
-  const supplierOptions = useMemo(
-    () => mergeOptions(SUPPLIER_OPTIONS, data?.fabrics.map((fabric) => fabric.supplier) || [], true),
-    [data?.fabrics]
-  );
+  const supplierOptions = useMemo(() => SUPPLIER_OPTIONS, []);
   const workshopOptions = useMemo(
     () => mergeOptions(WORKSHOP_OPTIONS, data?.tailors.map((tailor) => tailor.workshopName) || [], true),
     [data?.tailors]
@@ -481,10 +478,10 @@ export default function FabricManagementPage() {
                     <TextInput label="رمز القماش" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
                     <SearchableSelect label="اللون" value={fabricForm.color} options={fabricColorOptions} onChange={(color) => setFabricForm({ ...fabricForm, color })} allowCreate />
                     <SearchableSelect label="نوع القماش" value={fabricForm.fabricType} options={fabricTypeOptions} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} allowCreate />
-                    <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} allowCreate />
+                    <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} />
                     <SearchableSelect label="وحدة التكلفة والطول" value={fabricForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setFabricForm({ ...fabricForm, lengthUnit })} required />
                     <TextInput label={fabricForm.lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'} type="number" value={fabricForm.unitCost} onChange={(unitCost) => setFabricForm({ ...fabricForm, unitCost })} />
-                    <TextInput label={fabricForm.lengthUnit === 'yard' ? 'الطول في المخزون بالياردة' : 'الطول في المخزون بالمتر'} type="number" value={fabricForm.stockLength} onChange={(stockLength) => setFabricForm({ ...fabricForm, stockLength })} />
+                    <TextInput label={fabricForm.lengthUnit === 'yard' ? 'الكمية بالمخزون بالياردة' : 'الكمية بالمخزون بالمتر'} type="number" value={fabricForm.stockLength} onChange={(stockLength) => setFabricForm({ ...fabricForm, stockLength })} />
                     <TextInput label={fabricForm.lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر'} type="number" value={fabricForm.minStock} onChange={(minStock) => setFabricForm({ ...fabricForm, minStock })} />
                     <Field className="md:col-span-3">
                       <FieldLabel>ملاحظات</FieldLabel>
@@ -501,7 +498,7 @@ export default function FabricManagementPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <Ruler className="size-4" />
-                    إضافة كمية لمخزون موجود
+                    إضافة كمية لمخزون موجود (فاتورة شراء)
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -521,13 +518,6 @@ export default function FabricManagementPage() {
                       onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })}
                       required
                     />
-                    <SearchableSelect
-                      label="وحدة الكمية والتكلفة"
-                      value={stockForm.lengthUnit}
-                      options={LENGTH_UNIT_OPTIONS}
-                      onChange={(lengthUnit) => setStockForm({ ...stockForm, lengthUnit })}
-                      required
-                    />
                     <TextInput
                       label={stockForm.lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'}
                       type="number"
@@ -535,13 +525,24 @@ export default function FabricManagementPage() {
                       onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })}
                     />
                     <SearchableSelect
+                      label="وحدة الكمية والتكلفة"
+                      value={stockForm.lengthUnit}
+                      options={LENGTH_UNIT_OPTIONS}
+                      onChange={(lengthUnit) => setStockForm({ ...stockForm, lengthUnit })}
+                      required
+                    />
+                    <SearchableSelect
                       label="المورد"
                       value={stockForm.supplier}
                       options={supplierOptions}
                       onChange={(supplier) => setStockForm({ ...stockForm, supplier })}
-                      allowCreate
                     />
-                    <Field className="md:col-span-2">
+                    <TextInput
+                      label="فاتورة شراء"
+                      value={stockForm.purchaseBill}
+                      onChange={(purchaseBill) => setStockForm({ ...stockForm, purchaseBill })}
+                    />
+                    <Field className="md:col-span-3">
                       <FieldLabel>مرجع أو ملاحظات الشراء</FieldLabel>
                       <Textarea value={stockForm.notes} onChange={(event) => setStockForm({ ...stockForm, notes: event.target.value })} />
                     </Field>
@@ -595,8 +596,8 @@ export default function FabricManagementPage() {
                   <form onSubmit={handleIssueSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                     <SearchableSelect label="القماش" value={issueForm.fabricId} options={fabricOptions} onChange={(fabricId) => setIssueForm({ ...issueForm, fabricId })} placeholder="اختر القماش" required />
                     <SearchableSelect label="الخياط" value={issueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setIssueForm({ ...issueForm, tailorId })} placeholder="اختر الخياط" required />
-                    <TextInput label={issueForm.lengthUnit === 'yard' ? 'الطول المسلم بالياردة' : 'الطول المسلم بالمتر'} type="number" value={issueForm.issuedLength} onChange={(issuedLength) => setIssueForm({ ...issueForm, issuedLength })} required />
                     <SearchableSelect label="وحدة الطول المسلم" value={issueForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setIssueForm({ ...issueForm, lengthUnit })} required />
+                    <TextInput label={issueForm.lengthUnit === 'yard' ? 'الطول المسلم بالياردة' : 'الطول المسلم بالمتر'} type="number" value={issueForm.issuedLength} onChange={(issuedLength) => setIssueForm({ ...issueForm, issuedLength })} required />
                     <TextInput label="تاريخ التسليم" type="date" value={issueForm.issueDate} onChange={(issueDate) => setIssueForm({ ...issueForm, issueDate })} />
                     <TextInput label="مرجع" value={issueForm.reference} onChange={(reference) => setIssueForm({ ...issueForm, reference })} />
                     <Field className="md:col-span-3">
@@ -909,7 +910,7 @@ function IssuesTable({ issues, showCost = false }: { issues: TailorFabricIssue[]
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>القماش</TableHead>
+            <TableHead>القماش / رمز المنتج</TableHead>
             <TableHead>الخياط</TableHead>
             <TableHead>المسلم</TableHead>
             <TableHead>المتبقي لدى الخياط</TableHead>
@@ -921,7 +922,12 @@ function IssuesTable({ issues, showCost = false }: { issues: TailorFabricIssue[]
         <TableBody>
           {issues.map((issue) => (
             <TableRow key={issue.id}>
-              <TableCell className="font-medium">{issue.fabric.name}</TableCell>
+              <TableCell>
+                <div className="space-y-1">
+                  <p className="font-medium">{issue.fabric.name}</p>
+                  <p className="text-xs text-muted-foreground">{issue.fabric.sku || 'لا يوجد رمز'}</p>
+                </div>
+              </TableCell>
               <TableCell>{issue.tailor.name}</TableCell>
               <TableCell>{formatDualLength(issue.issuedLength)}</TableCell>
               <TableCell>{formatDualLength(issue.remainingAtTailor)}</TableCell>

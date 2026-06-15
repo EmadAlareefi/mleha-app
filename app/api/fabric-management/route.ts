@@ -7,6 +7,17 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 
 const FABRIC_SERVICE = 'fabric-management';
 const YARD_TO_METER = 0.9144;
+const SUPPLIER_VALUES = [
+  'جملة بفاتورة',
+  'استيراد الصين',
+  'مخزون سابق',
+  'مكتب محلي',
+  'طلب خاص',
+] as const;
+
+class BadRequestError extends Error {
+  status = 400;
+}
 
 function toNumber(value: unknown, fallback = 0) {
   const numberValue = Number(value);
@@ -36,6 +47,15 @@ function costToPerMeter(value: unknown, unit: unknown) {
     return cost.div(YARD_TO_METER);
   }
   return cost;
+}
+
+function normalizeSupplier(value: unknown) {
+  const supplier = typeof value === 'string' ? value.trim() : '';
+  if (!supplier) return null;
+  if (!(SUPPLIER_VALUES as readonly string[]).includes(supplier)) {
+    throw new BadRequestError(`المورد يجب أن يكون أحد الخيارات التالية: ${SUPPLIER_VALUES.join('، ')}`);
+  }
+  return supplier;
 }
 
 function getAuditUser(session: any) {
@@ -191,7 +211,7 @@ export async function POST(request: NextRequest) {
           sku: body.sku || null,
           color: body.color || null,
           fabricType: body.fabricType || null,
-          supplier: body.supplier || null,
+          supplier: normalizeSupplier(body.supplier),
           unitCost: costToPerMeter(body.unitCost, body.lengthUnit),
           stockLength: body.stockLength ? lengthToMeters(body.stockLength, body.lengthUnit, 'الطول في المخزون') : toDecimal(0),
           minStock: body.minStock ? lengthToMeters(body.minStock, body.lengthUnit, 'حد التنبيه') : toDecimal(0),
@@ -233,17 +253,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'القماش غير موجود' }, { status: 404 });
       }
 
+      const purchaseNote = [
+        body.purchaseBill ? `فاتورة شراء: ${body.purchaseBill}` : null,
+        body.notes,
+      ]
+        .filter(Boolean)
+        .join(' - ');
+      const supplier = normalizeSupplier(body.supplier);
+
       const updatedFabric = await prisma.fabric.update({
         where: { id: fabricId },
         data: {
           stockLength: { increment: purchasedLength },
-          supplier: body.supplier || existingFabric.supplier,
+          supplier: supplier || existingFabric.supplier,
           unitCost:
             body.unitCost !== undefined && body.unitCost !== ''
               ? costToPerMeter(body.unitCost, body.lengthUnit)
               : existingFabric.unitCost,
-          notes: body.notes
-            ? [existingFabric.notes, `توريد جديد: ${body.notes}`].filter(Boolean).join('\n')
+          notes: purchaseNote
+            ? [existingFabric.notes, `توريد جديد: ${purchaseNote}`].filter(Boolean).join('\n')
             : existingFabric.notes,
         },
       });
@@ -373,6 +401,7 @@ export async function POST(request: NextRequest) {
 
           const stockLength = existingRequest.requestedLength;
           const unitCost = existingRequest.purchaseUnitCost || new Prisma.Decimal(0);
+          const purchaseSupplier = normalizeSupplier(existingRequest.purchaseSupplier);
 
           if (matchingFabric) {
             const notes = [
@@ -389,7 +418,7 @@ export async function POST(request: NextRequest) {
                 unitCost,
                 color: existingRequest.purchaseColor || matchingFabric.color,
                 fabricType: existingRequest.purchaseFabricType || matchingFabric.fabricType,
-                supplier: existingRequest.purchaseSupplier || matchingFabric.supplier,
+                supplier: purchaseSupplier || matchingFabric.supplier,
                 notes,
               },
             });
@@ -401,7 +430,7 @@ export async function POST(request: NextRequest) {
                 sku: purchaseSku,
                 color: existingRequest.purchaseColor || null,
                 fabricType: existingRequest.purchaseFabricType || null,
-                supplier: existingRequest.purchaseSupplier || null,
+                supplier: purchaseSupplier,
                 unitCost,
                 stockLength,
                 notes: existingRequest.notes || null,
@@ -430,9 +459,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'إجراء غير معروف' }, { status: 400 });
   } catch (error: any) {
     console.error('Error saving fabric management data:', error);
+    const status = error instanceof BadRequestError ? error.status : 500;
     return NextResponse.json(
       { error: error.message || 'فشل في حفظ بيانات الأقمشة' },
-      { status: 500 }
+      { status }
     );
   }
 }
