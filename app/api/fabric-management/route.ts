@@ -59,6 +59,10 @@ function normalizeSupplier(value: unknown) {
   return supplier;
 }
 
+function cleanText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function getAuditUser(session: any) {
   return (
     session?.user?.username ||
@@ -320,6 +324,103 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(tailor, { status: 201 });
+    }
+
+    if (action === 'create-purchase-bill') {
+      const billNumber = cleanText(body.billNumber);
+      const purchaseDate = cleanText(body.purchaseDate);
+      const lengthUnit = body.lengthUnit === 'yard' ? 'yard' : 'meter';
+      const supplier = normalizeSupplier(body.supplier);
+      const items = Array.isArray(body.items) ? body.items : [];
+
+      if (!billNumber) {
+        return NextResponse.json({ error: 'رقم فاتورة الشراء مطلوب' }, { status: 400 });
+      }
+
+      if (!purchaseDate || Number.isNaN(new Date(purchaseDate).getTime())) {
+        return NextResponse.json({ error: 'تاريخ الشراء مطلوب' }, { status: 400 });
+      }
+
+      if (!items.length) {
+        return NextResponse.json({ error: 'أضف قماشاً واحداً على الأقل للفاتورة' }, { status: 400 });
+      }
+
+      const savedFabrics = await prisma.$transaction(async (tx) => {
+        const results = [];
+
+        for (const [index, item] of items.entries()) {
+          const rowLabel = `سطر ${index + 1}`;
+          const fabricId = cleanText(item?.fabricId);
+          const name = cleanText(item?.name);
+          const sku = cleanText(item?.sku);
+          const purchasedLength = lengthToMeters(item?.purchasedLength, lengthUnit, `كمية ${rowLabel}`);
+          const unitCost =
+            item?.unitCost !== undefined && item?.unitCost !== ''
+              ? costToPerMeter(item.unitCost, lengthUnit)
+              : null;
+          const minStock =
+            item?.minStock !== undefined && item?.minStock !== ''
+              ? lengthToMeters(item.minStock, lengthUnit, `حد التنبيه في ${rowLabel}`)
+              : null;
+          const purchaseNote = [
+            `فاتورة شراء ${billNumber}`,
+            `تاريخ الشراء: ${purchaseDate}`,
+            item?.notes ? cleanText(item.notes) : null,
+            body.notes ? cleanText(body.notes) : null,
+          ]
+            .filter(Boolean)
+            .join(' - ');
+
+          const existingFabric = fabricId
+            ? await tx.fabric.findUnique({ where: { id: fabricId } })
+            : sku
+              ? await tx.fabric.findUnique({ where: { sku } })
+              : null;
+
+          if (fabricId && !existingFabric) {
+            throw new Error(`القماش المحدد في ${rowLabel} غير موجود`);
+          }
+
+          if (existingFabric) {
+            const updatedFabric = await tx.fabric.update({
+              where: { id: existingFabric.id },
+              data: {
+                stockLength: { increment: purchasedLength },
+                supplier: supplier || existingFabric.supplier,
+                color: cleanText(item?.color) || existingFabric.color,
+                unitCost: unitCost || existingFabric.unitCost,
+                minStock: minStock || existingFabric.minStock,
+                notes: [existingFabric.notes, `توريد جديد: ${purchaseNote}`].filter(Boolean).join('\n'),
+              },
+            });
+            results.push(updatedFabric);
+            continue;
+          }
+
+          if (!name) {
+            throw new Error(`اسم القماش مطلوب في ${rowLabel}`);
+          }
+
+          const createdFabric = await tx.fabric.create({
+            data: {
+              name,
+              sku: sku || null,
+              color: cleanText(item?.color) || null,
+              fabricType: null,
+              supplier,
+              unitCost: unitCost || toDecimal(0),
+              stockLength: purchasedLength,
+              minStock: minStock || toDecimal(0),
+              notes: purchaseNote,
+            },
+          });
+          results.push(createdFabric);
+        }
+
+        return results;
+      });
+
+      return NextResponse.json({ fabrics: savedFabrics.map(serializeFabric) }, { status: 201 });
     }
 
     if (action === 'add-fabric-stock') {

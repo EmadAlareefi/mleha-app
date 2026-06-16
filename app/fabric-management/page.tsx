@@ -7,6 +7,7 @@ import {
   Check,
   ChevronsUpDown,
   ExternalLink,
+  FileText,
   PackagePlus,
   Plus,
   RefreshCw,
@@ -14,6 +15,7 @@ import {
   Scissors,
   Send,
   Shirt,
+  Trash2,
   UserPlus,
 } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
@@ -29,6 +31,14 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -138,6 +148,7 @@ type SelectOption = {
   value: string;
   label: string;
   description?: string;
+  sku?: string;
 };
 
 const EMPTY_OPTION: SelectOption = { value: '', label: 'غير محدد' };
@@ -175,26 +186,6 @@ const FABRIC_COLOR_OPTIONS: SelectOption[] = [
   'متعدد الألوان',
 ].map((value) => ({ value, label: value }));
 
-const FABRIC_TYPE_OPTIONS: SelectOption[] = [
-  'ساتان',
-  'شيفون',
-  'تول',
-  'دانتيل',
-  'كريب',
-  'حرير',
-  'مخمل',
-  'ترتر',
-  'جاكار',
-  'أورجانزا',
-  'بطانة',
-  'قطن',
-  'كتان',
-  'ليكرا',
-  'مطرز',
-  'مشجر',
-  'مخلوط',
-].map((value) => ({ value, label: value }));
-
 const SUPPLIER_OPTIONS: SelectOption[] = [
   'جملة بفاتورة',
   'استيراد الصين',
@@ -211,19 +202,6 @@ const WORKSHOP_OPTIONS: SelectOption[] = [
   'تطريز خارجي',
   'تعديل ومقاسات',
 ].map((value) => ({ value, label: value }));
-
-const initialFabricForm = {
-  name: '',
-  sku: '',
-  color: '',
-  fabricType: '',
-  supplier: '',
-  unitCost: '',
-  stockLength: '',
-  lengthUnit: 'meter',
-  minStock: '',
-  notes: '',
-};
 
 const initialTailorForm = {
   name: '',
@@ -253,6 +231,60 @@ const initialStockForm = {
   notes: '',
 };
 
+type PurchaseBillForm = {
+  billNumber: string;
+  purchaseDate: string;
+  supplier: string;
+  lengthUnit: string;
+  notes: string;
+};
+
+type PurchaseBillItem = {
+  id: string;
+  fabricId: string;
+  purchasedLength: string;
+  unitCost: string;
+  minStock: string;
+  notes: string;
+};
+
+type CreateFabricDialogState = {
+  open: boolean;
+  rowId: string | null;
+  name: string;
+  sku: string;
+  color: string;
+};
+
+const todayInputValue = () => new Date().toISOString().split('T')[0];
+
+const initialPurchaseBillForm = (): PurchaseBillForm => ({
+  billNumber: '',
+  purchaseDate: todayInputValue(),
+  supplier: '',
+  lengthUnit: 'meter',
+  notes: '',
+});
+
+const createPurchaseBillItem = (): PurchaseBillItem => ({
+  id: Math.random().toString(36).slice(2),
+  fabricId: '',
+  purchasedLength: '',
+  unitCost: '',
+  minStock: '',
+  notes: '',
+});
+
+const initialCreateFabricDialog: CreateFabricDialogState = {
+  open: false,
+  rowId: null,
+  name: '',
+  sku: '',
+  color: '',
+};
+
+const looksLikeSku = (value: string) => /[0-9]/.test(value) || /^[A-Za-z0-9_-]+$/.test(value);
+
 const initialDeliveryForm = {
   issueId: '',
   deliveredDressCount: '',
@@ -269,10 +301,12 @@ export default function FabricManagementPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fabricForm, setFabricForm] = useState(initialFabricForm);
   const [tailorForm, setTailorForm] = useState(initialTailorForm);
   const [issueForm, setIssueForm] = useState(initialIssueForm);
   const [stockForm, setStockForm] = useState(initialStockForm);
+  const [purchaseBillForm, setPurchaseBillForm] = useState<PurchaseBillForm>(() => initialPurchaseBillForm());
+  const [purchaseBillItems, setPurchaseBillItems] = useState<PurchaseBillItem[]>(() => [createPurchaseBillItem()]);
+  const [createFabricDialog, setCreateFabricDialog] = useState<CreateFabricDialogState>(initialCreateFabricDialog);
   const [deliveryForm, setDeliveryForm] = useState(initialDeliveryForm);
 
   const fetchData = useCallback(async () => {
@@ -316,10 +350,6 @@ export default function FabricManagementPage() {
     () => mergeOptions(FABRIC_COLOR_OPTIONS, data?.fabrics.map((fabric) => fabric.color) || [], true),
     [data?.fabrics]
   );
-  const fabricTypeOptions = useMemo(
-    () => mergeOptions(FABRIC_TYPE_OPTIONS, data?.fabrics.map((fabric) => fabric.fabricType) || [], true),
-    [data?.fabrics]
-  );
   const supplierOptions = useMemo(() => SUPPLIER_OPTIONS, []);
   const workshopOptions = useMemo(
     () => mergeOptions(WORKSHOP_OPTIONS, data?.tailors.map((tailor) => tailor.workshopName) || [], true),
@@ -330,7 +360,12 @@ export default function FabricManagementPage() {
       (data?.fabrics || []).map((fabric) => ({
         value: fabric.id,
         label: fabric.name,
-        description: `${fabric.color || 'بدون لون'} - ${formatDualLength(fabric.stockLength)}`,
+        sku: fabric.sku || undefined,
+        description: [
+          fabric.sku ? `رمز: ${fabric.sku}` : null,
+          fabric.color || 'بدون لون',
+          formatDualLength(fabric.stockLength),
+        ].filter(Boolean).join(' - '),
       })),
     [data?.fabrics]
   );
@@ -373,14 +408,86 @@ export default function FabricManagementPage() {
     }
   };
 
-  const handleFabricSubmit = async (event: FormEvent) => {
+  const updatePurchaseBillItem = (itemId: string, changes: Partial<PurchaseBillItem>) => {
+    setPurchaseBillItems((currentItems) =>
+      currentItems.map((item) => (item.id === itemId ? { ...item, ...changes } : item))
+    );
+  };
+
+  const selectPurchaseBillFabric = (itemId: string, fabricId: string) => {
+    const selectedFabric = data?.fabrics.find((fabric) => fabric.id === fabricId);
+    updatePurchaseBillItem(itemId, {
+      fabricId,
+      unitCost: selectedFabric?.unitCost ? String(selectedFabric.unitCost) : '',
+    });
+  };
+
+  const openCreateFabricDialog = (rowId: string, searchValue: string) => {
+    const value = searchValue.trim();
+    setCreateFabricDialog({
+      open: true,
+      rowId,
+      name: looksLikeSku(value) ? '' : value,
+      sku: looksLikeSku(value) ? value : '',
+      color: '',
+    });
+  };
+
+  const closeCreateFabricDialog = () => {
+    setCreateFabricDialog(initialCreateFabricDialog);
+  };
+
+  const handleCreateFabricFromDialog = async (event: FormEvent) => {
     event.preventDefault();
-    if (!fabricForm.name.trim()) {
+    if (!createFabricDialog.name.trim()) {
       alert('اسم القماش مطلوب');
       return;
     }
-    const saved = await postAction({ action: 'create-fabric', ...fabricForm });
-    if (saved) setFabricForm(initialFabricForm);
+
+    setSaving(true);
+    try {
+      const response = await fetch('/api/fabric-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create-fabric',
+          name: createFabricDialog.name,
+          sku: createFabricDialog.sku,
+          color: createFabricDialog.color,
+          supplier: purchaseBillForm.supplier,
+          lengthUnit: purchaseBillForm.lengthUnit,
+          stockLength: '',
+          minStock: '',
+          unitCost: '',
+          notes: 'تم إنشاؤه من فاتورة شراء',
+        }),
+      });
+      const createdFabric = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(createdFabric.error || 'فشل في إنشاء القماش');
+
+      await fetchData();
+      if (createFabricDialog.rowId && createdFabric.id) {
+        updatePurchaseBillItem(createFabricDialog.rowId, {
+          fabricId: createdFabric.id,
+          unitCost: createdFabric.unitCost ? String(createdFabric.unitCost) : '',
+        });
+      }
+      closeCreateFabricDialog();
+    } catch (createError: any) {
+      alert(createError.message || 'فشل في إنشاء القماش');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPurchaseBillItem = () => {
+    setPurchaseBillItems((currentItems) => [...currentItems, createPurchaseBillItem()]);
+  };
+
+  const removePurchaseBillItem = (itemId: string) => {
+    setPurchaseBillItems((currentItems) =>
+      currentItems.length > 1 ? currentItems.filter((item) => item.id !== itemId) : currentItems
+    );
   };
 
   const handleTailorSubmit = async (event: FormEvent) => {
@@ -407,6 +514,23 @@ export default function FabricManagementPage() {
         ...initialStockForm,
         fabricId: data?.fabrics[0]?.id || '',
       });
+    }
+  };
+
+  const handlePurchaseBillSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (purchaseBillItems.some((item) => !item.fabricId)) {
+      alert('اختر القماش لكل سطر أو أنشئ قماشاً جديداً من حقل القماش');
+      return;
+    }
+    const saved = await postAction({
+      action: 'create-purchase-bill',
+      ...purchaseBillForm,
+      items: purchaseBillItems,
+    });
+    if (saved) {
+      setPurchaseBillForm(initialPurchaseBillForm());
+      setPurchaseBillItems([createPurchaseBillItem()]);
     }
   };
 
@@ -474,28 +598,95 @@ export default function FabricManagementPage() {
             </TabsList>
 
             <TabsContent value="stock" className="space-y-4">
-              <FormAccordionCard marker="أ" title="إضافة قماش" description="سجّل نوع قماش جديد بنفس نمط أكورديون الموديلات">
-                <form onSubmit={handleFabricSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                  <TextInput label="اسم القماش" value={fabricForm.name} onChange={(name) => setFabricForm({ ...fabricForm, name })} required />
-                  <TextInput label="رمز القماش" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
-                  <SearchableSelect label="اللون" value={fabricForm.color} options={fabricColorOptions} onChange={(color) => setFabricForm({ ...fabricForm, color })} allowCreate />
-                  <SearchableSelect label="نوع القماش" value={fabricForm.fabricType} options={fabricTypeOptions} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} allowCreate />
-                  <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} />
-                  <SearchableSelect label="وحدة التكلفة والطول" value={fabricForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setFabricForm({ ...fabricForm, lengthUnit })} required />
-                  <TextInput label={fabricForm.lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'} type="number" value={fabricForm.unitCost} onChange={(unitCost) => setFabricForm({ ...fabricForm, unitCost })} />
-                  <TextInput label={fabricForm.lengthUnit === 'yard' ? 'الكمية بالمخزون بالياردة' : 'الكمية بالمخزون بالمتر'} type="number" value={fabricForm.stockLength} onChange={(stockLength) => setFabricForm({ ...fabricForm, stockLength })} />
-                  <TextInput label={fabricForm.lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر'} type="number" value={fabricForm.minStock} onChange={(minStock) => setFabricForm({ ...fabricForm, minStock })} />
-                  <Field className="md:col-span-3">
-                    <FieldLabel>ملاحظات</FieldLabel>
-                    <Textarea value={fabricForm.notes} onChange={(event) => setFabricForm({ ...fabricForm, notes: event.target.value })} />
+              <FormAccordionCard marker="أ" title="فاتورة شراء قماش" description="أدخل بيانات الفاتورة مرة واحدة ثم أضف كل الأقمشة الموجودة فيها" tag="فاتورة">
+                <form onSubmit={handlePurchaseBillSubmit} dir="rtl" className="space-y-4 text-right">
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_minmax(0,1fr)]">
+                    <TextInput
+                      label="رقم الفاتورة"
+                      value={purchaseBillForm.billNumber}
+                      onChange={(billNumber) => setPurchaseBillForm({ ...purchaseBillForm, billNumber })}
+                      required
+                    />
+                    <TextInput
+                      label="تاريخ الشراء"
+                      type="date"
+                      value={purchaseBillForm.purchaseDate}
+                      onChange={(purchaseDate) => setPurchaseBillForm({ ...purchaseBillForm, purchaseDate })}
+                      required
+                    />
+                    <SearchableSelect
+                      label="المورد"
+                      value={purchaseBillForm.supplier}
+                      options={supplierOptions}
+                      onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+                    <div>
+                      <p className="text-sm font-semibold">وحدة الكمية والتكلفة</p>
+                      <p className="text-xs text-muted-foreground">تطبق على كل الأقمشة داخل هذه الفاتورة</p>
+                    </div>
+                    <UnitToggle
+                      value={purchaseBillForm.lengthUnit}
+                      onChange={(lengthUnit) => setPurchaseBillForm({ ...purchaseBillForm, lengthUnit })}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold">الأقمشة في الفاتورة</p>
+                      <Button type="button" size="sm" variant="outline" onClick={addPurchaseBillItem}>
+                        <Plus className="size-4" />
+                        إضافة قماش
+                      </Button>
+                    </div>
+
+                    <div className="hidden rounded-lg border bg-muted/30 px-3 py-2 text-xs font-semibold text-muted-foreground lg:grid lg:grid-cols-[1.6fr_.75fr_.75fr_.75fr_.9fr_40px] lg:gap-2">
+                      <span>القماش</span>
+                      <span>الكمية</span>
+                      <span>التكلفة</span>
+                      <span>حد التنبيه</span>
+                      <span>ملاحظات السطر</span>
+                      <span />
+                    </div>
+
+                    {purchaseBillItems.map((item, index) => (
+                      <PurchaseBillItemRow
+                        key={item.id}
+                        item={item}
+                        index={index}
+                        lengthUnit={purchaseBillForm.lengthUnit}
+                        fabricOptions={fabricOptions}
+                        onFabricSelect={(fabricId) => selectPurchaseBillFabric(item.id, fabricId)}
+                        onCreateFabric={(searchValue) => openCreateFabricDialog(item.id, searchValue)}
+                        onChange={(changes) => updatePurchaseBillItem(item.id, changes)}
+                        onRemove={() => removePurchaseBillItem(item.id)}
+                        canRemove={purchaseBillItems.length > 1}
+                      />
+                    ))}
+                  </div>
+
+                  <Field>
+                    <FieldLabel>ملاحظات الفاتورة</FieldLabel>
+                    <Textarea
+                      value={purchaseBillForm.notes}
+                      onChange={(event) => setPurchaseBillForm({ ...purchaseBillForm, notes: event.target.value })}
+                    />
                   </Field>
-                  <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
-                    <PackagePlus className="size-4" />
-                    حفظ القماش
-                  </Button>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      ابحث بالاسم أو الرمز. إذا لم تجد القماش، اختر إنشاء قماش جديد من نفس الحقل.
+                    </p>
+                    <Button className="sm:w-fit" type="submit" disabled={saving}>
+                      <FileText className="size-4" />
+                      حفظ الفاتورة
+                    </Button>
+                  </div>
                 </form>
               </FormAccordionCard>
-              <FormAccordionCard marker="ب" title="إضافة كمية لمخزون موجود" description="توريد جديد مرتبط برقم فاتورة الشراء" tag="فاتورة">
+
+              <FormAccordionCard marker="ب" title="تعديل مخزون بدون فاتورة" description="استخدم هذا القسم لإضافة كمية واحدة كتصحيح يدوي منفصل عن فواتير الشراء" tag="تعديل يدوي">
                 <form onSubmit={handleStockSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                   <SearchableSelect
                     label="القماش"
@@ -531,18 +722,13 @@ export default function FabricManagementPage() {
                     options={supplierOptions}
                     onChange={(supplier) => setStockForm({ ...stockForm, supplier })}
                   />
-                  <TextInput
-                    label="رقم فاتورة الشراء"
-                    value={stockForm.purchaseBill}
-                    onChange={(purchaseBill) => setStockForm({ ...stockForm, purchaseBill })}
-                  />
                   <Field className="md:col-span-3">
-                    <FieldLabel>مرجع أو ملاحظات الشراء</FieldLabel>
+                    <FieldLabel>سبب التعديل أو ملاحظات</FieldLabel>
                     <Textarea value={stockForm.notes} onChange={(event) => setStockForm({ ...stockForm, notes: event.target.value })} />
                   </Field>
                   <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length}>
                     <Ruler className="size-4" />
-                    إضافة للمخزون
+                    حفظ التعديل
                   </Button>
                 </form>
               </FormAccordionCard>
@@ -623,6 +809,47 @@ export default function FabricManagementPage() {
               />
             </TabsContent>
           </Tabs>
+          <Dialog open={createFabricDialog.open} onOpenChange={(open) => !open && closeCreateFabricDialog()}>
+            <DialogContent dir="rtl" className="text-right sm:max-w-xl">
+              <DialogHeader className="text-right">
+                <DialogTitle>إنشاء قماش جديد</DialogTitle>
+                <DialogDescription>
+                  احفظ القماش ثم سيتم اختياره تلقائياً في سطر الفاتورة.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateFabricFromDialog} className="grid gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextInput
+                    label="اسم القماش"
+                    value={createFabricDialog.name}
+                    onChange={(name) => setCreateFabricDialog((current) => ({ ...current, name }))}
+                    required
+                  />
+                  <TextInput
+                    label="رمز القماش"
+                    value={createFabricDialog.sku}
+                    onChange={(sku) => setCreateFabricDialog((current) => ({ ...current, sku }))}
+                  />
+                </div>
+                <SearchableSelect
+                  label="اللون"
+                  value={createFabricDialog.color}
+                  options={fabricColorOptions}
+                  onChange={(color) => setCreateFabricDialog((current) => ({ ...current, color }))}
+                  allowCreate
+                />
+                <DialogFooter className="gap-2 sm:justify-start">
+                  <Button type="submit" disabled={saving}>
+                    <Plus className="size-4" />
+                    حفظ واختيار القماش
+                  </Button>
+                  <Button type="button" variant="outline" onClick={closeCreateFabricDialog} disabled={saving}>
+                    إلغاء
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
           </>
         )}
       </div>
@@ -705,6 +932,245 @@ function TextInput({
         required={required}
         onChange={(event) => onChange(event.target.value)}
       />
+    </Field>
+  );
+}
+
+function UnitToggle({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 rounded-md border bg-background p-1">
+      {LENGTH_UNIT_OPTIONS.map((option) => (
+        <Button
+          key={option.value}
+          type="button"
+          size="sm"
+          variant={value === option.value ? 'default' : 'ghost'}
+          className="min-w-20"
+          onClick={() => onChange(option.value)}
+          aria-pressed={value === option.value}
+        >
+          {option.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function PurchaseBillItemRow({
+  item,
+  index,
+  lengthUnit,
+  fabricOptions,
+  onFabricSelect,
+  onCreateFabric,
+  onChange,
+  onRemove,
+  canRemove,
+}: {
+  item: PurchaseBillItem;
+  index: number;
+  lengthUnit: string;
+  fabricOptions: SelectOption[];
+  onFabricSelect: (fabricId: string) => void;
+  onCreateFabric: (searchValue: string) => void;
+  onChange: (changes: Partial<PurchaseBillItem>) => void;
+  onRemove: () => void;
+  canRemove: boolean;
+}) {
+  const quantityLabel = lengthUnit === 'yard' ? 'الكمية بالياردة' : 'الكمية بالمتر';
+  const costLabel = lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر';
+  const stockLabel = lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر';
+
+  return (
+    <div className="rounded-lg border bg-card p-3 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-2 lg:hidden">
+        <p className="text-sm font-bold">قماش {index + 1}</p>
+        <Button type="button" size="icon" variant="ghost" onClick={onRemove} disabled={!canRemove} aria-label="حذف القماش">
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[1.6fr_.75fr_.75fr_.75fr_.9fr_40px] lg:items-start lg:gap-2">
+        <FabricLookupSelect
+          label="القماش"
+          value={item.fabricId}
+          options={fabricOptions}
+          onChange={onFabricSelect}
+          onCreate={onCreateFabric}
+          required
+        />
+
+        <TextInput
+          label={quantityLabel}
+          type="number"
+          value={item.purchasedLength}
+          onChange={(purchasedLength) => onChange({ purchasedLength })}
+          required
+        />
+        <TextInput
+          label={costLabel}
+          type="number"
+          value={item.unitCost}
+          onChange={(unitCost) => onChange({ unitCost })}
+        />
+        <TextInput
+          label={stockLabel}
+          type="number"
+          value={item.minStock}
+          onChange={(minStock) => onChange({ minStock })}
+        />
+        <Field>
+          <FieldLabel>ملاحظة السطر</FieldLabel>
+          <Textarea
+            value={item.notes}
+            onChange={(event) => onChange({ notes: event.target.value })}
+            className="min-h-9"
+          />
+        </Field>
+
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={onRemove}
+          disabled={!canRemove}
+          aria-label="حذف القماش"
+          className="mt-7 hidden lg:inline-flex"
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function FabricLookupSelect({
+  label,
+  value,
+  options,
+  onChange,
+  onCreate,
+  required,
+}: {
+  label: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+  onCreate: (searchValue: string) => void;
+  required?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const selectedOption = options.find((option) => option.value === value);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredOptions = normalizedSearch
+    ? options.filter((option) => {
+        const searchableText = `${option.label} ${option.value} ${option.description || ''}`.toLowerCase();
+        return searchableText.includes(normalizedSearch);
+      })
+    : options;
+  const hasExactOption = normalizedSearch
+    ? options.some((option) => {
+        const values = [option.label, option.value, option.sku || '', option.description || ''].map((item) =>
+          item.trim().toLowerCase()
+        );
+        return values.includes(normalizedSearch);
+      })
+    : true;
+  const showCreateOption = normalizedSearch.length > 0 && !hasExactOption;
+
+  const selectValue = (nextValue: string) => {
+    onChange(nextValue);
+    setSearch('');
+    setOpen(false);
+  };
+
+  const createValue = () => {
+    const nextSearch = search.trim();
+    if (!nextSearch) return;
+    onCreate(nextSearch);
+    setSearch('');
+    setOpen(false);
+  };
+
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setSearch('');
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            aria-required={required}
+            className={cn(
+              'h-9 w-full justify-between px-3 text-right font-normal',
+              !selectedOption && 'text-muted-foreground'
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate text-right">
+              {selectedOption?.label || 'اختر أو اكتب قماش جديد'}
+            </span>
+            <ChevronsUpDown className="size-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0" dir="rtl">
+          <Command dir="rtl" className="text-right" shouldFilter={false}>
+            <CommandInput
+              className="text-right"
+              placeholder="ابحث بالاسم أو الرمز..."
+              value={search}
+              onValueChange={setSearch}
+            />
+            <CommandList>
+              {!filteredOptions.length && !showCreateOption && <CommandEmpty>لا توجد نتائج</CommandEmpty>}
+              <CommandGroup>
+                {showCreateOption && (
+                  <CommandItem
+                    value={`create-${search}`}
+                    onSelect={createValue}
+                    className="justify-between text-right"
+                  >
+                    <Plus className="size-4" />
+                    <span className="min-w-0 flex-1 truncate text-right">
+                      إنشاء قماش جديد: {search.trim()}
+                    </span>
+                  </CommandItem>
+                )}
+                {filteredOptions.map((option) => (
+                  <CommandItem
+                    key={option.value}
+                    value={`${option.label} ${option.description || ''}`}
+                    onSelect={() => selectValue(option.value)}
+                    className="justify-between text-right"
+                  >
+                    <Check className={cn('size-4', value === option.value ? 'opacity-100' : 'opacity-0')} />
+                    <span className="flex min-w-0 flex-1 flex-col items-end">
+                      <span className="truncate">{option.label}</span>
+                      {option.description && (
+                        <span className="truncate text-xs text-muted-foreground">{option.description}</span>
+                      )}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </Field>
   );
 }
