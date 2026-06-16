@@ -36,7 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { ModelsTabSpec } from './models-tab-spec';
+import { ModelsTabSpec, type DesignModel } from './models-tab-spec';
 
 type Fabric = {
   id: string;
@@ -106,12 +106,14 @@ type FabricManagementData = {
   tailors: Tailor[];
   issues: TailorFabricIssue[];
   requests: TailorFabricRequest[];
+  models: DesignModel[];
   summary: {
     fabricsCount: number;
     activeTailorsCount: number;
     stockMeters: number;
     withTailorsMeters: number;
     pendingRequestsCount: number;
+    modelsCount: number;
   };
 };
 
@@ -614,7 +616,11 @@ export default function FabricManagementPage() {
             </TabsContent>
 
             <TabsContent value="models">
-              <ModelsTabSpec fabrics={data?.fabrics || []} issues={data?.issues || []} />
+              <ModelsTabSpec
+                fabrics={data?.fabrics || []}
+                models={data?.models || []}
+                onChanged={fetchData}
+              />
             </TabsContent>
           </Tabs>
           </>

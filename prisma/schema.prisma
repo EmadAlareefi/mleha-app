@@ -1242,6 +1242,34 @@ model TailorFabricRequest {
   @@index([createdAt])
 }
 
+model DesignModel {
+  id String @id @default(cuid())
+
+  sku         String  @unique
+  status      String  @default("active")
+  description String? @db.Text
+  unit        String  @default("meter")
+  colors      String[]
+  imageData   String? @db.Text // base64 data URL of the product image
+
+  recipe      Json // [{ role, fabricId, consumption }] consumption stored in the model unit
+  accessories Json // [{ name, cost }]
+
+  tailoringCost  Decimal @default(0) @db.Decimal(12, 2)
+  embroideryCost Decimal @default(0) @db.Decimal(12, 2)
+  extraCost      Decimal @default(0) @db.Decimal(12, 2)
+
+  producedCount Int     @default(0)
+  isActive      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sku])
+  @@index([status])
+  @@index([isActive])
+}
+
 model ShipmentAssignment {
   id String @id @default(cuid())
 

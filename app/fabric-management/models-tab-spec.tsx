@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import {
   Check,
   ChevronDown,
-  Edit3,
   Grid2X2,
   Layers,
   PackageCheck,
@@ -20,15 +19,6 @@ type Fabric = {
   fabricType?: string | null;
   unitCost: number;
   stockLength: number;
-};
-
-type TailorFabricIssue = {
-  id: string;
-  status: string;
-  issuedLength: number;
-  remainingAtTailor: number;
-  deliveredDressCount?: number | null;
-  fabric: Fabric;
 };
 
 type SelectOption = {
@@ -49,13 +39,14 @@ type AccessoryRow = {
   cost: string;
 };
 
-type DesignModel = {
+export type DesignModel = {
   id: string;
   sku: string;
   status: string;
   colors: string[];
   description: string;
   unit: 'meter' | 'yard';
+  imageData?: string | null;
   fabrics: RecipeFabricRow[];
   accessories: AccessoryRow[];
   tailoringCost: number;
@@ -192,16 +183,21 @@ function calculateModel(input: {
 
 export function ModelsTabSpec({
   fabrics,
-  issues,
+  models,
+  onChanged,
 }: {
   fabrics: Fabric[];
-  issues: TailorFabricIssue[];
+  models: DesignModel[];
+  onChanged: () => void | Promise<void>;
 }) {
   const [openSelect, setOpenSelect] = useState<string | null>(null);
   const [sku, setSku] = useState('DRS-001');
   const [status, setStatus] = useState('active');
   const [unit, setUnit] = useState<'meter' | 'yard'>('meter');
   const [description, setDescription] = useState('تفاصيل التصميم والقصة…');
+  const [imageData, setImageData] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedColors, setSelectedColors] = useState<string[]>(['متعدد الألوان']);
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>([
     { id: 'main', role: 'main', fabricId: fabrics[0]?.id || '', consumption: '2.3' },
@@ -216,7 +212,6 @@ export function ModelsTabSpec({
   const [embroideryCost, setEmbroideryCost] = useState('20');
   const [extraCost, setExtraCost] = useState('10');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
-  const [models, setModels] = useState<DesignModel[]>([]);
 
   const fabricOptions = useMemo(
     () =>
@@ -241,56 +236,7 @@ export function ModelsTabSpec({
     [accessoryRows, embroideryCost, extraCost, fabrics, recipeRows, tailoringCost, unit]
   );
 
-  const fallbackModels = useMemo<DesignModel[]>(() => {
-    const first = fabrics[0];
-    const second = fabrics[1] || fabrics[0];
-    return [
-      {
-        id: 'sample-1',
-        sku: 'DRS-001',
-        status: 'active',
-        colors: ['بيج', 'وردي', 'أسود'],
-        description: 'موديل تجريبي محسوب من مخزون الأقمشة الحالي',
-        unit: 'meter',
-        fabrics: [{ id: 'sample-main', role: 'main', fabricId: first?.id || '', consumption: '2.3' }],
-        accessories: accessoryRows,
-        tailoringCost: 45,
-        embroideryCost: 20,
-        extraCost: 10,
-        fabricCost: first ? 2.3 * first.unitCost : 0,
-        accessoriesCost: 15,
-        totalCost: (first ? 2.3 * first.unitCost : 0) + 90,
-        producibleCount: first ? Math.floor(first.stockLength / 2.3) : 0,
-        producedCount: 3,
-        inProgressCount: issues.filter((issue) => issue.status !== 'closed').length,
-        reservedLength: issues
-          .filter((issue) => issue.status !== 'closed')
-          .reduce((sum, issue) => sum + issue.remainingAtTailor, 0),
-      },
-      {
-        id: 'sample-2',
-        sku: 'DRS-014',
-        status: 'draft',
-        colors: ['أسود', 'كحلي'],
-        description: 'موديل قيد التطوير',
-        unit: 'meter',
-        fabrics: [{ id: 'sample-second', role: 'main', fabricId: second?.id || '', consumption: '3.1' }],
-        accessories: [{ id: 'sample-buttons', name: 'أزرار', cost: '8' }],
-        tailoringCost: 60,
-        embroideryCost: 25,
-        extraCost: 10,
-        fabricCost: second ? 3.1 * second.unitCost : 0,
-        accessoriesCost: 8,
-        totalCost: (second ? 3.1 * second.unitCost : 0) + 103,
-        producibleCount: second ? Math.floor(second.stockLength / 3.1) : 0,
-        producedCount: 0,
-        inProgressCount: 0,
-        reservedLength: 0,
-      },
-    ];
-  }, [accessoryRows, fabrics, issues]);
-
-  const visibleModels = models.length ? models : fallbackModels;
+  const visibleModels = models;
   const activeModelsCount = visibleModels.filter((model) => model.status === 'active').length;
   const totalProducibleCount = visibleModels.reduce((sum, model) => sum + model.producibleCount, 0);
   const totalReservedLength = visibleModels.reduce((sum, model) => sum + model.reservedLength, 0);
@@ -344,29 +290,69 @@ export function ModelsTabSpec({
     setAccessoryRows((current) => [...current, { id: makeId('accessory'), name: 'أزرار', cost: '0' }]);
   };
 
-  const saveModel = () => {
-    const savedModel: DesignModel = {
-      id: makeId('model'),
-      sku: sku.trim() || `DRS-${String(models.length + 1).padStart(3, '0')}`,
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('الملف يجب أن يكون صورة');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('حجم الصورة كبير جداً (الحد الأقصى 2 ميجابايت)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
+
+  const postAction = async (payload: Record<string, unknown>) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/fabric-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'فشل في الحفظ');
+      await onChanged();
+      return true;
+    } catch (saveError: any) {
+      setError(saveError.message || 'فشل في الحفظ');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveModel = async () => {
+    const saved = await postAction({
+      action: 'create-model',
+      sku: sku.trim(),
       status,
-      colors: selectedColors.length ? selectedColors : ['متعدد الألوان'],
       description,
       unit,
-      fabrics: recipeRows,
-      accessories: accessoryRows,
-      tailoringCost: calculations.tailoringCost,
-      embroideryCost: calculations.embroideryCost,
-      extraCost: calculations.extraCost,
-      fabricCost: calculations.fabricCost,
-      accessoriesCost: calculations.accessoriesCost,
-      totalCost: calculations.totalCost,
-      producibleCount: calculations.producibleCount,
-      producedCount: 0,
-      inProgressCount: issues.filter((issue) => issue.status !== 'closed').length,
-      reservedLength: recipeRows.reduce((sum, row) => sum + consumptionToMeters(row.consumption, unit), 0),
-    };
-    setModels((current) => [savedModel, ...current]);
-    setOpenRows((current) => ({ ...current, [savedModel.id]: true }));
+      colors: selectedColors.length ? selectedColors : ['متعدد الألوان'],
+      imageData,
+      recipe: recipeRows.map((row) => ({ role: row.role, fabricId: row.fabricId, consumption: row.consumption })),
+      accessories: accessoryRows.map((row) => ({ name: row.name, cost: row.cost })),
+      tailoringCost,
+      embroideryCost,
+      extraCost,
+    });
+    if (saved) {
+      setImageData(null);
+      setSelectedColors(['متعدد الألوان']);
+      setDescription('تفاصيل التصميم والقصة…');
+    }
+  };
+
+  const deleteModel = async (modelId: string) => {
+    if (!window.confirm('هل تريد حذف هذا الموديل؟')) return;
+    await postAction({ action: 'delete-model', modelId });
   };
 
   return (
@@ -378,14 +364,6 @@ export function ModelsTabSpec({
           <StatCard title="قابل للإنتاج حالياً" value={`${formatNumber(totalProducibleCount)} فساتين`} icon={<PackageCheck />} />
           <StatCard title="إجمالي القماش المحجوز" value={`${formatNumber(totalReservedLength)} م`} icon={<Layers />} />
         </div>
-
-        <section>
-          <BlockTitle marker="!">الفكرة الأساسية</BlockTitle>
-          <div className="idea">
-            كل موديل <b>«وصفة جاهزة»</b> تُحسب منها الأرقام تلقائياً: القماش المطلوب • التكلفة • الربح • العدد
-            القابل للإنتاج. هذه النسخة متصلة بمخزون الأقمشة الحالي وتعرض الحسابات قبل إضافة جداول حفظ دائمة.
-          </div>
-        </section>
 
         <section>
           <BlockTitle marker="1">فورم إضافة موديل جديد</BlockTitle>
@@ -407,7 +385,33 @@ export function ModelsTabSpec({
                 <div className="sec-a-wrap">
                   <div className="sec-a-img">
                     <label>صورة المنتج</label>
-                    <div className="imgbox sec-a-imgbox">🖼️<br />اسحب الصورة أو اضغط للرفع</div>
+                    <label className="imgbox sec-a-imgbox" style={{ cursor: 'pointer', overflow: 'hidden', padding: 0 }}>
+                      {imageData ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={imageData}
+                          alt="صورة المنتج"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <span>
+                          🖼️
+                          <br />
+                          اسحب الصورة أو اضغط للرفع
+                        </span>
+                      )}
+                      <input type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
+                    </label>
+                    {imageData && (
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        style={{ margin: '8px 0 0', padding: '4px 12px', fontSize: 12 }}
+                        onClick={() => setImageData(null)}
+                      >
+                        إزالة الصورة
+                      </button>
+                    )}
                   </div>
 
                   <div className="sec-a-fields">
@@ -620,10 +624,26 @@ export function ModelsTabSpec({
                 : ' اختر قماشاً أساسياً لإظهار الحسابات.'}
             </div>
 
-            <button className="btn" type="button" onClick={saveModel} disabled={!fabrics.length}>
-              حفظ الموديل
+            {error && (
+              <div className="note" style={{ margin: '0 18px 14px', background: '#fdecea', borderColor: '#f5c2c0', color: '#a3261f' }}>
+                {error}
+              </div>
+            )}
+
+            <button className="btn" type="button" onClick={() => void saveModel()} disabled={!fabrics.length || saving}>
+              {saving ? 'جاري الحفظ…' : 'حفظ الموديل'}
             </button>
-            <button className="btn ghost" type="button">
+            <button
+              className="btn ghost"
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setImageData(null);
+                setSelectedColors(['متعدد الألوان']);
+                setDescription('تفاصيل التصميم والقصة…');
+                setError(null);
+              }}
+            >
               إلغاء
             </button>
           </div>
@@ -655,33 +675,23 @@ export function ModelsTabSpec({
                       fabrics={fabrics}
                       isOpen={Boolean(openRows[model.id])}
                       onToggle={() => setOpenRows((current) => ({ ...current, [model.id]: !current[model.id] }))}
+                      onDelete={() => void deleteModel(model.id)}
+                      disabled={saving}
                     />
                   ))}
+                  {!visibleModels.length && (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: 28, color: 'var(--muted-foreground)' }}>
+                        لا توجد موديلات محفوظة بعد — أضف موديلاً من الفورم بالأعلى.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <section>
-          <BlockTitle marker="3">الربط مع بقية التبويبات</BlockTitle>
-          <p className="block-sub">التكامل المقصود مع النظام الحالي.</p>
-          <div className="card">
-            <div className="integ">
-              <div className="row"><b>تسليم الأقمشة</b><div>الخطوة التالية: اختيار <b>الموديل + العدد</b> ليحسب النظام القماش المطلوب تلقائياً.</div></div>
-              <div className="row"><b>التكلفة والتسليم</b><div>تكلفة الفستان تُشتق من وصفة الموديل بدل الإدخال اليدوي عند حفظ الموديلات في قاعدة البيانات.</div></div>
-              <div className="row"><b>المخزون</b><div>يعرض الآن عدد القطع الممكن إنتاجها من المخزون الفعلي لكل موديل.</div></div>
-              <div className="row"><b>طلبات الخياطين</b><div>بعد إضافة جداول الموديلات، يمكن ربط الطلب بـ SKU الموديل والكمية المطلوبة.</div></div>
-            </div>
-            <div className="flow">{`[الموديل] ═══╗  (يحدد: أي قماش + كم استهلاك + كم تكلفة)
-             ║
-             ▼
-[المخزون] ──→ [تسليم: موديل × عدد] ──→ [الخياط]
-    ▲              │ (القماش يُحسب آلياً)        │
-    │              ▼                            ▼
-[إضافة]      [استلام الفساتين] ◄── [تكلفة آلية من الموديل]`}</div>
-          </div>
-        </section>
       </div>
 
       <style jsx global>{`
@@ -713,7 +723,7 @@ export function ModelsTabSpec({
         .models-spec *,
         .models-spec *::before,
         .models-spec *::after { box-sizing: border-box; }
-        .models-spec .wrap { max-width: 1080px; margin: 0 auto; padding: 0 0 56px; }
+        .models-spec .wrap { max-width: none; margin: 0; padding: 0 0 56px; }
         .models-spec .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
         .models-spec .stat-card,
         .models-spec .card {
@@ -758,13 +768,6 @@ export function ModelsTabSpec({
           flex: 0 0 auto;
         }
         .models-spec .block-sub { color: var(--muted-foreground); font-size: 13.5px; margin: 0 0 14px; }
-        .models-spec .idea {
-          background: var(--muted);
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          padding: 14px 16px;
-          font-size: 14.5px;
-        }
         .models-spec .card-head { font-size: 16px; font-weight: 700; padding: 16px 18px 6px; }
         .models-spec .card-head .desc { font-size: 13px; font-weight: 400; color: var(--muted-foreground); margin-top: 3px; }
         .models-spec details.acc {
@@ -1075,31 +1078,6 @@ export function ModelsTabSpec({
         .models-spec .ministat .v { font-size: 19px; font-weight: 800; margin-top: 3px; }
         .models-spec .ministat.hl { background: var(--green-soft); border-color: #c5ddca; }
         .models-spec .ministat.hl .v { color: var(--green); }
-        .models-spec .integ { display: grid; gap: 10px; padding: 18px; }
-        .models-spec .integ .row {
-          display: grid;
-          grid-template-columns: 190px 1fr;
-          gap: 14px;
-          background: var(--muted);
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          padding: 12px 14px;
-        }
-        .models-spec .integ .row b { color: var(--primary); }
-        .models-spec .flow {
-          background: #2c2416;
-          color: #eee2d4;
-          border-radius: 8px;
-          margin: 0 18px 18px;
-          padding: 18px;
-          font-family: Consolas, monospace;
-          font-size: 13px;
-          white-space: pre;
-          overflow-x: auto;
-          direction: ltr;
-          text-align: left;
-          line-height: 1.6;
-        }
         .models-spec .note {
           background: var(--amber-soft);
           border: 1px solid #ecd9b5;
@@ -1121,7 +1099,6 @@ export function ModelsTabSpec({
           .models-spec .rep-row.fabric { grid-template-columns: 1fr 1fr 44px; }
           .models-spec .rep-row.fabric .role-pill { grid-column: 1 / -1; }
           .models-spec .smart { grid-template-columns: 1fr; }
-          .models-spec .integ .row { grid-template-columns: 1fr; }
           .models-spec .stats { grid-template-columns: 1fr; }
         }
       `}</style>
@@ -1319,11 +1296,15 @@ function ModelTableRows({
   fabrics,
   isOpen,
   onToggle,
+  onDelete,
+  disabled,
 }: {
   model: DesignModel;
   fabrics: Fabric[];
   isOpen: boolean;
   onToggle: () => void;
+  onDelete: () => void;
+  disabled?: boolean;
 }) {
   const mainFabricRow = model.fabrics[0];
   const mainFabric = fabrics.find((fabric) => fabric.id === mainFabricRow?.fabricId);
@@ -1357,8 +1338,15 @@ function ModelTableRows({
         <td><span className={`pill ${statusClass}`}>{statusLabel}</span></td>
         <td>
           <span className="actions" onClick={(event) => event.stopPropagation()}>
-            <Edit3 />
-            <Trash2 />
+            <button
+              type="button"
+              title="حذف الموديل"
+              disabled={disabled}
+              onClick={onDelete}
+              style={{ border: 0, background: 'transparent', cursor: disabled ? 'not-allowed' : 'pointer', color: '#dc2626', padding: 0 }}
+            >
+              <Trash2 />
+            </button>
           </span>
         </td>
       </tr>
@@ -1366,7 +1354,22 @@ function ModelTableRows({
         <td colSpan={8}>
           <div className="panel-inner">
             <div className="smart">
-              <div className="img">🖼️<br />صورة التصميم</div>
+              <div className="img" style={model.imageData ? { padding: 0, overflow: 'hidden' } : undefined}>
+                {model.imageData ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={model.imageData}
+                    alt={`تصميم ${model.sku}`}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <span>
+                    🖼️
+                    <br />
+                    صورة التصميم
+                  </span>
+                )}
+              </div>
               <div>
                 <div className="mmeta">
                   القماش الأساسي: {mainFabric?.name || '-'} • استهلاك القطعة: {mainConsumption} {unitLabel}
