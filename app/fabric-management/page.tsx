@@ -215,7 +215,6 @@ const initialIssueForm = {
   fabricId: '',
   tailorId: '',
   issuedLength: '',
-  lengthUnit: 'meter',
   issueDate: new Date().toISOString().split('T')[0],
   reference: '',
   notes: '',
@@ -224,7 +223,6 @@ const initialIssueForm = {
 const initialStockForm = {
   fabricId: '',
   purchasedLength: '',
-  lengthUnit: 'meter',
   unitCost: '',
   supplier: '',
   purchaseBill: '',
@@ -235,7 +233,6 @@ type PurchaseBillForm = {
   billNumber: string;
   purchaseDate: string;
   supplier: string;
-  lengthUnit: string;
   notes: string;
 };
 
@@ -262,7 +259,6 @@ const initialPurchaseBillForm = (): PurchaseBillForm => ({
   billNumber: '',
   purchaseDate: todayInputValue(),
   supplier: '',
-  lengthUnit: 'meter',
   notes: '',
 });
 
@@ -290,7 +286,6 @@ const initialDeliveryForm = {
   deliveredDressCount: '',
   consumedLength: '',
   returnedLength: '',
-  lengthUnit: 'meter',
   tailoringCost: '',
   extraCost: '',
   deliveryDate: new Date().toISOString().split('T')[0],
@@ -301,6 +296,7 @@ export default function FabricManagementPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lengthUnit, setLengthUnit] = useState('meter');
   const [tailorForm, setTailorForm] = useState(initialTailorForm);
   const [issueForm, setIssueForm] = useState(initialIssueForm);
   const [stockForm, setStockForm] = useState(initialStockForm);
@@ -455,7 +451,7 @@ export default function FabricManagementPage() {
           sku: createFabricDialog.sku,
           color: createFabricDialog.color,
           supplier: purchaseBillForm.supplier,
-          lengthUnit: purchaseBillForm.lengthUnit,
+          lengthUnit,
           stockLength: '',
           minStock: '',
           unitCost: '',
@@ -502,13 +498,13 @@ export default function FabricManagementPage() {
 
   const handleIssueSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const saved = await postAction({ action: 'issue-fabric', ...issueForm });
+    const saved = await postAction({ action: 'issue-fabric', ...issueForm, lengthUnit });
     if (saved) setIssueForm({ ...initialIssueForm, fabricId: data?.fabrics[0]?.id || '', tailorId: data?.tailors[0]?.id || '' });
   };
 
   const handleStockSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const saved = await postAction({ action: 'add-fabric-stock', ...stockForm });
+    const saved = await postAction({ action: 'add-fabric-stock', ...stockForm, lengthUnit });
     if (saved) {
       setStockForm({
         ...initialStockForm,
@@ -526,6 +522,7 @@ export default function FabricManagementPage() {
     const saved = await postAction({
       action: 'create-purchase-bill',
       ...purchaseBillForm,
+      lengthUnit,
       items: purchaseBillItems,
     });
     if (saved) {
@@ -536,7 +533,7 @@ export default function FabricManagementPage() {
 
   const handleDeliverySubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const saved = await postAction({ action: 'record-delivery', ...deliveryForm });
+    const saved = await postAction({ action: 'record-delivery', ...deliveryForm, lengthUnit });
     if (saved) setDeliveryForm({ ...initialDeliveryForm, issueId: data?.issues[0]?.id || '' });
   };
 
@@ -576,6 +573,14 @@ export default function FabricManagementPage() {
             <StatCard title="المخزون المتاح" value={formatDualLength(summary?.stockMeters)} icon={<Ruler className="size-4" />} />
             <StatCard title="لدى الخياطين" value={formatDualLength(summary?.withTailorsMeters)} icon={<Send className="size-4" />} />
             <StatCard title="طلبات معلقة" value={formatNumber(summary?.pendingRequestsCount)} icon={<PackagePlus className="size-4" />} />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+            <div>
+              <p className="text-sm font-semibold">وحدة القياس</p>
+              <p className="text-xs text-muted-foreground">تُطبّق على كل التبويبات: الكميات والتكاليف والاستهلاك</p>
+            </div>
+            <UnitToggle value={lengthUnit} onChange={setLengthUnit} />
           </div>
 
           <Tabs defaultValue="stock" className="w-full">
@@ -621,17 +626,6 @@ export default function FabricManagementPage() {
                       onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })}
                     />
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
-                    <div>
-                      <p className="text-sm font-semibold">وحدة الكمية والتكلفة</p>
-                      <p className="text-xs text-muted-foreground">تطبق على كل الأقمشة داخل هذه الفاتورة</p>
-                    </div>
-                    <UnitToggle
-                      value={purchaseBillForm.lengthUnit}
-                      onChange={(lengthUnit) => setPurchaseBillForm({ ...purchaseBillForm, lengthUnit })}
-                    />
-                  </div>
-
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-semibold">الأقمشة في الفاتورة</p>
@@ -655,7 +649,7 @@ export default function FabricManagementPage() {
                         key={item.id}
                         item={item}
                         index={index}
-                        lengthUnit={purchaseBillForm.lengthUnit}
+                        lengthUnit={lengthUnit}
                         fabricOptions={fabricOptions}
                         onFabricSelect={(fabricId) => selectPurchaseBillFabric(item.id, fabricId)}
                         onCreateFabric={(searchValue) => openCreateFabricDialog(item.id, searchValue)}
@@ -697,24 +691,17 @@ export default function FabricManagementPage() {
                     required
                   />
                   <TextInput
-                    label={stockForm.lengthUnit === 'yard' ? 'الكمية المشتراة بالياردة' : 'الكمية المشتراة بالمتر'}
+                    label={lengthUnit === 'yard' ? 'الكمية المشتراة بالياردة' : 'الكمية المشتراة بالمتر'}
                     type="number"
                     value={stockForm.purchasedLength}
                     onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })}
                     required
                   />
                   <TextInput
-                    label={stockForm.lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'}
+                    label={lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'}
                     type="number"
                     value={stockForm.unitCost}
                     onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })}
-                  />
-                  <SearchableSelect
-                    label="وحدة الكمية والتكلفة"
-                    value={stockForm.lengthUnit}
-                    options={LENGTH_UNIT_OPTIONS}
-                    onChange={(lengthUnit) => setStockForm({ ...stockForm, lengthUnit })}
-                    required
                   />
                   <SearchableSelect
                     label="المورد"
@@ -760,8 +747,7 @@ export default function FabricManagementPage() {
                 <form onSubmit={handleIssueSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                   <SearchableSelect label="القماش" value={issueForm.fabricId} options={fabricOptions} onChange={(fabricId) => setIssueForm({ ...issueForm, fabricId })} placeholder="اختر القماش" required />
                   <SearchableSelect label="الخياط" value={issueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setIssueForm({ ...issueForm, tailorId })} placeholder="اختر الخياط" required />
-                  <SearchableSelect label="وحدة الطول المسلم" value={issueForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setIssueForm({ ...issueForm, lengthUnit })} required />
-                  <TextInput label={issueForm.lengthUnit === 'yard' ? 'الطول المسلم بالياردة' : 'الطول المسلم بالمتر'} type="number" value={issueForm.issuedLength} onChange={(issuedLength) => setIssueForm({ ...issueForm, issuedLength })} required />
+                  <TextInput label={lengthUnit === 'yard' ? 'الطول المسلم بالياردة' : 'الطول المسلم بالمتر'} type="number" value={issueForm.issuedLength} onChange={(issuedLength) => setIssueForm({ ...issueForm, issuedLength })} required />
                   <TextInput label="تاريخ التسليم" type="date" value={issueForm.issueDate} onChange={(issueDate) => setIssueForm({ ...issueForm, issueDate })} />
                   <TextInput label="مرجع" value={issueForm.reference} onChange={(reference) => setIssueForm({ ...issueForm, reference })} />
                   <Field className="md:col-span-3">
@@ -782,9 +768,8 @@ export default function FabricManagementPage() {
                 <form onSubmit={handleDeliverySubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
                   <SearchableSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" required />
                   <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
-                  <TextInput label={deliveryForm.lengthUnit === 'yard' ? 'المستهلك من القماش بالياردة' : 'المستهلك من القماش بالمتر'} type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
-                  <TextInput label={deliveryForm.lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
-                  <SearchableSelect label="وحدة المستهلك والمرتجع" value={deliveryForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setDeliveryForm({ ...deliveryForm, lengthUnit })} required />
+                  <TextInput label={lengthUnit === 'yard' ? 'المستهلك من القماش بالياردة' : 'المستهلك من القماش بالمتر'} type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
+                  <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
                   <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
                   <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
                   <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
@@ -806,6 +791,7 @@ export default function FabricManagementPage() {
                 fabrics={data?.fabrics || []}
                 models={data?.models || []}
                 onChanged={fetchData}
+                unit={lengthUnit as 'meter' | 'yard'}
               />
             </TabsContent>
           </Tabs>

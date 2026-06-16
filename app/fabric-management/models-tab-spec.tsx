@@ -186,15 +186,16 @@ export function ModelsTabSpec({
   fabrics,
   models,
   onChanged,
+  unit,
 }: {
   fabrics: Fabric[];
   models: DesignModel[];
   onChanged: () => void | Promise<void>;
+  unit: 'meter' | 'yard';
 }) {
   const [openSelect, setOpenSelect] = useState<string | null>(null);
   const [sku, setSku] = useState('DRS-001');
   const [status, setStatus] = useState('active');
-  const [unit, setUnit] = useState<'meter' | 'yard'>('meter');
   const [description, setDescription] = useState('تفاصيل التصميم والقصة…');
   const [imageData, setImageData] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -258,7 +259,6 @@ export function ModelsTabSpec({
 
   const setSelectValue = (id: string, value: string) => {
     if (id === 'status') setStatus(value);
-    if (id === 'unit') setUnit(value as 'meter' | 'yard');
     if (id.startsWith('fabric-')) {
       const rowId = id.replace('fabric-', '');
       setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
@@ -506,18 +506,6 @@ export function ModelsTabSpec({
                 <ChevronDown className="chev" />
               </summary>
               <div className="acc-body">
-                <SelectBox
-                  id="unit"
-                  label="وحدة القياس"
-                  options={unitOptions}
-                  value={unit}
-                  openSelect={openSelect}
-                  setOpenSelect={setOpenSelect}
-                  onChange={setSelectValue}
-                  className="full unit-field"
-                  hint="تُطبّق على كل حقول الاستهلاك في الأسفل"
-                />
-
                 {!fabrics.length && (
                   <div className="note no-stock">
                     أضف أقمشة من تبويب المخزون أولاً حتى تظهر في وصفة الموديل وحسابات الإنتاج.
