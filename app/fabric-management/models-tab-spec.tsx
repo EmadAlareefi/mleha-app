@@ -8,6 +8,7 @@ import {
   Layers,
   PackageCheck,
   Plus,
+  Search,
   Trash2,
 } from 'lucide-react';
 
@@ -212,6 +213,7 @@ export function ModelsTabSpec({
   const [embroideryCost, setEmbroideryCost] = useState('20');
   const [extraCost, setExtraCost] = useState('10');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState('');
 
   const fabricOptions = useMemo(
     () =>
@@ -237,6 +239,18 @@ export function ModelsTabSpec({
   );
 
   const visibleModels = models;
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredModels = useMemo(() => {
+    if (!normalizedSearch) return models;
+    return models.filter((model) => {
+      const skuMatch = (model.sku || '').toLowerCase().includes(normalizedSearch);
+      const fabricCodeMatch = model.fabrics.some((row) => {
+        const fabric = fabrics.find((item) => item.id === row.fabricId);
+        return (fabric?.sku || '').toLowerCase().includes(normalizedSearch);
+      });
+      return skuMatch || fabricCodeMatch;
+    });
+  }, [models, fabrics, normalizedSearch]);
   const activeModelsCount = visibleModels.filter((model) => model.status === 'active').length;
   const totalProducibleCount = visibleModels.reduce((sum, model) => sum + model.producibleCount, 0);
   const totalReservedLength = visibleModels.reduce((sum, model) => sum + model.reservedLength, 0);
@@ -653,6 +667,16 @@ export function ModelsTabSpec({
           <BlockTitle marker="2">جدول الموديلات</BlockTitle>
           <p className="block-sub">اضغط على أي موديل ليفتح أسفله أكورديون باللوحة الذكية.</p>
           <div className="card">
+            <div className="search-bar">
+              <Search className="search-ico" />
+              <input
+                className="search-input"
+                type="search"
+                placeholder="ابحث برمز المنتج أو رمز القماش…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -668,7 +692,7 @@ export function ModelsTabSpec({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleModels.map((model) => (
+                  {filteredModels.map((model) => (
                     <ModelTableRows
                       key={model.id}
                       model={model}
@@ -679,10 +703,12 @@ export function ModelsTabSpec({
                       disabled={saving}
                     />
                   ))}
-                  {!visibleModels.length && (
+                  {!filteredModels.length && (
                     <tr>
                       <td colSpan={8} style={{ textAlign: 'center', padding: 28, color: 'var(--muted-foreground)' }}>
-                        لا توجد موديلات محفوظة بعد — أضف موديلاً من الفورم بالأعلى.
+                        {normalizedSearch
+                          ? 'لا توجد موديلات مطابقة لبحثك.'
+                          : 'لا توجد موديلات محفوظة بعد — أضف موديلاً من الفورم بالأعلى.'}
                       </td>
                     </tr>
                   )}
@@ -1037,6 +1063,29 @@ export function ModelsTabSpec({
         }
         .models-spec .btn:disabled { cursor: not-allowed; opacity: .55; }
         .models-spec .btn.ghost { background: transparent; color: var(--foreground); border: 1px solid var(--border); }
+        .models-spec .search-bar {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 12px 12px 0;
+          padding: 8px 12px;
+          background: var(--card);
+          border: 1px solid var(--input);
+          border-radius: 8px;
+        }
+        .models-spec .search-bar:focus-within { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(139, 111, 71, .15); }
+        .models-spec .search-ico { width: 16px; height: 16px; color: var(--muted-foreground); flex: 0 0 auto; }
+        .models-spec .search-input {
+          flex: 1;
+          border: 0;
+          outline: 0;
+          background: transparent;
+          color: var(--foreground);
+          font: inherit;
+          font-size: 13.5px;
+          text-align: right;
+          min-width: 0;
+        }
         .models-spec table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
         .models-spec thead th {
           text-align: right;
@@ -1389,7 +1438,8 @@ function ModelTableRows({
               {model.fabrics
                 .map((row) => {
                   const fabric = fabrics.find((item) => item.id === row.fabricId);
-                  return `${getRoleLabel(row.role)}: ${fabric?.name || '-'} × ${row.consumption} ${unitLabel}`;
+                  const fabricLabel = fabric ? `${fabric.name}${fabric.sku ? ` (${fabric.sku})` : ''}` : '-';
+                  return `${getRoleLabel(row.role)}: ${fabricLabel} × ${row.consumption} ${unitLabel}`;
                 })
                 .join(' • ')}
             </div>

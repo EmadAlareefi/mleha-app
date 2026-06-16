@@ -458,16 +458,16 @@ export default function FabricManagementPage() {
             <TabsList
               dir="rtl"
               style={{ direction: 'rtl' }}
-              className="flex h-auto w-full flex-row flex-wrap justify-start gap-1 rounded-lg bg-muted p-[3px]"
+              className="grid h-auto w-full grid-cols-2 items-stretch gap-1.5 overflow-visible rounded-lg bg-muted p-[3px] group-data-[orientation=horizontal]/tabs:h-auto sm:grid-cols-3 lg:flex lg:flex-row lg:flex-wrap lg:justify-start"
             >
-              <TabsTrigger value="stock" className="min-w-[120px] py-1.5">المخزون</TabsTrigger>
-              <TabsTrigger value="tailors" className="min-w-[120px] py-1.5">الخياطون</TabsTrigger>
-              <TabsTrigger value="issues" className="min-w-[120px] py-1.5">تسليم الأقمشة</TabsTrigger>
-              <TabsTrigger value="deliveries" className="min-w-[120px] py-1.5">التكلفة والتسليم</TabsTrigger>
-              <TabsTrigger value="requests" className="min-w-[120px] py-1.5">طلبات الخياطين</TabsTrigger>
-              <TabsTrigger value="models" className="relative min-w-[120px] py-1.5">
+              <TabsTrigger value="stock" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">المخزون</TabsTrigger>
+              <TabsTrigger value="tailors" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">الخياطون</TabsTrigger>
+              <TabsTrigger value="issues" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">تسليم الأقمشة</TabsTrigger>
+              <TabsTrigger value="deliveries" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">التكلفة والتسليم</TabsTrigger>
+              <TabsTrigger value="requests" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">طلبات الخياطين</TabsTrigger>
+              <TabsTrigger value="models" className="relative h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">
                 الموديلات والتصاميم
-                <span className="absolute -top-2 start-1/2 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
+                <span className="absolute -top-1 start-1/2 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
                   جديد
                 </span>
               </TabsTrigger>
