@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Tajawal } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
+import DirectionProvider from "@/components/DirectionProvider";
 import PwaProvider from "@/components/PwaProvider";
 import { ToastProvider } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
@@ -40,14 +41,16 @@ export default function RootLayout({
         <link rel="icon" href="/logo.png" />
       </head>
       <body className={`${tajawal.variable} antialiased`} suppressHydrationWarning>
-        <ToastProvider>
-          <TooltipProvider>
-            <SessionProvider>
-              {children}
-            </SessionProvider>
-          </TooltipProvider>
-          <Toaster />
-        </ToastProvider>
+        <DirectionProvider>
+          <ToastProvider>
+            <TooltipProvider>
+              <SessionProvider>
+                {children}
+              </SessionProvider>
+            </TooltipProvider>
+            <Toaster />
+          </ToastProvider>
+        </DirectionProvider>
         <PwaProvider />
       </body>
     </html>
