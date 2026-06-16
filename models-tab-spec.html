@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تبويب «الموديلات والتصاميم» — إدارة الأقمشة | مليحة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --background:#eee2d4; --foreground:#2c2416;
+    --card:#ffffff; --card-foreground:#2c2416;
+    --primary:#8b6f47; --primary-foreground:#ffffff;
+    --muted:#f5ebe0; --muted-foreground:#6b5d4f;
+    --accent:#a08968; --border:#d4c4b0; --input:#d4c4b0;
+    --ring:#8b6f47; --secondary:#d4c4b0; --destructive:#dc2626;
+    --radius:.5rem;
+    --green:#3f7d4e;--green-soft:#e8f1ea;
+    --amber:#b8791f;--amber-soft:#faf0dc;
+    --blue:#3a6ea5;--blue-soft:#e9f0f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Tajawal",Arial,sans-serif;
+       background:var(--background);color:var(--foreground);line-height:1.7;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:24px 18px 80px}
+  a{color:var(--primary)}
+
+  .pagehead{display:flex;align-items:flex-start;justify-content:space-between;
+            flex-wrap:wrap;gap:12px;border-bottom:1px solid var(--border);
+            padding-bottom:16px;margin-bottom:22px}
+  .pagehead h1{margin:0;font-size:24px;font-weight:800}
+  .pagehead .sub{color:var(--muted-foreground);font-size:14.5px;margin-top:4px}
+  .crumb{font-size:13px;color:var(--muted-foreground)}
+  .docflag{background:var(--muted);border:1px solid var(--border);
+           border-radius:999px;padding:5px 14px;font-size:12.5px;color:var(--muted-foreground)}
+
+  .card{background:var(--card);color:var(--card-foreground);
+        border:1px solid var(--border);border-radius:var(--radius);
+        box-shadow:0 1px 2px rgba(44,36,22,.04)}
+
+  /* بطاقات الإحصائيات */
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+  .stat-card{background:var(--card);border:1px solid var(--border);
+             border-radius:var(--radius);box-shadow:0 1px 2px rgba(44,36,22,.04)}
+  .stat-inner{display:flex;align-items:center;justify-content:space-between;padding:16px}
+  .stat-card .k{font-size:13.5px;color:var(--muted-foreground);margin:0}
+  .stat-card .v{font-size:20px;font-weight:700;margin:4px 0 0}
+  .stat-ico{border-radius:6px;background:var(--muted);padding:8px;color:var(--muted-foreground);display:grid;place-items:center}
+  .stat-ico svg{width:18px;height:18px}
+
+  /* التبويبات */
+  .tablist{display:flex;gap:4px;background:var(--muted);border-radius:8px;
+           padding:3px;margin-bottom:18px;flex-wrap:wrap}
+  .tab{flex:1;text-align:center;padding:7px 10px;border-radius:6px;font-size:14px;
+       font-weight:500;color:var(--muted-foreground);border:1px solid transparent;min-width:120px}
+  .tab.active{background:var(--background);color:var(--foreground);border-color:var(--border)}
+  .tab.new{position:relative}
+  .tab.new::after{content:"جديد";position:absolute;top:-7px;inset-inline-start:50%;
+                  transform:translateX(50%);background:var(--primary);color:#fff;
+                  font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:999px}
+
+  .block-title{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;margin:0 0 4px}
+  .block-title .n{width:26px;height:26px;border-radius:6px;background:var(--primary);
+                  color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+  .block-sub{color:var(--muted-foreground);font-size:13.5px;margin:0 0 14px}
+  section{margin-top:26px}
+
+  .card-head{font-size:16px;font-weight:700;padding:16px 18px 6px}
+  .card-head .desc{font-size:13px;font-weight:400;color:var(--muted-foreground);margin-top:3px}
+
+  /* ===== الأكورديون ===== */
+  details.acc{border:1px solid var(--border);border-radius:8px;margin:0 18px 14px;
+              background:var(--card);overflow:visible} /* visible لا يقصّ القوائم المنسدلة */
+  details.acc[open]{box-shadow:0 1px 2px rgba(44,36,22,.04)}
+  details.acc>summary{list-style:none;cursor:pointer;padding:13px 16px;
+              display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;
+              background:var(--muted);user-select:none;
+              border-radius:7px; /* دائري عند الإغلاق */
+              }
+  details.acc[open]>summary{border-radius:7px 7px 0 0} /* دائري من الأعلى فقط عند الفتح */
+  details.acc>summary::-webkit-details-marker{display:none}
+  details.acc>summary .chev{margin-inline-start:auto;transition:transform .2s;color:var(--muted-foreground)}
+  details.acc[open]>summary .chev{transform:rotate(180deg)}
+  details.acc>summary .ico{width:26px;height:26px;border-radius:6px;background:var(--primary);
+              color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+  details.acc>summary .tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;
+              background:var(--amber-soft);color:var(--amber);margin-inline-start:4px}
+  .acc-body{padding:16px;border-top:1px solid var(--border)}
+
+  /* الحقول */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid.two{grid-template-columns:repeat(2,1fr)}
+  .field label{display:block;font-size:13.5px;font-weight:500;margin-bottom:6px;color:var(--foreground)}
+  .field .inp{background:var(--card);border:1px solid var(--input);border-radius:6px;
+              padding:8px 11px;font-size:13.5px;color:var(--muted-foreground);
+              display:flex;align-items:center;justify-content:space-between;min-height:38px}
+  .field .inp.sel::after{content:"▾";color:#a99}
+  .field .inp.area{min-height:64px;align-items:flex-start}
+  .field .hint{font-size:11.5px;color:#a89a8a;margin-top:5px;display:block}
+  .field.auto .inp{background:var(--green-soft);border-color:#c5ddca;color:var(--green);font-weight:700}
+  .field.auto label::after{content:" • تلقائي";color:var(--green);font-weight:700;font-size:11px}
+  .full{grid-column:1/-1}
+
+  /* قائمة منسدلة تفاعلية */
+  .sel-wrap{position:relative} /* لا z-index هنا — القوائم تنتقل لـ body عبر portal */
+  .sel-trigger{background:var(--card);border:1px solid var(--input);border-radius:6px;
+               padding:8px 11px;font-size:13.5px;color:var(--foreground);min-height:38px;
+               display:flex;align-items:center;justify-content:space-between;cursor:pointer;
+               user-select:none;transition:border-color .15s}
+  .sel-trigger:hover{border-color:var(--primary)}
+  .sel-trigger.open{border-color:var(--primary);box-shadow:0 0 0 2px rgba(139,111,71,.15)}
+  .sel-trigger .sel-val{flex:1}
+  .sel-trigger .sel-chev{color:var(--muted-foreground);transition:transform .2s;font-size:12px}
+  .sel-trigger.open .sel-chev{transform:rotate(180deg)}
+  /* القائمة: flex column — الخيارات تتمرر، زر الإضافة ثابت في الأسفل */
+  .sel-menu{
+    position:absolute; /* يُنقل لـ body عبر portal — absolute كافٍ */
+    background:var(--card);
+    border:1px solid var(--border);border-radius:8px;
+    box-shadow:0 6px 20px rgba(44,36,22,.15);
+    z-index:9999;display:none;
+    flex-direction:column;
+    min-width:160px;
+  }
+  .sel-menu.open{display:flex}
+  /* قائمة الخيارات القابلة للتمرير */
+  .sel-options-list{overflow-y:auto;max-height:200px;border-radius:8px 8px 0 0}
+  .sel-option{padding:9px 13px;cursor:pointer;font-size:13.5px;transition:background .1s;white-space:nowrap}
+  .sel-option:hover{background:var(--muted)}
+  .sel-option.selected{background:var(--muted);font-weight:700;color:var(--primary)}
+  /* زر الإضافة — خارج منطقة التمرير، دائماً ظاهر */
+  .sel-add-row{display:flex;gap:6px;padding:8px 10px;
+               border-top:1px solid var(--border);background:var(--muted);
+               border-radius:0 0 8px 8px;flex-shrink:0}
+  .sel-add-input{flex:1;border:1px solid var(--border);border-radius:6px;padding:6px 10px;
+                 font-size:13px;font-family:inherit;background:var(--card);
+                 color:var(--foreground);outline:none;min-width:0}
+  .sel-add-input:focus{border-color:var(--primary)}
+  .sel-add-btn{background:var(--primary);color:#fff;border:none;border-radius:6px;
+               padding:6px 12px;font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
+  .sel-add-btn:hover{opacity:.9}
+
+  /* خانة الألوان */
+  .color-menu{display:none;padding:12px}
+  .color-menu.open{display:block}
+  .color-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .color-chip{width:32px;height:32px;border-radius:50%;border:2px solid transparent;
+              cursor:pointer;transition:transform .15s,border-color .15s}
+  .color-chip:hover{transform:scale(1.15)}
+  .color-chip.selected{border-color:var(--primary);box-shadow:0 0 0 3px rgba(139,111,71,.25)}
+  .color-chip.multi{width:auto;height:auto;border-radius:999px;padding:4px 12px;
+                    font-size:12.5px;font-weight:700;background:var(--muted);
+                    color:var(--foreground);border-color:var(--border)}
+  .color-chip.multi.selected{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .color-swatch{display:inline-block;width:14px;height:14px;border-radius:50%;
+                border:1px solid rgba(0,0,0,.15);margin-inline-end:5px;vertical-align:middle}
+
+  /* قسم أ — تخطيط الصورة + البيانات */
+  .sec-a-wrap{display:flex;gap:16px;align-items:stretch}
+  .sec-a-img{flex-shrink:0;width:190px;display:flex;flex-direction:column}
+  .sec-a-img label{display:block;font-size:13.5px;font-weight:500;margin-bottom:6px;color:var(--foreground)}
+  .sec-a-imgbox{flex:1;min-height:180px}
+  .sec-a-fields{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start}
+
+  /* صورة المنتج */
+  .imgbox{border:1px dashed var(--border);background:var(--muted);border-radius:8px;
+          min-height:120px;display:grid;place-items:center;color:var(--accent);
+          font-size:13px;text-align:center}
+
+  /* صفوف القماش/الإكسسوار القابلة للتكرار */
+  .rep-label{font-size:13.5px;font-weight:700;margin:4px 0 8px;color:var(--primary)}
+  .rep-row{display:grid;gap:10px;align-items:end;margin-bottom:10px}
+  .rep-row.fabric{grid-template-columns:170px 1fr 130px 44px}
+  .rep-row.acc{grid-template-columns:1fr 150px 44px}
+  .iconbtn{width:38px;height:38px;border-radius:6px;display:grid;place-items:center;
+           font-size:18px;border:1px solid var(--border);background:var(--card);cursor:default}
+  .iconbtn.add{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .iconbtn.del{color:var(--destructive)}
+  .role-pill{display:inline-flex;align-items:center;height:38px;padding:0 12px;border-radius:6px;
+             background:var(--muted);border:1px solid var(--border);font-size:12.5px;
+             font-weight:700;color:var(--muted-foreground);justify-content:center}
+
+  /* المقاسات (بسيط) */
+  .sizes{display:flex;gap:10px;flex-wrap:wrap}
+  .sizechip{padding:7px 16px;border-radius:999px;border:1px solid var(--border);
+            font-size:14px;font-weight:700;background:var(--card);color:var(--muted-foreground)}
+  .sizechip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-inline-start:6px}
+  .b-auto{background:var(--green-soft);color:var(--green)}
+
+  .btn{background:var(--primary);color:var(--primary-foreground);border:none;border-radius:6px;
+       padding:8px 18px;font-size:14px;font-weight:500;font-family:inherit;cursor:default;
+       display:inline-block;margin:6px 18px 18px}
+  .btn.ghost{background:transparent;color:var(--foreground);border:1px solid var(--border)}
+
+  /* الجداول */
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  thead th{text-align:right;padding:10px 12px;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border)}
+  tbody td{padding:12px;border-bottom:1px solid var(--border);color:var(--foreground)}
+  .table-wrap{padding:6px 12px 12px}
+  .pill{font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px}
+  .pill.ok{background:var(--green-soft);color:var(--green)}
+  .pill.warn{background:var(--amber-soft);color:var(--amber)}
+  .actions span{cursor:default;margin-inline-end:10px;font-size:15px}
+  tr.model-row{cursor:pointer}
+  tr.model-row:hover{background:var(--muted)}
+  tr.model-row .caret{display:inline-block;transition:transform .2s;color:var(--muted-foreground)}
+  tr.model-row.open .caret{transform:rotate(180deg)}
+  tr.panel-row>td{padding:0;border-bottom:1px solid var(--border)}
+  .panel-inner{display:none;padding:16px;background:var(--muted)}
+  tr.panel-row.show .panel-inner{display:block}
+
+  /* اللوحة الذكية داخل الأكورديون */
+  .smart{display:grid;grid-template-columns:180px 1fr;gap:18px}
+  .smart .img{background:var(--card);border:1px dashed var(--border);border-radius:8px;
+              display:grid;place-items:center;color:var(--accent);font-size:13px;min-height:170px;text-align:center}
+  .smart .mname{font-size:16px;font-weight:800;margin-bottom:3px}
+  .smart .mmeta{color:var(--muted-foreground);font-size:13px;margin-bottom:14px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .ministat{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px}
+  .ministat .k{font-size:12px;color:var(--muted-foreground)}
+  .ministat .v{font-size:19px;font-weight:800;margin-top:3px}
+  .ministat.hl{background:var(--green-soft);border-color:#c5ddca}
+  .ministat.hl .v{color:var(--green)}
+  .ministat.bl{background:var(--blue-soft);border-color:#c3d6e8}
+  .ministat.bl .v{color:var(--blue)}
+
+  .integ{display:grid;gap:10px;padding:18px}
+  .integ .row{display:grid;grid-template-columns:190px 1fr;gap:14px;background:var(--muted);
+              border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+  .integ .row b{color:var(--primary)}
+  .flow{background:#2c2416;color:#eee2d4;border-radius:8px;margin:0 18px 18px;padding:18px;
+        font-family:"Consolas",monospace;font-size:13px;white-space:pre;overflow-x:auto;direction:ltr;text-align:left;line-height:1.6}
+  .note{background:var(--amber-soft);border:1px solid #ecd9b5;border-radius:8px;padding:12px 16px;font-size:13.5px;color:#7a5212;margin:0 0 0}
+  .note.m{margin:14px 18px 18px}
+  .note b{color:#5c3d0a}
+  .idea{background:var(--muted);border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-size:14.5px}
+  footer{margin-top:40px;text-align:center;color:var(--muted-foreground);font-size:13px;border-top:1px solid var(--border);padding-top:20px}
+
+  @media(max-width:760px){
+    .stats-row{grid-template-columns:repeat(2,1fr)}
+    .grid,.grid.two{grid-template-columns:1fr}
+    .rep-row.fabric{grid-template-columns:1fr 1fr 44px}
+    .smart{grid-template-columns:1fr}
+    .integ .row{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="pagehead">
+    <div>
+      <div class="crumb">المستودع &nbsp;›&nbsp; إدارة الأقمشة &nbsp;›&nbsp; الموديلات والتصاميم</div>
+      <h1>تبويب «الموديلات والتصاميم»</h1>
+      <div class="sub">مواصفات تبويب جديد يُضاف إلى صفحة إدارة الأقمشة — بنفس تصميم نظام مليحة</div>
+    </div>
+    <span class="docflag">📄 وثيقة مواصفات للمبرمج</span>
+  </div>
+
+  <!-- بطاقات الإحصائيات -->
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">عدد الموديلات</p><p class="v">12 موديل</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
+    </div></div>
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">موديلات نشطة</p><p class="v">9 نشطة</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+    </div></div>
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">قابل للإنتاج حالياً</p><p class="v">9 فساتين</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 9.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0Z"/></svg></div>
+    </div></div>
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">إجمالي القماش المحجوز</p><p class="v">17.7 م</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+    </div></div>
+  </div>
+
+  <!-- التبويبات -->
+  <div class="tablist">
+    <div class="tab">المخزون</div>
+    <div class="tab">الخياطون</div>
+    <div class="tab">تسليم الأقمشة</div>
+    <div class="tab">التكلفة والتسليم</div>
+    <div class="tab">طلبات الخياطين</div>
+    <div class="tab active new">الموديلات والتصاميم</div>
+  </div>
+
+  <!-- الفكرة -->
+  <section>
+    <div class="block-title"><span class="n">!</span> الفكرة الأساسية</div>
+    <div class="idea">
+      كل موديل <b>«وصفة جاهزة»</b> تُحسب منها الأرقام تلقائياً: القماش المطلوب • التكلفة • الربح • العدد القابل للإنتاج.
+    </div>
+  </section>
+
+  <!-- 1) الفورم -->
+  <section>
+    <div class="block-title"><span class="n">1</span> فورم إضافة موديل جديد</div>
+    <div class="block-sub">بطاقة واحدة تضم 4 أقسام على شكل أكورديون (كلها مغلقة افتراضياً — مفتوحة هنا للتوضيح فقط).</div>
+
+    <div class="card">
+      <div class="card-head">بيانات الموديل
+        <div class="desc">افتح كل قسم وعبّئ حقوله ثم احفظ</div>
+      </div>
+
+      <!-- قسم أ -->
+      <details class="acc" open>
+        <summary><span class="ico">أ</span> معلومات أساسية <span class="chev">▾</span></summary>
+        <div class="acc-body">
+          <div class="sec-a-wrap">
+
+            <!-- الصورة على اليمين تأخذ الارتفاع كاملاً -->
+            <div class="sec-a-img">
+              <label>صورة المنتج</label>
+              <div class="imgbox sec-a-imgbox">🖼️<br>اسحب الصورة أو اضغط للرفع</div>
+            </div>
+
+            <!-- البيانات على اليسار -->
+            <div class="sec-a-fields">
+
+            <!-- رقم الصنف -->
+            <div class="field">
+              <label>رقم الصنف (SKU)</label>
+              <div class="inp">DRS-001</div>
+            </div>
+
+            <!-- الحالة — قائمة تفاعلية -->
+            <div class="field">
+              <label>الحالة</label>
+              <div class="sel-wrap">
+                <div class="sel-trigger" onclick="toggleSel(this)">
+                  <span class="sel-val">نشط</span><span class="sel-chev">▾</span>
+                </div>
+                <div class="sel-menu">
+                  <div class="sel-option selected" onclick="pickSel(this)">نشط</div>
+                  <div class="sel-option" onclick="pickSel(this)">موقوف</div>
+                  <div class="sel-option" onclick="pickSel(this)">تحت التطوير</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- الألوان — منتقي ألوان تفاعلي -->
+            <div class="field full">
+              <label>الألوان المتاحة</label>
+              <div class="sel-wrap">
+                <div class="sel-trigger" id="colorTrigger" onclick="toggleColorPicker()">
+                  <span class="sel-val" id="colorVal">اختر الألوان…</span>
+                  <span class="sel-chev">▾</span>
+                </div>
+                <div class="sel-menu" id="colorMenu">
+                  <div class="color-menu open">
+                    <div class="color-grid" id="colorGrid">
+                      <span class="color-chip" style="background:#fff;border-color:#ccc" data-name="أبيض" onclick="pickColor(this)" title="أبيض"></span>
+                      <span class="color-chip" style="background:#1a1a1a" data-name="أسود" onclick="pickColor(this)" title="أسود"></span>
+                      <span class="color-chip" style="background:#c8a97a" data-name="بيج" onclick="pickColor(this)" title="بيج"></span>
+                      <span class="color-chip" style="background:#8b6f47" data-name="بني" onclick="pickColor(this)" title="بني"></span>
+                      <span class="color-chip" style="background:#b5363e" data-name="أحمر" onclick="pickColor(this)" title="أحمر"></span>
+                      <span class="color-chip" style="background:#e8a0b4" data-name="وردي" onclick="pickColor(this)" title="وردي"></span>
+                      <span class="color-chip" style="background:#c084b8" data-name="بنفسجي" onclick="pickColor(this)" title="بنفسجي"></span>
+                      <span class="color-chip" style="background:#2c6fa8" data-name="أزرق" onclick="pickColor(this)" title="أزرق"></span>
+                      <span class="color-chip" style="background:#4a9e6b" data-name="أخضر" onclick="pickColor(this)" title="أخضر"></span>
+                      <span class="color-chip" style="background:#d4a836" data-name="ذهبي" onclick="pickColor(this)" title="ذهبي"></span>
+                      <span class="color-chip" style="background:#c0c0c0" data-name="فضي" onclick="pickColor(this)" title="فضي"></span>
+                      <span class="color-chip" style="background:#2c2416" data-name="كحلي" onclick="pickColor(this)" title="كحلي"></span>
+                      <span class="color-chip" style="background:#e8c4b0" data-name="سالموني" onclick="pickColor(this)" title="سالموني"></span>
+                      <span class="color-chip" style="background:#708090" data-name="رمادي" onclick="pickColor(this)" title="رمادي"></span>
+                      <span class="color-chip multi selected" data-name="متعدد الألوان" onclick="pickColor(this)">متعدد الألوان</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--muted-foreground);margin-bottom:10px">اضغط لاختيار لون أو أكثر</div>
+                    <div class="sel-add-row" style="border-top:1px solid var(--border);padding-top:10px;margin-top:2px;display:flex;gap:8px;align-items:center">
+                      <input type="color" id="colorPickerNative" value="#aa6688"
+                             style="width:36px;height:36px;border:1px solid var(--border);border-radius:6px;
+                                    padding:2px;cursor:pointer;background:var(--card)"
+                             oninput="previewCustomColor(this)">
+                      <input class="sel-add-input" id="colorCustomName" placeholder="اسم اللون بالعربي…"
+                             onkeydown="if(event.key==='Enter'){addCustomColor();event.preventDefault()}">
+                      <button class="sel-add-btn" onclick="addCustomColor()">＋ إضافة</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- الوصف سطر كامل -->
+            <div class="field full">
+              <label>الوصف</label>
+              <div class="inp area">تفاصيل التصميم والقصة…</div>
+            </div>
+
+            </div><!-- /sec-a-fields -->
+          </div><!-- /sec-a-wrap -->
+        </div>
+      </details>
+
+      <!-- قسم ب -->
+      <details class="acc" open>
+        <summary><span class="ico">ب</span> الأقمشة والمستلزمات <span class="tag">الأهم</span> <span class="chev">▾</span></summary>
+        <div class="acc-body">
+
+          <!-- وحدة القياس سطر كامل -->
+          <div class="field full" style="margin-bottom:16px">
+            <label>وحدة القياس</label>
+            <div class="sel-wrap">
+              <div class="sel-trigger" onclick="toggleSel(this)">
+                <span class="sel-val">متر</span><span class="sel-chev">▾</span>
+              </div>
+              <div class="sel-menu">
+                <div class="sel-option selected" onclick="pickSel(this)">متر</div>
+                <div class="sel-option" onclick="pickSel(this)">ياردة</div>
+              </div>
+            </div>
+            <span class="hint">تُطبّق على كل حقول الاستهلاك في الأسفل</span>
+          </div>
+
+          <!-- الأقمشة -->
+          <div class="rep-label">الأقمشة</div>
+
+          <!-- صف أساسي: نوع القماش من المخزون فقط (بدون حقل "نوع") -->
+          <div class="rep-row fabric">
+            <div class="role-pill">أساسي</div>
+            <div class="field">
+              <div class="sel-wrap">
+                <div class="sel-trigger" onclick="toggleSel(this)">
+                  <span class="sel-val">باربي — متاح 22.86م</span><span class="sel-chev">▾</span>
+                </div>
+                <div class="sel-menu" id="mainFabricMenu">
+                  <div class="sel-option selected" onclick="pickSel(this)">باربي — متاح 22.86م</div>
+                  <div class="sel-option" onclick="pickSel(this)">كريب أسود — متاح 15م</div>
+                  <div class="sel-option" onclick="pickSel(this)">ساتان ذهبي — متاح 8م</div>
+                  <div class="sel-option" onclick="pickSel(this)">تل أبيض — متاح 30م</div>
+                  <div class="sel-add-row">
+                    <input class="sel-add-input" placeholder="اكتب اسم قماش جديد…" onkeydown="addOptionOnEnter(event,this)">
+                    <button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="field"><div class="inp" style="color:var(--foreground)">2.3 م</div></div>
+            <div class="iconbtn add" onclick="addFabricRow()" title="إضافة قماش آخر">＋</div>
+          </div>
+
+          <!-- صفوف قماش إضافية -->
+          <div id="extraFabrics">
+            <div class="rep-row fabric">
+              <div class="field">
+                <div class="sel-wrap">
+                  <div class="sel-trigger" onclick="toggleSel(this)">
+                    <span class="sel-val">قطعة سفلية</span><span class="sel-chev">▾</span>
+                  </div>
+                  <div class="sel-menu fabric-type-menu">
+                    <div class="sel-option selected" onclick="pickSel(this)">قطعة سفلية</div>
+                    <div class="sel-option" onclick="pickSel(this)">قماش داخلي</div>
+                    <div class="sel-option" onclick="pickSel(this)">بطانة</div>
+                    <div class="sel-option" onclick="pickSel(this)">تطريز</div>
+                    <div class="sel-add-row">
+                      <input class="sel-add-input" placeholder="اكتب نوع جديد…" onkeydown="addOptionOnEnter(event,this)">
+                      <button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="field">
+                <div class="sel-wrap">
+                  <div class="sel-trigger" onclick="toggleSel(this)">
+                    <span class="sel-val">تل أبيض</span><span class="sel-chev">▾</span>
+                  </div>
+                  <div class="sel-menu fabric-name-menu">
+                    <div class="sel-option selected" onclick="pickSel(this)">تل أبيض</div>
+                    <div class="sel-option" onclick="pickSel(this)">تل أسود</div>
+                    <div class="sel-option" onclick="pickSel(this)">ساتان ذهبي</div>
+                    <div class="sel-add-row">
+                      <input class="sel-add-input" placeholder="اكتب اسم قماش جديد…" onkeydown="addOptionOnEnter(event,this)">
+                      <button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="field"><div class="inp" style="color:var(--foreground)">1.0 م</div></div>
+              <div class="iconbtn del" onclick="removeRow(this)" title="حذف">🗑️</div>
+            </div>
+            <div class="rep-row fabric">
+              <div class="field">
+                <div class="sel-wrap">
+                  <div class="sel-trigger" onclick="toggleSel(this)">
+                    <span class="sel-val">بطانة</span><span class="sel-chev">▾</span>
+                  </div>
+                  <div class="sel-menu fabric-type-menu">
+                    <div class="sel-option" onclick="pickSel(this)">قطعة سفلية</div>
+                    <div class="sel-option" onclick="pickSel(this)">قماش داخلي</div>
+                    <div class="sel-option selected" onclick="pickSel(this)">بطانة</div>
+                    <div class="sel-option" onclick="pickSel(this)">تطريز</div>
+                    <div class="sel-add-row">
+                      <input class="sel-add-input" placeholder="اكتب نوع جديد…" onkeydown="addOptionOnEnter(event,this)">
+                      <button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="field">
+                <div class="sel-wrap">
+                  <div class="sel-trigger" onclick="toggleSel(this)">
+                    <span class="sel-val">ساتان ذهبي</span><span class="sel-chev">▾</span>
+                  </div>
+                  <div class="sel-menu fabric-name-menu">
+                    <div class="sel-option" onclick="pickSel(this)">تل أبيض</div>
+                    <div class="sel-option" onclick="pickSel(this)">تل أسود</div>
+                    <div class="sel-option selected" onclick="pickSel(this)">ساتان ذهبي</div>
+                    <div class="sel-add-row">
+                      <input class="sel-add-input" placeholder="اكتب اسم قماش جديد…" onkeydown="addOptionOnEnter(event,this)">
+                      <button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="field"><div class="inp" style="color:var(--foreground)">1.5 م</div></div>
+              <div class="iconbtn del" onclick="removeRow(this)" title="حذف">🗑️</div>
+            </div>
+          </div>
+          <span class="hint" style="display:block;margin:-2px 0 18px">اكتب في حقل الإضافة داخل القائمة لإنشاء نوع أو قماش جديد</span>
+
+          <!-- الإكسسوارات -->
+          <div class="rep-label">الإكسسوارات والمستلزمات</div>
+          <div id="accRows">
+            <div class="rep-row acc">
+              <div class="field">
+                <div class="sel-wrap">
+                  <div class="sel-trigger" onclick="toggleSel(this)">
+                    <span class="sel-val">سحّاب مخفي</span><span class="sel-chev">▾</span>
+                  </div>
+                  <div class="sel-menu acc-menu">
+                    <div class="sel-option selected" onclick="pickSel(this)">سحّاب مخفي</div>
+                    <div class="sel-option" onclick="pickSel(this)">خرز تطريز</div>
+                    <div class="sel-option" onclick="pickSel(this)">أزرار</div>
+                    <div class="sel-option" onclick="pickSel(this)">شريط كاوتش</div>
+                    <div class="sel-option" onclick="pickSel(this)">ترتر</div>
+                    <div class="sel-add-row">
+                      <input class="sel-add-input" placeholder="اكتب إكسسوار جديد…" onkeydown="addOptionOnEnter(event,this)">
+                      <button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="field"><div class="inp" style="color:var(--foreground)">3 ر.س</div></div>
+              <div class="iconbtn add" onclick="addAccRow()" title="إضافة إكسسوار آخر">＋</div>
+            </div>
+            <div class="rep-row acc">
+              <div class="field">
+                <div class="sel-wrap">
+                  <div class="sel-trigger" onclick="toggleSel(this)">
+                    <span class="sel-val">خرز تطريز</span><span class="sel-chev">▾</span>
+                  </div>
+                  <div class="sel-menu acc-menu">
+                    <div class="sel-option" onclick="pickSel(this)">سحّاب مخفي</div>
+                    <div class="sel-option selected" onclick="pickSel(this)">خرز تطريز</div>
+                    <div class="sel-option" onclick="pickSel(this)">أزرار</div>
+                    <div class="sel-option" onclick="pickSel(this)">شريط كاوتش</div>
+                    <div class="sel-option" onclick="pickSel(this)">ترتر</div>
+                    <div class="sel-add-row">
+                      <input class="sel-add-input" placeholder="اكتب إكسسوار جديد…" onkeydown="addOptionOnEnter(event,this)">
+                      <button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="field"><div class="inp" style="color:var(--foreground)">12 ر.س</div></div>
+              <div class="iconbtn del" onclick="removeRow(this)" title="حذف">🗑️</div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- قسم د -->
+      <details class="acc" open>
+        <summary><span class="ico">د</span> التكاليف <span class="chev">▾</span></summary>
+        <div class="acc-body">
+          <div class="grid">
+            <div class="field auto"><label>تكلفة القماش</label><div class="inp">65.4 ر.س</div><span class="hint">من الأقمشة × أسعارها</span></div>
+            <div class="field auto"><label>تكلفة الإكسسوارات</label><div class="inp">15 ر.س</div><span class="hint">مجموع أسعار الإكسسوارات</span></div>
+            <div class="field"><label>تكلفة الخياطة</label><div class="inp">40 ر.س</div></div>
+            <div class="field"><label>تكلفة التطريز</label><div class="inp">20 ر.س</div></div>
+            <div class="field"><label>تكلفة إضافية</label><div class="inp">10 ر.س</div><span class="hint">كي • تغليف…</span></div>
+            <div class="field auto"><label>التكلفة الإجمالية</label><div class="inp">150.4 ر.س</div><span class="hint">مجموع ما سبق</span></div>
+          </div>
+        </div>
+      </details>
+
+      <div class="note m"><b>ملاحظة للمبرمج:</b> الأقسام أكورديون مغلقة افتراضياً. الحقول الخضراء (تلقائي) للعرض فقط وتُحسب لحظياً. أزرار ＋ تضيف صفّاً جديداً (قماش/إكسسوار)، و🗑️ يحذف الصف.</div>
+
+      <button class="btn">حفظ الموديل</button>
+      <button class="btn ghost">إلغاء</button>
+    </div>
+  </section>
+
+  <!-- 2) الجدول مع لوحة ذكية كأكورديون -->
+  <section>
+    <div class="block-title"><span class="n">2</span> جدول الموديلات</div>
+    <div class="block-sub">اضغط على أي موديل ليفتح أسفله أكورديون باللوحة الذكية (الأرقام محسوبة آلياً).</div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th></th><th>رقم الصنف</th>
+            <th>الألوان</th><th>القماش الأساسي</th>
+            <th>الكمية</th><th>التكلفة الإجمالية</th><th>الحالة</th><th>إجراء</th>
+          </tr></thead>
+          <tbody>
+            <!-- موديل 1 -->
+            <tr class="model-row open" data-target="p1">
+              <td><span class="caret">▾</span></td>
+              <td>DRS-001</td>
+              <td>
+                <span style="display:inline-flex;gap:4px">
+                  <span class="color-swatch" style="background:#c8a97a;width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15);display:inline-block" title="بيج"></span>
+                  <span class="color-swatch" style="background:#e8a0b4;width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15);display:inline-block" title="وردي"></span>
+                  <span class="color-swatch" style="background:#1a1a1a;width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15);display:inline-block" title="أسود"></span>
+                </span>
+              </td>
+              <td>باربي</td>
+              <td>10 قطع</td><td>150.4 ر.س</td>
+              <td><span class="pill ok">نشط</span></td>
+              <td class="actions"><span>✏️</span><span>🗑️</span></td>
+            </tr>
+            <tr class="panel-row show" id="p1"><td colspan="8">
+              <div class="panel-inner">
+                <div class="smart">
+                  <div class="img">🖼️<br>صورة التصميم</div>
+                  <div>
+                    <div class="mmeta">القماش الأساسي: باربي • استهلاك القطعة: 2.3م</div>
+                    <div class="stats">
+                      <div class="ministat hl"><div class="k">📊 يمكن إنتاجه من المخزون</div><div class="v">9 فساتين</div></div>
+                      <div class="ministat"><div class="k">💰 تكلفة القطعة</div><div class="v">150.4 ر.س</div></div>
+                      <div class="ministat"><div class="k">✂️ تكلفة الخياطة</div><div class="v">45 ر.س</div></div>
+                      <div class="ministat"><div class="k">📦 منتَج حالياً</div><div class="v">3</div></div>
+                      <div class="ministat"><div class="k">⏳ قيد الخياطة لدى زكي</div><div class="v">5</div></div>
+                      <div class="ministat"><div class="k">🧵 قماش محجوز للموديل</div><div class="v">11.5م</div></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="note" style="margin-top:14px"><b>منطق الحساب:</b> «يمكن إنتاجه» = المخزون المتاح ÷ الاستهلاك للقطعة (22.86 ÷ 2.3 ≈ 9).</div>
+              </div>
+            </td></tr>
+
+            <!-- موديل 2 -->
+            <tr class="model-row" data-target="p2">
+              <td><span class="caret">▾</span></td>
+              <td>DRS-014</td>
+              <td>
+                <span style="display:inline-flex;gap:4px">
+                  <span class="color-swatch" style="background:#1a1a1a;width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15);display:inline-block" title="أسود"></span>
+                  <span class="color-swatch" style="background:#2c2416;width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15);display:inline-block" title="كحلي"></span>
+                </span>
+              </td>
+              <td>كريب أسود</td>
+              <td>6 قطع</td><td>185 ر.س</td>
+              <td><span class="pill ok">نشط</span></td>
+              <td class="actions"><span>✏️</span><span>🗑️</span></td>
+            </tr>
+            <tr class="panel-row" id="p2"><td colspan="8">
+              <div class="panel-inner">
+                <div class="smart">
+                  <div class="img">🖼️<br>صورة التصميم</div>
+                  <div>
+                    <div class="mmeta">القماش الأساسي: كريب أسود • استهلاك القطعة: 3.1م</div>
+                    <div class="stats">
+                      <div class="ministat hl"><div class="k">📊 يمكن إنتاجه من المخزون</div><div class="v">6 فساتين</div></div>
+                      <div class="ministat"><div class="k">💰 تكلفة القطعة</div><div class="v">185 ر.س</div></div>
+                      <div class="ministat"><div class="k">✂️ تكلفة الخياطة</div><div class="v">60 ر.س</div></div>
+                      <div class="ministat"><div class="k">📦 منتَج حالياً</div><div class="v">8</div></div>
+                      <div class="ministat"><div class="k">⏳ قيد الخياطة</div><div class="v">2</div></div>
+                      <div class="ministat"><div class="k">🧵 قماش محجوز للموديل</div><div class="v">6.2م</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3) الربط -->
+  <section>
+    <div class="block-title"><span class="n">3</span> الربط مع بقية التبويبات</div>
+    <div class="block-sub">التكامل التلقائي مع النظام الحالي.</div>
+    <div class="card">
+      <div class="integ">
+        <div class="row"><b>تسليم الأقمشة</b><div>تختار <b>الموديل + العدد</b> → النظام يحسب القماش المطلوب تلقائياً (العدد × الاستهلاك).</div></div>
+        <div class="row"><b>التكلفة والتسليم</b><div>تكلفة الفستان تُحسب تلقائياً من بيانات الموديل بدل الإدخال اليدوي.</div></div>
+        <div class="row"><b>المخزون</b><div>يعرض «هذا القماش يكفي لـ X قطعة من موديل Y».</div></div>
+        <div class="row"><b>طلبات الخياطين</b><div>الخياط يطلب «قماش لموديل DRS-001 × 10 قطع» والنظام يعرف الكمية فوراً.</div></div>
+      </div>
+      <div class="flow">[الموديل] ═══╗  (يحدد: أي قماش + كم استهلاك + كم تكلفة)
+             ║
+             ▼
+[المخزون] ──→ [تسليم: موديل × عدد] ──→ [الخياط]
+    ▲              │ (القماش يُحسب آلياً)        │
+    │              ▼                            ▼
+[إضافة]      [استلام الفساتين] ◄── [تكلفة آلية من الموديل]</div>
+    </div>
+  </section>
+
+  <footer>
+    وثيقة مواصفات تبويب «الموديلات والتصاميم» — نظام إدارة الأقمشة / مليحة<br>
+    مبنية بنفس تصميم وألوان وخطوط app.mleha.com • تصميم توضيحي (Mockup)
+  </footer>
+
+</div>
+
+<script>
+  /* ===== أكورديون الجدول ===== */
+  document.querySelectorAll('tr.model-row').forEach(function(row){
+    row.addEventListener('click', function(e){
+      if(e.target.closest('.actions')) return;
+      var panel = document.getElementById(row.dataset.target);
+      row.classList.toggle('open');
+      if(panel) panel.classList.toggle('show');
+    });
+  });
+
+  /* ===== تهيئة: غلّف الخيارات في sel-options-list في كل قائمة ===== */
+  function initMenus(){
+    document.querySelectorAll('.sel-menu').forEach(function(menu){
+      if(menu.querySelector('.sel-options-list')) return; // مُهيَّأة مسبقاً
+      var addRow = menu.querySelector('.sel-add-row');
+      var opts = [...menu.querySelectorAll('.sel-option')];
+      if(opts.length === 0) return;
+      var list = document.createElement('div');
+      list.className = 'sel-options-list';
+      // أدخل القائمة قبل addRow (أو في النهاية إن لم يوجد addRow)
+      menu.insertBefore(list, addRow || null);
+      opts.forEach(function(o){ list.appendChild(o); });
+    });
+  }
+
+  /* ===== القوائم المنسدلة — نظام البورتال ===== */
+  // نقل القوائم إلى document.body حتى لا تتأثر بـ stacking context الآباء
+
+  var _portals = []; // [{menu, trigger, parent, nextSibling}]
+
+  function _positionMenu(menu, trigger){
+    var rect = trigger.getBoundingClientRect();
+    menu.style.top    = (rect.bottom + window.scrollY + 4) + 'px';
+    menu.style.left   = (rect.left  + window.scrollX) + 'px';
+    menu.style.width  = rect.width + 'px';
+    menu.style.right  = 'auto';
+    menu.style.position = 'absolute';
+  }
+
+  function toggleSel(trigger){
+    // هل هذه القائمة مفتوحة بالفعل؟
+    var isOpen = trigger.classList.contains('open');
+    closeAllSel();
+    if(!isOpen){
+      var menu = trigger.nextElementSibling; // لا تزال في مكانها الأصلي عند الفتح
+      openSelMenu(trigger, menu);
+    }
+  }
+
+  function openSelMenu(trigger, menu){
+    // احفظ الموضع الأصلي ثم انقل للـ body
+    var parent      = menu.parentNode;
+    var nextSibling = menu.nextSibling;
+    document.body.appendChild(menu);
+    _portals.push({ menu:menu, trigger:trigger, parent:parent, nextSibling:nextSibling });
+
+    menu._trigger = trigger; // ربط للاسترداد في pickSel
+    _positionMenu(menu, trigger);
+    trigger.classList.add('open');
+    menu.classList.add('open');
+  }
+
+  function pickSel(option){
+    var menu    = option.closest('.sel-menu');
+    var trigger = menu._trigger || menu.previousElementSibling;
+    menu.querySelectorAll('.sel-option').forEach(function(o){ o.classList.remove('selected'); });
+    option.classList.add('selected');
+    if(trigger) trigger.querySelector('.sel-val').textContent = option.textContent.trim();
+    closeAllSel();
+  }
+
+  function closeAllSel(){
+    // أعد كل قائمة مُنقولة إلى موضعها الأصلي
+    _portals.forEach(function(p){
+      p.menu.classList.remove('open');
+      p.menu._trigger = null;
+      if(p.nextSibling){
+        p.parent.insertBefore(p.menu, p.nextSibling);
+      } else {
+        p.parent.appendChild(p.menu);
+      }
+    });
+    _portals = [];
+    document.querySelectorAll('.sel-trigger.open').forEach(function(t){ t.classList.remove('open'); });
+  }
+
+  // إغلاق عند الضغط خارج القوائم المنسدلة
+  document.addEventListener('click', function(e){
+    var inPortal = _portals.some(function(p){ return p.menu.contains(e.target); });
+    if(!e.target.closest('.sel-wrap') && !e.target.closest('#colorMenu') && !inPortal){
+      closeAllSel();
+      closeColorMenu();
+    }
+  });
+
+  // إعادة موضعة القوائم عند التمرير أو تغيير الحجم
+  window.addEventListener('scroll', function(){
+    _portals.forEach(function(p){ _positionMenu(p.menu, p.trigger); });
+    if(_colorPortal){ _positionColorMenu(_colorPortal.trigger); }
+  }, true);
+  window.addEventListener('resize', function(){ closeAllSel(); closeColorMenu(); });
+
+  /* ===== منتقي الألوان — بورتال ===== */
+  var selectedColors = ['متعدد الألوان'];
+  var _colorPortal = null; // {menu, trigger, parent, nextSibling}
+
+  function _positionColorMenu(trigger){
+    var menu = document.getElementById('colorMenu');
+    var rect = trigger.getBoundingClientRect();
+    menu.style.top      = (rect.bottom + window.scrollY + 4) + 'px';
+    menu.style.left     = (rect.left   + window.scrollX) + 'px';
+    menu.style.width    = Math.max(rect.width, 320) + 'px';
+    menu.style.right    = 'auto';
+    menu.style.position = 'absolute';
+  }
+
+  function closeColorMenu(){
+    var menu    = document.getElementById('colorMenu');
+    var trigger = document.getElementById('colorTrigger');
+    if(!menu) return;
+    menu.classList.remove('open');
+    if(trigger) trigger.classList.remove('open');
+    if(_colorPortal){
+      if(_colorPortal.nextSibling){
+        _colorPortal.parent.insertBefore(menu, _colorPortal.nextSibling);
+      } else {
+        _colorPortal.parent.appendChild(menu);
+      }
+      _colorPortal = null;
+    }
+  }
+
+  function toggleColorPicker(){
+    var menu    = document.getElementById('colorMenu');
+    var trigger = document.getElementById('colorTrigger');
+    var isOpen  = menu.classList.contains('open');
+    closeAllSel();
+    if(!isOpen){
+      // انقل القائمة إلى body أولاً
+      var parent      = menu.parentNode;
+      var nextSibling = menu.nextSibling;
+      document.body.appendChild(menu);
+      _colorPortal = { trigger:trigger, parent:parent, nextSibling:nextSibling };
+      _positionColorMenu(trigger);
+      menu.classList.add('open');
+      trigger.classList.add('open');
+    } else {
+      closeColorMenu();
+    }
+  }
+
+  function pickColor(chip){
+    chip.classList.toggle('selected');
+    // اجمع الألوان المختارة
+    selectedColors = [];
+    document.querySelectorAll('#colorGrid .color-chip.selected').forEach(function(c){
+      selectedColors.push(c.dataset.name);
+    });
+    // حدّث نص الزناد
+    var val = document.getElementById('colorVal');
+    if(selectedColors.length === 0){
+      val.innerHTML = 'اختر الألوان…';
+    } else {
+      val.innerHTML = selectedColors.map(function(name){
+        var chip = document.querySelector('[data-name="'+name+'"]');
+        var bg = chip && !chip.classList.contains('multi') ? chip.style.background : null;
+        return bg
+          ? '<span class="color-swatch" style="background:'+bg+'"></span>'+name
+          : name;
+      }).join(' • ');
+    }
+  }
+
+  /* ===== إضافة خيار مخصص لأي قائمة ===== */
+  function addCustomOption(btn){
+    var addRow = btn.closest('.sel-add-row');
+    var input  = addRow.querySelector('.sel-add-input');
+    var text   = input.value.trim();
+    if(!text) return;
+    var menu = addRow.closest('.sel-menu');
+    // أضف للـ sel-options-list إن وُجد، وإلا قبل addRow مباشرة
+    var list = menu.querySelector('.sel-options-list');
+    var opt  = document.createElement('div');
+    opt.className = 'sel-option';
+    opt.textContent = text;
+    opt.onclick = function(){ pickSel(this); };
+    if(list){
+      list.appendChild(opt);
+      // أنيميشن + تمرير للأسفل
+      opt.style.background = 'var(--green-soft)';
+      list.scrollTop = list.scrollHeight;
+    } else {
+      opt.style.background = 'var(--green-soft)';
+      menu.insertBefore(opt, addRow);
+    }
+    setTimeout(function(){ opt.style.background = ''; }, 800);
+    pickSel(opt);
+    input.value = '';
+    input.focus();
+  }
+
+  function addOptionOnEnter(e, input){
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      addCustomOption(input.nextElementSibling);
+    }
+  }
+
+  /* ===== إضافة لون مخصص لمنتقي الألوان ===== */
+  function previewCustomColor(picker){
+    // لا شيء مرئي — الاختيار يتم عند الضغط على إضافة
+  }
+
+  function addCustomColor(){
+    var name   = document.getElementById('colorCustomName').value.trim();
+    var hex    = document.getElementById('colorPickerNative').value;
+    if(!name) return;
+    var grid = document.getElementById('colorGrid');
+    // أضف الشريحة قبل "متعدد الألوان"
+    var multiChip = grid.querySelector('.multi');
+    var chip = document.createElement('span');
+    chip.className = 'color-chip';
+    chip.style.background = hex;
+    chip.dataset.name = name;
+    chip.title = name;
+    chip.onclick = function(){ pickColor(this); };
+    // أنيميشن ظهور
+    chip.style.transform = 'scale(0)';
+    grid.insertBefore(chip, multiChip);
+    requestAnimationFrame(function(){
+      chip.style.transition = 'transform .2s';
+      chip.style.transform = 'scale(1)';
+    });
+    // اختره فوراً
+    pickColor(chip);
+    document.getElementById('colorCustomName').value = '';
+  }
+
+  /* ===== إضافة/حذف صفوف القماش ===== */
+  function getFabricTypeOptions(){
+    // اجمع كل خيارات نوع القماش من أول قائمة موجودة
+    var opts = [];
+    document.querySelectorAll('.fabric-type-menu .sel-option').forEach(function(o){
+      if(!opts.includes(o.textContent.trim())) opts.push(o.textContent.trim());
+    });
+    return opts.length ? opts : ['قطعة سفلية','قماش داخلي','بطانة','تطريز'];
+  }
+
+  function getFabricNameOptions(){
+    var opts = [];
+    document.querySelectorAll('.fabric-name-menu .sel-option').forEach(function(o){
+      if(!opts.includes(o.textContent.trim())) opts.push(o.textContent.trim());
+    });
+    return opts.length ? opts : ['باربي','تل أبيض','ساتان ذهبي','كريب أسود'];
+  }
+
+  function getAccOptions(){
+    var opts = [];
+    document.querySelectorAll('.acc-menu .sel-option').forEach(function(o){
+      if(!opts.includes(o.textContent.trim())) opts.push(o.textContent.trim());
+    });
+    return opts.length ? opts : ['سحّاب مخفي','خرز تطريز','أزرار','شريط كاوتش','ترتر'];
+  }
+
+  function buildSelMenu(options, placeholder, cssClass){
+    var addClass = cssClass ? ' '+cssClass : '';
+    return '<div class="sel-menu'+addClass+'">'
+      + '<div class="sel-options-list">'
+      + options.map(function(o){ return '<div class="sel-option" onclick="pickSel(this)">'+o+'</div>'; }).join('')
+      + '</div>'
+      + '<div class="sel-add-row">'
+      + '<input class="sel-add-input" placeholder="'+placeholder+'" onkeydown="addOptionOnEnter(event,this)">'
+      + '<button class="sel-add-btn" onclick="addCustomOption(this)">＋ إضافة</button>'
+      + '</div></div>';
+  }
+
+  function addFabricRow(){
+    var container = document.getElementById('extraFabrics');
+    var row = document.createElement('div');
+    row.className = 'rep-row fabric';
+    row.innerHTML =
+      '<div class="field"><div class="sel-wrap">'
+        +'<div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">نوع القماش</span><span class="sel-chev">▾</span></div>'
+        + buildSelMenu(getFabricTypeOptions(), 'اكتب نوع جديد…', 'fabric-type-menu')
+      +'</div></div>'
+      +'<div class="field"><div class="sel-wrap">'
+        +'<div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر القماش</span><span class="sel-chev">▾</span></div>'
+        + buildSelMenu(getFabricNameOptions(), 'اكتب اسم قماش جديد…', 'fabric-name-menu')
+      +'</div></div>'
+      +'<div class="field"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">0.0 م</div></div>'
+      +'<div class="iconbtn del" onclick="removeRow(this)" title="حذف">🗑️</div>';
+    container.appendChild(row);
+    row.style.opacity='0'; row.style.transform='translateY(-6px)';
+    requestAnimationFrame(function(){ row.style.transition='all .2s'; row.style.opacity='1'; row.style.transform='translateY(0)'; });
+  }
+
+  function addAccRow(){
+    var container = document.getElementById('accRows');
+    var row = document.createElement('div');
+    row.className = 'rep-row acc';
+    row.innerHTML =
+      '<div class="field"><div class="sel-wrap">'
+        +'<div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر الإكسسوار</span><span class="sel-chev">▾</span></div>'
+        + buildSelMenu(getAccOptions(), 'اكتب إكسسوار جديد…', 'acc-menu')
+      +'</div></div>'
+      +'<div class="field"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">0 ر.س</div></div>'
+      +'<div class="iconbtn del" onclick="removeRow(this)" title="حذف">🗑️</div>';
+    container.appendChild(row);
+    row.style.opacity='0'; row.style.transform='translateY(-6px)';
+    requestAnimationFrame(function(){ row.style.transition='all .2s'; row.style.opacity='1'; row.style.transform='translateY(0)'; });
+  }
+
+  function removeRow(btn){
+    var row = btn.closest('.rep-row');
+    row.style.transition='all .15s'; row.style.opacity='0'; row.style.transform='translateY(-4px)';
+    setTimeout(function(){ row.remove(); }, 150);
+  }
+
+  /* ===== تشغيل عند التحميل ===== */
+  document.addEventListener('DOMContentLoaded', function(){
+    initMenus();
+  });
+</script>
+</body>
+</html>

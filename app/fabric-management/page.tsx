@@ -20,7 +20,7 @@ import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { LoadingState } from '@/components/dashboard/states';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Command,
   CommandEmpty,
@@ -36,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { ModelsTabSpec } from './models-tab-spec';
 
 type Fabric = {
   id: string;
@@ -455,195 +456,165 @@ export default function FabricManagementPage() {
             <TabsList
               dir="rtl"
               style={{ direction: 'rtl' }}
-              className="flex h-auto w-full flex-row flex-wrap justify-start"
+              className="flex h-auto w-full flex-row flex-wrap justify-start gap-1 rounded-lg bg-muted p-[3px]"
             >
-              <TabsTrigger value="stock">المخزون</TabsTrigger>
-              <TabsTrigger value="tailors">الخياطون</TabsTrigger>
-              <TabsTrigger value="issues">تسليم الأقمشة</TabsTrigger>
-              <TabsTrigger value="deliveries">التكلفة والتسليم</TabsTrigger>
-              <TabsTrigger value="requests">طلبات الخياطين</TabsTrigger>
+              <TabsTrigger value="stock" className="min-w-[120px] py-1.5">المخزون</TabsTrigger>
+              <TabsTrigger value="tailors" className="min-w-[120px] py-1.5">الخياطون</TabsTrigger>
+              <TabsTrigger value="issues" className="min-w-[120px] py-1.5">تسليم الأقمشة</TabsTrigger>
+              <TabsTrigger value="deliveries" className="min-w-[120px] py-1.5">التكلفة والتسليم</TabsTrigger>
+              <TabsTrigger value="requests" className="min-w-[120px] py-1.5">طلبات الخياطين</TabsTrigger>
+              <TabsTrigger value="models" className="relative min-w-[120px] py-1.5">
+                الموديلات والتصاميم
+                <span className="absolute -top-2 start-1/2 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
+                  جديد
+                </span>
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="stock" className="space-y-4">
-              <Card className="rounded-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
+              <FormAccordionCard marker="أ" title="إضافة قماش" description="سجّل نوع قماش جديد بنفس نمط أكورديون الموديلات">
+                <form onSubmit={handleFabricSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
+                  <TextInput label="اسم القماش" value={fabricForm.name} onChange={(name) => setFabricForm({ ...fabricForm, name })} required />
+                  <TextInput label="رمز القماش" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
+                  <SearchableSelect label="اللون" value={fabricForm.color} options={fabricColorOptions} onChange={(color) => setFabricForm({ ...fabricForm, color })} allowCreate />
+                  <SearchableSelect label="نوع القماش" value={fabricForm.fabricType} options={fabricTypeOptions} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} allowCreate />
+                  <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} />
+                  <SearchableSelect label="وحدة التكلفة والطول" value={fabricForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setFabricForm({ ...fabricForm, lengthUnit })} required />
+                  <TextInput label={fabricForm.lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'} type="number" value={fabricForm.unitCost} onChange={(unitCost) => setFabricForm({ ...fabricForm, unitCost })} />
+                  <TextInput label={fabricForm.lengthUnit === 'yard' ? 'الكمية بالمخزون بالياردة' : 'الكمية بالمخزون بالمتر'} type="number" value={fabricForm.stockLength} onChange={(stockLength) => setFabricForm({ ...fabricForm, stockLength })} />
+                  <TextInput label={fabricForm.lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر'} type="number" value={fabricForm.minStock} onChange={(minStock) => setFabricForm({ ...fabricForm, minStock })} />
+                  <Field className="md:col-span-3">
+                    <FieldLabel>ملاحظات</FieldLabel>
+                    <Textarea value={fabricForm.notes} onChange={(event) => setFabricForm({ ...fabricForm, notes: event.target.value })} />
+                  </Field>
+                  <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
                     <PackagePlus className="size-4" />
-                    إضافة قماش
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleFabricSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                    <TextInput label="اسم القماش" value={fabricForm.name} onChange={(name) => setFabricForm({ ...fabricForm, name })} required />
-                    <TextInput label="رمز القماش" value={fabricForm.sku} onChange={(sku) => setFabricForm({ ...fabricForm, sku })} />
-                    <SearchableSelect label="اللون" value={fabricForm.color} options={fabricColorOptions} onChange={(color) => setFabricForm({ ...fabricForm, color })} allowCreate />
-                    <SearchableSelect label="نوع القماش" value={fabricForm.fabricType} options={fabricTypeOptions} onChange={(fabricType) => setFabricForm({ ...fabricForm, fabricType })} allowCreate />
-                    <SearchableSelect label="المورد" value={fabricForm.supplier} options={supplierOptions} onChange={(supplier) => setFabricForm({ ...fabricForm, supplier })} />
-                    <SearchableSelect label="وحدة التكلفة والطول" value={fabricForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setFabricForm({ ...fabricForm, lengthUnit })} required />
-                    <TextInput label={fabricForm.lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'} type="number" value={fabricForm.unitCost} onChange={(unitCost) => setFabricForm({ ...fabricForm, unitCost })} />
-                    <TextInput label={fabricForm.lengthUnit === 'yard' ? 'الكمية بالمخزون بالياردة' : 'الكمية بالمخزون بالمتر'} type="number" value={fabricForm.stockLength} onChange={(stockLength) => setFabricForm({ ...fabricForm, stockLength })} />
-                    <TextInput label={fabricForm.lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر'} type="number" value={fabricForm.minStock} onChange={(minStock) => setFabricForm({ ...fabricForm, minStock })} />
-                    <Field className="md:col-span-3">
-                      <FieldLabel>ملاحظات</FieldLabel>
-                      <Textarea value={fabricForm.notes} onChange={(event) => setFabricForm({ ...fabricForm, notes: event.target.value })} />
-                    </Field>
-                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
-                      <PackagePlus className="size-4" />
-                      حفظ القماش
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-              <Card className="rounded-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
+                    حفظ القماش
+                  </Button>
+                </form>
+              </FormAccordionCard>
+              <FormAccordionCard marker="ب" title="إضافة كمية لمخزون موجود" description="توريد جديد مرتبط برقم فاتورة الشراء" tag="فاتورة">
+                <form onSubmit={handleStockSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
+                  <SearchableSelect
+                    label="القماش"
+                    value={stockForm.fabricId}
+                    options={fabricOptions}
+                    onChange={(fabricId) => setStockForm({ ...stockForm, fabricId })}
+                    placeholder="اختر القماش"
+                    required
+                  />
+                  <TextInput
+                    label={stockForm.lengthUnit === 'yard' ? 'الكمية المشتراة بالياردة' : 'الكمية المشتراة بالمتر'}
+                    type="number"
+                    value={stockForm.purchasedLength}
+                    onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })}
+                    required
+                  />
+                  <TextInput
+                    label={stockForm.lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'}
+                    type="number"
+                    value={stockForm.unitCost}
+                    onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })}
+                  />
+                  <SearchableSelect
+                    label="وحدة الكمية والتكلفة"
+                    value={stockForm.lengthUnit}
+                    options={LENGTH_UNIT_OPTIONS}
+                    onChange={(lengthUnit) => setStockForm({ ...stockForm, lengthUnit })}
+                    required
+                  />
+                  <SearchableSelect
+                    label="المورد"
+                    value={stockForm.supplier}
+                    options={supplierOptions}
+                    onChange={(supplier) => setStockForm({ ...stockForm, supplier })}
+                  />
+                  <TextInput
+                    label="رقم فاتورة الشراء"
+                    value={stockForm.purchaseBill}
+                    onChange={(purchaseBill) => setStockForm({ ...stockForm, purchaseBill })}
+                  />
+                  <Field className="md:col-span-3">
+                    <FieldLabel>مرجع أو ملاحظات الشراء</FieldLabel>
+                    <Textarea value={stockForm.notes} onChange={(event) => setStockForm({ ...stockForm, notes: event.target.value })} />
+                  </Field>
+                  <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length}>
                     <Ruler className="size-4" />
-                    إضافة كمية لمخزون موجود (فاتورة شراء)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleStockSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                    <SearchableSelect
-                      label="القماش"
-                      value={stockForm.fabricId}
-                      options={fabricOptions}
-                      onChange={(fabricId) => setStockForm({ ...stockForm, fabricId })}
-                      placeholder="اختر القماش"
-                      required
-                    />
-                    <TextInput
-                      label={stockForm.lengthUnit === 'yard' ? 'الكمية المشتراة بالياردة' : 'الكمية المشتراة بالمتر'}
-                      type="number"
-                      value={stockForm.purchasedLength}
-                      onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })}
-                      required
-                    />
-                    <TextInput
-                      label={stockForm.lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'}
-                      type="number"
-                      value={stockForm.unitCost}
-                      onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })}
-                    />
-                    <SearchableSelect
-                      label="وحدة الكمية والتكلفة"
-                      value={stockForm.lengthUnit}
-                      options={LENGTH_UNIT_OPTIONS}
-                      onChange={(lengthUnit) => setStockForm({ ...stockForm, lengthUnit })}
-                      required
-                    />
-                    <SearchableSelect
-                      label="المورد"
-                      value={stockForm.supplier}
-                      options={supplierOptions}
-                      onChange={(supplier) => setStockForm({ ...stockForm, supplier })}
-                    />
-                    <TextInput
-                      label="فاتورة شراء"
-                      value={stockForm.purchaseBill}
-                      onChange={(purchaseBill) => setStockForm({ ...stockForm, purchaseBill })}
-                    />
-                    <Field className="md:col-span-3">
-                      <FieldLabel>مرجع أو ملاحظات الشراء</FieldLabel>
-                      <Textarea value={stockForm.notes} onChange={(event) => setStockForm({ ...stockForm, notes: event.target.value })} />
-                    </Field>
-                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length}>
-                      <Ruler className="size-4" />
-                      إضافة للمخزون
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                    إضافة للمخزون
+                  </Button>
+                </form>
+              </FormAccordionCard>
               <FabricTable fabrics={data?.fabrics || []} />
             </TabsContent>
 
             <TabsContent value="tailors" className="space-y-4">
-              <Card className="rounded-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
+              <FormAccordionCard marker="أ" title="إضافة خياط" description="بيانات الخياط ورمز دخوله لبوابة الخياطين">
+                <form onSubmit={handleTailorSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-2">
+                  <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
+                  <SearchableSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} allowCreate />
+                  <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
+                  <TextInput label="رمز الدخول للبوابة" value={tailorForm.accessCode} onChange={(accessCode) => setTailorForm({ ...tailorForm, accessCode })} required />
+                  <Field className="md:col-span-2">
+                    <FieldLabel>ملاحظات</FieldLabel>
+                    <Textarea value={tailorForm.notes} onChange={(event) => setTailorForm({ ...tailorForm, notes: event.target.value })} />
+                  </Field>
+                  <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
                     <UserPlus className="size-4" />
-                    إضافة خياط
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleTailorSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-2">
-                    <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
-                    <SearchableSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} allowCreate />
-                    <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
-                    <TextInput label="رمز الدخول للبوابة" value={tailorForm.accessCode} onChange={(accessCode) => setTailorForm({ ...tailorForm, accessCode })} required />
-                    <Field className="md:col-span-2">
-                      <FieldLabel>ملاحظات</FieldLabel>
-                      <Textarea value={tailorForm.notes} onChange={(event) => setTailorForm({ ...tailorForm, notes: event.target.value })} />
-                    </Field>
-                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
-                      <UserPlus className="size-4" />
-                      حفظ الخياط
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                    حفظ الخياط
+                  </Button>
+                </form>
+              </FormAccordionCard>
               <TailorsTable tailors={data?.tailors || []} />
             </TabsContent>
 
             <TabsContent value="issues" className="space-y-4">
-              <Card className="rounded-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
+              <FormAccordionCard marker="أ" title="تسليم قماش لخياط" description="اختر القماش والخياط وسجّل الكمية المسلّمة" tag="مخزون">
+                <form onSubmit={handleIssueSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
+                  <SearchableSelect label="القماش" value={issueForm.fabricId} options={fabricOptions} onChange={(fabricId) => setIssueForm({ ...issueForm, fabricId })} placeholder="اختر القماش" required />
+                  <SearchableSelect label="الخياط" value={issueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setIssueForm({ ...issueForm, tailorId })} placeholder="اختر الخياط" required />
+                  <SearchableSelect label="وحدة الطول المسلم" value={issueForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setIssueForm({ ...issueForm, lengthUnit })} required />
+                  <TextInput label={issueForm.lengthUnit === 'yard' ? 'الطول المسلم بالياردة' : 'الطول المسلم بالمتر'} type="number" value={issueForm.issuedLength} onChange={(issuedLength) => setIssueForm({ ...issueForm, issuedLength })} required />
+                  <TextInput label="تاريخ التسليم" type="date" value={issueForm.issueDate} onChange={(issueDate) => setIssueForm({ ...issueForm, issueDate })} />
+                  <TextInput label="مرجع" value={issueForm.reference} onChange={(reference) => setIssueForm({ ...issueForm, reference })} />
+                  <Field className="md:col-span-3">
+                    <FieldLabel>ملاحظات</FieldLabel>
+                    <Textarea value={issueForm.notes} onChange={(event) => setIssueForm({ ...issueForm, notes: event.target.value })} />
+                  </Field>
+                  <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length || !data?.tailors.length}>
                     <Send className="size-4" />
-                    تسليم قماش لخياط
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleIssueSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                    <SearchableSelect label="القماش" value={issueForm.fabricId} options={fabricOptions} onChange={(fabricId) => setIssueForm({ ...issueForm, fabricId })} placeholder="اختر القماش" required />
-                    <SearchableSelect label="الخياط" value={issueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setIssueForm({ ...issueForm, tailorId })} placeholder="اختر الخياط" required />
-                    <SearchableSelect label="وحدة الطول المسلم" value={issueForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setIssueForm({ ...issueForm, lengthUnit })} required />
-                    <TextInput label={issueForm.lengthUnit === 'yard' ? 'الطول المسلم بالياردة' : 'الطول المسلم بالمتر'} type="number" value={issueForm.issuedLength} onChange={(issuedLength) => setIssueForm({ ...issueForm, issuedLength })} required />
-                    <TextInput label="تاريخ التسليم" type="date" value={issueForm.issueDate} onChange={(issueDate) => setIssueForm({ ...issueForm, issueDate })} />
-                    <TextInput label="مرجع" value={issueForm.reference} onChange={(reference) => setIssueForm({ ...issueForm, reference })} />
-                    <Field className="md:col-span-3">
-                      <FieldLabel>ملاحظات</FieldLabel>
-                      <Textarea value={issueForm.notes} onChange={(event) => setIssueForm({ ...issueForm, notes: event.target.value })} />
-                    </Field>
-                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length || !data?.tailors.length}>
-                      <Send className="size-4" />
-                      تسجيل التسليم
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                    تسجيل التسليم
+                  </Button>
+                </form>
+              </FormAccordionCard>
               <IssuesTable issues={data?.issues || []} />
             </TabsContent>
 
             <TabsContent value="deliveries" className="space-y-4">
-              <Card className="rounded-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
+              <FormAccordionCard marker="أ" title="تسجيل تسليم الفساتين والتكلفة" description="أغلق دورة القماش بحساب المستهلك والمرتجع والتكلفة" tag="تكلفة">
+                <form onSubmit={handleDeliverySubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
+                  <SearchableSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" required />
+                  <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
+                  <TextInput label={deliveryForm.lengthUnit === 'yard' ? 'المستهلك من القماش بالياردة' : 'المستهلك من القماش بالمتر'} type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
+                  <TextInput label={deliveryForm.lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
+                  <SearchableSelect label="وحدة المستهلك والمرتجع" value={deliveryForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setDeliveryForm({ ...deliveryForm, lengthUnit })} required />
+                  <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
+                  <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
+                  <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
+                  <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !openIssues.length}>
                     <CheckCircle2 className="size-4" />
-                    تسجيل تسليم الفساتين والتكلفة
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleDeliverySubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                    <SearchableSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" required />
-                    <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
-                    <TextInput label={deliveryForm.lengthUnit === 'yard' ? 'المستهلك من القماش بالياردة' : 'المستهلك من القماش بالمتر'} type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
-                    <TextInput label={deliveryForm.lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
-                    <SearchableSelect label="وحدة المستهلك والمرتجع" value={deliveryForm.lengthUnit} options={LENGTH_UNIT_OPTIONS} onChange={(lengthUnit) => setDeliveryForm({ ...deliveryForm, lengthUnit })} required />
-                    <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
-                    <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
-                    <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
-                    <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !openIssues.length}>
-                      <CheckCircle2 className="size-4" />
-                      حفظ التسليم
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                    حفظ التسليم
+                  </Button>
+                </form>
+              </FormAccordionCard>
               <IssuesTable issues={data?.issues || []} showCost />
             </TabsContent>
 
             <TabsContent value="requests">
               <RequestsTable requests={data?.requests || []} onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)} saving={saving} />
+            </TabsContent>
+
+            <TabsContent value="models">
+              <ModelsTabSpec fabrics={data?.fabrics || []} issues={data?.issues || []} />
             </TabsContent>
           </Tabs>
           </>
@@ -664,6 +635,43 @@ function StatCard({ title, value, icon }: { title: string; value: string; icon: 
         <div className="rounded-md bg-muted p-2 text-muted-foreground">{icon}</div>
       </CardContent>
     </Card>
+  );
+}
+
+function FormAccordionCard({
+  marker,
+  title,
+  description,
+  tag,
+  children,
+}: {
+  marker: string;
+  title: string;
+  description?: string;
+  tag?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-visible rounded-lg border bg-card text-card-foreground shadow-sm">
+      <details className="group" open>
+        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg bg-muted px-4 py-3 text-sm font-bold select-none group-open:rounded-b-none [&::-webkit-details-marker]:hidden">
+          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+            {marker}
+          </span>
+          <span>{title}</span>
+          {tag && (
+            <span className="me-1 rounded-full bg-[#faf0dc] px-2.5 py-0.5 text-[11px] font-bold text-[#b8791f]">
+              {tag}
+            </span>
+          )}
+          <span className="ms-auto text-muted-foreground transition-transform group-open:rotate-180">▾</span>
+        </summary>
+        <div className="border-t p-4">
+          {description && <p className="mb-4 text-sm text-muted-foreground">{description}</p>}
+          {children}
+        </div>
+      </details>
+    </div>
   );
 }
 

@@ -254,7 +254,7 @@ export async function POST(request: NextRequest) {
       }
 
       const purchaseNote = [
-        body.purchaseBill ? `فاتورة شراء: ${body.purchaseBill}` : null,
+        body.purchaseBill ? `رقم فاتورة الشراء: ${body.purchaseBill}` : null,
         body.notes,
       ]
         .filter(Boolean)
