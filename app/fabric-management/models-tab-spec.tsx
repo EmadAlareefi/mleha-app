@@ -244,7 +244,7 @@ export function ModelsTabSpec({
   unit: 'meter' | 'yard';
 }) {
   const [openSelect, setOpenSelect] = useState<string | null>(null);
-  const [sku, setSku] = useState('DRS-001');
+  const [sku, setSku] = useState('');
   const [status, setStatus] = useState('active');
   const [description, setDescription] = useState('تفاصيل التصميم والقصة…');
   const [imageData, setImageData] = useState<string | null>(null);
@@ -254,12 +254,10 @@ export function ModelsTabSpec({
   const [customColors, setCustomColors] = useState<ColorChip[]>([]);
   const [editModel, setEditModel] = useState<DesignModel | null>(null);
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>([
-    { id: 'main', role: 'main', fabricId: fabrics[0]?.id || '', consumption: '2.3' },
-    { id: 'bottom', role: 'bottom', fabricId: fabrics[1]?.id || fabrics[0]?.id || '', consumption: '1.0' },
-    { id: 'lining', role: 'lining', fabricId: fabrics[2]?.id || fabrics[0]?.id || '', consumption: '1.5' },
+    { id: 'main', role: 'main', fabricId: '', consumption: '' },
   ]);
   const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>(() => [
-    { id: makeId('accessory'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' },
+    { id: makeId('accessory'), accessoryId: '', consumption: '' },
   ]);
   const [tailoringCost, setTailoringCost] = useState('40');
   const [embroideryCost, setEmbroideryCost] = useState('20');
@@ -355,8 +353,8 @@ export function ModelsTabSpec({
       {
         id: makeId('fabric'),
         role: 'lining',
-        fabricId: fabrics[0]?.id || '',
-        consumption: '0',
+        fabricId: '',
+        consumption: '',
       },
     ]);
   };
@@ -364,7 +362,7 @@ export function ModelsTabSpec({
   const addAccessoryRow = () => {
     setAccessoryRows((current) => [
       ...current,
-      { id: makeId('accessory'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' },
+      { id: makeId('accessory'), accessoryId: '', consumption: '' },
     ]);
   };
 
