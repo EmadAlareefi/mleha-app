@@ -258,7 +258,9 @@ export function ModelsTabSpec({
     { id: 'bottom', role: 'bottom', fabricId: fabrics[1]?.id || fabrics[0]?.id || '', consumption: '1.0' },
     { id: 'lining', role: 'lining', fabricId: fabrics[2]?.id || fabrics[0]?.id || '', consumption: '1.5' },
   ]);
-  const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>([]);
+  const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>(() => [
+    { id: makeId('accessory'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' },
+  ]);
   const [tailoringCost, setTailoringCost] = useState('40');
   const [embroideryCost, setEmbroideryCost] = useState('20');
   const [extraCost, setExtraCost] = useState('10');
@@ -642,30 +644,31 @@ export function ModelsTabSpec({
 
                 <div className="rep-label">الإكسسوارات والمستلزمات</div>
                 <div>
-                  {accessoryRows.map((row) => {
-                    const accessory = accessoriesInventory.find((item) => item.id === row.accessoryId);
-                    const rowCost = toNumber(row.consumption) * (accessory?.unitPrice || 0);
-                    return (
-                      <div className="rep-row acc" key={row.id}>
-                        <SelectBox
-                          id={`accessory-${row.id}`}
-                          options={accessoryOptionsInv}
-                          value={row.accessoryId}
-                          openSelect={openSelect}
-                          setOpenSelect={setOpenSelect}
-                          onChange={setSelectValue}
-                          placeholder="اختر الإكسسوار"
-                          allowCustom
-                          onCustomAdd={handleCustomCreate}
-                          addPlaceholder="مستلزم جديد"
-                        />
-                        <EditableField
-                          value={row.consumption}
-                          onChange={(consumption) => updateAccessoryRow(row.id, { consumption })}
-                          suffix="كمية"
-                          type="number"
-                        />
-                        <span className="hint" style={{ alignSelf: 'center' }}>{formatCurrency(rowCost)}</span>
+                  {accessoryRows.map((row, index) => (
+                    <div className="rep-row acc" key={row.id}>
+                      <SelectBox
+                        id={`accessory-${row.id}`}
+                        options={accessoryOptionsInv}
+                        value={row.accessoryId}
+                        openSelect={openSelect}
+                        setOpenSelect={setOpenSelect}
+                        onChange={setSelectValue}
+                        placeholder="اختر الإكسسوار"
+                        allowCustom
+                        onCustomAdd={handleCustomCreate}
+                        addPlaceholder="مستلزم جديد"
+                      />
+                      <EditableField
+                        value={row.consumption}
+                        onChange={(consumption) => updateAccessoryRow(row.id, { consumption })}
+                        suffix="كمية"
+                        type="number"
+                      />
+                      {index === 0 ? (
+                        <button className="iconbtn add" type="button" title="إضافة إكسسوار" onClick={addAccessoryRow}>
+                          <Plus />
+                        </button>
+                      ) : (
                         <button
                           className="iconbtn del"
                           type="button"
@@ -674,12 +677,9 @@ export function ModelsTabSpec({
                         >
                           <Trash2 />
                         </button>
-                      </div>
-                    );
-                  })}
-                  <button className="iconbtn add" type="button" title="إضافة إكسسوار" onClick={addAccessoryRow} style={{ marginTop: 8 }}>
-                    <Plus /> إضافة إكسسوار
-                  </button>
+                      )}
+                    </div>
+                  ))}
                   {!accessoriesInventory.length && (
                     <span className="hint block-hint">أضف المستلزمات من تبويب المخزون أولاً لتتمكن من ربطها بالموديل</span>
                   )}

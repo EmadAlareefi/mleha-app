@@ -541,6 +541,8 @@
 .fab-design .btn svg { width: 15px; height: 15px; }
 .fab-design .btn:disabled { cursor: not-allowed; opacity: .55; }
 .fab-design .btn.ghost { background: transparent; color: var(--foreground); border: 1px solid var(--border); }
+/* models form save/cancel buttons inset from the card edge with a gap (mockup parity) */
+.fab-design .models-spec .card > .btn { margin: 10px 14px 14px 0; }
 
 /* ===== table action buttons ===== */
 .fab-design .tbl-btn {
