@@ -1,11 +1,11 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   CheckCircle2,
-  Check,
-  ChevronsUpDown,
+  ChevronDown,
   ExternalLink,
   FileText,
   PackagePlus,
@@ -20,41 +20,8 @@ import {
 } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { LoadingState } from '@/components/dashboard/states';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Field, FieldLabel } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
 import { ModelsTabSpec, type DesignModel } from './models-tab-spec';
+import './fabric-design.css';
 
 type Fabric = {
   id: string;
@@ -690,97 +657,84 @@ export default function FabricManagementPage() {
 
   const summary = data?.summary;
 
+  const [tab, setTab] = useState<'stock' | 'tailors' | 'production' | 'models'>('stock');
+  const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
+  const [stockTableTab, setStockTableTab] = useState<'fabric' | 'accessory'>('fabric');
+  const [tailorTab, setTailorTab] = useState<'list' | 'requests'>('list');
+  const [prodTab, setProdTab] = useState<'deliver' | 'receive'>('deliver');
+
+  const pendingCount = summary?.pendingRequestsCount || 0;
+
   return (
     <AppPageShell
       title="إدارة الأقمشة"
       subtitle="تتبع مخزون الأقمشة والكميات لدى الخياطين وتكلفة الفساتين النهائية"
     >
-      <div dir="rtl" className="space-y-6 text-right [&_input]:text-right [&_table]:text-right [&_textarea]:text-right">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Button onClick={() => void fetchData()} variant="outline" size="sm" disabled={loading}>
-            <RefreshCw className="size-4" />
-            تحديث
-          </Button>
-          <Button asChild variant="secondary" size="sm">
-            <Link href="/tailor-fabric-gate" target="_blank" prefetch={false}>
-              <ExternalLink className="size-4" />
-              بوابة الخياطين
-            </Link>
-          </Button>
-        </div>
-
-        {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-
-        {loading && !data ? (
-          <LoadingState label="جاري تحميل بيانات الأقمشة" />
-        ) : (
-          <>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <StatCard title="أنواع الأقمشة" value={formatNumber(summary?.fabricsCount)} icon={<Scissors className="size-4" />} />
-            <StatCard title="الخياطون النشطون" value={formatNumber(summary?.activeTailorsCount)} icon={<Shirt className="size-4" />} />
-            <StatCard title="المخزون المتاح" value={formatDualLength(summary?.stockMeters)} icon={<Ruler className="size-4" />} />
-            <StatCard title="لدى الخياطين" value={formatDualLength(summary?.withTailorsMeters)} icon={<Send className="size-4" />} />
-            <StatCard title="طلبات معلقة" value={formatNumber(summary?.pendingRequestsCount)} icon={<PackagePlus className="size-4" />} />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
-            <div>
-              <p className="text-sm font-semibold">وحدة القياس</p>
-              <p className="text-xs text-muted-foreground">تُطبّق على كل التبويبات: الكميات والتكاليف والاستهلاك</p>
+      <div className="fab-design" dir="rtl">
+        <div className="wrap">
+          <div className="toolbar-row">
+            <span className="muted-note">إدارة شاملة للأقمشة والمستلزمات والموديلات ودورة الإنتاج</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="btn-outline" onClick={() => void fetchData()} disabled={loading}>
+                <RefreshCw />
+                تحديث
+              </button>
+              <Link className="btn-outline" href="/tailor-fabric-gate" target="_blank" prefetch={false}>
+                <ExternalLink />
+                بوابة الخياطين
+              </Link>
             </div>
-            <UnitToggle value={lengthUnit} onChange={setLengthUnit} />
           </div>
 
-          <Tabs defaultValue="stock" className="w-full">
-            <TabsList
-              dir="rtl"
-              style={{ direction: 'rtl' }}
-              className="grid h-auto w-full grid-cols-2 items-stretch gap-1.5 overflow-visible rounded-lg bg-muted p-[3px] group-data-[orientation=horizontal]/tabs:h-auto sm:grid-cols-4 lg:flex lg:flex-row lg:flex-wrap lg:justify-start"
-            >
-              <TabsTrigger value="stock" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">المخزون</TabsTrigger>
-              <TabsTrigger value="tailors" className="relative h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">
-                الخياطون وطلباتهم
-                {!!summary?.pendingRequestsCount && (
-                  <span className="absolute -top-1 start-1/2 rounded-full bg-[#b8791f] px-1.5 py-0.5 text-[9px] font-bold text-white">
-                    {formatNumber(summary.pendingRequestsCount)} جديد
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="production" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">دورة الإنتاج</TabsTrigger>
-              <TabsTrigger value="models" className="h-auto min-h-9 w-full whitespace-normal py-1.5 text-center leading-tight lg:min-w-[120px]">الموديلات</TabsTrigger>
-            </TabsList>
+          {error && <div className="err-box">{error}</div>}
 
-            {/* ═════ المخزون ═════ */}
-            <TabsContent value="stock" className="space-y-4">
-              <FormAccordionCard marker="أ" title="إنشاء فاتورة جديدة" tag="فاتورة">
-                <Tabs defaultValue="fabric-bill" className="w-full">
-                  <TabsList dir="rtl" className="mb-4 grid w-full grid-cols-2">
-                    <TabsTrigger value="fabric-bill">فاتورة شراء قماش</TabsTrigger>
-                    <TabsTrigger value="accessory-bill">فاتورة شراء المستلزمات</TabsTrigger>
-                  </TabsList>
+          {loading && !data ? (
+            <LoadingState label="جاري تحميل بيانات الأقمشة" />
+          ) : (
+            <>
+              <div className="stats-row">
+                <StatCard title="أنواع الأقمشة" value={formatNumber(summary?.fabricsCount)} icon={<Scissors />} />
+                <StatCard title="الخياطون النشطون" value={formatNumber(summary?.activeTailorsCount)} icon={<Shirt />} />
+                <StatCard title="المخزون المتاح" value={formatDualLength(summary?.stockMeters)} icon={<Ruler />} />
+                <StatCard title="لدى الخياطين" value={formatDualLength(summary?.withTailorsMeters)} icon={<Send />} />
+                <StatCard title="طلبات معلقة" value={formatNumber(summary?.pendingRequestsCount)} icon={<PackagePlus />} />
+              </div>
 
-                  <TabsContent value="fabric-bill">
-                    <form onSubmit={handlePurchaseBillSubmit} dir="rtl" className="space-y-4 text-right">
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_minmax(0,1fr)]">
-                        <TextInput label="رقم الفاتورة" value={purchaseBillForm.billNumber} onChange={(billNumber) => setPurchaseBillForm({ ...purchaseBillForm, billNumber })} required />
-                        <TextInput label="تاريخ الشراء" type="date" value={purchaseBillForm.purchaseDate} onChange={(purchaseDate) => setPurchaseBillForm({ ...purchaseBillForm, purchaseDate })} required />
-                        <SearchableSelect label="المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} />
-                      </div>
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-semibold">الأقمشة في الفاتورة</p>
-                          <Button type="button" size="sm" variant="outline" onClick={addPurchaseBillItem}>
-                            <Plus className="size-4" />
-                            إضافة قماش
-                          </Button>
+              <div className="unit-bar">
+                <span className="unit-bar-label">وحدة القياس</span>
+                <span className="unit-bar-hint">تُطبّق على كل التبويبات: الكميات والتكاليف والاستهلاك</span>
+                <UnitToggle value={lengthUnit} onChange={setLengthUnit} />
+              </div>
+
+              <div className="tablist">
+                <button type="button" className={`tab ${tab === 'stock' ? 'active' : ''}`} onClick={() => setTab('stock')}>المخزون</button>
+                <button type="button" className={`tab ${tab === 'tailors' ? 'active' : ''}`} onClick={() => setTab('tailors')}>
+                  الخياطون وطلباتهم
+                  {pendingCount > 0 && <span className="tab-badge">{formatNumber(pendingCount)} جديد</span>}
+                </button>
+                <button type="button" className={`tab ${tab === 'production' ? 'active' : ''}`} onClick={() => setTab('production')}>دورة الإنتاج</button>
+                <button type="button" className={`tab ${tab === 'models' ? 'active' : ''}`} onClick={() => setTab('models')}>الموديلات</button>
+              </div>
+
+              {/* ═════ المخزون ═════ */}
+              {tab === 'stock' && (
+                <div>
+                  <FormAccordionCard marker="أ" title="إنشاء فاتورة جديدة" tag="فاتورة">
+                    <div className="subtabs">
+                      <button type="button" className={`subtab ${stockBillTab === 'fabric' ? 'active' : ''}`} onClick={() => setStockBillTab('fabric')}>فاتورة شراء قماش</button>
+                      <button type="button" className={`subtab ${stockBillTab === 'accessory' ? 'active' : ''}`} onClick={() => setStockBillTab('accessory')}>فاتورة شراء المستلزمات</button>
+                    </div>
+
+                    {stockBillTab === 'fabric' && (
+                      <form onSubmit={handlePurchaseBillSubmit}>
+                        <div className="grid" style={{ marginBottom: 14 }}>
+                          <TextInput label="رقم الفاتورة" value={purchaseBillForm.billNumber} onChange={(billNumber) => setPurchaseBillForm({ ...purchaseBillForm, billNumber })} required />
+                          <TextInput label="تاريخ الشراء" type="date" value={purchaseBillForm.purchaseDate} onChange={(purchaseDate) => setPurchaseBillForm({ ...purchaseBillForm, purchaseDate })} required />
+                          <DesignSelect label="المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} allowCreate searchable />
                         </div>
-                        <div className="hidden rounded-lg border bg-muted/30 px-3 py-2 text-xs font-semibold text-muted-foreground lg:grid lg:grid-cols-[1.6fr_.75fr_.75fr_.75fr_.9fr_40px] lg:gap-2">
-                          <span>القماش</span>
-                          <span>الكمية</span>
-                          <span>التكلفة</span>
-                          <span>حد التنبيه</span>
-                          <span>ملاحظات السطر</span>
-                          <span />
+                        <div className="toolbar-row">
+                          <span className="section-label">الأقمشة في الفاتورة</span>
+                          <button type="button" className="btn-add-row" style={{ width: 'auto' }} onClick={addPurchaseBillItem}><Plus /> إضافة قماش</button>
                         </div>
                         {purchaseBillItems.map((item, index) => (
                           <PurchaseBillItemRow
@@ -796,35 +750,22 @@ export default function FabricManagementPage() {
                             canRemove={purchaseBillItems.length > 1}
                           />
                         ))}
-                      </div>
-                      <Field>
-                        <FieldLabel>ملاحظات الفاتورة</FieldLabel>
-                        <Textarea value={purchaseBillForm.notes} onChange={(event) => setPurchaseBillForm({ ...purchaseBillForm, notes: event.target.value })} />
-                      </Field>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-muted-foreground">ابحث بالاسم أو الرمز. إذا لم تجد القماش، اختر إنشاء قماش جديد من نفس الحقل.</p>
-                        <Button className="sm:w-fit" type="submit" disabled={saving}>
-                          <FileText className="size-4" />
-                          حفظ الفاتورة
-                        </Button>
-                      </div>
-                    </form>
-                  </TabsContent>
+                        <TextAreaField label="ملاحظات الفاتورة" value={purchaseBillForm.notes} onChange={(notes) => setPurchaseBillForm({ ...purchaseBillForm, notes })} />
+                        <p className="muted-note" style={{ marginTop: 8 }}>ابحث بالاسم أو الرمز. إذا لم تجد القماش، اختر إنشاء قماش جديد من نفس الحقل.</p>
+                        <button className="btn" type="submit" disabled={saving}><FileText /> حفظ الفاتورة</button>
+                      </form>
+                    )}
 
-                  <TabsContent value="accessory-bill">
-                    <form onSubmit={handleAccessoryBillSubmit} dir="rtl" className="space-y-4 text-right">
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_minmax(0,1fr)]">
-                        <TextInput label="رقم الفاتورة" value={accessoryBillForm.billNumber} onChange={(billNumber) => setAccessoryBillForm({ ...accessoryBillForm, billNumber })} required />
-                        <TextInput label="تاريخ الشراء" type="date" value={accessoryBillForm.purchaseDate} onChange={(purchaseDate) => setAccessoryBillForm({ ...accessoryBillForm, purchaseDate })} required />
-                        <SearchableSelect label="المورد" value={accessoryBillForm.supplier} options={supplierOptions} onChange={(supplier) => setAccessoryBillForm({ ...accessoryBillForm, supplier })} />
-                      </div>
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-semibold">المستلزمات في الفاتورة</p>
-                          <Button type="button" size="sm" variant="outline" onClick={addAccessoryBillItem}>
-                            <Plus className="size-4" />
-                            إضافة مستلزم
-                          </Button>
+                    {stockBillTab === 'accessory' && (
+                      <form onSubmit={handleAccessoryBillSubmit}>
+                        <div className="grid" style={{ marginBottom: 14 }}>
+                          <TextInput label="رقم الفاتورة" value={accessoryBillForm.billNumber} onChange={(billNumber) => setAccessoryBillForm({ ...accessoryBillForm, billNumber })} required />
+                          <TextInput label="تاريخ الشراء" type="date" value={accessoryBillForm.purchaseDate} onChange={(purchaseDate) => setAccessoryBillForm({ ...accessoryBillForm, purchaseDate })} required />
+                          <DesignSelect label="المورد" value={accessoryBillForm.supplier} options={supplierOptions} onChange={(supplier) => setAccessoryBillForm({ ...accessoryBillForm, supplier })} allowCreate searchable />
+                        </div>
+                        <div className="toolbar-row">
+                          <span className="section-label">المستلزمات في الفاتورة</span>
+                          <button type="button" className="btn-add-row" style={{ width: 'auto' }} onClick={addAccessoryBillItem}><Plus /> إضافة مستلزم</button>
                         </div>
                         {accessoryBillItems.map((item, index) => (
                           <AccessoryBillItemRow
@@ -838,231 +779,208 @@ export default function FabricManagementPage() {
                             canRemove={accessoryBillItems.length > 1}
                           />
                         ))}
-                      </div>
-                      <Field>
-                        <FieldLabel>ملاحظات الفاتورة</FieldLabel>
-                        <Textarea value={accessoryBillForm.notes} onChange={(event) => setAccessoryBillForm({ ...accessoryBillForm, notes: event.target.value })} />
-                      </Field>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-muted-foreground">اختر مستلزماً موجوداً للتزويد، أو اكتب اسم مستلزم جديد لإنشائه.</p>
-                        <Button className="sm:w-fit" type="submit" disabled={saving}>
-                          <FileText className="size-4" />
-                          حفظ الفاتورة
-                        </Button>
-                      </div>
-                    </form>
-                  </TabsContent>
-                </Tabs>
-              </FormAccordionCard>
-
-              <FormAccordionCard marker="ب" title="تعديل مخزون بدون فاتورة" description="استخدم هذا القسم لإضافة كمية واحدة كتصحيح يدوي منفصل عن فواتير الشراء" tag="تعديل يدوي">
-                <form onSubmit={handleStockSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                  <SearchableSelect label="القماش" value={stockForm.fabricId} options={fabricOptions} onChange={(fabricId) => setStockForm({ ...stockForm, fabricId })} placeholder="اختر القماش" required />
-                  <TextInput label={lengthUnit === 'yard' ? 'الكمية المشتراة بالياردة' : 'الكمية المشتراة بالمتر'} type="number" value={stockForm.purchasedLength} onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })} required />
-                  <TextInput label={lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'} type="number" value={stockForm.unitCost} onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })} />
-                  <SearchableSelect label="المورد" value={stockForm.supplier} options={supplierOptions} onChange={(supplier) => setStockForm({ ...stockForm, supplier })} />
-                  <Field className="md:col-span-3">
-                    <FieldLabel>سبب التعديل أو ملاحظات</FieldLabel>
-                    <Textarea value={stockForm.notes} onChange={(event) => setStockForm({ ...stockForm, notes: event.target.value })} />
-                  </Field>
-                  <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !data?.fabrics.length}>
-                    <Ruler className="size-4" />
-                    حفظ التعديل
-                  </Button>
-                </form>
-              </FormAccordionCard>
-
-              <div className="overflow-hidden rounded-lg border bg-card">
-                <Tabs defaultValue="stock-fabric" className="w-full">
-                  <div className="border-b px-3 pt-3">
-                    <TabsList dir="rtl" className="grid w-full max-w-sm grid-cols-2">
-                      <TabsTrigger value="stock-fabric">الأقمشة</TabsTrigger>
-                      <TabsTrigger value="stock-acc">المستلزمات</TabsTrigger>
-                    </TabsList>
-                  </div>
-                  <TabsContent value="stock-fabric" className="mt-0">
-                    <FabricTable fabrics={data?.fabrics || []} onEdit={(fabric) => setEditDrawer({ open: true, kind: 'fabric', entity: fabric })} onDelete={(fabric) => void handleDeleteFabric(fabric)} />
-                  </TabsContent>
-                  <TabsContent value="stock-acc" className="mt-0">
-                    <AccessoryTable accessories={data?.accessories || []} onEdit={(accessory) => setEditDrawer({ open: true, kind: 'accessory', entity: accessory })} onDelete={(accessory) => void handleDeleteAccessory(accessory)} />
-                  </TabsContent>
-                </Tabs>
-              </div>
-            </TabsContent>
-
-            {/* ═════ الخياطون وطلباتهم ═════ */}
-            <TabsContent value="tailors" className="space-y-4">
-              <Tabs defaultValue="tailor-list" className="w-full">
-                <TabsList dir="rtl" className="mb-4 grid w-full max-w-md grid-cols-2">
-                  <TabsTrigger value="tailor-list">الخياطون</TabsTrigger>
-                  <TabsTrigger value="tailor-req" className="relative">
-                    طلبات الخياطين
-                    {!!summary?.pendingRequestsCount && (
-                      <span className="ms-1 rounded-full bg-[#faf0dc] px-1.5 py-0.5 text-[10px] font-bold text-[#b8791f]">
-                        {formatNumber(summary.pendingRequestsCount)}
-                      </span>
+                        <TextAreaField label="ملاحظات الفاتورة" value={accessoryBillForm.notes} onChange={(notes) => setAccessoryBillForm({ ...accessoryBillForm, notes })} />
+                        <p className="muted-note" style={{ marginTop: 8 }}>اختر مستلزماً موجوداً للتزويد، أو اكتب اسم مستلزم جديد لإنشائه.</p>
+                        <button className="btn" type="submit" disabled={saving}><FileText /> حفظ الفاتورة</button>
+                      </form>
                     )}
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="tailor-list" className="space-y-4">
-                  <FormAccordionCard marker="＋" title="إضافة خياط" description="بيانات الخياط ورمز دخوله لبوابة الخياطين">
-                    <form onSubmit={handleTailorSubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-2">
-                      <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
-                      <SearchableSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} allowCreate />
-                      <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
-                      <TextInput label="رمز الدخول للبوابة" value={tailorForm.accessCode} onChange={(accessCode) => setTailorForm({ ...tailorForm, accessCode })} required />
-                      <Field className="md:col-span-2">
-                        <FieldLabel>ملاحظات</FieldLabel>
-                        <Textarea value={tailorForm.notes} onChange={(event) => setTailorForm({ ...tailorForm, notes: event.target.value })} />
-                      </Field>
-                      <Button className="justify-self-start md:w-fit" type="submit" disabled={saving}>
-                        <UserPlus className="size-4" />
-                        حفظ الخياط
-                      </Button>
+                  </FormAccordionCard>
+
+                  <FormAccordionCard marker="ب" title="تعديل مخزون بدون فاتورة" description="استخدم هذا القسم لإضافة كمية واحدة كتصحيح يدوي منفصل عن فواتير الشراء" tag="تعديل يدوي">
+                    <form onSubmit={handleStockSubmit}>
+                      <div className="grid">
+                        <DesignSelect label="القماش" value={stockForm.fabricId} options={fabricOptions} onChange={(fabricId) => setStockForm({ ...stockForm, fabricId })} placeholder="اختر القماش" searchable />
+                        <TextInput label={lengthUnit === 'yard' ? 'الكمية المشتراة بالياردة' : 'الكمية المشتراة بالمتر'} type="number" value={stockForm.purchasedLength} onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })} required />
+                        <TextInput label={lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'} type="number" value={stockForm.unitCost} onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })} />
+                        <DesignSelect label="المورد" value={stockForm.supplier} options={supplierOptions} onChange={(supplier) => setStockForm({ ...stockForm, supplier })} allowCreate searchable />
+                        <TextAreaField label="سبب التعديل أو ملاحظات" value={stockForm.notes} onChange={(notes) => setStockForm({ ...stockForm, notes })} className="full" />
+                      </div>
+                      <button className="btn" type="submit" disabled={saving || !data?.fabrics.length}><Ruler /> حفظ التعديل</button>
                     </form>
                   </FormAccordionCard>
-                  <TailorsTable tailors={data?.tailors || []} />
-                </TabsContent>
-                <TabsContent value="tailor-req">
-                  <RequestsTable requests={data?.requests || []} onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)} saving={saving} />
-                </TabsContent>
-              </Tabs>
-            </TabsContent>
 
-            {/* ═════ دورة الإنتاج ═════ */}
-            <TabsContent value="production" className="space-y-4">
-              <FormAccordionCard marker="⚙" title="دورة الإنتاج">
-                <Tabs defaultValue="deliver" className="w-full">
-                  <TabsList dir="rtl" className="mb-4 grid w-full grid-cols-2">
-                    <TabsTrigger value="deliver">↑ تسليم القماش للخياط</TabsTrigger>
-                    <TabsTrigger value="receive">↓ استلام الفساتين والتكلفة</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="deliver">
-                    <form onSubmit={handleModelIssueSubmit} dir="rtl" className="space-y-4 text-right">
-                      <SearchableSelect label="اختر الفستان" value={modelIssueForm.designModelId} options={modelOptions} onChange={(designModelId) => setModelIssueForm({ ...modelIssueForm, designModelId })} placeholder="اختر الفستان" required />
-                      {selectedIssueModel && (
-                        <ModelBomPreview model={selectedIssueModel} fabrics={data?.fabrics || []} count={Number(modelIssueForm.plannedDressCount) || 1} />
-                      )}
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <SearchableSelect label="الخياط" value={modelIssueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setModelIssueForm({ ...modelIssueForm, tailorId })} placeholder="اختر الخياط" required />
-                        <TextInput label="عدد الفساتين" type="number" value={modelIssueForm.plannedDressCount} onChange={(plannedDressCount) => setModelIssueForm({ ...modelIssueForm, plannedDressCount })} required />
-                        <TextInput label="تاريخ التسليم" type="date" value={modelIssueForm.issueDate} onChange={(issueDate) => setModelIssueForm({ ...modelIssueForm, issueDate })} />
-                        <TextInput label="مرجع" value={modelIssueForm.reference} onChange={(reference) => setModelIssueForm({ ...modelIssueForm, reference })} />
-                        <Field className="md:col-span-2">
-                          <FieldLabel>ملاحظات</FieldLabel>
-                          <Textarea value={modelIssueForm.notes} onChange={(event) => setModelIssueForm({ ...modelIssueForm, notes: event.target.value })} />
-                        </Field>
-                      </div>
-                      <Button type="submit" disabled={saving || !data?.models.length || !data?.tailors.length}>
-                        <Send className="size-4" />
-                        تسجيل التسليم
-                      </Button>
-                    </form>
-                  </TabsContent>
-
-                  <TabsContent value="receive">
-                    <form onSubmit={handleDeliverySubmit} dir="rtl" className="grid gap-3 text-right md:grid-cols-3">
-                      <SearchableSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" required />
-                      <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
-                      <TextInput label={lengthUnit === 'yard' ? 'المستهلك من القماش بالياردة' : 'المستهلك من القماش بالمتر'} type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
-                      <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
-                      <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
-                      <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
-                      <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
-                      <Button className="justify-self-start md:w-fit" type="submit" disabled={saving || !openIssues.length}>
-                        <CheckCircle2 className="size-4" />
-                        حفظ الاستلام
-                      </Button>
-                    </form>
-                  </TabsContent>
-                </Tabs>
-              </FormAccordionCard>
-              <div className="space-y-2">
-                <p className="text-sm font-semibold">سجل الحركات</p>
-                <IssuesTable issues={data?.issues || []} showCost />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="models">
-              <ModelsTabSpec
-                fabrics={data?.fabrics || []}
-                accessoriesInventory={data?.accessories || []}
-                models={data?.models || []}
-                onChanged={fetchData}
-                unit={lengthUnit as 'meter' | 'yard'}
-              />
-            </TabsContent>
-          </Tabs>
-          <Dialog open={createFabricDialog.open} onOpenChange={(open) => !open && closeCreateFabricDialog()}>
-            <DialogContent dir="rtl" className="text-right sm:max-w-xl">
-              <DialogHeader className="text-right">
-                <DialogTitle>إنشاء قماش جديد</DialogTitle>
-                <DialogDescription>
-                  احفظ القماش ثم سيتم اختياره تلقائياً في سطر الفاتورة.
-                </DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleCreateFabricFromDialog} className="grid gap-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <TextInput
-                    label="اسم القماش"
-                    value={createFabricDialog.name}
-                    onChange={(name) => setCreateFabricDialog((current) => ({ ...current, name }))}
-                    required
-                  />
-                  <TextInput
-                    label="رمز القماش"
-                    value={createFabricDialog.sku}
-                    onChange={(sku) => setCreateFabricDialog((current) => ({ ...current, sku }))}
-                  />
+                  <div className="card">
+                    <div className="subtabs" style={{ marginBottom: 0, padding: '0 14px' }}>
+                      <button type="button" className={`subtab ${stockTableTab === 'fabric' ? 'active' : ''}`} onClick={() => setStockTableTab('fabric')}>الأقمشة</button>
+                      <button type="button" className={`subtab ${stockTableTab === 'accessory' ? 'active' : ''}`} onClick={() => setStockTableTab('accessory')}>المستلزمات</button>
+                    </div>
+                    {stockTableTab === 'fabric' ? (
+                      <FabricTable fabrics={data?.fabrics || []} onEdit={(fabric) => setEditDrawer({ open: true, kind: 'fabric', entity: fabric })} onDelete={(fabric) => void handleDeleteFabric(fabric)} />
+                    ) : (
+                      <AccessoryTable accessories={data?.accessories || []} onEdit={(accessory) => setEditDrawer({ open: true, kind: 'accessory', entity: accessory })} onDelete={(accessory) => void handleDeleteAccessory(accessory)} />
+                    )}
+                  </div>
                 </div>
-                <SearchableSelect
-                  label="اللون"
-                  value={createFabricDialog.color}
-                  options={fabricColorOptions}
-                  onChange={(color) => setCreateFabricDialog((current) => ({ ...current, color }))}
-                  allowCreate
+              )}
+
+              {/* ═════ الخياطون وطلباتهم ═════ */}
+              {tab === 'tailors' && (
+                <div className="card">
+                  <div className="subtabs" style={{ marginBottom: 0, padding: '0 14px' }}>
+                    <button type="button" className={`subtab ${tailorTab === 'list' ? 'active' : ''}`} onClick={() => setTailorTab('list')}>الخياطون</button>
+                    <button type="button" className={`subtab ${tailorTab === 'requests' ? 'active' : ''}`} onClick={() => setTailorTab('requests')}>
+                      طلبات الخياطين {pendingCount > 0 && <span className="new-count">{formatNumber(pendingCount)} جديد</span>}
+                    </button>
+                  </div>
+
+                  {tailorTab === 'list' && (
+                    <div>
+                      <FormAccordionCard marker="＋" title="إضافة خياط" description="بيانات الخياط ورمز دخوله لبوابة الخياطين">
+                        <form onSubmit={handleTailorSubmit}>
+                          <div className="grid two">
+                            <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
+                            <DesignSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} allowCreate searchable />
+                            <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
+                            <TextInput label="رمز الدخول للبوابة" value={tailorForm.accessCode} onChange={(accessCode) => setTailorForm({ ...tailorForm, accessCode })} required />
+                            <TextAreaField label="ملاحظات" value={tailorForm.notes} onChange={(notes) => setTailorForm({ ...tailorForm, notes })} className="full" />
+                          </div>
+                          <button className="btn" type="submit" disabled={saving}><UserPlus /> حفظ الخياط</button>
+                        </form>
+                      </FormAccordionCard>
+                      <TailorsTable tailors={data?.tailors || []} />
+                    </div>
+                  )}
+
+                  {tailorTab === 'requests' && (
+                    <div className="subtab-body">
+                      <RequestsTable requests={data?.requests || []} onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)} saving={saving} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═════ دورة الإنتاج ═════ */}
+              {tab === 'production' && (
+                <div>
+                  <FormAccordionCard marker="⚙" title="دورة الإنتاج">
+                    <div className="subtabs">
+                      <button type="button" className={`subtab ${prodTab === 'deliver' ? 'active' : ''}`} onClick={() => setProdTab('deliver')}>↑ تسليم القماش للخياط</button>
+                      <button type="button" className={`subtab ${prodTab === 'receive' ? 'active' : ''}`} onClick={() => setProdTab('receive')}>↓ استلام الفساتين والتكلفة</button>
+                    </div>
+
+                    {prodTab === 'deliver' && (
+                      <form onSubmit={handleModelIssueSubmit}>
+                        <DesignSelect label="اختر الفستان" value={modelIssueForm.designModelId} options={modelOptions} onChange={(designModelId) => setModelIssueForm({ ...modelIssueForm, designModelId })} placeholder="اختر الفستان" searchable className="full" />
+                        {selectedIssueModel && (
+                          <div style={{ marginTop: 12 }}>
+                            <ModelBomPreview model={selectedIssueModel} fabrics={data?.fabrics || []} count={Number(modelIssueForm.plannedDressCount) || 1} />
+                          </div>
+                        )}
+                        <div className="grid" style={{ marginTop: 14 }}>
+                          <DesignSelect label="الخياط" value={modelIssueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setModelIssueForm({ ...modelIssueForm, tailorId })} placeholder="اختر الخياط" searchable />
+                          <TextInput label="عدد الفساتين" type="number" value={modelIssueForm.plannedDressCount} onChange={(plannedDressCount) => setModelIssueForm({ ...modelIssueForm, plannedDressCount })} required />
+                          <TextInput label="تاريخ التسليم" type="date" value={modelIssueForm.issueDate} onChange={(issueDate) => setModelIssueForm({ ...modelIssueForm, issueDate })} />
+                          <TextInput label="مرجع" value={modelIssueForm.reference} onChange={(reference) => setModelIssueForm({ ...modelIssueForm, reference })} />
+                          <TextAreaField label="ملاحظات" value={modelIssueForm.notes} onChange={(notes) => setModelIssueForm({ ...modelIssueForm, notes })} className="full" />
+                        </div>
+                        <button className="btn" type="submit" disabled={saving || !data?.models.length || !data?.tailors.length}><Send /> تسجيل التسليم</button>
+                      </form>
+                    )}
+
+                    {prodTab === 'receive' && (
+                      <form onSubmit={handleDeliverySubmit}>
+                        <div className="grid">
+                          <DesignSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" searchable />
+                          <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
+                          <TextInput label={lengthUnit === 'yard' ? 'المستهلك من القماش بالياردة' : 'المستهلك من القماش بالمتر'} type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
+                          <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
+                          <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
+                          <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
+                          <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
+                        </div>
+                        <button className="btn" type="submit" disabled={saving || !openIssues.length}><CheckCircle2 /> حفظ الاستلام</button>
+                      </form>
+                    )}
+                  </FormAccordionCard>
+
+                  <div className="card">
+                    <div className="card-head">سجل الحركات</div>
+                    <IssuesTable issues={data?.issues || []} showCost />
+                  </div>
+                </div>
+              )}
+
+              {/* ═════ الموديلات ═════ */}
+              {tab === 'models' && (
+                <ModelsTabSpec
+                  fabrics={data?.fabrics || []}
+                  accessoriesInventory={data?.accessories || []}
+                  models={data?.models || []}
+                  onChanged={fetchData}
+                  unit={lengthUnit as 'meter' | 'yard'}
                 />
-                <DialogFooter className="gap-2 sm:justify-start">
-                  <Button type="submit" disabled={saving}>
-                    <Plus className="size-4" />
-                    حفظ واختيار القماش
-                  </Button>
-                  <Button type="button" variant="outline" onClick={closeCreateFabricDialog} disabled={saving}>
-                    إلغاء
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-          <EditEntityDrawer
-            state={editDrawer}
-            lengthUnit={lengthUnit}
-            saving={saving}
-            onClose={() => setEditDrawer(closedDrawer)}
-            onSave={async (payload) => {
-              const ok = await postAction(payload);
-              if (ok) setEditDrawer(closedDrawer);
-            }}
-          />
-          </>
-        )}
+              )}
+
+              <CreateFabricDrawer
+                state={createFabricDialog}
+                saving={saving}
+                colorOptions={fabricColorOptions}
+                onClose={closeCreateFabricDialog}
+                onChange={(changes) => setCreateFabricDialog((current) => ({ ...current, ...changes }))}
+                onSubmit={handleCreateFabricFromDialog}
+              />
+              <EditEntityDrawer
+                state={editDrawer}
+                lengthUnit={lengthUnit}
+                saving={saving}
+                onClose={() => setEditDrawer(closedDrawer)}
+                onSave={async (payload) => {
+                  const ok = await postAction(payload);
+                  if (ok) setEditDrawer(closedDrawer);
+                }}
+              />
+            </>
+          )}
+        </div>
       </div>
     </AppPageShell>
   );
 }
 
+function mergeOptions(baseOptions: SelectOption[], values: Array<string | null | undefined>, includeEmpty = false) {
+  const optionMap = new Map<string, SelectOption>();
+  if (includeEmpty) {
+    optionMap.set(EMPTY_OPTION.value, EMPTY_OPTION);
+  }
+  baseOptions.forEach((option) => optionMap.set(option.value, option));
+  values.forEach((rawValue) => {
+    const value = rawValue?.trim();
+    if (value && !optionMap.has(value)) {
+      optionMap.set(value, { value, label: value });
+    }
+  });
+  return Array.from(optionMap.values());
+}
+
 function StatCard({ title, value, icon }: { title: string; value: string; icon: React.ReactNode }) {
   return (
-    <Card className="rounded-lg shadow-sm">
-      <CardContent className="flex items-center justify-between p-4">
+    <div className="stat-card">
+      <div className="stat-inner">
         <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="mt-1 text-xl font-semibold">{value}</p>
+          <p className="k">{title}</p>
+          <p className="v">{value}</p>
         </div>
-        <div className="rounded-md bg-muted p-2 text-muted-foreground">{icon}</div>
-      </CardContent>
-    </Card>
+        <div className="stat-ico">{icon}</div>
+      </div>
+    </div>
+  );
+}
+
+function UnitToggle({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="unit-toggle">
+      {LENGTH_UNIT_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={`unit-btn ${value === option.value ? 'active' : ''}`}
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -1080,28 +998,30 @@ function FormAccordionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="overflow-visible rounded-lg border bg-card text-card-foreground shadow-sm">
-      <details className="group" open>
-        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg bg-muted px-4 py-3 text-sm font-bold select-none group-open:rounded-b-none [&::-webkit-details-marker]:hidden">
-          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
-            {marker}
-          </span>
-          <span>{title}</span>
-          {tag && (
-            <span className="me-1 rounded-full bg-[#faf0dc] px-2.5 py-0.5 text-[11px] font-bold text-[#b8791f]">
-              {tag}
-            </span>
-          )}
-          <span className="ms-auto text-muted-foreground transition-transform group-open:rotate-180">▾</span>
-        </summary>
-        <div className="border-t p-4">
-          {description && <p className="mb-4 text-sm text-muted-foreground">{description}</p>}
-          {children}
-        </div>
-      </details>
-    </div>
+    <details className="acc" open>
+      <summary>
+        <span className="ico">{marker}</span>
+        <span>{title}</span>
+        {tag && <span className="tag">{tag}</span>}
+        <ChevronDown className="chev" />
+      </summary>
+      <div className="acc-body">
+        {description && <p className="muted-note" style={{ margin: '0 0 12px' }}>{description}</p>}
+        {children}
+      </div>
+    </details>
   );
 }
+
+const inputResetStyle: React.CSSProperties = {
+  width: '100%',
+  border: 0,
+  outline: 0,
+  background: 'transparent',
+  color: 'inherit',
+  font: 'inherit',
+  textAlign: 'right',
+};
 
 function TextInput({
   label,
@@ -1117,42 +1037,164 @@ function TextInput({
   required?: boolean;
 }) {
   return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <Input
-        type={type}
-        value={value}
-        min={type === 'number' ? '0' : undefined}
-        step={type === 'number' ? '0.01' : undefined}
-        required={required}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </Field>
+    <div className="field">
+      <label>{label}</label>
+      <div className="inp">
+        <input
+          type={type}
+          value={value}
+          required={required}
+          min={type === 'number' ? '0' : undefined}
+          step={type === 'number' ? '0.01' : undefined}
+          onChange={(event) => onChange(event.target.value)}
+          style={inputResetStyle}
+        />
+      </div>
+    </div>
   );
 }
 
-function UnitToggle({
+function TextAreaField({
+  label,
   value,
   onChange,
+  className = '',
 }: {
+  label: string;
   value: string;
   onChange: (value: string) => void;
+  className?: string;
 }) {
   return (
-    <div className="grid grid-cols-2 rounded-md border bg-background p-1">
-      {LENGTH_UNIT_OPTIONS.map((option) => (
-        <Button
-          key={option.value}
+    <div className={`field ${className}`}>
+      <label>{label}</label>
+      <textarea className="inp area" value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  );
+}
+
+function DesignSelect({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder = 'اختر',
+  allowCreate = false,
+  onCreate,
+  searchable = false,
+  className = '',
+}: {
+  label?: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+  placeholder?: string;
+  allowCreate?: boolean;
+  onCreate?: (value: string) => void;
+  searchable?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const selected = options.find((option) => option.value === value && option.value !== '');
+  const normalized = search.trim().toLowerCase();
+  const showInput = searchable || allowCreate || !!onCreate;
+  const filtered = normalized
+    ? options.filter((option) =>
+        `${option.label} ${option.value} ${option.description || ''} ${option.sku || ''}`.toLowerCase().includes(normalized)
+      )
+    : options;
+  const creatable = search.trim();
+  const hasExact = options.some(
+    (option) => option.value.trim().toLowerCase() === normalized || option.label.trim().toLowerCase() === normalized
+  );
+  const showCreate = (allowCreate || !!onCreate) && creatable.length > 0 && !hasExact;
+
+  const choose = (next: string) => {
+    onChange(next);
+    setSearch('');
+    setOpen(false);
+  };
+  const doCreate = () => {
+    if (!creatable) return;
+    if (onCreate) onCreate(creatable);
+    else onChange(creatable);
+    setSearch('');
+    setOpen(false);
+  };
+
+  return (
+    <div className={`field ${className}`}>
+      {label && <label>{label}</label>}
+      <div className="sel-wrap" ref={wrapRef}>
+        <button
           type="button"
-          size="sm"
-          variant={value === option.value ? 'default' : 'ghost'}
-          className="min-w-20"
-          onClick={() => onChange(option.value)}
-          aria-pressed={value === option.value}
+          className={`sel-trigger ${open ? 'open' : ''}`}
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
         >
-          {option.label}
-        </Button>
-      ))}
+          <span className="sel-val" style={selected ? undefined : { color: 'var(--muted-foreground)' }}>
+            {selected ? selected.label : placeholder}
+          </span>
+          <span className="sel-chev">▾</span>
+        </button>
+        <div className={`sel-menu ${open ? 'open' : ''}`}>
+          {showInput && (
+            <div className="sel-add-row" style={{ borderTop: 0, borderBottom: '1px solid var(--border)', borderRadius: '8px 8px 0 0' }}>
+              <input
+                className="sel-add-input"
+                placeholder={onCreate ? 'ابحث أو أنشئ…' : allowCreate ? 'ابحث أو أضف…' : 'بحث…'}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && showCreate) {
+                    event.preventDefault();
+                    doCreate();
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+          )}
+          <div className="sel-options-list">
+            {showCreate && (
+              <button type="button" className="sel-option" style={{ color: 'var(--primary)', fontWeight: 700 }} onClick={doCreate}>
+                ＋ {onCreate ? `إنشاء جديد: ${creatable}` : `إضافة: ${creatable}`}
+              </button>
+            )}
+            {filtered.map((option) => (
+              <button
+                key={option.value || '__empty__'}
+                type="button"
+                className={`sel-option ${option.value === value ? 'selected' : ''}`}
+                onClick={() => choose(option.value)}
+              >
+                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                  <span>{option.label}</span>
+                  {option.description && <span style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{option.description}</span>}
+                </span>
+              </button>
+            ))}
+            {!filtered.length && !showCreate && (
+              <div className="sel-option" style={{ color: 'var(--muted-foreground)', cursor: 'default' }}>لا توجد نتائج</div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1181,433 +1223,21 @@ function PurchaseBillItemRow({
   const quantityLabel = lengthUnit === 'yard' ? 'الكمية بالياردة' : 'الكمية بالمتر';
   const costLabel = lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر';
   const stockLabel = lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر';
-
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-2 lg:hidden">
-        <p className="text-sm font-bold">قماش {index + 1}</p>
-        <Button type="button" size="icon" variant="ghost" onClick={onRemove} disabled={!canRemove} aria-label="حذف القماش">
-          <Trash2 className="size-4" />
-        </Button>
+    <div className="bill-item">
+      <div className="bill-item-head">
+        <span className="t">قماش {index + 1}</span>
+        <button type="button" className="iconbtn del" onClick={onRemove} disabled={!canRemove} aria-label="حذف القماش">
+          <Trash2 />
+        </button>
       </div>
-
-      <div className="grid gap-3 lg:grid-cols-[1.6fr_.75fr_.75fr_.75fr_.9fr_40px] lg:items-start lg:gap-2">
-        <FabricLookupSelect
-          label="القماش"
-          value={item.fabricId}
-          options={fabricOptions}
-          onChange={onFabricSelect}
-          onCreate={onCreateFabric}
-          required
-        />
-
-        <TextInput
-          label={quantityLabel}
-          type="number"
-          value={item.purchasedLength}
-          onChange={(purchasedLength) => onChange({ purchasedLength })}
-          required
-        />
-        <TextInput
-          label={costLabel}
-          type="number"
-          value={item.unitCost}
-          onChange={(unitCost) => onChange({ unitCost })}
-        />
-        <TextInput
-          label={stockLabel}
-          type="number"
-          value={item.minStock}
-          onChange={(minStock) => onChange({ minStock })}
-        />
-        <Field>
-          <FieldLabel>ملاحظة السطر</FieldLabel>
-          <Textarea
-            value={item.notes}
-            onChange={(event) => onChange({ notes: event.target.value })}
-            className="min-h-9"
-          />
-        </Field>
-
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          onClick={onRemove}
-          disabled={!canRemove}
-          aria-label="حذف القماش"
-          className="mt-7 hidden lg:inline-flex"
-        >
-          <Trash2 className="size-4" />
-        </Button>
+      <div className="bill-grid fabric">
+        <DesignSelect label="القماش" value={item.fabricId} options={fabricOptions} onChange={onFabricSelect} onCreate={onCreateFabric} searchable />
+        <TextInput label={quantityLabel} type="number" value={item.purchasedLength} onChange={(purchasedLength) => onChange({ purchasedLength })} required />
+        <TextInput label={costLabel} type="number" value={item.unitCost} onChange={(unitCost) => onChange({ unitCost })} />
+        <TextInput label={stockLabel} type="number" value={item.minStock} onChange={(minStock) => onChange({ minStock })} />
+        <TextInput label="ملاحظة السطر" value={item.notes} onChange={(notes) => onChange({ notes })} />
       </div>
-    </div>
-  );
-}
-
-function FabricLookupSelect({
-  label,
-  value,
-  options,
-  onChange,
-  onCreate,
-  required,
-}: {
-  label: string;
-  value: string;
-  options: SelectOption[];
-  onChange: (value: string) => void;
-  onCreate: (searchValue: string) => void;
-  required?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const selectedOption = options.find((option) => option.value === value);
-  const normalizedSearch = search.trim().toLowerCase();
-  const filteredOptions = normalizedSearch
-    ? options.filter((option) => {
-        const searchableText = `${option.label} ${option.value} ${option.description || ''}`.toLowerCase();
-        return searchableText.includes(normalizedSearch);
-      })
-    : options;
-  const hasExactOption = normalizedSearch
-    ? options.some((option) => {
-        const values = [option.label, option.value, option.sku || '', option.description || ''].map((item) =>
-          item.trim().toLowerCase()
-        );
-        return values.includes(normalizedSearch);
-      })
-    : true;
-  const showCreateOption = normalizedSearch.length > 0 && !hasExactOption;
-
-  const selectValue = (nextValue: string) => {
-    onChange(nextValue);
-    setSearch('');
-    setOpen(false);
-  };
-
-  const createValue = () => {
-    const nextSearch = search.trim();
-    if (!nextSearch) return;
-    onCreate(nextSearch);
-    setSearch('');
-    setOpen(false);
-  };
-
-  return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <Popover
-        open={open}
-        onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
-          if (!nextOpen) setSearch('');
-        }}
-      >
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            aria-required={required}
-            className={cn(
-              'h-9 w-full justify-between px-3 text-right font-normal',
-              !selectedOption && 'text-muted-foreground'
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate text-right">
-              {selectedOption?.label || 'اختر أو اكتب قماش جديد'}
-            </span>
-            <ChevronsUpDown className="size-4 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0" dir="rtl">
-          <Command dir="rtl" className="text-right" shouldFilter={false}>
-            <CommandInput
-              className="text-right"
-              placeholder="ابحث بالاسم أو الرمز..."
-              value={search}
-              onValueChange={setSearch}
-            />
-            <CommandList>
-              {!filteredOptions.length && !showCreateOption && <CommandEmpty>لا توجد نتائج</CommandEmpty>}
-              <CommandGroup>
-                {showCreateOption && (
-                  <CommandItem
-                    value={`create-${search}`}
-                    onSelect={createValue}
-                    className="justify-between text-right"
-                  >
-                    <Plus className="size-4" />
-                    <span className="min-w-0 flex-1 truncate text-right">
-                      إنشاء قماش جديد: {search.trim()}
-                    </span>
-                  </CommandItem>
-                )}
-                {filteredOptions.map((option) => (
-                  <CommandItem
-                    key={option.value}
-                    value={`${option.label} ${option.description || ''}`}
-                    onSelect={() => selectValue(option.value)}
-                    className="justify-between text-right"
-                  >
-                    <Check className={cn('size-4', value === option.value ? 'opacity-100' : 'opacity-0')} />
-                    <span className="flex min-w-0 flex-1 flex-col items-end">
-                      <span className="truncate">{option.label}</span>
-                      {option.description && (
-                        <span className="truncate text-xs text-muted-foreground">{option.description}</span>
-                      )}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </Field>
-  );
-}
-
-function mergeOptions(baseOptions: SelectOption[], values: Array<string | null | undefined>, includeEmpty = false) {
-  const optionMap = new Map<string, SelectOption>();
-  if (includeEmpty) {
-    optionMap.set(EMPTY_OPTION.value, EMPTY_OPTION);
-  }
-  baseOptions.forEach((option) => optionMap.set(option.value, option));
-  values.forEach((rawValue) => {
-    const value = rawValue?.trim();
-    if (value && !optionMap.has(value)) {
-      optionMap.set(value, { value, label: value });
-    }
-  });
-  return Array.from(optionMap.values());
-}
-
-function SearchableSelect({
-  label,
-  value,
-  options,
-  onChange,
-  placeholder = 'اختر',
-  required,
-  allowCreate = false,
-}: {
-  label: string;
-  value: string;
-  options: SelectOption[];
-  onChange: (value: string) => void;
-  placeholder?: string;
-  required?: boolean;
-  allowCreate?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const selectedOption = options.find((option) => option.value === value);
-  const normalizedSearch = search.trim().toLowerCase();
-  const filteredOptions = normalizedSearch
-    ? options.filter((option) => {
-        const searchableText = `${option.label} ${option.value} ${option.description || ''}`.toLowerCase();
-        return searchableText.includes(normalizedSearch);
-      })
-    : options;
-  const creatableValue = search.trim();
-  const hasExactOption = options.some(
-    (option) =>
-      option.value.trim().toLowerCase() === normalizedSearch ||
-      option.label.trim().toLowerCase() === normalizedSearch
-  );
-  const showCreateOption = allowCreate && creatableValue.length > 0 && !hasExactOption;
-
-  const selectValue = (nextValue: string) => {
-    onChange(nextValue);
-    setSearch('');
-    setOpen(false);
-  };
-
-  return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <Popover
-        open={open}
-        onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
-          if (!nextOpen) setSearch('');
-        }}
-      >
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            aria-required={required}
-            className={cn(
-              'h-9 w-full justify-between px-3 text-right font-normal',
-              !selectedOption && 'text-muted-foreground'
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate text-right">
-              {selectedOption?.label || placeholder}
-            </span>
-            <ChevronsUpDown className="size-4 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0" dir="rtl">
-          <Command dir="rtl" className="text-right" shouldFilter={false}>
-            <CommandInput
-              className="text-right"
-              placeholder={allowCreate ? 'بحث أو إضافة...' : 'بحث...'}
-              value={search}
-              onValueChange={setSearch}
-            />
-            <CommandList>
-              {!filteredOptions.length && !showCreateOption && <CommandEmpty>لا توجد نتائج</CommandEmpty>}
-              <CommandGroup>
-                {showCreateOption && (
-                  <CommandItem
-                    value={creatableValue}
-                    onSelect={() => selectValue(creatableValue)}
-                    className="justify-between text-right"
-                  >
-                    <Plus className="size-4" />
-                    <span className="min-w-0 flex-1 truncate text-right">إضافة {creatableValue}</span>
-                  </CommandItem>
-                )}
-                {filteredOptions.map((option) => (
-                  <CommandItem
-                    key={option.value || '__empty__'}
-                    value={`${option.label} ${option.description || ''}`}
-                    onSelect={() => selectValue(option.value)}
-                    className="justify-between text-right"
-                  >
-                    <Check className={cn('size-4', value === option.value ? 'opacity-100' : 'opacity-0')} />
-                    <span className="flex min-w-0 flex-1 flex-col items-end">
-                      <span className="truncate">{option.label}</span>
-                      {option.description && (
-                        <span className="truncate text-xs text-muted-foreground">{option.description}</span>
-                      )}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </Field>
-  );
-}
-
-function FabricTable({
-  fabrics,
-  onEdit,
-  onDelete,
-}: {
-  fabrics: Fabric[];
-  onEdit: (fabric: Fabric) => void;
-  onDelete: (fabric: Fabric) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border-t bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>القماش</TableHead>
-            <TableHead>رمز القماش</TableHead>
-            <TableHead>اللون</TableHead>
-            <TableHead>النوع</TableHead>
-            <TableHead>المخزون</TableHead>
-            <TableHead>تكلفة المتر</TableHead>
-            <TableHead>إجراء</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {fabrics.map((fabric) => (
-            <TableRow key={fabric.id}>
-              <TableCell className="font-medium">{fabric.name}</TableCell>
-              <TableCell>{fabric.sku || '-'}</TableCell>
-              <TableCell>{fabric.color || '-'}</TableCell>
-              <TableCell>{fabric.fabricType || '-'}</TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  {formatDualLength(fabric.stockLength)}
-                  {fabric.isLowStock && <Badge variant="secondary">منخفض</Badge>}
-                </div>
-              </TableCell>
-              <TableCell>{formatCurrency(fabric.unitCost)}</TableCell>
-              <TableCell>
-                <div className="flex gap-2">
-                  <Button size="xs" variant="outline" onClick={() => onEdit(fabric)}>تعديل</Button>
-                  <Button size="xs" variant="ghost" className="text-destructive" onClick={() => onDelete(fabric)}>حذف</Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-          {!fabrics.length && (
-            <TableRow>
-              <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                لا توجد أقمشة مسجلة
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function AccessoryTable({
-  accessories,
-  onEdit,
-  onDelete,
-}: {
-  accessories: Accessory[];
-  onEdit: (accessory: Accessory) => void;
-  onDelete: (accessory: Accessory) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border-t bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>المستلزم</TableHead>
-            <TableHead>رقم المنتج</TableHead>
-            <TableHead>المخزون</TableHead>
-            <TableHead>السعر</TableHead>
-            <TableHead>إجراء</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {accessories.map((accessory) => (
-            <TableRow key={accessory.id}>
-              <TableCell className="font-medium">{accessory.name}</TableCell>
-              <TableCell>{accessory.sku || '-'}</TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  {formatNumber(accessory.stockQty)}
-                  {accessory.isLowStock && <Badge variant="secondary">منخفض</Badge>}
-                </div>
-              </TableCell>
-              <TableCell>{formatCurrency(accessory.unitPrice)}</TableCell>
-              <TableCell>
-                <div className="flex gap-2">
-                  <Button size="xs" variant="outline" onClick={() => onEdit(accessory)}>تعديل</Button>
-                  <Button size="xs" variant="ghost" className="text-destructive" onClick={() => onDelete(accessory)}>حذف</Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-          {!accessories.length && (
-            <TableRow>
-              <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                لا توجد مستلزمات مسجلة
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
     </div>
   );
 }
@@ -1630,15 +1260,15 @@ function AccessoryBillItemRow({
   canRemove: boolean;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="text-sm font-bold">مستلزم {index + 1}</p>
-        <Button type="button" size="icon" variant="ghost" onClick={onRemove} disabled={!canRemove} aria-label="حذف المستلزم">
-          <Trash2 className="size-4" />
-        </Button>
+    <div className="bill-item">
+      <div className="bill-item-head">
+        <span className="t">مستلزم {index + 1}</span>
+        <button type="button" className="iconbtn del" onClick={onRemove} disabled={!canRemove} aria-label="حذف المستلزم">
+          <Trash2 />
+        </button>
       </div>
-      <div className="grid gap-3 lg:grid-cols-4">
-        <SearchableSelect label="المستلزم الموجود" value={item.accessoryId} options={accessoryOptions} onChange={onAccessorySelect} placeholder="اختر أو اترك فارغاً لمستلزم جديد" />
+      <div className="bill-grid acc">
+        <DesignSelect label="المستلزم الموجود" value={item.accessoryId} options={accessoryOptions} onChange={onAccessorySelect} placeholder="اختر أو اترك فارغاً" searchable />
         <TextInput label="اسم مستلزم جديد" value={item.name} onChange={(name) => onChange({ name })} />
         <TextInput label="الكمية" type="number" value={item.purchasedQty} onChange={(purchasedQty) => onChange({ purchasedQty })} required />
         <TextInput label="السعر" type="number" value={item.unitPrice} onChange={(unitPrice) => onChange({ unitPrice })} />
@@ -1647,139 +1277,227 @@ function AccessoryBillItemRow({
   );
 }
 
-function ModelBomPreview({
-  model,
+function FabricTable({
   fabrics,
-  count,
+  onEdit,
+  onDelete,
 }: {
-  model: DesignModel;
   fabrics: Fabric[];
-  count: number;
+  onEdit: (fabric: Fabric) => void;
+  onDelete: (fabric: Fabric) => void;
 }) {
+  return (
+    <div className="table-wrap">
+      <table className="cards-mobile">
+        <thead>
+          <tr>
+            <th>القماش</th>
+            <th>رمز القماش</th>
+            <th>اللون</th>
+            <th>النوع</th>
+            <th>المخزون</th>
+            <th>تكلفة المتر</th>
+            <th>إجراء</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fabrics.map((fabric) => (
+            <tr key={fabric.id}>
+              <td data-label="القماش"><b>{fabric.name}</b></td>
+              <td data-label="رمز القماش" style={{ color: 'var(--muted-foreground)' }}>{fabric.sku || '-'}</td>
+              <td data-label="اللون">{fabric.color || '-'}</td>
+              <td data-label="النوع">{fabric.fabricType || '-'}</td>
+              <td data-label="المخزون">
+                {formatDualLength(fabric.stockLength)}
+                {fabric.isLowStock && <span className="low-badge">منخفض</span>}
+              </td>
+              <td data-label="تكلفة المتر">{formatCurrency(fabric.unitCost)}</td>
+              <td data-label="إجراء" className="actions-cell">
+                <div className="td-actions">
+                  <button type="button" className="tbl-btn edit" onClick={() => onEdit(fabric)}>تعديل</button>
+                  <button type="button" className="tbl-btn del" onClick={() => onDelete(fabric)}>حذف</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {!fabrics.length && (
+            <tr><td className="empty-row" colSpan={7}>لا توجد أقمشة مسجلة</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AccessoryTable({
+  accessories,
+  onEdit,
+  onDelete,
+}: {
+  accessories: Accessory[];
+  onEdit: (accessory: Accessory) => void;
+  onDelete: (accessory: Accessory) => void;
+}) {
+  return (
+    <div className="table-wrap">
+      <table className="cards-mobile">
+        <thead>
+          <tr>
+            <th>المستلزم</th>
+            <th>رقم المنتج</th>
+            <th>المخزون</th>
+            <th>السعر</th>
+            <th>إجراء</th>
+          </tr>
+        </thead>
+        <tbody>
+          {accessories.map((accessory) => (
+            <tr key={accessory.id}>
+              <td data-label="المستلزم"><b>{accessory.name}</b></td>
+              <td data-label="رقم المنتج" style={{ color: 'var(--muted-foreground)' }}>{accessory.sku || '-'}</td>
+              <td data-label="المخزون">
+                {formatNumber(accessory.stockQty)}
+                {accessory.isLowStock && <span className="low-badge">منخفض</span>}
+              </td>
+              <td data-label="السعر">{formatCurrency(accessory.unitPrice)}</td>
+              <td data-label="إجراء" className="actions-cell">
+                <div className="td-actions">
+                  <button type="button" className="tbl-btn edit" onClick={() => onEdit(accessory)}>تعديل</button>
+                  <button type="button" className="tbl-btn del" onClick={() => onDelete(accessory)}>حذف</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {!accessories.length && (
+            <tr><td className="empty-row" colSpan={5}>لا توجد مستلزمات مسجلة</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ModelBomPreview({ model, fabrics, count }: { model: DesignModel; fabrics: Fabric[]; count: number }) {
   const safeCount = Math.max(1, count || 1);
   return (
-    <div className="overflow-hidden rounded-lg border">
-      <div className="bg-muted px-3 py-2 text-xs font-bold text-primary">
-        مكونات الفستان — {model.sku} (×{formatNumber(safeCount)})
-      </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>المكوّن</TableHead>
-            <TableHead>النوع</TableHead>
-            <TableHead>الاستهلاك للقطعة</TableHead>
-            <TableHead>الإجمالي المطلوب</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    <div className="dc-box">
+      <div className="dc-title">مكونات الفستان — {model.sku} (×{formatNumber(safeCount)})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>المكوّن</th>
+            <th>النوع</th>
+            <th>الاستهلاك للقطعة</th>
+            <th>الإجمالي المطلوب</th>
+          </tr>
+        </thead>
+        <tbody>
           {model.fabrics.map((row) => {
             const fabric = fabrics.find((item) => item.id === row.fabricId);
             const per = Number(row.consumption) || 0;
             return (
-              <TableRow key={row.id}>
-                <TableCell className="font-medium">{fabric?.name || '-'}</TableCell>
-                <TableCell>قماش</TableCell>
-                <TableCell>{formatNumber(per)}</TableCell>
-                <TableCell>{formatNumber(per * safeCount)}</TableCell>
-              </TableRow>
+              <tr key={row.id}>
+                <td><b>{fabric?.name || '-'}</b></td>
+                <td>قماش</td>
+                <td>{formatNumber(per)}</td>
+                <td>{formatNumber(per * safeCount)}</td>
+              </tr>
             );
           })}
           {model.accessories.filter((row) => row.accessoryId).map((row) => {
             const per = Number(row.consumption) || 0;
             return (
-              <TableRow key={row.id}>
-                <TableCell className="font-medium">{row.name || '-'}</TableCell>
-                <TableCell>مستلزم</TableCell>
-                <TableCell>{formatNumber(per)}</TableCell>
-                <TableCell>{formatNumber(per * safeCount)}</TableCell>
-              </TableRow>
+              <tr key={row.id}>
+                <td><b>{row.name || '-'}</b></td>
+                <td>مستلزم</td>
+                <td>{formatNumber(per)}</td>
+                <td>{formatNumber(per * safeCount)}</td>
+              </tr>
             );
           })}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function TailorsTable({ tailors }: { tailors: Tailor[] }) {
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>الخياط</TableHead>
-            <TableHead>الورشة</TableHead>
-            <TableHead>الجوال</TableHead>
-            <TableHead>رمز الدخول</TableHead>
-            <TableHead>الحالة</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    <div className="table-wrap">
+      <table className="cards-mobile">
+        <thead>
+          <tr>
+            <th>الخياط</th>
+            <th>الورشة</th>
+            <th>الجوال</th>
+            <th>رمز الدخول</th>
+            <th>الحالة</th>
+          </tr>
+        </thead>
+        <tbody>
           {tailors.map((tailor) => (
-            <TableRow key={tailor.id}>
-              <TableCell className="font-medium">{tailor.name}</TableCell>
-              <TableCell>{tailor.workshopName || '-'}</TableCell>
-              <TableCell>{tailor.phone || '-'}</TableCell>
-              <TableCell className="font-mono">{tailor.accessCode}</TableCell>
-              <TableCell>{tailor.isActive ? <Badge>نشط</Badge> : <Badge variant="secondary">متوقف</Badge>}</TableCell>
-            </TableRow>
+            <tr key={tailor.id}>
+              <td data-label="الخياط"><b>{tailor.name}</b></td>
+              <td data-label="الورشة">{tailor.workshopName || '-'}</td>
+              <td data-label="الجوال">{tailor.phone || '-'}</td>
+              <td data-label="رمز الدخول">{tailor.accessCode}</td>
+              <td data-label="الحالة">
+                {tailor.isActive ? <span className="pill ok">نشط</span> : <span className="pill muted">متوقف</span>}
+              </td>
+            </tr>
           ))}
           {!tailors.length && (
-            <TableRow>
-              <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                لا يوجد خياطون مسجلون
-              </TableCell>
-            </TableRow>
+            <tr><td className="empty-row" colSpan={5}>لا يوجد خياطون مسجلون</td></tr>
           )}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function IssuesTable({ issues, showCost = false }: { issues: TailorFabricIssue[]; showCost?: boolean }) {
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>القماش / رمز المنتج</TableHead>
-            <TableHead>الخياط</TableHead>
-            <TableHead>المسلم</TableHead>
-            <TableHead>المتبقي لدى الخياط</TableHead>
-            <TableHead>التاريخ</TableHead>
-            {showCost && <TableHead>تكلفة الفستان</TableHead>}
-            {showCost && <TableHead>إجمالي التكلفة</TableHead>}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    <div className="table-wrap">
+      <table className="cards-mobile">
+        <thead>
+          <tr>
+            <th>القماش / رمز المنتج</th>
+            <th>الخياط</th>
+            <th>المسلم</th>
+            <th>المتبقي لدى الخياط</th>
+            <th>التاريخ</th>
+            {showCost && <th>تكلفة الفستان</th>}
+            {showCost && <th>إجمالي التكلفة</th>}
+          </tr>
+        </thead>
+        <tbody>
           {issues.map((issue) => (
-            <TableRow key={issue.id}>
-              <TableCell>
-                <div className="space-y-1">
-                  <p className="font-medium">{issue.fabric.name}</p>
-                  <p className="text-xs text-muted-foreground">{issue.fabric.sku || 'لا يوجد رمز'}</p>
-                </div>
-              </TableCell>
-              <TableCell>{issue.tailor.name}</TableCell>
-              <TableCell>{formatDualLength(issue.issuedLength)}</TableCell>
-              <TableCell>{formatDualLength(issue.remainingAtTailor)}</TableCell>
-              <TableCell>{formatDate(issue.deliveryDate || issue.issueDate)}</TableCell>
-              {showCost && <TableCell>{formatCurrency(issue.costPerDress)}</TableCell>}
-              {showCost && <TableCell>{formatCurrency(issue.totalDressCost)}</TableCell>}
-            </TableRow>
+            <tr key={issue.id}>
+              <td data-label="القماش">
+                <b>{issue.fabric.name}</b>
+                <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{issue.fabric.sku || 'لا يوجد رمز'}</div>
+              </td>
+              <td data-label="الخياط">{issue.tailor.name}</td>
+              <td data-label="المسلم">{formatDualLength(issue.issuedLength)}</td>
+              <td data-label="المتبقي">{formatDualLength(issue.remainingAtTailor)}</td>
+              <td data-label="التاريخ">{formatDate(issue.deliveryDate || issue.issueDate)}</td>
+              {showCost && <td data-label="تكلفة الفستان">{formatCurrency(issue.costPerDress)}</td>}
+              {showCost && <td data-label="إجمالي التكلفة">{formatCurrency(issue.totalDressCost)}</td>}
+            </tr>
           ))}
           {!issues.length && (
-            <TableRow>
-              <TableCell colSpan={showCost ? 7 : 5} className="py-8 text-center text-muted-foreground">
-                لا توجد كميات مسلمة للخياطين
-              </TableCell>
-            </TableRow>
+            <tr><td className="empty-row" colSpan={showCost ? 7 : 5}>لا توجد كميات مسلمة للخياطين</td></tr>
           )}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </div>
   );
+}
+
+function requestStatusPill(status: string) {
+  if (status === 'pending') return 'warn';
+  if (status === 'rejected') return 'red';
+  return 'ok';
 }
 
 function RequestsTable({
@@ -1792,82 +1510,145 @@ function RequestsTable({
   saving: boolean;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>الخياط</TableHead>
-            <TableHead>نوع الطلب</TableHead>
-            <TableHead>القماش / التفاصيل</TableHead>
-            <TableHead>الكمية</TableHead>
-            <TableHead>التكلفة</TableHead>
-            <TableHead>الحالة</TableHead>
-            <TableHead>التاريخ</TableHead>
-            <TableHead>إجراء</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    <div className="table-wrap">
+      <table className="cards-mobile">
+        <thead>
+          <tr>
+            <th>الخياط</th>
+            <th>نوع الطلب</th>
+            <th>القماش / التفاصيل</th>
+            <th>الكمية</th>
+            <th>التكلفة</th>
+            <th>الحالة</th>
+            <th>التاريخ</th>
+            <th>إجراء</th>
+          </tr>
+        </thead>
+        <tbody>
           {requests.map((request) => (
-            <TableRow key={request.id}>
-              <TableCell className="font-medium">{request.tailor.name}</TableCell>
-              <TableCell>
-                <Badge variant={request.requestType === 'purchase' ? 'default' : 'secondary'}>
-                  {request.requestType === 'purchase' ? 'شراء قماش' : 'طلب مخزون'}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <div className="space-y-1">
-                  <p className="font-medium">
-                    {request.requestType === 'purchase'
-                      ? request.purchaseName || request.fabric?.name || '-'
-                      : request.fabric?.name || '-'}
-                  </p>
-                  {request.requestType === 'purchase' && (
-                    <p className="text-xs text-muted-foreground">
-                      {[request.purchaseSku && `رمز: ${request.purchaseSku}`, request.purchaseColor, request.purchaseFabricType, request.purchaseSupplier]
-                        .filter(Boolean)
-                        .join(' · ') || 'تفاصيل الشراء غير مكتملة'}
-                    </p>
-                  )}
-                  {request.notes && <p className="text-xs text-muted-foreground">{request.notes}</p>}
-                </div>
-              </TableCell>
-              <TableCell>{formatDualLength(request.requestedLength)}</TableCell>
-              <TableCell>{formatCurrency(request.purchaseUnitCost)}</TableCell>
-              <TableCell>
-                <Badge variant={request.status === 'pending' ? 'secondary' : 'default'}>{request.status}</Badge>
-                {request.approvedBy && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    بواسطة {request.approvedBy}
-                  </p>
+            <tr key={request.id}>
+              <td data-label="الخياط"><b>{request.tailor.name}</b></td>
+              <td data-label="نوع الطلب">
+                <span className="pill muted">{request.requestType === 'purchase' ? 'شراء قماش' : 'طلب مخزون'}</span>
+              </td>
+              <td data-label="القماش / التفاصيل">
+                <b>
+                  {request.requestType === 'purchase'
+                    ? request.purchaseName || request.fabric?.name || '-'
+                    : request.fabric?.name || '-'}
+                </b>
+                {request.requestType === 'purchase' && (
+                  <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>
+                    {[request.purchaseSku && `رمز: ${request.purchaseSku}`, request.purchaseColor, request.purchaseFabricType, request.purchaseSupplier]
+                      .filter(Boolean)
+                      .join(' · ') || 'تفاصيل الشراء غير مكتملة'}
+                  </div>
                 )}
-              </TableCell>
-              <TableCell>{formatDate(request.createdAt)}</TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="xs" variant="outline" disabled={saving} onClick={() => onStatusChange(request.id, 'approved')}>
+                {request.notes && <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{request.notes}</div>}
+              </td>
+              <td data-label="الكمية">{formatDualLength(request.requestedLength)}</td>
+              <td data-label="التكلفة">{formatCurrency(request.purchaseUnitCost)}</td>
+              <td data-label="الحالة">
+                <span className={`pill ${requestStatusPill(request.status)}`}>{request.status}</span>
+                {request.approvedBy && (
+                  <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>بواسطة {request.approvedBy}</div>
+                )}
+              </td>
+              <td data-label="التاريخ">{formatDate(request.createdAt)}</td>
+              <td data-label="إجراء" className="actions-cell">
+                <div className="td-actions" style={{ flexWrap: 'wrap' }}>
+                  <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'approved')}>
                     {request.requestType === 'purchase' ? 'اعتماد وإدخال' : 'موافقة'}
-                  </Button>
-                  <Button size="xs" variant="outline" disabled={saving} onClick={() => onStatusChange(request.id, 'fulfilled')}>
+                  </button>
+                  <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'fulfilled')}>
                     تم التوريد
-                  </Button>
-                  <Button size="xs" variant="ghost" disabled={saving} onClick={() => onStatusChange(request.id, 'rejected')}>
+                  </button>
+                  <button type="button" className="tbl-btn del" disabled={saving} onClick={() => onStatusChange(request.id, 'rejected')}>
                     رفض
-                  </Button>
+                  </button>
                 </div>
-              </TableCell>
-            </TableRow>
+              </td>
+            </tr>
           ))}
           {!requests.length && (
-            <TableRow>
-              <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                لا توجد طلبات من الخياطين
-              </TableCell>
-            </TableRow>
+            <tr><td className="empty-row" colSpan={8}>لا توجد طلبات من الخياطين</td></tr>
           )}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+function Drawer({
+  open,
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  if (!open || !mounted) return null;
+  return createPortal(
+    <>
+      <div className="fab-design-drawer-overlay" onClick={onClose} />
+      <div className="fab-design-drawer fab-design" dir="rtl">
+        <div className="drawer-head">
+          <h3>{title}</h3>
+          <button type="button" className="drawer-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="drawer-body">{children}</div>
+        {footer && <div className="drawer-foot">{footer}</div>}
+      </div>
+    </>,
+    document.body
+  );
+}
+
+function CreateFabricDrawer({
+  state,
+  saving,
+  colorOptions,
+  onClose,
+  onChange,
+  onSubmit,
+}: {
+  state: CreateFabricDialogState;
+  saving: boolean;
+  colorOptions: SelectOption[];
+  onClose: () => void;
+  onChange: (changes: Partial<CreateFabricDialogState>) => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <Drawer
+      open={state.open}
+      title="إنشاء قماش جديد"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" type="submit" form="create-fabric-form" disabled={saving}>حفظ واختيار القماش</button>
+          <button className="btn ghost" type="button" onClick={onClose} disabled={saving}>إلغاء</button>
+        </>
+      }
+    >
+      <p className="muted-note" style={{ marginBottom: 12 }}>احفظ القماش ثم سيتم اختياره تلقائياً في سطر الفاتورة.</p>
+      <form id="create-fabric-form" onSubmit={onSubmit}>
+        <div className="grid">
+          <TextInput label="اسم القماش" value={state.name} onChange={(name) => onChange({ name })} required />
+          <TextInput label="رمز القماش" value={state.sku} onChange={(sku) => onChange({ sku })} />
+          <DesignSelect label="اللون" value={state.color} options={colorOptions} onChange={(color) => onChange({ color })} allowCreate searchable className="full" />
+        </div>
+      </form>
+    </Drawer>
   );
 }
 
@@ -1958,89 +1739,77 @@ function EditEntityDrawer({
   const title = state.open ? `تعديل — ${state.entity.name}` : 'تعديل';
 
   return (
-    <Sheet open={state.open} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="left" dir="rtl" className="flex w-full flex-col gap-0 text-right sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>{title}</SheetTitle>
-          <SheetDescription>عدّل البيانات ثم احفظ. كل تغيير يُسجّل في سجل التعديلات.</SheetDescription>
-        </SheetHeader>
-
-        <div className="flex-1 overflow-y-auto px-4 py-2">
-          {state.open && state.kind === 'fabric' && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <TextInput label="اسم القماش" value={form.name || ''} onChange={(v) => setField('name', v)} />
-              <TextInput label="رمز القماش" value={form.sku || ''} onChange={(v) => setField('sku', v)} />
-              <TextInput label="اللون" value={form.color || ''} onChange={(v) => setField('color', v)} />
-              <TextInput label="النوع" value={form.fabricType || ''} onChange={(v) => setField('fabricType', v)} />
-              <TextInput label={lengthUnit === 'yard' ? 'المخزون (ياردة)' : 'المخزون (متر)'} type="number" value={form.stockLength || ''} onChange={(v) => setField('stockLength', v)} />
-              <TextInput label={lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'} type="number" value={form.unitCost || ''} onChange={(v) => setField('unitCost', v)} />
-              <TextInput label={lengthUnit === 'yard' ? 'حد التنبيه (ياردة)' : 'حد التنبيه (متر)'} type="number" value={form.minStock || ''} onChange={(v) => setField('minStock', v)} />
-              <Field className="sm:col-span-2">
-                <FieldLabel>ملاحظات</FieldLabel>
-                <Textarea value={form.notes || ''} onChange={(event) => setField('notes', event.target.value)} />
-              </Field>
-            </div>
-          )}
-          {state.open && state.kind === 'accessory' && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <TextInput label="اسم المستلزم" value={form.name || ''} onChange={(v) => setField('name', v)} />
-              <TextInput label="رقم المنتج" value={form.sku || ''} onChange={(v) => setField('sku', v)} />
-              <TextInput label="المخزون" type="number" value={form.stockQty || ''} onChange={(v) => setField('stockQty', v)} />
-              <TextInput label="السعر" type="number" value={form.unitPrice || ''} onChange={(v) => setField('unitPrice', v)} />
-              <TextInput label="حد التنبيه" type="number" value={form.minStock || ''} onChange={(v) => setField('minStock', v)} />
-              <Field className="sm:col-span-2">
-                <FieldLabel>ملاحظات</FieldLabel>
-                <Textarea value={form.notes || ''} onChange={(event) => setField('notes', event.target.value)} />
-              </Field>
-            </div>
-          )}
-
-          <details className="mt-4 overflow-hidden rounded-lg border">
-            <summary className="flex cursor-pointer list-none items-center justify-between bg-muted px-3 py-2 text-sm font-bold select-none [&::-webkit-details-marker]:hidden">
-              <span>
-                سجل التعديلات
-                <span className="ms-2 rounded-full bg-muted-foreground px-1.5 py-0.5 text-[10px] font-bold text-white">{logs.length}</span>
-              </span>
-              <span className="text-muted-foreground">▾</span>
-            </summary>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>التاريخ</TableHead>
-                    <TableHead>المستخدم</TableHead>
-                    <TableHead>الحقل</TableHead>
-                    <TableHead>من</TableHead>
-                    <TableHead>إلى</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {logsLoading && (
-                    <TableRow><TableCell colSpan={5} className="py-4 text-center text-muted-foreground">جاري التحميل…</TableCell></TableRow>
-                  )}
-                  {!logsLoading && !logs.length && (
-                    <TableRow><TableCell colSpan={5} className="py-4 text-center text-muted-foreground">لا توجد تعديلات مسجّلة</TableCell></TableRow>
-                  )}
-                  {logs.map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell className="text-muted-foreground">{formatDate(log.createdAt)}</TableCell>
-                      <TableCell>{log.changedBy}</TableCell>
-                      <TableCell>{log.field}</TableCell>
-                      <TableCell className="text-muted-foreground">{log.oldValue ?? '—'}</TableCell>
-                      <TableCell>{log.newValue ?? '—'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </details>
+    <Drawer
+      open={state.open}
+      title={title}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" type="button" onClick={handleSave} disabled={saving}>حفظ التعديل</button>
+          <button className="btn ghost" type="button" onClick={onClose} disabled={saving}>إلغاء</button>
+        </>
+      }
+    >
+      <p className="muted-note" style={{ marginBottom: 12 }}>عدّل البيانات ثم احفظ. كل تغيير يُسجّل في سجل التعديلات.</p>
+      {state.open && state.kind === 'fabric' && (
+        <div className="grid">
+          <TextInput label="اسم القماش" value={form.name || ''} onChange={(v) => setField('name', v)} />
+          <TextInput label="رمز القماش" value={form.sku || ''} onChange={(v) => setField('sku', v)} />
+          <TextInput label="اللون" value={form.color || ''} onChange={(v) => setField('color', v)} />
+          <TextInput label="النوع" value={form.fabricType || ''} onChange={(v) => setField('fabricType', v)} />
+          <TextInput label={lengthUnit === 'yard' ? 'المخزون (ياردة)' : 'المخزون (متر)'} type="number" value={form.stockLength || ''} onChange={(v) => setField('stockLength', v)} />
+          <TextInput label={lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'} type="number" value={form.unitCost || ''} onChange={(v) => setField('unitCost', v)} />
+          <TextInput label={lengthUnit === 'yard' ? 'حد التنبيه (ياردة)' : 'حد التنبيه (متر)'} type="number" value={form.minStock || ''} onChange={(v) => setField('minStock', v)} />
+          <TextAreaField label="ملاحظات" value={form.notes || ''} onChange={(v) => setField('notes', v)} className="full" />
         </div>
+      )}
+      {state.open && state.kind === 'accessory' && (
+        <div className="grid">
+          <TextInput label="اسم المستلزم" value={form.name || ''} onChange={(v) => setField('name', v)} />
+          <TextInput label="رقم المنتج" value={form.sku || ''} onChange={(v) => setField('sku', v)} />
+          <TextInput label="المخزون" type="number" value={form.stockQty || ''} onChange={(v) => setField('stockQty', v)} />
+          <TextInput label="السعر" type="number" value={form.unitPrice || ''} onChange={(v) => setField('unitPrice', v)} />
+          <TextInput label="حد التنبيه" type="number" value={form.minStock || ''} onChange={(v) => setField('minStock', v)} />
+          <TextAreaField label="ملاحظات" value={form.notes || ''} onChange={(v) => setField('notes', v)} className="full" />
+        </div>
+      )}
 
-        <SheetFooter className="flex-row gap-2">
-          <Button onClick={handleSave} disabled={saving}>حفظ التعديل</Button>
-          <Button variant="outline" onClick={onClose} disabled={saving}>إلغاء</Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+      <details className="log">
+        <summary>
+          <span>سجل التعديلات</span>
+          <span className="log-count">{logs.length}</span>
+          <ChevronDown style={{ width: 16, height: 16, color: 'var(--muted-foreground)' }} />
+        </summary>
+        <table className="log-table">
+          <thead>
+            <tr>
+              <th>التاريخ</th>
+              <th>المستخدم</th>
+              <th>الحقل</th>
+              <th>من</th>
+              <th>إلى</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logsLoading && (
+              <tr><td className="empty-row" colSpan={5}>جاري التحميل…</td></tr>
+            )}
+            {!logsLoading && !logs.length && (
+              <tr><td className="empty-row" colSpan={5}>لا توجد تعديلات مسجّلة</td></tr>
+            )}
+            {logs.map((log) => (
+              <tr key={log.id}>
+                <td style={{ color: 'var(--muted-foreground)' }}>{formatDate(log.createdAt)}</td>
+                <td>{log.changedBy}</td>
+                <td>{log.field}</td>
+                <td style={{ color: 'var(--muted-foreground)' }}>{log.oldValue ?? '—'}</td>
+                <td>{log.newValue ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </Drawer>
   );
 }
+
