@@ -332,6 +332,48 @@ export function ModelsTabSpec({
     ]);
   };
 
+  // Create a brand-new inventory item from the dropdown's "add new" row, then
+  // select it on the row that triggered it (mirrors final-design-v2's inline add).
+  const createInventoryItem = async (payload: Record<string, unknown>): Promise<{ id?: string } | null> => {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/fabric-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'فشل في الإنشاء');
+      await onChanged();
+      return result as { id?: string };
+    } catch (saveError: any) {
+      setError(saveError.message || 'فشل في الإنشاء');
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCustomCreate = (id: string, name: string) => {
+    setOpenSelect(null);
+    if (id.startsWith('fabric-')) {
+      const rowId = id.replace('fabric-', '');
+      void createInventoryItem({ action: 'create-fabric', name, lengthUnit: unit }).then((created) => {
+        if (created?.id) {
+          setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: created.id! } : row)));
+        }
+      });
+    } else if (id.startsWith('accessory-')) {
+      const rowId = id.replace('accessory-', '');
+      void createInventoryItem({ action: 'create-accessory', name }).then((created) => {
+        if (created?.id) {
+          setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: created.id! } : row)));
+        }
+      });
+    }
+  };
+
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -566,6 +608,9 @@ export function ModelsTabSpec({
                         setOpenSelect={setOpenSelect}
                         onChange={setSelectValue}
                         placeholder="اختر القماش"
+                        allowCustom
+                        onCustomAdd={handleCustomCreate}
+                        addPlaceholder="قماش جديد"
                       />
                       <EditableField
                         value={row.consumption}
@@ -606,6 +651,10 @@ export function ModelsTabSpec({
                           openSelect={openSelect}
                           setOpenSelect={setOpenSelect}
                           onChange={setSelectValue}
+                          placeholder="اختر الإكسسوار"
+                          allowCustom
+                          onCustomAdd={handleCustomCreate}
+                          addPlaceholder="مستلزم جديد"
                         />
                         <EditableField
                           value={row.consumption}
@@ -852,6 +901,8 @@ export function SelectBox({
   hint,
   placeholder = 'اختر',
   allowCustom,
+  onCustomAdd,
+  addPlaceholder = 'اكتب خياراً جديداً…',
 }: {
   id: string;
   label?: string;
@@ -864,7 +915,14 @@ export function SelectBox({
   hint?: string;
   placeholder?: string;
   allowCustom?: boolean;
+  onCustomAdd?: (id: string, value: string) => void;
+  addPlaceholder?: string;
 }) {
+  const commitCustom = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    (onCustomAdd || onChange)(id, trimmed);
+  };
   const selected = options.find((option) => option.value === value);
   const isOpen = openSelect === id;
   const [customValue, setCustomValue] = useState('');
@@ -899,13 +957,13 @@ export function SelectBox({
             <div className="sel-add-row">
               <input
                 className="sel-add-input"
-                placeholder="اكتب خياراً جديداً…"
+                placeholder={addPlaceholder}
                 value={customValue}
                 onChange={(event) => setCustomValue(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && customValue.trim()) {
                     event.preventDefault();
-                    onChange(id, customValue.trim());
+                    commitCustom(customValue);
                     setCustomValue('');
                   }
                 }}
@@ -915,7 +973,7 @@ export function SelectBox({
                 type="button"
                 onClick={() => {
                   if (!customValue.trim()) return;
-                  onChange(id, customValue.trim());
+                  commitCustom(customValue);
                   setCustomValue('');
                 }}
               >
