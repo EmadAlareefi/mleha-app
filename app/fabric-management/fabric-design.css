@@ -25,8 +25,7 @@
 .fab-design *::before,
 .fab-design *::after { box-sizing: border-box; }
 
-.fab-design .wrap { max-width: 1100px; margin: 0 auto; padding: 0 18px 56px; }
-
+.fab-design .wrap { max-width: 1100px; margin: 0 auto;}
 /* ===== app header ===== */
 .fab-design .app-top {
   display: flex;
@@ -238,6 +237,8 @@
   margin-inline-start: 4px;
 }
 .fab-design .acc-body { padding: 14px; border-top: 1px solid var(--border); }
+/* models form card insets its accordions like the mockup (scoped, additive) */
+.fab-design .models-spec .card details.acc { margin: 14px 14px 12px; }
 
 /* ===== fields ===== */
 .fab-design .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -385,8 +386,28 @@
   font-family: inherit;
 }
 .fab-design .color-chip.multi.selected { background: var(--primary); color: #fff; border-color: var(--primary); }
-.fab-design .color-help { font-size: 12px; color: var(--muted-foreground); }
+.fab-design .color-help { font-size: 12px; color: var(--muted-foreground); margin-bottom: 10px; }
 .fab-design .color-val { display: inline-flex; align-items: center; gap: 5px; margin-inline-end: 8px; }
+.fab-design .chip-wrap { position: relative; display: inline-flex; }
+.fab-design .chip-del {
+  position: absolute;
+  top: -4px;
+  inset-inline-end: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--destructive);
+  color: #fff;
+  border: 2px solid var(--card);
+  font-size: 10px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+  line-height: 1;
+}
+.fab-design .chip-wrap:hover .chip-del { display: flex; }
 .fab-design .color-swatch {
   display: inline-block;
   width: 14px;
@@ -468,8 +489,9 @@
 /* ===== repeated fabric / accessory rows (models form) ===== */
 .fab-design .rep-label { font-size: 13.5px; font-weight: 700; margin: 4px 0 8px; color: var(--primary); }
 .fab-design .rep-row { display: grid; gap: 10px; align-items: end; margin-bottom: 10px; }
-.fab-design .rep-row.fabric { grid-template-columns: 170px 1fr 130px 44px; }
-.fab-design .rep-row.acc-row { grid-template-columns: 1fr 150px 44px; }
+.fab-design .rep-row.fabric-main { grid-template-columns: 38px 1fr 130px 38px; }
+.fab-design .rep-row.fabric-extra { grid-template-columns: 110px 1fr 130px 38px; }
+.fab-design .rep-row.acc { grid-template-columns: 1fr 130px 38px; }
 .fab-design .iconbtn {
   width: 38px;
   height: 38px;
@@ -821,6 +843,9 @@
   .fab-design .sec-a-fields { grid-template-columns: 1fr; }
   .fab-design .unit-toggle { margin-inline-start: 0; width: 100%; }
   .fab-design .unit-btn { flex: 1; padding: 6px 0; }
+  .fab-design .rep-row.fabric-main { grid-template-columns: 38px 1fr 84px 38px; }
+  .fab-design .rep-row.fabric-extra { grid-template-columns: 1fr 1fr; }
+  .fab-design .rep-row.acc { grid-template-columns: 1fr 84px 38px; }
 
   /* invoice rows -> stacked cards */
   .fab-design .inv-head { display: none; }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Check,
   ChevronDown,
@@ -104,7 +105,9 @@ const fabricRoleOptions: SelectOption[] = [
 ];
 
 
-const colors = [
+type ColorChip = { name: string; value: string; border?: boolean; custom?: boolean };
+
+const colors: ColorChip[] = [
   { name: 'أبيض', value: '#fff', border: true },
   { name: 'أسود', value: '#1a1a1a' },
   { name: 'بيج', value: '#c8a97a' },
@@ -122,6 +125,35 @@ const colors = [
 ];
 
 const colorMap = new Map(colors.map((color) => [color.name, color.value]));
+
+// Custom colors are persisted in the model's `colors` string[] as "name::#hex"
+// so their swatch survives a reload (preset colors are stored as a plain name).
+const COLOR_SEP = '::';
+function parseStoredColor(raw: string): { name: string; hex?: string } {
+  const index = raw.indexOf(COLOR_SEP);
+  if (index === -1) return { name: raw };
+  return { name: raw.slice(0, index), hex: raw.slice(index + COLOR_SEP.length) || undefined };
+}
+function encodeColors(selected: string[], customColors: ColorChip[]): string[] {
+  const source = selected.length ? selected : ['متعدد الألوان'];
+  return source.map((name) => {
+    const custom = customColors.find((chip) => chip.name === name);
+    return custom ? `${name}${COLOR_SEP}${custom.value}` : name;
+  });
+}
+// Split a stored colors[] into display names + the custom name→hex chips it carries.
+function decodeStoredColors(stored: string[]): { names: string[]; customColors: ColorChip[] } {
+  const names: string[] = [];
+  const customColors: ColorChip[] = [];
+  stored.forEach((raw) => {
+    const { name, hex } = parseStoredColor(raw);
+    names.push(name);
+    if (hex && name !== 'متعدد الألوان' && !colors.some((preset) => preset.name === name)) {
+      customColors.push({ name, value: hex, custom: true });
+    }
+  });
+  return { names, customColors };
+}
 const numberFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', { maximumFractionDigits: 2 });
 const currencyFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', {
   style: 'currency',
@@ -219,6 +251,8 @@ export function ModelsTabSpec({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedColors, setSelectedColors] = useState<string[]>(['متعدد الألوان']);
+  const [customColors, setCustomColors] = useState<ColorChip[]>([]);
+  const [editModel, setEditModel] = useState<DesignModel | null>(null);
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>([
     { id: 'main', role: 'main', fabricId: fabrics[0]?.id || '', consumption: '2.3' },
     { id: 'bottom', role: 'bottom', fabricId: fabrics[1]?.id || fabrics[0]?.id || '', consumption: '1.0' },
@@ -419,7 +453,7 @@ export function ModelsTabSpec({
       status,
       description,
       unit,
-      colors: selectedColors.length ? selectedColors : ['متعدد الألوان'],
+      colors: encodeColors(selectedColors, customColors),
       imageData,
       recipe: recipeRows.map((row) => ({ role: row.role, fabricId: row.fabricId, consumption: row.consumption })),
       accessories: accessoryRows
@@ -451,14 +485,10 @@ export function ModelsTabSpec({
           <StatCard title="إجمالي القماش المحجوز" value={`${formatNumber(totalReservedLength)} م`} icon={<Layers />} />
         </div>
 
-        <section>
-          <BlockTitle marker="1">فورم إضافة موديل جديد</BlockTitle>
-          <p className="block-sub">نفس بنية المواصفة: معلومات أساسية، وصفة الأقمشة والمستلزمات، ثم التكاليف المحسوبة.</p>
-
-          <div className="card">
+        <div className="card">
             <div className="card-head">
               بيانات الموديل
-              <div className="desc">اختر الأقمشة من المخزون الحالي وشاهد تكلفة القطعة والكمية الممكن إنتاجها مباشرة</div>
+              <div className="desc">اختر الأقمشة وشاهد التكلفة والكمية الممكنة تلقائياً</div>
             </div>
 
             <details className="acc" open>
@@ -512,57 +542,24 @@ export function ModelsTabSpec({
                       onChange={setSelectValue}
                     />
 
-                    <div className="field full">
-                      <label>الألوان المتاحة</label>
-                      <div className="sel-wrap">
-                        <button
-                          type="button"
-                          className={`sel-trigger ${openSelect === 'colors' ? 'open' : ''}`}
-                          onClick={() => setOpenSelect(openSelect === 'colors' ? null : 'colors')}
-                        >
-                          <span className="sel-val">
-                            {selectedColors.length
-                              ? selectedColors.map((color) => (
-                                  <span className="color-val" key={color}>
-                                    {colorMap.has(color) && (
-                                      <span className="color-swatch" style={{ background: colorMap.get(color) }} />
-                                    )}
-                                    {color}
-                                  </span>
-                                ))
-                              : 'اختر الألوان…'}
-                          </span>
-                          <span className="sel-chev">▾</span>
-                        </button>
-                        <div className={`sel-menu color-pop ${openSelect === 'colors' ? 'open' : ''}`}>
-                          <div className="color-menu open">
-                            <div className="color-grid">
-                              {colors.map((color) => (
-                                <button
-                                  key={color.name}
-                                  type="button"
-                                  className={`color-chip ${selectedColors.includes(color.name) ? 'selected' : ''}`}
-                                  title={color.name}
-                                  style={{
-                                    background: color.value,
-                                    borderColor: color.border ? '#ccc' : undefined,
-                                  }}
-                                  onClick={() => toggleColor(color.name)}
-                                />
-                              ))}
-                              <button
-                                type="button"
-                                className={`color-chip multi ${selectedColors.includes('متعدد الألوان') ? 'selected' : ''}`}
-                                onClick={() => toggleColor('متعدد الألوان')}
-                              >
-                                متعدد الألوان
-                              </button>
-                            </div>
-                            <div className="color-help">اضغط لاختيار لون أو أكثر</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <ColorPicker
+                      id="colors"
+                      openSelect={openSelect}
+                      setOpenSelect={setOpenSelect}
+                      selected={selectedColors}
+                      onToggle={toggleColor}
+                      customColors={customColors}
+                      onAddCustom={(name, value) => {
+                        setCustomColors((current) =>
+                          current.some((c) => c.name === name) ? current : [...current, { name, value, custom: true }]
+                        );
+                        setSelectedColors((current) => (current.includes(name) ? current : [...current, name]));
+                      }}
+                      onDeleteCustom={(name) => {
+                        setCustomColors((current) => current.filter((c) => c.name !== name));
+                        setSelectedColors((current) => current.filter((c) => c !== name));
+                      }}
+                    />
 
                     <EditableField label="الوصف" value={description} onChange={setDescription} className="full" area />
                   </div>
@@ -587,9 +584,15 @@ export function ModelsTabSpec({
                 <div className="rep-label">الأقمشة</div>
                 <div>
                   {recipeRows.map((row, index) => (
-                    <div className="rep-row fabric" key={row.id}>
+                    <div className={`rep-row ${index === 0 ? 'fabric-main' : 'fabric-extra'}`} key={row.id}>
                       {index === 0 ? (
-                        <div className="role-pill">أساسي</div>
+                        <div
+                          className="iconbtn"
+                          title="قماش أساسي"
+                          style={{ fontSize: 18, color: 'var(--amber)', borderColor: 'var(--amber-soft)', background: 'var(--amber-soft)' }}
+                        >
+                          ★
+                        </div>
                       ) : (
                         <SelectBox
                           id={`role-${row.id}`}
@@ -643,7 +646,7 @@ export function ModelsTabSpec({
                     const accessory = accessoriesInventory.find((item) => item.id === row.accessoryId);
                     const rowCost = toNumber(row.consumption) * (accessory?.unitPrice || 0);
                     return (
-                      <div className="rep-row acc-row" key={row.id}>
+                      <div className="rep-row acc" key={row.id}>
                         <SelectBox
                           id={`accessory-${row.id}`}
                           options={accessoryOptionsInv}
@@ -702,13 +705,6 @@ export function ModelsTabSpec({
               </div>
             </details>
 
-            <div className="note m">
-              <b>الحساب الحالي:</b> يمكن إنتاج {formatNumber(calculations.producibleCount)} قطعة من أضعف قماش في الوصفة.
-              {calculations.mainFabric
-                ? ` القماش الأساسي: ${calculations.mainFabric.name} • استهلاك القطعة: ${formatNumber(metersToCurrentUnit(calculations.mainConsumptionMeters, unit))} ${currentUnitLabel}.`
-                : ' اختر قماشاً أساسياً لإظهار الحسابات.'}
-            </div>
-
             {error && (
               <div className="note" style={{ margin: '0 18px 14px', background: '#fdecea', borderColor: '#f5c2c0', color: '#a3261f' }}>
                 {error}
@@ -732,11 +728,7 @@ export function ModelsTabSpec({
               إلغاء
             </button>
           </div>
-        </section>
 
-        <section>
-          <BlockTitle marker="2">جدول الموديلات</BlockTitle>
-          <p className="block-sub">اضغط على أي موديل ليفتح أسفله أكورديون باللوحة الذكية.</p>
           <div className="card">
             <div className="search-bar">
               <Search className="search-ico" />
@@ -770,6 +762,7 @@ export function ModelsTabSpec({
                       fabrics={fabrics}
                       isOpen={Boolean(openRows[model.id])}
                       onToggle={() => setOpenRows((current) => ({ ...current, [model.id]: !current[model.id] }))}
+                      onEdit={() => setEditModel(model)}
                       onDelete={() => void deleteModel(model.id)}
                       disabled={saving}
                     />
@@ -787,8 +780,21 @@ export function ModelsTabSpec({
               </table>
             </div>
           </div>
-        </section>
 
+        {editModel && (
+          <ModelEditDrawer
+            key={editModel.id}
+            model={editModel}
+            fabrics={fabrics}
+            accessoriesInventory={accessoriesInventory}
+            unit={unit}
+            openSelect={openSelect}
+            setOpenSelect={setOpenSelect}
+            createInventoryItem={createInventoryItem}
+            onClose={() => setEditModel(null)}
+            onSaved={onChanged}
+          />
+        )}
       </div>
     </div>
   );
@@ -804,15 +810,6 @@ export function StatCard({ title, value, icon }: { title: string; value: string;
         </div>
         <div className="stat-ico">{icon}</div>
       </div>
-    </div>
-  );
-}
-
-function BlockTitle({ marker, children }: { marker: string; children: React.ReactNode }) {
-  return (
-    <div className="block-title">
-      <span className="n">{marker}</span>
-      {children}
     </div>
   );
 }
@@ -988,11 +985,473 @@ export function SelectBox({
   );
 }
 
+function ColorPicker({
+  id,
+  openSelect,
+  setOpenSelect,
+  selected,
+  onToggle,
+  customColors,
+  onAddCustom,
+  onDeleteCustom,
+}: {
+  id: string;
+  openSelect: string | null;
+  setOpenSelect: (value: string | null) => void;
+  selected: string[];
+  onToggle: (name: string) => void;
+  customColors: ColorChip[];
+  onAddCustom: (name: string, value: string) => void;
+  onDeleteCustom: (name: string) => void;
+}) {
+  const isOpen = openSelect === id;
+  const [hex, setHex] = useState('#aa6688');
+  const [name, setName] = useState('');
+  const allChips = [...colors, ...customColors];
+  const lookup = new Map(allChips.map((chip) => [chip.name, chip.value]));
+  const commit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onAddCustom(trimmed, hex);
+    setName('');
+  };
+  return (
+    <div className="field full">
+      <label>الألوان المتاحة</label>
+      <div className="sel-wrap">
+        <button
+          type="button"
+          className={`sel-trigger ${isOpen ? 'open' : ''}`}
+          onClick={() => setOpenSelect(isOpen ? null : id)}
+        >
+          <span className="sel-val">
+            {selected.length
+              ? selected.map((color) => (
+                  <span className="color-val" key={color}>
+                    {lookup.has(color) && <span className="color-swatch" style={{ background: lookup.get(color) }} />}
+                    {color}
+                  </span>
+                ))
+              : 'اختر الألوان…'}
+          </span>
+          <span className="sel-chev">▾</span>
+        </button>
+        <div className={`sel-menu color-pop ${isOpen ? 'open' : ''}`}>
+          <div className="color-menu open">
+            <div className="color-grid">
+              {allChips.map((color) => (
+                <span className="chip-wrap" key={color.name}>
+                  <button
+                    type="button"
+                    className={`color-chip ${selected.includes(color.name) ? 'selected' : ''}`}
+                    title={color.name}
+                    style={{ background: color.value, borderColor: color.border ? '#ccc' : undefined }}
+                    onClick={() => onToggle(color.name)}
+                  />
+                  {color.custom && (
+                    <span
+                      className="chip-del"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDeleteCustom(color.name);
+                      }}
+                    >
+                      ×
+                    </span>
+                  )}
+                </span>
+              ))}
+              <button
+                type="button"
+                className={`color-chip multi ${selected.includes('متعدد الألوان') ? 'selected' : ''}`}
+                onClick={() => onToggle('متعدد الألوان')}
+              >
+                متعدد الألوان
+              </button>
+            </div>
+            <div className="color-help">اضغط لاختيار لون أو أكثر • مرّر على اللون المخصص لحذفه</div>
+            <div className="sel-add-row" style={{ borderTop: '1px solid var(--border)' }}>
+              <input
+                type="color"
+                value={hex}
+                onChange={(event) => setHex(event.target.value)}
+                style={{ width: 34, height: 34, border: '1px solid var(--border)', borderRadius: 6, padding: 2, cursor: 'pointer', flex: '0 0 auto' }}
+                aria-label="اختر لوناً"
+              />
+              <input
+                className="sel-add-input"
+                placeholder="اسم اللون"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commit();
+                  }
+                }}
+              />
+              <button className="sel-add-btn" type="button" onClick={commit}>
+                ＋
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Drawer({
+  open,
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  if (!open || !mounted) return null;
+  return createPortal(
+    <>
+      <div className="fab-design-drawer-overlay" onClick={onClose} />
+      <div className="fab-design-drawer fab-design" dir="rtl">
+        <div className="drawer-head">
+          <h3>{title}</h3>
+          <button type="button" className="drawer-close" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="drawer-body">{children}</div>
+        {footer && <div className="drawer-foot">{footer}</div>}
+      </div>
+    </>,
+    document.body
+  );
+}
+
+type ModelAuditLog = {
+  id: string;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  changedBy: string;
+  createdAt: string;
+};
+
+function ModelEditDrawer({
+  model,
+  fabrics,
+  accessoriesInventory,
+  openSelect,
+  setOpenSelect,
+  createInventoryItem,
+  onClose,
+  onSaved,
+}: {
+  model: DesignModel;
+  fabrics: Fabric[];
+  accessoriesInventory: Accessory[];
+  unit: 'meter' | 'yard';
+  openSelect: string | null;
+  setOpenSelect: (value: string | null) => void;
+  createInventoryItem: (payload: Record<string, unknown>) => Promise<{ id?: string } | null>;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+}) {
+  const drawerUnit = model.unit;
+  const unitLabel = drawerUnit === 'yard' ? 'ياردة' : 'م';
+
+  const imageData = model.imageData ?? null;
+  const decodedColors = decodeStoredColors(model.colors);
+  const [status, setStatus] = useState(model.status);
+  const [description, setDescription] = useState(model.description || '');
+  const [selectedColors, setSelectedColors] = useState<string[]>(decodedColors.names);
+  const [customColors, setCustomColors] = useState<ColorChip[]>(decodedColors.customColors);
+  const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>(
+    model.fabrics.length
+      ? model.fabrics.map((row) => ({ id: makeId('erow'), role: row.role, fabricId: row.fabricId, consumption: String(row.consumption) }))
+      : [{ id: makeId('erow'), role: 'main', fabricId: fabrics[0]?.id || '', consumption: '0' }]
+  );
+  const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>(
+    model.accessories.map((row) => ({ id: makeId('eacc'), accessoryId: row.accessoryId, consumption: String(row.consumption) }))
+  );
+  const [tailoringCost, setTailoringCost] = useState(String(model.tailoringCost));
+  const [embroideryCost, setEmbroideryCost] = useState(String(model.embroideryCost));
+  const [extraCost, setExtraCost] = useState(String(model.extraCost));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<ModelAuditLog[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/fabric-management', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'fetch-audit', entityType: 'model', entityId: model.id }),
+    })
+      .then((response) => response.json().catch(() => ({})))
+      .then((payload) => {
+        if (!cancelled) setLogs(Array.isArray(payload.logs) ? payload.logs : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [model.id]);
+
+  const fabricOptions = fabrics.map((fabric) => ({ value: fabric.id, label: `${fabric.name} — متاح ${formatNumber(fabric.stockLength)}م` }));
+  const accessoryOptions = accessoriesInventory.map((accessory) => ({ value: accessory.id, label: `${accessory.name} — ${formatCurrency(accessory.unitPrice)}` }));
+
+  const calculations = calculateModel({
+    fabrics,
+    accessoriesInventory,
+    rows: recipeRows,
+    accessories: accessoryRows,
+    unit: drawerUnit,
+    tailoringCost,
+    embroideryCost,
+    extraCost,
+  });
+
+  const dispatchSelect = (id: string, value: string) => {
+    if (id === 'edit-status') setStatus(value);
+    else if (id.startsWith('edit-role-')) {
+      const rowId = id.replace('edit-role-', '');
+      setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, role: value } : row)));
+    } else if (id.startsWith('edit-fabric-')) {
+      const rowId = id.replace('edit-fabric-', '');
+      setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
+    } else if (id.startsWith('edit-accessory-')) {
+      const rowId = id.replace('edit-accessory-', '');
+      setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: value } : row)));
+    }
+    setOpenSelect(null);
+  };
+
+  const handleCustomCreate = (id: string, name: string) => {
+    setOpenSelect(null);
+    if (id.startsWith('edit-fabric-')) {
+      const rowId = id.replace('edit-fabric-', '');
+      void createInventoryItem({ action: 'create-fabric', name, lengthUnit: drawerUnit }).then((created) => {
+        if (created?.id) setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: created.id! } : row)));
+      });
+    } else if (id.startsWith('edit-accessory-')) {
+      const rowId = id.replace('edit-accessory-', '');
+      void createInventoryItem({ action: 'create-accessory', name }).then((created) => {
+        if (created?.id) setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: created.id! } : row)));
+      });
+    }
+  };
+
+  const toggleColor = (name: string) =>
+    setSelectedColors((current) => (current.includes(name) ? current.filter((color) => color !== name) : [...current, name]));
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/fabric-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update-model',
+          modelId: model.id,
+          status,
+          description,
+          unit: drawerUnit,
+          colors: encodeColors(selectedColors, customColors),
+          imageData,
+          recipe: recipeRows.map((row) => ({ role: row.role, fabricId: row.fabricId, consumption: row.consumption })),
+          accessories: accessoryRows.filter((row) => row.accessoryId).map((row) => ({ accessoryId: row.accessoryId, consumption: row.consumption })),
+          tailoringCost,
+          embroideryCost,
+          extraCost,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'فشل في الحفظ');
+      await onSaved();
+      onClose();
+    } catch (saveError: any) {
+      setError(saveError.message || 'فشل في الحفظ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer
+      open
+      title={`تعديل الموديل — ${model.sku}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" type="button" onClick={() => void save()} disabled={saving}>
+            {saving ? 'جاري الحفظ…' : 'حفظ التعديل'}
+          </button>
+          <button className="btn ghost" type="button" onClick={onClose} disabled={saving}>
+            إلغاء
+          </button>
+        </>
+      }
+    >
+      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <DisplayField label="رقم الصنف (SKU)" value={model.sku} />
+        <SelectBox
+          id="edit-status"
+          label="الحالة"
+          options={statusOptions}
+          value={status}
+          openSelect={openSelect}
+          setOpenSelect={setOpenSelect}
+          onChange={dispatchSelect}
+        />
+        <ColorPicker
+          id="edit-colors"
+          openSelect={openSelect}
+          setOpenSelect={setOpenSelect}
+          selected={selectedColors}
+          onToggle={toggleColor}
+          customColors={customColors}
+          onAddCustom={(name, value) => {
+            setCustomColors((current) => (current.some((c) => c.name === name) ? current : [...current, { name, value, custom: true }]));
+            setSelectedColors((current) => (current.includes(name) ? current : [...current, name]));
+          }}
+          onDeleteCustom={(name) => {
+            setCustomColors((current) => current.filter((c) => c.name !== name));
+            setSelectedColors((current) => current.filter((c) => c !== name));
+          }}
+        />
+        <EditableField label="الوصف" value={description} onChange={setDescription} className="full" area />
+      </div>
+
+      <div className="rep-label" style={{ marginTop: 14 }}>الأقمشة</div>
+      {recipeRows.map((row, index) => (
+        <div className={`rep-row ${index === 0 ? 'fabric-main' : 'fabric-extra'}`} key={row.id}>
+          {index === 0 ? (
+            <div className="iconbtn" title="قماش أساسي" style={{ fontSize: 18, color: 'var(--amber)', borderColor: 'var(--amber-soft)', background: 'var(--amber-soft)' }}>★</div>
+          ) : (
+            <SelectBox id={`edit-role-${row.id}`} options={fabricRoleOptions} value={row.role} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={dispatchSelect} />
+          )}
+          <SelectBox
+            id={`edit-fabric-${row.id}`}
+            options={fabricOptions}
+            value={row.fabricId}
+            openSelect={openSelect}
+            setOpenSelect={setOpenSelect}
+            onChange={dispatchSelect}
+            placeholder="اختر القماش"
+            allowCustom
+            onCustomAdd={handleCustomCreate}
+            addPlaceholder="قماش جديد"
+          />
+          <EditableField value={row.consumption} onChange={(consumption) => setRecipeRows((current) => current.map((item) => (item.id === row.id ? { ...item, consumption } : item)))} suffix={unitLabel} type="number" />
+          {index === 0 ? (
+            <button className="iconbtn add" type="button" title="إضافة قماش" onClick={() => setRecipeRows((current) => [...current, { id: makeId('erow'), role: 'lining', fabricId: fabrics[0]?.id || '', consumption: '0' }])}>
+              <Plus />
+            </button>
+          ) : (
+            <button className="iconbtn del" type="button" title="حذف" onClick={() => setRecipeRows((current) => current.filter((item) => item.id !== row.id))}>
+              <Trash2 />
+            </button>
+          )}
+        </div>
+      ))}
+
+      <div className="rep-label" style={{ marginTop: 10 }}>الإكسسوارات والمستلزمات</div>
+      {accessoryRows.map((row) => {
+        const accessory = accessoriesInventory.find((item) => item.id === row.accessoryId);
+        const rowCost = toNumber(row.consumption) * (accessory?.unitPrice || 0);
+        return (
+          <div className="rep-row acc" key={row.id}>
+            <SelectBox
+              id={`edit-accessory-${row.id}`}
+              options={accessoryOptions}
+              value={row.accessoryId}
+              openSelect={openSelect}
+              setOpenSelect={setOpenSelect}
+              onChange={dispatchSelect}
+              placeholder="اختر الإكسسوار"
+              allowCustom
+              onCustomAdd={handleCustomCreate}
+              addPlaceholder="مستلزم جديد"
+            />
+            <EditableField value={row.consumption} onChange={(consumption) => setAccessoryRows((current) => current.map((item) => (item.id === row.id ? { ...item, consumption } : item)))} suffix="كمية" type="number" />
+            <button className="iconbtn del" type="button" title="حذف" onClick={() => setAccessoryRows((current) => current.filter((item) => item.id !== row.id))}>
+              <Trash2 />
+            </button>
+            <span className="hint" style={{ gridColumn: '1 / -1', marginTop: -4 }}>{formatCurrency(rowCost)}</span>
+          </div>
+        );
+      })}
+      <button className="iconbtn add" type="button" title="إضافة إكسسوار" style={{ marginTop: 8 }} onClick={() => setAccessoryRows((current) => [...current, { id: makeId('eacc'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' }])}>
+        <Plus /> إضافة إكسسوار
+      </button>
+
+      <div className="rep-label" style={{ marginTop: 14 }}>التكاليف</div>
+      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <DisplayField label="تكلفة القماش" value={formatCurrency(calculations.fabricCost)} auto />
+        <DisplayField label="تكلفة الإكسسوارات" value={formatCurrency(calculations.accessoriesCost)} auto />
+        <EditableField label="تكلفة الخياطة" value={tailoringCost} onChange={setTailoringCost} suffix="ر.س" type="number" />
+        <EditableField label="تكلفة التطريز" value={embroideryCost} onChange={setEmbroideryCost} suffix="ر.س" type="number" />
+        <EditableField label="تكلفة إضافية" value={extraCost} onChange={setExtraCost} suffix="ر.س" type="number" />
+        <DisplayField label="التكلفة الإجمالية" value={formatCurrency(calculations.totalCost)} auto />
+      </div>
+
+      {error && (
+        <div className="note" style={{ marginTop: 14, background: '#fdecea', borderColor: '#f5c2c0', color: '#a3261f' }}>{error}</div>
+      )}
+
+      <details className="log">
+        <summary>
+          <span>سجل التعديلات</span>
+          <span className="log-count">{logs.length}</span>
+          <ChevronDown style={{ width: 16, height: 16, color: 'var(--muted-foreground)' }} />
+        </summary>
+        <table className="log-table">
+          <thead>
+            <tr>
+              <th>التاريخ</th>
+              <th>المستخدم</th>
+              <th>الحقل</th>
+              <th>من</th>
+              <th>إلى</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!logs.length && (
+              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 16, color: 'var(--muted-foreground)' }}>لا توجد تعديلات مسجّلة</td></tr>
+            )}
+            {logs.map((log) => (
+              <tr key={log.id}>
+                <td style={{ color: 'var(--muted-foreground)' }}>{new Date(log.createdAt).toLocaleDateString('ar')}</td>
+                <td>{log.changedBy}</td>
+                <td>{log.field}</td>
+                <td style={{ color: 'var(--muted-foreground)' }}>{log.oldValue ?? '—'}</td>
+                <td>{log.newValue ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </Drawer>
+  );
+}
+
 function ModelTableRows({
   model,
   fabrics,
   isOpen,
   onToggle,
+  onEdit,
   onDelete,
   disabled,
 }: {
@@ -1000,6 +1459,7 @@ function ModelTableRows({
   fabrics: Fabric[];
   isOpen: boolean;
   onToggle: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   disabled?: boolean;
 }) {
@@ -1019,14 +1479,17 @@ function ModelTableRows({
         <td>{model.sku}</td>
         <td>
           <span style={{ display: 'inline-flex', gap: 4 }}>
-            {model.colors.map((color) => (
-              <span
-                key={color}
-                className="color-swatch"
-                style={{ background: colorMap.get(color) || '#d4c4b0', width: 16, height: 16, marginInlineEnd: 0 }}
-                title={color}
-              />
-            ))}
+            {model.colors.map((raw) => {
+              const { name, hex } = parseStoredColor(raw);
+              return (
+                <span
+                  key={raw}
+                  className="color-swatch"
+                  style={{ background: colorMap.get(name) || hex || '#d4c4b0', width: 16, height: 16, marginInlineEnd: 0 }}
+                  title={name}
+                />
+              );
+            })}
           </span>
         </td>
         <td>{mainFabric?.name || '-'}</td>
@@ -1034,17 +1497,10 @@ function ModelTableRows({
         <td>{formatCurrency(model.totalCost)}</td>
         <td><span className={`pill ${statusClass}`}>{statusLabel}</span></td>
         <td>
-          <span className="actions" onClick={(event) => event.stopPropagation()}>
-            <button
-              type="button"
-              title="حذف الموديل"
-              disabled={disabled}
-              onClick={onDelete}
-              style={{ border: 0, background: 'transparent', cursor: disabled ? 'not-allowed' : 'pointer', color: '#dc2626', padding: 0 }}
-            >
-              <Trash2 />
-            </button>
-          </span>
+          <div className="td-actions" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="tbl-btn edit" disabled={disabled} onClick={onEdit}>تعديل</button>
+            <button type="button" className="tbl-btn del" disabled={disabled} onClick={onDelete}>حذف</button>
+          </div>
         </td>
       </tr>
       <tr className={`panel-row ${isOpen ? 'show' : ''}`}>
