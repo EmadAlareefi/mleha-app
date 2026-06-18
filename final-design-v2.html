@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>إدارة الأقمشة | مليحة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --background:#eee2d4; --foreground:#2c2416;
+  --card:#ffffff; --card-foreground:#2c2416;
+  --primary:#8b6f47; --primary-foreground:#ffffff;
+  --muted:#f5ebe0; --muted-foreground:#6b5d4f;
+  --accent:#a08968; --border:#d4c4b0; --input:#d4c4b0;
+  --ring:#8b6f47; --secondary:#d4c4b0; --destructive:#dc2626;
+  --radius:.5rem;
+  --green:#3f7d4e;--green-soft:#e8f1ea;
+  --amber:#b8791f;--amber-soft:#faf0dc;
+  --blue:#3a6ea5;--blue-soft:#e9f0f7;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Tajawal",Arial,sans-serif;
+     background:var(--background);color:var(--foreground);line-height:1.7;font-size:15px}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 18px 80px}
+
+/* ===== رأس التطبيق ===== */
+.app-top{display:flex;align-items:flex-start;justify-content:space-between;
+         flex-wrap:wrap;gap:12px;margin-bottom:18px}
+.app-top h1{margin:0;font-size:22px;font-weight:800}
+.app-top .app-sub{color:var(--muted-foreground);font-size:13.5px;margin:3px 0 0}
+.btn-outline{background:transparent;border:1px solid var(--border);border-radius:6px;
+             padding:7px 16px;font-family:inherit;font-size:13.5px;cursor:default;
+             color:var(--foreground);white-space:nowrap;align-self:center}
+.btn-outline:hover{border-color:var(--primary)}
+
+/* ===== بطاقات الإحصائيات ===== */
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}
+.stat-card{background:var(--card);border:1px solid var(--border);
+           border-radius:var(--radius);box-shadow:0 1px 2px rgba(44,36,22,.04)}
+.stat-inner{display:flex;align-items:center;justify-content:space-between;padding:14px}
+.stat-card .k{font-size:12.5px;color:var(--muted-foreground);margin:0}
+.stat-card .v{font-size:18px;font-weight:700;margin:3px 0 0}
+.stat-ico{border-radius:6px;background:var(--muted);padding:7px;
+          color:var(--muted-foreground);display:grid;place-items:center}
+.stat-ico svg{width:17px;height:17px}
+
+/* ===== وحدة القياس ===== */
+.unit-bar{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+          padding:10px 16px;margin-bottom:14px;display:flex;align-items:center;
+          gap:14px;flex-wrap:wrap}
+.unit-bar-label{font-size:13.5px;font-weight:700}
+.unit-bar-hint{font-size:12px;color:var(--muted-foreground)}
+.unit-toggle{display:flex;gap:4px;margin-inline-start:auto}
+.unit-btn{padding:5px 18px;border-radius:6px;border:1px solid var(--border);
+          background:transparent;font-family:inherit;font-size:13.5px;cursor:default;
+          color:var(--muted-foreground);transition:all .15s}
+.unit-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+/* ===== التبويبات ===== */
+.tablist{display:flex;gap:4px;background:var(--muted);border-radius:8px;
+         padding:3px;margin-bottom:18px;flex-wrap:wrap}
+.tab{flex:1;text-align:center;padding:7px 10px;border-radius:6px;font-size:13.5px;
+     font-weight:500;color:var(--muted-foreground);border:1px solid transparent;
+     cursor:default;min-width:100px;background:transparent;font-family:inherit}
+.tab.active{background:var(--background);color:var(--foreground);border-color:var(--border)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* ===== البطاقة ===== */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+      box-shadow:0 1px 2px rgba(44,36,22,.04);margin-bottom:16px}
+.card-head{font-size:15px;font-weight:700;padding:14px 16px 6px;
+           display:flex;align-items:center;justify-content:space-between}
+
+/* ===== الأكورديون ===== */
+details.acc{border:1px solid var(--border);border-radius:8px;margin:14px 14px 12px;
+            background:var(--card);overflow:visible}
+details.acc[open]{box-shadow:0 1px 2px rgba(44,36,22,.04)}
+details.acc>summary{list-style:none;cursor:pointer;padding:12px 14px;
+            display:flex;align-items:center;gap:10px;font-weight:700;font-size:14.5px;
+            background:var(--muted);user-select:none;border-radius:7px}
+details.acc[open]>summary{border-radius:7px 7px 0 0}
+details.acc>summary::-webkit-details-marker{display:none}
+details.acc>summary .chev{margin-inline-start:auto;transition:transform .2s;color:var(--muted-foreground)}
+details.acc[open]>summary .chev{transform:rotate(180deg)}
+details.acc>summary .ico{width:24px;height:24px;border-radius:6px;background:var(--primary);
+            color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+details.acc>summary .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;
+            background:var(--amber-soft);color:var(--amber);margin-inline-start:4px}
+.acc-body{padding:14px;border-top:1px solid var(--border)}
+
+/* ===== التبويبات الفرعية ===== */
+.subtabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px}
+.subtab{padding:8px 18px;border:none;background:none;font-family:inherit;font-size:13.5px;
+        font-weight:500;cursor:default;color:var(--muted-foreground);
+        border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+.subtab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:700}
+.subtab-panel{display:none}
+.subtab-panel.active{display:block}
+.subtab-body{padding:14px}
+
+/* ===== الحقول ===== */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.grid.two{grid-template-columns:repeat(2,1fr)}
+.field{display:flex;flex-direction:column}
+.field label{font-size:13px;font-weight:500;margin-bottom:5px;color:var(--foreground)}
+.field .inp{background:var(--card);border:1px solid var(--input);border-radius:6px;
+            padding:7px 10px;font-size:13.5px;color:var(--muted-foreground);
+            display:flex;align-items:center;justify-content:space-between;min-height:36px}
+.field .inp.area{min-height:60px;align-items:flex-start}
+.field .hint{font-size:11.5px;color:#a89a8a;margin-top:4px}
+.field.auto .inp{background:var(--green-soft);border-color:#c5ddca;color:var(--green);font-weight:700}
+.field.auto label::after{content:" • تلقائي";color:var(--green);font-weight:700;font-size:11px}
+.full{grid-column:1/-1}
+
+/* ===== القوائم المنسدلة ===== */
+.sel-wrap{position:relative}
+.sel-trigger{background:var(--card);border:1px solid var(--input);border-radius:6px;
+             padding:7px 10px;font-size:13.5px;color:var(--foreground);min-height:36px;
+             display:flex;align-items:center;justify-content:space-between;cursor:pointer;
+             user-select:none;transition:border-color .15s}
+.sel-trigger:hover{border-color:var(--primary)}
+.sel-trigger.open{border-color:var(--primary);box-shadow:0 0 0 2px rgba(139,111,71,.15)}
+.sel-trigger .sel-val{flex:1;color:var(--foreground)}
+.sel-trigger .sel-chev{color:var(--muted-foreground);transition:transform .2s;font-size:11px}
+.sel-trigger.open .sel-chev{transform:rotate(180deg)}
+.sel-menu{position:absolute;background:var(--card);border:1px solid var(--border);
+          border-radius:8px;box-shadow:0 6px 20px rgba(44,36,22,.15);
+          z-index:9999;display:none;flex-direction:column;min-width:160px}
+.sel-menu.open{display:flex}
+.sel-options-list{overflow-y:auto;max-height:200px;border-radius:8px 8px 0 0}
+.sel-option{padding:8px 12px;cursor:pointer;font-size:13.5px;transition:background .1s;
+            display:flex;align-items:center;justify-content:space-between}
+.sel-option:hover{background:var(--muted)}
+.sel-option.selected{background:var(--muted);font-weight:700;color:var(--primary)}
+.opt-text{flex:1}
+.opt-del{color:var(--destructive);opacity:0;font-size:13px;font-weight:700;
+         padding:0 4px;border-radius:4px;transition:opacity .15s;cursor:pointer;flex-shrink:0}
+.sel-option:hover .opt-del{opacity:.7}
+.opt-del:hover{opacity:1 !important;background:rgba(220,38,38,.1)}
+.sel-add-row{display:flex;gap:6px;padding:7px 9px;border-top:1px solid var(--border);
+             background:var(--muted);border-radius:0 0 8px 8px;flex-shrink:0}
+.sel-add-input{flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 9px;
+               font-size:13px;font-family:inherit;background:var(--card);
+               color:var(--foreground);outline:none;min-width:0}
+.sel-add-input:focus{border-color:var(--primary)}
+.sel-add-btn{background:var(--primary);color:#fff;border:none;border-radius:6px;
+             padding:5px 11px;font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
+
+/* ===== منتقي الألوان ===== */
+.color-menu{padding:12px}
+.color-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.chip-wrap{position:relative;display:inline-flex}
+.color-chip{width:30px;height:30px;border-radius:50%;border:2px solid transparent;
+            cursor:pointer;transition:transform .15s,border-color .15s;display:block}
+.color-chip:hover{transform:scale(1.15)}
+.color-chip.selected{border-color:var(--primary);box-shadow:0 0 0 3px rgba(139,111,71,.25)}
+.color-chip.multi{width:auto;height:auto;border-radius:999px;padding:4px 12px;
+                  font-size:12px;font-weight:700;background:var(--muted);
+                  color:var(--foreground);border-color:var(--border)}
+.color-chip.multi.selected{background:var(--primary);color:#fff;border-color:var(--primary)}
+.chip-del{position:absolute;top:-4px;inset-inline-end:-4px;width:16px;height:16px;
+          border-radius:50%;background:var(--destructive);color:#fff;border:2px solid var(--card);
+          font-size:10px;display:none;align-items:center;justify-content:center;
+          cursor:pointer;z-index:1;line-height:1}
+.chip-wrap:hover .chip-del{display:flex}
+.color-swatch{display:inline-block;width:13px;height:13px;border-radius:50%;
+              border:1px solid rgba(0,0,0,.15);margin-inline-end:4px;vertical-align:middle}
+
+/* ===== صورة المنتج ===== */
+.imgbox{border:1px dashed var(--border);background:var(--muted);border-radius:8px;
+        min-height:100px;display:grid;place-items:center;color:var(--accent);
+        font-size:13px;text-align:center}
+.sec-a-wrap{display:flex;gap:14px;align-items:stretch}
+.sec-a-img{flex-shrink:0;width:170px;display:flex;flex-direction:column}
+.sec-a-img label{font-size:13px;font-weight:500;margin-bottom:5px;color:var(--foreground)}
+.sec-a-imgbox{flex:1;min-height:160px}
+.sec-a-fields{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:start}
+
+/* ===== صفوف الفاتورة ===== */
+.inv-head,.inv-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 38px;
+                   gap:8px;align-items:center}
+.inv-head{font-size:12px;color:var(--muted-foreground);font-weight:500;
+          padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.inv-row{padding:4px 0}
+.acc-inv-head,.acc-inv-row{grid-template-columns:2fr 1fr 1fr 1fr 1fr 38px}
+.btn-add-row{background:transparent;border:1px dashed var(--border);border-radius:6px;
+             width:100%;padding:7px;font-family:inherit;font-size:13px;cursor:default;
+             color:var(--muted-foreground);margin-top:8px;text-align:center}
+.btn-add-row:hover{border-color:var(--primary);color:var(--primary)}
+.inv-total{display:flex;align-items:center;justify-content:space-between;
+           background:var(--green-soft);border:1px solid #c5ddca;border-radius:7px;
+           padding:10px 14px;margin-top:10px;font-size:14px;font-weight:700}
+.inv-total .inv-total-val{color:var(--green);font-size:16px;font-weight:800}
+
+/* ===== صفوف القماش/الإكسسوار ===== */
+.rep-label{font-size:13px;font-weight:700;margin:4px 0 8px;color:var(--primary)}
+.rep-row{display:grid;gap:8px;align-items:end;margin-bottom:8px}
+.rep-row.fabric-main{grid-template-columns:38px 1fr 120px 38px}
+.rep-row.fabric-extra{grid-template-columns:100px 1fr 120px 38px}
+.rep-row.acc{grid-template-columns:1fr 120px 38px}
+.iconbtn{width:36px;height:36px;border-radius:6px;display:grid;place-items:center;
+         font-size:16px;border:1px solid var(--border);background:var(--card);cursor:default}
+.iconbtn.add{background:var(--primary);color:#fff;border-color:var(--primary)}
+.iconbtn.del{color:var(--destructive)}
+.role-pill{display:inline-flex;align-items:center;height:36px;padding:0 10px;border-radius:6px;
+           background:var(--muted);border:1px solid var(--border);font-size:12px;
+           font-weight:700;color:var(--muted-foreground);justify-content:center}
+
+/* ===== أزرار الجداول ===== */
+.tbl-btn{border:none;border-radius:6px;padding:4px 12px;font-family:inherit;
+         font-size:12.5px;cursor:default;font-weight:500}
+.tbl-btn.edit{background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+.tbl-btn.edit:hover{border-color:var(--primary);color:var(--primary)}
+.tbl-btn.del{background:transparent;color:var(--destructive);border:1px solid transparent}
+.tbl-btn.del:hover{background:rgba(220,38,38,.07);border-color:rgba(220,38,38,.2)}
+
+/* ===== الجداول ===== */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+thead th{text-align:right;padding:9px 11px;font-weight:500;
+         color:var(--muted-foreground);border-bottom:1px solid var(--border)}
+tbody td{padding:10px 11px;border-bottom:1px solid var(--border);color:var(--foreground)}
+tbody tr:last-child td{border-bottom:none}
+.table-wrap{padding:4px 10px 10px}
+.pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
+.pill.ok{background:var(--green-soft);color:var(--green)}
+.pill.warn{background:var(--amber-soft);color:var(--amber)}
+.pill.red{background:#fde8e8;color:var(--destructive)}
+.pill.muted{background:var(--muted);color:var(--muted-foreground)}
+.td-actions{display:flex;gap:6px;align-items:center}
+
+/* ===== موديلات: الجدول الأكورديون ===== */
+tr.model-row{cursor:pointer}
+tr.model-row:hover{background:var(--muted)}
+tr.model-row .caret{display:inline-block;transition:transform .2s;color:var(--muted-foreground);font-size:12px}
+tr.model-row.open .caret{transform:rotate(180deg)}
+tr.panel-row>td{padding:0;border-bottom:1px solid var(--border)}
+.panel-inner{display:none;padding:14px;background:var(--muted)}
+tr.panel-row.show .panel-inner{display:block}
+.smart{display:grid;grid-template-columns:160px 1fr;gap:16px}
+.smart .img{background:var(--card);border:1px dashed var(--border);border-radius:8px;
+            display:grid;place-items:center;color:var(--accent);font-size:13px;
+            min-height:150px;text-align:center}
+.smart .mmeta{color:var(--muted-foreground);font-size:13px;margin-bottom:12px}
+.stats-mini{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ministat{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px}
+.ministat .k{font-size:11.5px;color:var(--muted-foreground)}
+.ministat .v{font-size:17px;font-weight:800;margin-top:2px}
+.ministat.hl{background:var(--green-soft);border-color:#c5ddca}
+.ministat.hl .v{color:var(--green)}
+
+/* ===== أزرار عامة ===== */
+.btn{background:var(--primary);color:#fff;border:none;border-radius:6px;
+     padding:8px 18px;font-size:14px;font-weight:500;font-family:inherit;
+     cursor:default;display:inline-block;margin:10px 14px 14px 0}
+.btn.ghost{background:transparent;color:var(--foreground);border:1px solid var(--border)}
+
+/* ===== الدرج ===== */
+.drawer-overlay{position:fixed;inset:0;background:rgba(44,36,22,.4);z-index:9998;display:none}
+.drawer-overlay.open{display:block}
+.drawer{position:fixed;top:0;left:0;bottom:0;width:440px;max-width:92vw;
+        background:var(--card);border-inline-start:1px solid var(--border);
+        box-shadow:4px 0 24px rgba(44,36,22,.18);transform:translateX(-110%);
+        transition:transform .28s ease;z-index:9999;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;
+             padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
+.drawer-head h3{margin:0;font-size:16px;font-weight:700}
+.drawer-close{background:transparent;border:1px solid var(--border);border-radius:6px;
+              width:32px;height:32px;cursor:default;font-size:16px;display:grid;place-items:center}
+.drawer-body{padding:18px;overflow-y:auto;flex:1}
+.drawer-foot{padding:14px 18px;border-top:1px solid var(--border);
+             display:flex;gap:8px;flex-shrink:0}
+.drawer-foot .btn{margin:0}
+
+/* ===== سجل التعديلات (داخل الدرج) ===== */
+details.log{border:1px solid var(--border);border-radius:8px;margin-top:16px;overflow:hidden}
+details.log>summary{list-style:none;cursor:pointer;padding:10px 13px;
+                    background:var(--muted);font-size:13px;font-weight:700;
+                    display:flex;align-items:center;justify-content:space-between;
+                    user-select:none}
+details.log>summary::-webkit-details-marker{display:none}
+details.log>summary .log-chev{font-size:11px;color:var(--muted-foreground);transition:transform .2s}
+details.log[open]>summary .log-chev{transform:rotate(180deg)}
+details.log>summary .log-count{font-size:11px;font-weight:700;padding:1px 7px;
+                                border-radius:99px;background:var(--muted-foreground);
+                                color:#fff;margin-inline-end:auto;margin-inline-start:8px}
+.log-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.log-table th{text-align:right;padding:7px 11px;font-weight:500;
+              color:var(--muted-foreground);border-bottom:1px solid var(--border);font-size:12px}
+.log-table td{padding:8px 11px;border-bottom:1px solid var(--border)}
+.log-table tr:last-child td{border-bottom:none}
+
+/* ===== الإشعارات ===== */
+.low-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;
+           border-radius:999px;background:#fde8e8;color:var(--destructive);
+           margin-inline-start:6px}
+.new-count{font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;
+           background:var(--amber-soft);color:var(--amber);margin-inline-start:5px}
+
+/* ===== استجابة: لوحي ===== */
+@media(max-width:820px){
+  .wrap{padding:16px 12px 60px}
+  .stats-row{grid-template-columns:repeat(2,1fr)!important}
+  .grid,.grid.two{grid-template-columns:1fr}
+  .smart{grid-template-columns:1fr}
+  .stats-mini{grid-template-columns:repeat(2,1fr)}
+  .sec-a-wrap{flex-direction:column}
+  .sec-a-img{width:100%}
+  .sec-a-fields{grid-template-columns:1fr 1fr}
+}
+
+/* ===== استجابة: جوال ===== */
+@media(max-width:560px){
+  body{font-size:14px;line-height:1.6}
+  .wrap{padding:12px 10px 48px}
+  .app-top{margin-bottom:14px}
+  .app-top h1{font-size:19px}
+  .app-top .app-sub{font-size:12.5px}
+  .btn-outline{padding:6px 12px;font-size:12.5px}
+
+  /* الإحصائيات: عمودان مضغوطان */
+  .stats-row{grid-template-columns:1fr 1fr!important;gap:8px;margin-bottom:10px}
+  .stat-inner{padding:11px}
+  .stat-card .v{font-size:16px}
+
+  /* شريط الوحدة */
+  .unit-bar{padding:10px 12px;gap:8px}
+  .unit-toggle{margin-inline-start:0;width:100%}
+  .unit-btn{flex:1;padding:6px 0}
+
+  /* التبويبات: تمرير أفقي بدل الالتفاف */
+  .tablist{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tablist::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;min-width:auto;white-space:nowrap;padding:7px 16px}
+  .subtabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;scrollbar-width:none}
+  .subtabs::-webkit-scrollbar{display:none}
+  .subtab{flex:0 0 auto;white-space:nowrap;padding:8px 14px}
+
+  /* الجداول: تمرير أفقي */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .table-wrap>table{min-width:540px}
+
+  /* أقسام النموذج (الموديلات) */
+  .sec-a-fields{grid-template-columns:1fr}
+  .stats-mini{grid-template-columns:1fr}
+  .rep-row.fabric-main{grid-template-columns:34px 1fr 84px 34px}
+  .rep-row.fabric-extra{grid-template-columns:1fr 34px}
+  .rep-row.fabric-extra .field:nth-child(1),
+  .rep-row.fabric-extra .field:nth-child(2){grid-column:1/-1}
+  .rep-row.acc{grid-template-columns:1fr 84px 34px}
+
+  /* صفوف الفاتورة → بطاقات مكدّسة */
+  .inv-head{display:none}
+  .inv-row,.inv-row.acc-inv-row{
+    grid-template-columns:1fr 1fr;gap:8px 10px;align-items:start;
+    border:1px solid var(--border);border-radius:8px;padding:11px;margin-bottom:10px}
+  .inv-row>.sel-wrap{grid-column:1/-1}
+  .inv-row .field[data-label]::before{content:attr(data-label);display:block;
+    font-size:10.5px;color:var(--muted-foreground);margin-bottom:3px}
+  .inv-row>.iconbtn.del{grid-column:1/-1;justify-self:start;margin-top:2px}
+
+  /* جدول → بطاقات على الجوال */
+  .cards-mobile thead{display:none}
+  .cards-mobile,.cards-mobile tbody,.cards-mobile tr,.cards-mobile td{display:block;width:100%}
+  .cards-mobile tr{border:1px solid var(--border);border-radius:8px;padding:4px 12px;
+    margin-bottom:10px;background:var(--card)}
+  .cards-mobile td{border:none;padding:8px 0;display:flex;align-items:center;
+    justify-content:space-between;gap:12px;border-bottom:1px solid var(--muted)}
+  .cards-mobile tr td:last-child{border-bottom:none}
+  .cards-mobile td::before{content:attr(data-label);font-weight:700;
+    color:var(--muted-foreground);font-size:12px;flex-shrink:0}
+  .cards-mobile td.actions-cell{flex-direction:column;align-items:stretch}
+  .cards-mobile td.actions-cell::before{margin-bottom:6px}
+  .cards-mobile td.actions-cell .td-actions{display:flex;gap:6px}
+  .cards-mobile td.actions-cell .tbl-btn{flex:1;padding:7px 0;text-align:center}
+
+  /* الدرج: عرض كامل */
+  .drawer{width:100%;max-width:100%;border-inline-start:none}
+
+  /* الدرج: تعديل الموديل — القسم أ يتكدّس */
+  .dr-a{flex-direction:column}
+  .dr-a-img{width:100%!important}
+  .dr-a-fields{grid-template-columns:1fr 1fr}
+
+  /* أزرار الحفظ بعرض مريح */
+  .btn{padding:9px 16px}
+}
+
+/* ===== استجابة: جوال صغير ===== */
+@media(max-width:380px){
+  .dr-a-fields{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ===== رأس التطبيق ===== -->
+<div class="app-top">
+  <div>
+    <h1>إدارة الأقمشة</h1>
+    <p class="app-sub">تتبع مخزون الأقمشة والكميات لدى الخياطين وتكلفة الفساتين النهائية</p>
+  </div>
+  <button class="btn-outline">بوابة الخياطين</button>
+</div>
+
+<!-- ===== إحصائيات عامة ===== -->
+<div class="stats-row">
+  <div class="stat-card"><div class="stat-inner">
+    <div><p class="k">أنواع الأقمشة</p><p class="v">2</p></div>
+    <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
+  </div></div>
+  <div class="stat-card"><div class="stat-inner">
+    <div><p class="k">الخياطون النشطون</p><p class="v">2</p></div>
+    <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div>
+  </div></div>
+  <div class="stat-card"><div class="stat-inner">
+    <div><p class="k">المخزون المتاح</p><p class="v">1,879 م</p></div>
+    <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+  </div></div>
+  <div class="stat-card"><div class="stat-inner">
+    <div><p class="k">لدى الخياطين</p><p class="v">0 م</p></div>
+    <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+  </div></div>
+  <div class="stat-card"><div class="stat-inner">
+    <div><p class="k">طلبات معلقة</p><p class="v">0</p></div>
+    <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+  </div></div>
+</div>
+
+<!-- ===== وحدة القياس ===== -->
+<div class="unit-bar">
+  <span class="unit-bar-label">وحدة القياس</span>
+  <span class="unit-bar-hint">تُطبّق على كل التبويبات: الكميات والتكاليف والاستهلاك</span>
+  <div class="unit-toggle">
+    <button class="unit-btn active" onclick="setUnit(this)">متر</button>
+    <button class="unit-btn" onclick="setUnit(this)">ياردة</button>
+  </div>
+</div>
+
+<!-- ===== قائمة التبويبات (4 تبويبات) ===== -->
+<div class="tablist">
+  <button class="tab active" onclick="switchTab('inventory',this)">المخزون</button>
+  <button class="tab" onclick="switchTab('tailors',this)">الخياطين وطلباتهم</button>
+  <button class="tab" onclick="switchTab('production',this)">دورة الإنتاج</button>
+  <button class="tab" onclick="switchTab('models',this)">الموديلات</button>
+</div>
+
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- تبويب 1: المخزون                              -->
+<!-- ══════════════════════════════════════════════ -->
+<div class="tab-panel active" id="tp-inventory">
+
+  <div class="card">
+    <!-- إنشاء فاتورة جديدة -->
+    <details class="acc" open>
+      <summary><span class="ico">أ</span> إنشاء فاتورة جديدة <span class="chev">▾</span></summary>
+      <div class="acc-body">
+        <div class="subtabs" id="inv-subtabs">
+          <button class="subtab active" onclick="switchSubtab('stp-fabric',this,'inv-subtabs')">فاتورة شراء قماش</button>
+          <button class="subtab" onclick="switchSubtab('stp-acc-inv',this,'inv-subtabs')">فاتورة شراء المستلزمات</button>
+        </div>
+
+        <!-- فاتورة شراء قماش -->
+        <div class="subtab-panel active" id="stp-fabric">
+          <p style="font-size:13px;color:var(--muted-foreground);margin:0 0 12px">أدخل بيانات الفاتورة مرة واحدة ثم أضف كل الأقمشة الموجودة فيها</p>
+          <div class="grid" style="margin-bottom:14px">
+            <div class="field"><label>رقم الفاتورة</label><div class="inp" style="color:var(--foreground)">INV-2026-001</div></div>
+            <div class="field"><label>تاريخ الشراء</label><div class="inp" style="color:var(--foreground)">2026/06/17</div></div>
+            <div class="field"><label>المورد</label>
+              <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu"><div class="sel-options-list">
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">مورد أقمشة الرياض</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">مورد جدة للأقمشة</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                </div>
+                <div class="sel-add-row"><input class="sel-add-input" placeholder="مورد جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+              </div></div>
+            </div>
+          </div>
+          <div class="inv-head"><div>القماش</div><div>رقم المنتج</div><div>الكمية</div><div>التكلفة</div><div>حد التنبيه</div><div>الإجمالي</div><div></div></div>
+          <div id="fabricInvRows">
+            <div class="inv-row">
+              <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">أضف / اختر القماش</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu"><div class="sel-options-list">
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">باربي</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">شيفون</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                </div>
+                <div class="sel-add-row"><input class="sel-add-input" placeholder="قماش جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+              </div></div>
+              <div class="field" data-label="رقم المنتج"><div class="inp" style="color:var(--foreground)">FAB-001</div></div>
+              <div class="field" data-label="الكمية"><div class="inp" style="color:var(--foreground)">50 م</div></div>
+              <div class="field" data-label="التكلفة"><div class="inp" style="color:var(--foreground)">28.44 ر.س</div></div>
+              <div class="field" data-label="حد التنبيه"><div class="inp" style="color:var(--foreground)">10 م</div></div>
+              <div class="field auto" data-label="الإجمالي"><div class="inp">1,422 ر.س</div></div>
+              <div class="iconbtn del" onclick="removeRow(this)">🗑️</div>
+            </div>
+          </div>
+          <div class="inv-total"><span>إجمالي الفاتورة</span><span class="inv-total-val">1,422 ر.س</span></div>
+          <button class="btn-add-row" onclick="addFabricInvRow()">＋ إضافة قماش</button>
+          <div class="field" style="margin:10px 0 4px"><label>ملاحظات الفاتورة</label><div class="inp area"></div></div>
+          <button class="btn">حفظ الفاتورة</button>
+        </div>
+
+        <!-- فاتورة شراء إكسسوارات -->
+        <div class="subtab-panel" id="stp-acc-inv">
+          <p style="font-size:13px;color:var(--muted-foreground);margin:0 0 12px">أدخل بيانات الفاتورة ثم أضف المستلزمات المشتراة</p>
+          <div class="grid" style="margin-bottom:14px">
+            <div class="field"><label>رقم الفاتورة</label><div class="inp" style="color:var(--foreground)">INV-ACC-001</div></div>
+            <div class="field"><label>تاريخ الشراء</label><div class="inp" style="color:var(--foreground)">2026/06/17</div></div>
+            <div class="field"><label>المورد</label>
+              <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu"><div class="sel-options-list">
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">مورد المستلزمات</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                </div>
+                <div class="sel-add-row"><input class="sel-add-input" placeholder="مورد جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+              </div></div>
+            </div>
+          </div>
+          <div class="inv-head acc-inv-head"><div>المستلزم</div><div>رقم المنتج</div><div>الكمية</div><div>السعر</div><div>الإجمالي</div><div></div></div>
+          <div id="accInvRows">
+            <div class="inv-row acc-inv-row">
+              <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">أضف / اختر المستلزم</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu"><div class="sel-options-list">
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">سحّاب مخفي</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">خرز تطريز</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">أزرار</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                </div>
+                <div class="sel-add-row"><input class="sel-add-input" placeholder="مستلزم جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+              </div></div>
+              <div class="field" data-label="رقم المنتج"><div class="inp" style="color:var(--foreground)">ACC-001</div></div>
+              <div class="field" data-label="الكمية"><div class="inp" style="color:var(--foreground)">10</div></div>
+              <div class="field" data-label="السعر"><div class="inp" style="color:var(--foreground)">3 ر.س</div></div>
+              <div class="field auto" data-label="الإجمالي"><div class="inp">30 ر.س</div></div>
+              <div class="iconbtn del" onclick="removeRow(this)">🗑️</div>
+            </div>
+          </div>
+          <div class="inv-total"><span>إجمالي الفاتورة</span><span class="inv-total-val">30 ر.س</span></div>
+          <button class="btn-add-row" onclick="addAccInvRow()">＋ إضافة مستلزم</button>
+          <div class="field" style="margin:10px 0 4px"><label>ملاحظات الفاتورة</label><div class="inp area"></div></div>
+          <button class="btn">حفظ الفاتورة</button>
+        </div>
+      </div>
+    </details>
+
+  </div>
+
+  <!-- جدول المخزون: أقمشة + مستلزمات -->
+  <div class="card">
+    <div style="border-bottom:1px solid var(--border)">
+      <div class="subtabs" id="stock-subtabs" style="margin-bottom:0;padding:0 14px">
+        <button class="subtab active" onclick="switchSubtab('stock-fabric',this,'stock-subtabs')">الأقمشة</button>
+        <button class="subtab" onclick="switchSubtab('stock-acc',this,'stock-subtabs')">المستلزمات</button>
+      </div>
+    </div>
+
+    <!-- جدول الأقمشة -->
+    <div class="subtab-panel active" id="stock-fabric">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>القماش</th><th>رقم المنتج</th><th>اللون</th><th>النوع</th><th>المخزون</th><th>تكلفة المتر</th><th>إجراء</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><b>باربي</b></td><td style="color:var(--muted-foreground)">FAB-001</td><td>بيج</td><td>مطرز</td>
+              <td>22.86 م <span class="low-badge">منخفض</span></td><td>28.44 ر.س</td>
+              <td><div class="td-actions">
+                <button class="tbl-btn edit" onclick="openFabricDrawer('باربي','FAB-001','بيج','مطرز','22.86','28.44','10')">تعديل</button>
+                <button class="tbl-btn del">حذف</button>
+              </div></td>
+            </tr>
+            <tr>
+              <td><b>شيفون</b></td><td style="color:var(--muted-foreground)">FAB-002</td><td>رمادي</td><td>مخمل</td>
+              <td>1,856.23 م</td><td>21.87 ر.س</td>
+              <td><div class="td-actions">
+                <button class="tbl-btn edit" onclick="openFabricDrawer('شيفون','FAB-002','رمادي','مخمل','1856.23','21.87','50')">تعديل</button>
+                <button class="tbl-btn del">حذف</button>
+              </div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- جدول المستلزمات -->
+    <div class="subtab-panel" id="stock-acc">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>المستلزم</th><th>رقم المنتج</th><th>المخزون</th><th>السعر</th><th>إجراء</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><b>سحّاب مخفي</b></td><td style="color:var(--muted-foreground)">ACC-001</td>
+              <td>120 قطعة</td><td>3 ر.س</td>
+              <td><div class="td-actions">
+                <button class="tbl-btn edit" onclick="openAccDrawer('سحّاب مخفي','ACC-001','120','3')">تعديل</button>
+                <button class="tbl-btn del">حذف</button>
+              </div></td>
+            </tr>
+            <tr>
+              <td><b>خرز تطريز</b></td><td style="color:var(--muted-foreground)">ACC-002</td>
+              <td>15 علبة <span class="low-badge">منخفض</span></td><td>12 ر.س</td>
+              <td><div class="td-actions">
+                <button class="tbl-btn edit" onclick="openAccDrawer('خرز تطريز','ACC-002','15','12')">تعديل</button>
+                <button class="tbl-btn del">حذف</button>
+              </div></td>
+            </tr>
+            <tr>
+              <td><b>أزرار</b></td><td style="color:var(--muted-foreground)">ACC-003</td>
+              <td>340 قطعة</td><td>0.5 ر.س</td>
+              <td><div class="td-actions">
+                <button class="tbl-btn edit" onclick="openAccDrawer('أزرار','ACC-003','340','0.5')">تعديل</button>
+                <button class="tbl-btn del">حذف</button>
+              </div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /inventory -->
+
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- تبويب 2: الخياطين وطلباتهم                    -->
+<!-- ══════════════════════════════════════════════ -->
+<div class="tab-panel" id="tp-tailors">
+  <div class="card">
+    <div style="border-bottom:1px solid var(--border)">
+      <div class="subtabs" id="tai-subtabs" style="margin-bottom:0;padding:0 14px">
+        <button class="subtab active" onclick="switchSubtab('tai-list',this,'tai-subtabs')">الخياطون</button>
+        <button class="subtab" onclick="switchSubtab('tai-req',this,'tai-subtabs')">
+          طلبات الخياطين <span class="new-count">1 جديد</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- الخياطون: إضافة + قائمة -->
+    <div class="subtab-panel active" id="tai-list">
+      <details class="acc" open>
+        <summary><span class="ico">＋</span> إضافة خياط <span class="chev">▾</span></summary>
+        <div class="acc-body">
+          <div class="grid">
+            <div class="field"><label>اسم الخياط</label><div class="inp" style="color:var(--foreground)"></div></div>
+            <div class="field"><label>الورشة / نوع العمل</label>
+              <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">غير محدد</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu"><div class="sel-options-list">
+                  <div class="sel-option selected" onclick="pickSel(this)"><span class="opt-text">غير محدد</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">ورشة داخلية</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">خياط خارجي</span></div>
+                </div>
+                <div class="sel-add-row"><input class="sel-add-input" placeholder="نوع جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+              </div></div>
+            </div>
+            <div class="field"><label>الجوال</label><div class="inp" style="color:var(--foreground)"></div></div>
+            <div class="field"><label>رمز الدخول للبوابة</label><div class="inp" style="color:var(--foreground)"></div></div>
+            <div class="field full"><label>ملاحظات</label><div class="inp area"></div></div>
+          </div>
+          <button class="btn">حفظ الخياط</button>
+        </div>
+      </details>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>الخياط</th><th>الورشة</th><th>الجوال</th><th>رمز الدخول</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td>حليس</td><td>—</td><td>0550037032</td><td>121212</td><td><span class="pill ok">نشط</span></td></tr>
+            <tr><td>زكي</td><td>ورشة داخلية</td><td>—</td><td>0100</td><td><span class="pill ok">نشط</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- طلبات الخياطين -->
+    <div class="subtab-panel" id="tai-req">
+      <div class="subtab-body">
+        <table class="cards-mobile">
+          <thead><tr><th>الخياط</th><th>نوع الطلب</th><th>القماش</th><th>الكمية</th><th>الحالة</th><th>التاريخ</th><th>إجراء</th></tr></thead>
+          <tbody>
+            <tr>
+              <td data-label="الخياط">زكي</td><td data-label="نوع الطلب">طلب مخزون</td><td data-label="القماش">باربي</td><td data-label="الكمية">4.57 م</td>
+              <td data-label="الحالة"><span class="pill red">مرفوض</span></td><td data-label="التاريخ">09/06/2026</td>
+              <td data-label="إجراء" class="actions-cell"><div class="td-actions">
+                <button class="tbl-btn edit">موافقة</button>
+                <button class="tbl-btn edit">تم التوريد</button>
+                <button class="tbl-btn del">رفض</button>
+              </div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div><!-- /tailors -->
+
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- تبويب 3: دورة الإنتاج                         -->
+<!-- ══════════════════════════════════════════════ -->
+<div class="tab-panel" id="tp-production">
+
+  <div class="card">
+    <details class="acc" open>
+      <summary><span class="ico">⚙</span> اختر دورة الإنتاج <span class="chev">▾</span></summary>
+      <div class="acc-body" style="padding:0">
+        <div style="border-bottom:1px solid var(--border)">
+          <div class="subtabs" id="prod-subtabs" style="margin-bottom:0;padding:0 14px">
+            <button class="subtab active" onclick="switchSubtab('prod-send',this,'prod-subtabs')">↑ تسليم القماش للخياط</button>
+            <button class="subtab" onclick="switchSubtab('prod-recv',this,'prod-subtabs')">↓ استلام الفساتين والتكلفة</button>
+          </div>
+        </div>
+
+        <!-- تسليم -->
+        <div class="subtab-panel active" id="prod-send">
+          <div class="subtab-body">
+            <div class="field" style="margin-bottom:14px">
+              <label>اختر الفستان</label>
+              <div class="sel-wrap">
+                <div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val" style="color:var(--muted-foreground)">اختر الفستان</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu"><div class="sel-options-list">
+                  <div class="sel-option" onclick="pickSel(this);showDressComponents('DRS-001')"><span class="opt-text">DRS-001 — باربي</span></div>
+                  <div class="sel-option" onclick="pickSel(this);showDressComponents('DRS-014')"><span class="opt-text">DRS-014 — شيفون</span></div>
+                </div></div>
+              </div>
+              <div id="dressComponents" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+                <div class="dc-title" style="background:var(--muted);padding:8px 12px;font-size:12.5px;font-weight:700;color:var(--primary)">مكونات الفستان</div>
+                <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+                  <thead><tr>
+                    <th style="text-align:right;padding:7px 12px;color:var(--muted-foreground);font-weight:500;border-bottom:1px solid var(--border)">الاسم</th>
+                    <th style="text-align:right;padding:7px 12px;color:var(--muted-foreground);font-weight:500;border-bottom:1px solid var(--border)">رقم المنتج</th>
+                    <th style="text-align:right;padding:7px 12px;color:var(--muted-foreground);font-weight:500;border-bottom:1px solid var(--border)">الكمية</th>
+                    <th style="text-align:right;padding:7px 12px;color:var(--muted-foreground);font-weight:500;border-bottom:1px solid var(--border)">التكلفة</th>
+                  </tr></thead>
+                  <tbody class="dc-body"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="field"><label>الخياط</label>
+                <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val" style="color:var(--muted-foreground)">اختر الخياط</span><span class="sel-chev">▾</span></div>
+                  <div class="sel-menu"><div class="sel-options-list">
+                    <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">حليس</span></div>
+                    <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">زكي</span></div>
+                  </div></div>
+                </div>
+              </div>
+              <div class="field"><label>تاريخ التسليم</label><div class="inp" style="color:var(--foreground)">2026/06/17</div></div>
+              <div class="field"><label>مرجع</label><div class="inp" style="color:var(--foreground)"></div></div>
+              <div class="field full"><label>ملاحظات</label><div class="inp" style="color:var(--foreground)"></div></div>
+            </div>
+            <button class="btn">تسجيل التسليم</button>
+          </div>
+        </div>
+
+        <!-- استلام + تكلفة -->
+        <div class="subtab-panel" id="prod-recv">
+          <div class="subtab-body">
+            <div class="grid">
+              <div class="field"><label>اختر الفستان</label>
+                <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر الفستان</span><span class="sel-chev">▾</span></div>
+                  <div class="sel-menu"><div class="sel-options-list">
+                    <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">DRS-001 — باربي</span></div>
+                    <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">DRS-014 — شيفون</span></div>
+                  </div></div>
+                </div>
+              </div>
+              <div class="field"><label>عدد الفساتين</label><div class="inp" style="color:var(--foreground)"></div></div>
+              <div class="field"><label>المرتجع للمخزون (م)</label><div class="inp" style="color:var(--foreground)"></div></div>
+              <div class="field"><label>تكلفة الخياطة</label><div class="inp" style="color:var(--foreground)"></div></div>
+              <div class="field"><label>تكلفة التطريز</label><div class="inp" style="color:var(--foreground)"></div></div>
+              <div class="field"><label>تكاليف إضافية</label><div class="inp" style="color:var(--foreground)"></div></div>
+              <div class="field"><label>تاريخ الاستلام</label><div class="inp" style="color:var(--foreground)">2026/06/17</div></div>
+              <div class="field" style="grid-column:2/-1"><label>ملاحظات</label><div class="inp" style="color:var(--foreground)"></div></div>
+            </div>
+            <button class="btn">حفظ الاستلام</button>
+          </div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- سجل الحركات -->
+  <div class="card">
+    <div class="card-head">سجل الحركات</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>الفستان</th><th>الخياط</th><th>التاريخ</th><th>المرتجع</th><th>تكلفة الخياطة</th><th>إجمالي التكلفة</th></tr></thead>
+        <tbody><tr><td colspan="6" style="text-align:center;color:var(--muted-foreground);padding:24px">لا توجد حركات مسجّلة</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div><!-- /production -->
+
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- تبويب 4: الموديلات                            -->
+<!-- ══════════════════════════════════════════════ -->
+<div class="tab-panel" id="tp-models">
+
+  <!-- إحصائيات الموديلات -->
+  <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">عدد الموديلات</p><p class="v">12 موديل</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
+    </div></div>
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">موديلات نشطة</p><p class="v">9 نشطة</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+    </div></div>
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">قابل للإنتاج حالياً</p><p class="v">9 فساتين</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 9.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0Z"/></svg></div>
+    </div></div>
+    <div class="stat-card"><div class="stat-inner">
+      <div><p class="k">إجمالي القماش المحجوز</p><p class="v">17.7 م</p></div>
+      <div class="stat-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+    </div></div>
+  </div>
+
+  <!-- فورم إضافة موديل -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head">بيانات الموديل
+      <span style="font-size:13px;font-weight:400;color:var(--muted-foreground)">اختر الأقمشة وشاهد التكلفة والكمية الممكنة تلقائياً</span>
+    </div>
+
+    <!-- قسم أ -->
+    <details class="acc" open>
+      <summary><span class="ico">أ</span> معلومات أساسية <span class="chev">▾</span></summary>
+      <div class="acc-body">
+        <div class="sec-a-wrap">
+          <div class="sec-a-img">
+            <label>صورة المنتج</label>
+            <div class="imgbox sec-a-imgbox">🖼️<br>اسحب أو اضغط للرفع</div>
+          </div>
+          <div class="sec-a-fields">
+            <div class="field"><label>رقم الصنف (SKU)</label><div class="inp" style="color:var(--muted-foreground)">مثال: DRS-001</div></div>
+            <div class="field"><label>الحالة</label>
+              <div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">نشط</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu" id="statusMenu"><div class="sel-options-list">
+                  <div class="sel-option selected" onclick="pickSel(this)"><span class="opt-text">نشط</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">موقوف</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                  <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">تحت التطوير</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                </div>
+                <div class="sel-add-row"><input class="sel-add-input" placeholder="حالة جديدة" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+              </div></div>
+            </div>
+            <div class="field full"><label>الألوان المتاحة</label>
+              <div class="sel-wrap">
+                <div class="sel-trigger" id="colorTrigger" onclick="toggleColorPicker()"><span class="sel-val" id="colorVal">اختر الألوان…</span><span class="sel-chev">▾</span></div>
+                <div class="sel-menu" id="colorMenu"><div class="color-menu">
+                  <div class="color-grid" id="colorGrid">
+                    <div class="chip-wrap"><span class="color-chip" style="background:#fff;border-color:#ccc" data-name="أبيض" onclick="pickColor(this)" title="أبيض"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#1a1a1a" data-name="أسود" onclick="pickColor(this)" title="أسود"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#c8a97a" data-name="بيج" onclick="pickColor(this)" title="بيج"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#8b6f47" data-name="بني" onclick="pickColor(this)" title="بني"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#b5363e" data-name="أحمر" onclick="pickColor(this)" title="أحمر"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#e8a0b4" data-name="وردي" onclick="pickColor(this)" title="وردي"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#c084b8" data-name="بنفسجي" onclick="pickColor(this)" title="بنفسجي"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#2c6fa8" data-name="أزرق" onclick="pickColor(this)" title="أزرق"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#4a9e6b" data-name="أخضر" onclick="pickColor(this)" title="أخضر"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#d4a836" data-name="ذهبي" onclick="pickColor(this)" title="ذهبي"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#c0c0c0" data-name="فضي" onclick="pickColor(this)" title="فضي"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#2c2416" data-name="كحلي" onclick="pickColor(this)" title="كحلي"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip" style="background:#708090" data-name="رمادي" onclick="pickColor(this)" title="رمادي"></span><span class="chip-del" onclick="deleteColorChip(event,this)">×</span></div>
+                    <div class="chip-wrap"><span class="color-chip multi" data-name="متعدد الألوان" onclick="pickColor(this)">متعدد الألوان</span></div>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--muted-foreground);margin-bottom:10px">اضغط لاختيار لون أو أكثر • مرّر على اللون لحذفه</div>
+                  <div class="sel-add-row" style="border-top:1px solid var(--border);padding-top:8px;display:flex;gap:8px;align-items:center">
+                    <input type="color" id="colorPickerNative" value="#aa6688" style="width:34px;height:34px;border:1px solid var(--border);border-radius:6px;padding:2px;cursor:pointer">
+                    <input class="sel-add-input" id="colorCustomName" placeholder="اسم اللون" onkeydown="if(event.key==='Enter'){addCustomColor();event.preventDefault()}">
+                    <button class="sel-add-btn" onclick="addCustomColor()">＋</button>
+                  </div>
+                </div></div>
+              </div>
+            </div>
+            <div class="field full"><label>الوصف</label><div class="inp area" style="color:var(--muted-foreground)">وصف التصميم…</div></div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- قسم ب -->
+    <details class="acc" open>
+      <summary><span class="ico">ب</span> الأقمشة والمستلزمات <span class="tag">الأهم</span> <span class="chev">▾</span></summary>
+      <div class="acc-body">
+        <div class="rep-label">الأقمشة</div>
+        <div class="rep-row fabric-main">
+          <div class="iconbtn" style="font-size:18px;color:var(--amber);border-color:var(--amber-soft);background:var(--amber-soft)" title="قماش أساسي">★</div>
+          <div class="field"><div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر القماش</span><span class="sel-chev">▾</span></div>
+            <div class="sel-menu" id="mainFabricMenu"><div class="sel-options-list">
+              <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">باربي — متاح 22.86م</span></div>
+              <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">شيفون — متاح 1,856م</span></div>
+            </div></div>
+          </div></div>
+          <div class="field"><div class="inp" style="color:var(--muted-foreground)">الاستهلاك م</div></div>
+          <div class="iconbtn add" onclick="addFabricRow()" title="إضافة">＋</div>
+        </div>
+        <div id="extraFabrics"></div>
+        <div class="rep-label" style="margin-top:14px">الإكسسوارات والمستلزمات</div>
+        <div id="accRows">
+          <div class="rep-row acc">
+            <div class="field"><div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر الإكسسوار</span><span class="sel-chev">▾</span></div>
+              <div class="sel-menu acc-menu"><div class="sel-options-list">
+                <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">سحّاب مخفي</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">خرز تطريز</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+                <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">أزرار</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+              </div>
+              <div class="sel-add-row"><input class="sel-add-input" placeholder="إكسسوار جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+            </div></div></div>
+            <div class="field"><div class="inp" style="color:var(--muted-foreground)">الاستهلاك</div></div>
+            <div class="iconbtn add" onclick="addAccRow()" title="إضافة">＋</div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- قسم د -->
+    <details class="acc" open>
+      <summary><span class="ico">د</span> التكاليف <span class="chev">▾</span></summary>
+      <div class="acc-body">
+        <div class="grid">
+          <div class="field auto"><label>تكلفة القماش</label><div class="inp">— ر.س</div></div>
+          <div class="field auto"><label>تكلفة الإكسسوارات</label><div class="inp">— ر.س</div></div>
+          <div class="field auto"><label>تكلفة الخياطة</label><div class="inp">— ر.س</div></div>
+          <div class="field auto"><label>تكلفة التطريز</label><div class="inp">— ر.س</div></div>
+          <div class="field"><label>تكلفة إضافية</label><div class="inp" style="color:var(--foreground)"></div></div>
+          <div class="field auto"><label>التكلفة الإجمالية</label><div class="inp">— ر.س</div></div>
+        </div>
+      </div>
+    </details>
+
+    <button class="btn">حفظ الموديل</button>
+    <button class="btn ghost">إلغاء</button>
+  </div>
+
+  <!-- جدول الموديلات -->
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th></th><th>رقم الصنف</th><th>الألوان</th><th>القماش الأساسي</th><th>الكمية</th><th>التكلفة الإجمالية</th><th>الحالة</th><th>إجراء</th>
+        </tr></thead>
+        <tbody>
+          <tr class="model-row open" data-target="p1">
+            <td><span class="caret">▾</span></td><td>DRS-001</td>
+            <td><span style="display:inline-flex;gap:4px">
+              <span style="width:14px;height:14px;border-radius:50%;background:#c8a97a;border:1px solid rgba(0,0,0,.15);display:inline-block"></span>
+              <span style="width:14px;height:14px;border-radius:50%;background:#e8a0b4;border:1px solid rgba(0,0,0,.15);display:inline-block"></span>
+              <span style="width:14px;height:14px;border-radius:50%;background:#1a1a1a;border:1px solid rgba(0,0,0,.15);display:inline-block"></span>
+            </span></td>
+            <td>باربي</td><td>10 قطع</td><td>150.4 ر.س</td>
+            <td><span class="pill ok">نشط</span></td>
+            <td><div class="td-actions">
+              <button class="tbl-btn edit" onclick="openModelDrawer('DRS-001')">تعديل</button>
+              <button class="tbl-btn del">حذف</button>
+            </div></td>
+          </tr>
+          <tr class="panel-row show" id="p1"><td colspan="8"><div class="panel-inner">
+            <div class="smart">
+              <div class="img">🖼️<br>صورة التصميم</div>
+              <div>
+                <div class="mmeta">القماش الأساسي: باربي • استهلاك القطعة: 2.3م</div>
+                <div class="stats-mini">
+                  <div class="ministat hl"><div class="k">يمكن إنتاجه من المخزون</div><div class="v">9 فساتين</div></div>
+                  <div class="ministat"><div class="k">تكلفة القطعة</div><div class="v">150.4 ر.س</div></div>
+                  <div class="ministat"><div class="k">تكلفة الخياطة</div><div class="v">45 ر.س</div></div>
+                  <div class="ministat"><div class="k">منتَج حالياً</div><div class="v">3</div></div>
+                  <div class="ministat"><div class="k">قيد الخياطة لدى زكي</div><div class="v">5</div></div>
+                  <div class="ministat"><div class="k">قماش محجوز</div><div class="v">11.5م</div></div>
+                </div>
+              </div>
+            </div>
+          </div></td></tr>
+
+          <tr class="model-row" data-target="p2">
+            <td><span class="caret">▾</span></td><td>DRS-014</td>
+            <td><span style="display:inline-flex;gap:4px">
+              <span style="width:14px;height:14px;border-radius:50%;background:#1a1a1a;border:1px solid rgba(0,0,0,.15);display:inline-block"></span>
+              <span style="width:14px;height:14px;border-radius:50%;background:#2c2416;border:1px solid rgba(0,0,0,.15);display:inline-block"></span>
+            </span></td>
+            <td>شيفون</td><td>6 قطع</td><td>185 ر.س</td>
+            <td><span class="pill ok">نشط</span></td>
+            <td><div class="td-actions">
+              <button class="tbl-btn edit" onclick="openModelDrawer('DRS-014')">تعديل</button>
+              <button class="tbl-btn del">حذف</button>
+            </div></td>
+          </tr>
+          <tr class="panel-row" id="p2"><td colspan="8"><div class="panel-inner">
+            <div class="smart">
+              <div class="img">🖼️<br>صورة التصميم</div>
+              <div>
+                <div class="mmeta">القماش الأساسي: شيفون • استهلاك القطعة: 3.1م</div>
+                <div class="stats-mini">
+                  <div class="ministat hl"><div class="k">يمكن إنتاجه من المخزون</div><div class="v">6 فساتين</div></div>
+                  <div class="ministat"><div class="k">تكلفة القطعة</div><div class="v">185 ر.س</div></div>
+                  <div class="ministat"><div class="k">تكلفة الخياطة</div><div class="v">60 ر.س</div></div>
+                  <div class="ministat"><div class="k">منتَج حالياً</div><div class="v">8</div></div>
+                  <div class="ministat"><div class="k">قيد الخياطة</div><div class="v">2</div></div>
+                  <div class="ministat"><div class="k">قماش محجوز</div><div class="v">6.2م</div></div>
+                </div>
+              </div>
+            </div>
+          </div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /models -->
+
+</div><!-- /wrap -->
+
+<!-- ===== الدرج: تعديل قماش ===== -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="editDrawer">
+  <div class="drawer-head">
+    <h3 id="drawerTitle">تعديل</h3>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-foot">
+    <button class="btn" onclick="closeDrawer()">حفظ التعديل</button>
+    <button class="btn ghost" onclick="closeDrawer()">إلغاء</button>
+  </div>
+</div>
+
+<script>
+/* ===== التبويبات ===== */
+function switchTab(id, btn){
+  document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+  document.querySelectorAll('.tablist .tab').forEach(function(t){ t.classList.remove('active'); });
+  var panel = document.getElementById('tp-'+id);
+  if(panel) panel.classList.add('active');
+  if(btn) btn.classList.add('active');
+}
+
+function switchSubtab(panelId, btn, groupId){
+  var group = document.getElementById(groupId);
+  if(group) group.querySelectorAll('.subtab').forEach(function(t){ t.classList.remove('active'); });
+  var accBody = btn.closest('.acc-body, .card');
+  if(accBody) accBody.querySelectorAll('.subtab-panel').forEach(function(p){ p.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  var panel = document.getElementById(panelId);
+  if(panel) panel.classList.add('active');
+}
+
+/* ===== وحدة القياس ===== */
+function setUnit(btn){
+  document.querySelectorAll('.unit-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+
+/* ===== مكونات الفستان (تسليم القماش) ===== */
+var DRESS_COMPONENTS = {
+  'DRS-001': [
+    {name:'باربي', code:'FAB-001', qty:'2.3 م', cost:'65.4 ر.س'},
+    {name:'سحّاب مخفي', code:'ACC-001', qty:'1 قطعة', cost:'3 ر.س'}
+  ],
+  'DRS-014': [
+    {name:'شيفون', code:'FAB-002', qty:'3.1 م', cost:'67.8 ر.س'},
+    {name:'خرز تطريز', code:'ACC-002', qty:'2 علبة', cost:'24 ر.س'},
+    {name:'أزرار', code:'ACC-003', qty:'6 قطع', cost:'3 ر.س'}
+  ]
+};
+function showDressComponents(sku){
+  var box = document.getElementById('dressComponents');
+  var rows = DRESS_COMPONENTS[sku] || [];
+  box.querySelector('.dc-title').textContent = 'مكونات الفستان — ' + sku;
+  box.querySelector('.dc-body').innerHTML = rows.map(function(r){
+    return '<tr>'
+      +'<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+r.name+'</td>'
+      +'<td style="padding:8px 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)">'+r.code+'</td>'
+      +'<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+r.qty+'</td>'
+      +'<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+r.cost+'</td>'
+      +'</tr>';
+  }).join('');
+  box.style.display = 'block';
+}
+
+/* ===== الدرج: قماش ===== */
+function openFabricDrawer(name, code, color, type, stock, price, alert){
+  document.getElementById('drawerTitle').textContent = 'تعديل — ' + name;
+  document.getElementById('drawerBody').innerHTML =
+    '<div class="grid two" style="gap:12px">'
+    +'<div class="field"><label>اسم القماش</label><div class="inp" style="color:var(--foreground)">'+name+'</div></div>'
+    +'<div class="field"><label>رمز القماش</label><div class="inp" style="color:var(--foreground)">'+code+'</div></div>'
+    +'<div class="field"><label>اللون</label><div class="inp" style="color:var(--foreground)">'+color+'</div></div>'
+    +'<div class="field"><label>النوع</label><div class="inp" style="color:var(--foreground)">'+type+'</div></div>'
+    +'<div class="field"><label>المخزون الحالي (م)</label><div class="inp" style="color:var(--foreground)">'+stock+'</div></div>'
+    +'<div class="field"><label>تكلفة المتر (ر.س)</label><div class="inp" style="color:var(--foreground)">'+price+'</div></div>'
+    +'<div class="field"><label>حد التنبيه (م)</label><div class="inp" style="color:var(--foreground)">'+(alert||'')+'</div></div>'
+    +'<div class="field"><label>ملاحظات</label><div class="inp area"></div></div>'
+    +'</div>'
+    +'<details class="log"><summary>سجل التعديلات <span class="log-count">2</span><span class="log-chev">▾</span></summary>'
+    +'<table class="log-table">'
+    +'<thead><tr><th>التاريخ</th><th>المستخدم</th><th>الحقل</th><th>من</th><th>إلى</th></tr></thead>'
+    +'<tbody>'
+    +'<tr><td style="color:var(--muted-foreground)">15/06/2026</td><td>مليحة</td><td>تكلفة المتر</td><td>26 ر.س</td><td>'+price+' ر.س</td></tr>'
+    +'<tr><td style="color:var(--muted-foreground)">10/05/2026</td><td>مليحة</td><td>المخزون</td><td>10 م</td><td>'+stock+' م</td></tr>'
+    +'</tbody></table></details>';
+  document.getElementById('drawerOverlay').classList.add('open');
+  document.getElementById('editDrawer').classList.add('open');
+}
+
+/* ===== الدرج: مستلزم ===== */
+function openAccDrawer(name, code, stock, price){
+  document.getElementById('drawerTitle').textContent = 'تعديل — ' + name;
+  document.getElementById('drawerBody').innerHTML =
+    '<div class="grid two" style="gap:12px">'
+    +'<div class="field"><label>اسم المستلزم</label><div class="inp" style="color:var(--foreground)">'+name+'</div></div>'
+    +'<div class="field"><label>رقم المنتج</label><div class="inp" style="color:var(--foreground)">'+code+'</div></div>'
+    +'<div class="field"><label>المخزون الحالي</label><div class="inp" style="color:var(--foreground)">'+stock+'</div></div>'
+    +'<div class="field"><label>السعر (ر.س)</label><div class="inp" style="color:var(--foreground)">'+price+'</div></div>'
+    +'<div class="field full"><label>ملاحظات</label><div class="inp area"></div></div>'
+    +'</div>'
+    +'<details class="log"><summary>سجل التعديلات <span class="log-count">2</span><span class="log-chev">▾</span></summary>'
+    +'<table class="log-table">'
+    +'<thead><tr><th>التاريخ</th><th>المستخدم</th><th>الحقل</th><th>من</th><th>إلى</th></tr></thead>'
+    +'<tbody>'
+    +'<tr><td style="color:var(--muted-foreground)">15/06/2026</td><td>مليحة</td><td>السعر</td><td>2.5 ر.س</td><td>'+price+' ر.س</td></tr>'
+    +'<tr><td style="color:var(--muted-foreground)">10/05/2026</td><td>مليحة</td><td>المخزون</td><td>200</td><td>'+stock+'</td></tr>'
+    +'</tbody></table></details>';
+  document.getElementById('drawerOverlay').classList.add('open');
+  document.getElementById('editDrawer').classList.add('open');
+}
+
+/* ===== الدرج: موديل ===== */
+function openModelDrawer(sku){
+  document.getElementById('drawerTitle').textContent = 'تعديل الموديل — ' + sku;
+  document.getElementById('drawerBody').innerHTML = `
+    <div style="font-size:12.5px;font-weight:700;color:var(--primary);margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">أ — معلومات أساسية</div>
+    <div class="dr-a" style="display:flex;gap:12px;align-items:stretch;margin-bottom:14px">
+      <div class="dr-a-img" style="flex-shrink:0;width:130px;display:flex;flex-direction:column">
+        <label style="font-size:12px;font-weight:500;margin-bottom:5px">صورة المنتج</label>
+        <div class="imgbox" style="flex:1;min-height:120px;font-size:12px">🖼️<br>اسحب أو اضغط</div>
+      </div>
+      <div class="dr-a-fields" style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start">
+        <div class="field"><label>رقم الصنف (SKU)</label><div class="inp" style="color:var(--foreground)">${sku}</div></div>
+        <div class="field"><label>الحالة</label>
+          <div class="sel-wrap">
+            <div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">نشط</span><span class="sel-chev">▾</span></div>
+            <div class="sel-menu"><div class="sel-options-list">
+              <div class="sel-option selected" onclick="pickSel(this)"><span class="opt-text">نشط</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+              <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">موقوف</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+              <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">تحت التطوير</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>
+            </div>
+            <div class="sel-add-row"><input class="sel-add-input" placeholder="حالة جديدة" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div>
+          </div></div>
+        </div>
+        <div class="field" style="grid-column:1/-1"><label>الألوان</label><div class="inp" style="color:var(--muted-foreground)">بيج • وردي • أسود</div></div>
+        <div class="field" style="grid-column:1/-1"><label>الوصف</label><div class="inp area" style="color:var(--muted-foreground)">وصف التصميم…</div></div>
+      </div>
+    </div>
+    <div style="font-size:12.5px;font-weight:700;color:var(--primary);margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">ب — الأقمشة والمستلزمات</div>
+    <div style="font-size:12px;font-weight:700;color:var(--muted-foreground);margin-bottom:6px">الأقمشة</div>
+    <div style="display:grid;grid-template-columns:34px 1fr 110px 34px;gap:8px;align-items:end;margin-bottom:10px">
+      <div class="iconbtn" style="width:32px;height:32px;font-size:16px;color:var(--amber);border-color:var(--amber-soft);background:var(--amber-soft)" title="قماش أساسي">★</div>
+      <div class="field"><div class="sel-wrap">
+        <div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">باربي — متاح 22.86م</span><span class="sel-chev">▾</span></div>
+        <div class="sel-menu"><div class="sel-options-list">
+          <div class="sel-option selected" onclick="pickSel(this)"><span class="opt-text">باربي — متاح 22.86م</span></div>
+          <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">شيفون — متاح 1,856م</span></div>
+        </div></div>
+      </div></div>
+      <div class="field"><div class="inp" style="color:var(--foreground)">2.3 م</div></div>
+      <div class="iconbtn add" style="width:32px;height:32px;font-size:14px">＋</div>
+    </div>
+    <div style="font-size:12px;font-weight:700;color:var(--muted-foreground);margin:10px 0 6px">الإكسسوارات والمستلزمات</div>
+    <div style="display:grid;grid-template-columns:1fr 110px 34px;gap:8px;align-items:end;margin-bottom:6px">
+      <div class="field"><div class="sel-wrap">
+        <div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر الإكسسوار</span><span class="sel-chev">▾</span></div>
+        <div class="sel-menu"><div class="sel-options-list">
+          <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">سحّاب مخفي</span></div>
+          <div class="sel-option" onclick="pickSel(this)"><span class="opt-text">خرز تطريز</span></div>
+        </div></div>
+      </div></div>
+      <div class="field"><div class="inp" style="color:var(--foreground)">الاستهلاك</div></div>
+      <div class="iconbtn add" style="width:32px;height:32px;font-size:14px">＋</div>
+    </div>
+    <div style="font-size:12.5px;font-weight:700;color:var(--primary);margin:14px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">د — التكاليف</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px">
+      <div class="field auto"><label>تكلفة القماش</label><div class="inp">— ر.س</div></div>
+      <div class="field auto"><label>تكلفة الإكسسوارات</label><div class="inp">— ر.س</div></div>
+      <div class="field auto"><label>تكلفة الخياطة</label><div class="inp">45 ر.س</div></div>
+      <div class="field auto"><label>تكلفة التطريز</label><div class="inp">— ر.س</div></div>
+      <div class="field"><label>تكلفة إضافية</label><div class="inp" style="color:var(--foreground)"></div></div>
+      <div class="field auto"><label>التكلفة الإجمالية</label><div class="inp">— ر.س</div></div>
+    </div>
+    <details class="log"><summary>سجل التعديلات <span class="log-count">2</span><span class="log-chev">▾</span></summary>
+      <table class="log-table">
+        <thead><tr><th>التاريخ</th><th>المستخدم</th><th>الحقل</th><th>من</th><th>إلى</th></tr></thead>
+        <tbody>
+          <tr><td style="color:var(--muted-foreground)">12/06/2026</td><td>مليحة</td><td>الحالة</td><td>تحت التطوير</td><td>نشط</td></tr>
+          <tr><td style="color:var(--muted-foreground)">01/05/2026</td><td>مليحة</td><td>تكلفة الخياطة</td><td>40 ر.س</td><td>45 ر.س</td></tr>
+        </tbody>
+      </table>
+    </details>
+  `;
+  document.getElementById('drawerOverlay').classList.add('open');
+  document.getElementById('editDrawer').classList.add('open');
+}
+
+function closeDrawer(){
+  document.getElementById('drawerOverlay').classList.remove('open');
+  document.getElementById('editDrawer').classList.remove('open');
+}
+
+/* ===== أكورديون جدول الموديلات ===== */
+document.querySelectorAll('tr.model-row').forEach(function(row){
+  row.addEventListener('click', function(e){
+    if(e.target.closest('.td-actions')) return;
+    var panel = document.getElementById(row.dataset.target);
+    row.classList.toggle('open');
+    if(panel) panel.classList.toggle('show');
+  });
+});
+
+/* ===== القوائم المنسدلة — بورتال ===== */
+var _portals = [];
+function _positionMenu(menu, trigger){
+  var rect = trigger.getBoundingClientRect();
+  var w = Math.min(rect.width, window.innerWidth - 16);
+  var left = rect.left + window.scrollX;
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  menu.style.top      = (rect.bottom + window.scrollY + 4) + 'px';
+  menu.style.left     = left + 'px';
+  menu.style.width    = w + 'px';
+  menu.style.right    = 'auto';
+  menu.style.position = 'absolute';
+}
+function toggleSel(trigger){
+  var isOpen = trigger.classList.contains('open');
+  closeAllSel();
+  if(!isOpen){ var menu = trigger.nextElementSibling; openSelMenu(trigger, menu); }
+}
+function openSelMenu(trigger, menu){
+  var parent = menu.parentNode, nextSibling = menu.nextSibling;
+  document.body.appendChild(menu);
+  _portals.push({ menu:menu, trigger:trigger, parent:parent, nextSibling:nextSibling });
+  menu._trigger = trigger;
+  _positionMenu(menu, trigger);
+  trigger.classList.add('open');
+  menu.classList.add('open');
+}
+function pickSel(option){
+  var menu = option.closest('.sel-menu');
+  var trigger = menu._trigger || menu.previousElementSibling;
+  menu.querySelectorAll('.sel-option').forEach(function(o){ o.classList.remove('selected'); });
+  option.classList.add('selected');
+  var textEl = option.querySelector('.opt-text');
+  var text = textEl ? textEl.textContent.trim() : option.textContent.trim();
+  if(trigger) trigger.querySelector('.sel-val').textContent = text;
+  closeAllSel();
+}
+function deleteSelOption(e, delBtn){
+  e.stopPropagation(); e.preventDefault();
+  var option = delBtn.closest('.sel-option');
+  var menu = option.closest('.sel-menu');
+  var trigger = menu._trigger || menu.previousElementSibling;
+  if(option.classList.contains('selected') && trigger) trigger.querySelector('.sel-val').textContent = 'اختر...';
+  option.remove();
+}
+function closeAllSel(){
+  _portals.forEach(function(p){
+    p.menu.classList.remove('open');
+    p.menu._trigger = null;
+    if(p.nextSibling){ p.parent.insertBefore(p.menu, p.nextSibling); }
+    else { p.parent.appendChild(p.menu); }
+  });
+  _portals = [];
+  document.querySelectorAll('.sel-trigger.open').forEach(function(t){ t.classList.remove('open'); });
+}
+document.addEventListener('click', function(e){
+  var inPortal = _portals.some(function(p){ return p.menu.contains(e.target); });
+  if(!e.target.closest('.sel-wrap') && !e.target.closest('#colorMenu') && !inPortal){ closeAllSel(); closeColorMenu(); }
+});
+window.addEventListener('scroll', function(){
+  _portals.forEach(function(p){ _positionMenu(p.menu, p.trigger); });
+  if(_colorPortal){ _positionColorMenu(_colorPortal.trigger); }
+}, true);
+window.addEventListener('resize', function(){ closeAllSel(); closeColorMenu(); });
+
+/* ===== منتقي الألوان ===== */
+var selectedColors = [];
+var _colorPortal = null;
+function _positionColorMenu(trigger){
+  var menu = document.getElementById('colorMenu');
+  var rect = trigger.getBoundingClientRect();
+  var w = Math.min(Math.max(rect.width, 320), window.innerWidth - 16);
+  var left = rect.left + window.scrollX;
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  menu.style.top      = (rect.bottom + window.scrollY + 4) + 'px';
+  menu.style.left     = left + 'px';
+  menu.style.width    = w + 'px';
+  menu.style.right    = 'auto';
+  menu.style.position = 'absolute';
+}
+function closeColorMenu(){
+  var menu = document.getElementById('colorMenu'), trigger = document.getElementById('colorTrigger');
+  if(!menu) return;
+  menu.classList.remove('open');
+  if(trigger) trigger.classList.remove('open');
+  if(_colorPortal){
+    if(_colorPortal.nextSibling){ _colorPortal.parent.insertBefore(menu, _colorPortal.nextSibling); }
+    else { _colorPortal.parent.appendChild(menu); }
+    _colorPortal = null;
+  }
+}
+function toggleColorPicker(){
+  var menu = document.getElementById('colorMenu'), trigger = document.getElementById('colorTrigger');
+  var isOpen = menu.classList.contains('open');
+  closeAllSel();
+  if(!isOpen){
+    var parent = menu.parentNode, nextSibling = menu.nextSibling;
+    document.body.appendChild(menu);
+    _colorPortal = { trigger:trigger, parent:parent, nextSibling:nextSibling };
+    _positionColorMenu(trigger);
+    menu.classList.add('open');
+    trigger.classList.add('open');
+  } else { closeColorMenu(); }
+}
+function updateColorTrigger(){
+  var val = document.getElementById('colorVal');
+  if(!val) return;
+  if(selectedColors.length === 0){ val.innerHTML = 'اختر الألوان…'; return; }
+  val.innerHTML = selectedColors.map(function(name){
+    var chip = document.querySelector('[data-name="'+name+'"]');
+    var bg = chip && !chip.classList.contains('multi') ? chip.style.background : null;
+    return bg ? '<span class="color-swatch" style="background:'+bg+'"></span>'+name : name;
+  }).join(' • ');
+}
+function pickColor(chip){
+  chip.classList.toggle('selected');
+  selectedColors = [];
+  document.querySelectorAll('#colorGrid .color-chip.selected').forEach(function(c){ selectedColors.push(c.dataset.name); });
+  updateColorTrigger();
+}
+function deleteColorChip(e, delBtn){
+  e.stopPropagation();
+  var wrap = delBtn.closest('.chip-wrap');
+  var chip = wrap ? wrap.querySelector('.color-chip') : null;
+  if(chip && chip.classList.contains('selected')){
+    selectedColors = selectedColors.filter(function(c){ return c !== chip.dataset.name; });
+    updateColorTrigger();
+  }
+  if(wrap) wrap.remove();
+}
+function addCustomColor(){
+  var name = document.getElementById('colorCustomName').value.trim();
+  var hex  = document.getElementById('colorPickerNative').value;
+  if(!name) return;
+  var grid = document.getElementById('colorGrid');
+  var multiWrap = grid.querySelector('.chip-wrap:last-child');
+  var wrap = document.createElement('div'); wrap.className = 'chip-wrap';
+  var chip = document.createElement('span'); chip.className = 'color-chip';
+  chip.style.background = hex; chip.dataset.name = name; chip.title = name;
+  chip.onclick = function(){ pickColor(this); };
+  var del = document.createElement('span'); del.className = 'chip-del'; del.textContent = '×';
+  del.onclick = function(e){ deleteColorChip(e, this); };
+  wrap.appendChild(chip); wrap.appendChild(del);
+  chip.style.transform = 'scale(0)';
+  grid.insertBefore(wrap, multiWrap);
+  requestAnimationFrame(function(){ chip.style.transition='transform .2s'; chip.style.transform='scale(1)'; });
+  pickColor(chip);
+  document.getElementById('colorCustomName').value = '';
+}
+
+/* ===== إضافة خيار ===== */
+function addCustomOption(btn){
+  var addRow = btn.closest('.sel-add-row');
+  var input  = addRow.querySelector('.sel-add-input');
+  var text   = input.value.trim();
+  if(!text) return;
+  var menu = addRow.closest('.sel-menu');
+  var list = menu.querySelector('.sel-options-list');
+  var opt  = document.createElement('div'); opt.className = 'sel-option';
+  opt.innerHTML = '<span class="opt-text">'+text+'</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span>';
+  opt.onclick = function(e){ if(!e.target.classList.contains('opt-del')) pickSel(this); };
+  list.appendChild(opt);
+  opt.style.background = 'var(--green-soft)';
+  list.scrollTop = list.scrollHeight;
+  setTimeout(function(){ opt.style.background=''; }, 800);
+  pickSel(opt);
+  input.value = ''; input.focus();
+}
+function addOptionOnEnter(e, input){
+  if(e.key === 'Enter'){ e.preventDefault(); addCustomOption(input.nextElementSibling); }
+}
+
+/* ===== إضافة صفوف القماش/إكسسوار (موديل) ===== */
+function buildMenu(options, placeholder, cls){
+  return '<div class="sel-menu'+(cls?' '+cls:'')+'"><div class="sel-options-list">'
+    +options.map(function(o){ return '<div class="sel-option" onclick="pickSel(this)"><span class="opt-text">'+o+'</span><span class="opt-del" onclick="deleteSelOption(event,this)">×</span></div>'; }).join('')
+    +'</div><div class="sel-add-row"><input class="sel-add-input" placeholder="'+placeholder+'" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div></div>';
+}
+function addFabricRow(){
+  var container = document.getElementById('extraFabrics');
+  var row = document.createElement('div'); row.className = 'rep-row fabric-extra';
+  row.innerHTML='<div class="field"><div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">النوع</span><span class="sel-chev">▾</span></div>'+buildMenu(['قطعة سفلية','قماش داخلي','بطانة','تطريز'],'نوع جديد')+'</div></div>'
+    +'<div class="field"><div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر القماش</span><span class="sel-chev">▾</span></div>'+buildMenu(['باربي — متاح 22.86م','شيفون — متاح 1,856م'],'قماش جديد')+'</div></div>'
+    +'<div class="field"><div class="inp" contenteditable="true" style="color:var(--muted-foreground);outline:none">الاستهلاك م</div></div>'
+    +'<div class="iconbtn del" onclick="removeRow(this)">🗑️</div>';
+  container.appendChild(row);
+  row.style.opacity='0'; row.style.transform='translateY(-5px)';
+  requestAnimationFrame(function(){ row.style.transition='all .2s'; row.style.opacity='1'; row.style.transform='translateY(0)'; });
+}
+function addAccRow(){
+  var container = document.getElementById('accRows');
+  var row = document.createElement('div'); row.className = 'rep-row acc';
+  row.innerHTML='<div class="field"><div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">اختر الإكسسوار</span><span class="sel-chev">▾</span></div>'+buildMenu(['سحّاب مخفي','خرز تطريز','أزرار','شريط كاوتش','ترتر'],'إكسسوار جديد','acc-menu')+'</div></div>'
+    +'<div class="field"><div class="inp" contenteditable="true" style="color:var(--muted-foreground);outline:none">الاستهلاك</div></div>'
+    +'<div class="iconbtn del" onclick="removeRow(this)">🗑️</div>';
+  container.appendChild(row);
+  row.style.opacity='0'; row.style.transform='translateY(-5px)';
+  requestAnimationFrame(function(){ row.style.transition='all .2s'; row.style.opacity='1'; row.style.transform='translateY(0)'; });
+}
+function removeRow(btn){
+  var row = btn.closest('.rep-row, .inv-row');
+  row.style.transition='all .15s'; row.style.opacity='0'; row.style.transform='translateY(-4px)';
+  setTimeout(function(){ row.remove(); }, 150);
+}
+
+/* ===== فاتورة قماش ===== */
+function addFabricInvRow(){
+  var container = document.getElementById('fabricInvRows');
+  var row = document.createElement('div'); row.className = 'inv-row';
+  row.innerHTML='<div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">أضف / اختر القماش</span><span class="sel-chev">▾</span></div><div class="sel-menu"><div class="sel-options-list"><div class="sel-option" onclick="pickSel(this)"><span class="opt-text">باربي</span></div><div class="sel-option" onclick="pickSel(this)"><span class="opt-text">شيفون</span></div></div><div class="sel-add-row"><input class="sel-add-input" placeholder="قماش جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div></div></div>'
+    +'<div class="field" data-label="رقم المنتج"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">FAB-000</div></div>'
+    +'<div class="field" data-label="الكمية"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">0 م</div></div>'
+    +'<div class="field" data-label="التكلفة"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">0 ر.س</div></div>'
+    +'<div class="field" data-label="حد التنبيه"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">0 م</div></div>'
+    +'<div class="field" data-label="الإجمالي" style="background:var(--green-soft);border-radius:6px"><div class="inp" style="color:var(--green);font-weight:700;background:transparent">0 ر.س</div></div>'
+    +'<div class="iconbtn del" onclick="removeRow(this)">🗑️</div>';
+  container.appendChild(row);
+}
+function addAccInvRow(){
+  var container = document.getElementById('accInvRows');
+  var row = document.createElement('div'); row.className = 'inv-row acc-inv-row';
+  row.innerHTML='<div class="sel-wrap"><div class="sel-trigger" onclick="toggleSel(this)"><span class="sel-val">أضف / اختر المستلزم</span><span class="sel-chev">▾</span></div><div class="sel-menu"><div class="sel-options-list"><div class="sel-option" onclick="pickSel(this)"><span class="opt-text">سحّاب مخفي</span></div></div><div class="sel-add-row"><input class="sel-add-input" placeholder="مستلزم جديد" onkeydown="addOptionOnEnter(event,this)"><button class="sel-add-btn" onclick="addCustomOption(this)">＋</button></div></div></div>'
+    +'<div class="field" data-label="رقم المنتج"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">ACC-000</div></div>'
+    +'<div class="field" data-label="الكمية"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">0</div></div>'
+    +'<div class="field" data-label="السعر"><div class="inp" contenteditable="true" style="color:var(--foreground);outline:none">0 ر.س</div></div>'
+    +'<div class="field" data-label="الإجمالي" style="background:var(--green-soft);border-radius:6px"><div class="inp" style="color:var(--green);font-weight:700;background:transparent">0 ر.س</div></div>'
+    +'<div class="iconbtn del" onclick="removeRow(this)">🗑️</div>';
+  container.appendChild(row);
+}
+</script>
+</body>
+</html>

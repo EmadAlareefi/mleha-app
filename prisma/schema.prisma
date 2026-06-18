@@ -1157,6 +1157,41 @@ model Fabric {
   @@index([stockLength])
 }
 
+model Accessory {
+  id String @id @default(cuid())
+
+  name      String
+  sku       String? @unique
+  unitPrice Decimal @default(0) @db.Decimal(10, 2)
+  stockQty  Decimal @default(0) @db.Decimal(12, 2)
+  minStock  Decimal @default(0) @db.Decimal(12, 2)
+  isActive  Boolean @default(true)
+  notes     String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([sku])
+  @@index([isActive])
+  @@index([stockQty])
+}
+
+model InventoryAuditLog {
+  id String @id @default(cuid())
+
+  entityType String // 'fabric' | 'accessory' | 'model'
+  entityId   String
+  field      String
+  oldValue   String? @db.Text
+  newValue   String? @db.Text
+  changedBy  String
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
 model Tailor {
   id String @id @default(cuid())
 
@@ -1186,11 +1221,17 @@ model TailorFabricIssue {
   tailorId String
   tailor   Tailor @relation(fields: [tailorId], references: [id], onDelete: Restrict)
 
+  designModelId String?
+  designModel   DesignModel? @relation(fields: [designModelId], references: [id], onDelete: SetNull)
+
   issuedLength    Decimal  @db.Decimal(12, 2)
   unitCostAtIssue Decimal  @default(0) @db.Decimal(10, 2)
   issueDate       DateTime @default(now())
   reference       String?
   status          String   @default("with_tailor")
+
+  plannedDressCount Int?
+  componentsIssued  Json? // snapshot: { fabrics:[{fabricId,name,consumption,meters,unitCost}], accessories:[{accessoryId,name,qty,unitPrice}] }
 
   deliveredDressCount Int?
   consumedLength      Decimal?  @db.Decimal(12, 2)
@@ -1205,6 +1246,7 @@ model TailorFabricIssue {
 
   @@index([fabricId])
   @@index([tailorId])
+  @@index([designModelId])
   @@index([status])
   @@index([issueDate])
   @@index([deliveryDate])
@@ -1264,6 +1306,8 @@ model DesignModel {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  issues TailorFabricIssue[]
 
   @@index([sku])
   @@index([status])

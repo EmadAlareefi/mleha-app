@@ -22,6 +22,14 @@ type Fabric = {
   stockLength: number;
 };
 
+type Accessory = {
+  id: string;
+  name: string;
+  sku?: string | null;
+  unitPrice: number;
+  stockQty: number;
+};
+
 type SelectOption = {
   value: string;
   label: string;
@@ -34,10 +42,21 @@ type RecipeFabricRow = {
   consumption: string;
 };
 
+// Form row for editing a model's accessory recipe (references real inventory).
 type AccessoryRow = {
   id: string;
+  accessoryId: string;
+  consumption: string;
+};
+
+// Serialized accessory line returned by the API for an existing model.
+type ModelAccessory = {
+  id: string;
+  accessoryId: string;
   name: string;
-  cost: string;
+  consumption: string;
+  unitPrice: number | null;
+  cost: number;
 };
 
 export type DesignModel = {
@@ -49,7 +68,7 @@ export type DesignModel = {
   unit: 'meter' | 'yard';
   imageData?: string | null;
   fabrics: RecipeFabricRow[];
-  accessories: AccessoryRow[];
+  accessories: ModelAccessory[];
   tailoringCost: number;
   embroideryCost: number;
   extraCost: number;
@@ -84,13 +103,6 @@ const fabricRoleOptions: SelectOption[] = [
   { value: 'embroidery', label: 'تطريز' },
 ];
 
-const accessoryOptions: SelectOption[] = [
-  { value: 'سحّاب مخفي', label: 'سحّاب مخفي' },
-  { value: 'خرز تطريز', label: 'خرز تطريز' },
-  { value: 'أزرار', label: 'أزرار' },
-  { value: 'شريط كاوتش', label: 'شريط كاوتش' },
-  { value: 'ترتر', label: 'ترتر' },
-];
 
 const colors = [
   { name: 'أبيض', value: '#fff', border: true },
@@ -141,6 +153,7 @@ function getRoleLabel(role: string) {
 
 function calculateModel(input: {
   fabrics: Fabric[];
+  accessoriesInventory: Accessory[];
   rows: RecipeFabricRow[];
   accessories: AccessoryRow[];
   unit: string;
@@ -160,7 +173,10 @@ function calculateModel(input: {
     (sum, row) => sum + row.consumptionMeters * (row.fabric?.unitCost || 0),
     0
   );
-  const accessoriesCost = input.accessories.reduce((sum, row) => sum + toNumber(row.cost), 0);
+  const accessoriesCost = input.accessories.reduce((sum, row) => {
+    const accessory = input.accessoriesInventory.find((item) => item.id === row.accessoryId);
+    return sum + toNumber(row.consumption) * (accessory?.unitPrice || 0);
+  }, 0);
   const tailoringCost = toNumber(input.tailoringCost);
   const embroideryCost = toNumber(input.embroideryCost);
   const extraCost = toNumber(input.extraCost);
@@ -184,11 +200,13 @@ function calculateModel(input: {
 
 export function ModelsTabSpec({
   fabrics,
+  accessoriesInventory,
   models,
   onChanged,
   unit,
 }: {
   fabrics: Fabric[];
+  accessoriesInventory: Accessory[];
   models: DesignModel[];
   onChanged: () => void | Promise<void>;
   unit: 'meter' | 'yard';
@@ -206,10 +224,7 @@ export function ModelsTabSpec({
     { id: 'bottom', role: 'bottom', fabricId: fabrics[1]?.id || fabrics[0]?.id || '', consumption: '1.0' },
     { id: 'lining', role: 'lining', fabricId: fabrics[2]?.id || fabrics[0]?.id || '', consumption: '1.5' },
   ]);
-  const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>([
-    { id: 'zipper', name: 'سحّاب مخفي', cost: '3' },
-    { id: 'beads', name: 'خرز تطريز', cost: '12' },
-  ]);
+  const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>([]);
   const [tailoringCost, setTailoringCost] = useState('40');
   const [embroideryCost, setEmbroideryCost] = useState('20');
   const [extraCost, setExtraCost] = useState('10');
@@ -225,10 +240,20 @@ export function ModelsTabSpec({
     [fabrics]
   );
 
+  const accessoryOptionsInv = useMemo<SelectOption[]>(
+    () =>
+      accessoriesInventory.map((accessory) => ({
+        value: accessory.id,
+        label: `${accessory.name} — ${formatCurrency(accessory.unitPrice)}`,
+      })),
+    [accessoriesInventory]
+  );
+
   const calculations = useMemo(
     () =>
       calculateModel({
         fabrics,
+        accessoriesInventory,
         rows: recipeRows,
         accessories: accessoryRows,
         unit,
@@ -236,7 +261,7 @@ export function ModelsTabSpec({
         embroideryCost,
         extraCost,
       }),
-    [accessoryRows, embroideryCost, extraCost, fabrics, recipeRows, tailoringCost, unit]
+    [accessoriesInventory, accessoryRows, embroideryCost, extraCost, fabrics, recipeRows, tailoringCost, unit]
   );
 
   const visibleModels = models;
@@ -269,7 +294,7 @@ export function ModelsTabSpec({
     }
     if (id.startsWith('accessory-')) {
       const rowId = id.replace('accessory-', '');
-      setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, name: value } : row)));
+      setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: value } : row)));
     }
     setOpenSelect(null);
   };
@@ -301,7 +326,10 @@ export function ModelsTabSpec({
   };
 
   const addAccessoryRow = () => {
-    setAccessoryRows((current) => [...current, { id: makeId('accessory'), name: 'أزرار', cost: '0' }]);
+    setAccessoryRows((current) => [
+      ...current,
+      { id: makeId('accessory'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' },
+    ]);
   };
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -352,7 +380,9 @@ export function ModelsTabSpec({
       colors: selectedColors.length ? selectedColors : ['متعدد الألوان'],
       imageData,
       recipe: recipeRows.map((row) => ({ role: row.role, fabricId: row.fabricId, consumption: row.consumption })),
-      accessories: accessoryRows.map((row) => ({ name: row.name, cost: row.cost })),
+      accessories: accessoryRows
+        .filter((row) => row.accessoryId)
+        .map((row) => ({ accessoryId: row.accessoryId, consumption: row.consumption })),
       tailoringCost,
       embroideryCost,
       extraCost,
@@ -564,28 +594,26 @@ export function ModelsTabSpec({
 
                 <div className="rep-label">الإكسسوارات والمستلزمات</div>
                 <div>
-                  {accessoryRows.map((row, index) => (
-                    <div className="rep-row acc-row" key={row.id}>
-                      <SelectBox
-                        id={`accessory-${row.id}`}
-                        options={accessoryOptions}
-                        value={row.name}
-                        openSelect={openSelect}
-                        setOpenSelect={setOpenSelect}
-                        onChange={setSelectValue}
-                        allowCustom
-                      />
-                      <EditableField
-                        value={row.cost}
-                        onChange={(cost) => updateAccessoryRow(row.id, { cost })}
-                        suffix="ر.س"
-                        type="number"
-                      />
-                      {index === 0 ? (
-                        <button className="iconbtn add" type="button" title="إضافة إكسسوار آخر" onClick={addAccessoryRow}>
-                          <Plus />
-                        </button>
-                      ) : (
+                  {accessoryRows.map((row) => {
+                    const accessory = accessoriesInventory.find((item) => item.id === row.accessoryId);
+                    const rowCost = toNumber(row.consumption) * (accessory?.unitPrice || 0);
+                    return (
+                      <div className="rep-row acc-row" key={row.id}>
+                        <SelectBox
+                          id={`accessory-${row.id}`}
+                          options={accessoryOptionsInv}
+                          value={row.accessoryId}
+                          openSelect={openSelect}
+                          setOpenSelect={setOpenSelect}
+                          onChange={setSelectValue}
+                        />
+                        <EditableField
+                          value={row.consumption}
+                          onChange={(consumption) => updateAccessoryRow(row.id, { consumption })}
+                          suffix="كمية"
+                          type="number"
+                        />
+                        <span className="hint" style={{ alignSelf: 'center' }}>{formatCurrency(rowCost)}</span>
                         <button
                           className="iconbtn del"
                           type="button"
@@ -594,9 +622,15 @@ export function ModelsTabSpec({
                         >
                           <Trash2 />
                         </button>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
+                  <button className="iconbtn add" type="button" title="إضافة إكسسوار" onClick={addAccessoryRow} style={{ marginTop: 8 }}>
+                    <Plus /> إضافة إكسسوار
+                  </button>
+                  {!accessoriesInventory.length && (
+                    <span className="hint block-hint">أضف المستلزمات من تبويب المخزون أولاً لتتمكن من ربطها بالموديل</span>
+                  )}
                 </div>
               </div>
             </details>

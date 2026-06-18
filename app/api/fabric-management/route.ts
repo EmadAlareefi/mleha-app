@@ -118,21 +118,108 @@ function serializeFabric(fabric: any) {
   };
 }
 
+function serializeAccessory(accessory: any) {
+  const stockQty = toNumber(accessory.stockQty);
+  const minStock = toNumber(accessory.minStock);
+  return {
+    ...accessory,
+    unitPrice: toNumber(accessory.unitPrice),
+    stockQty,
+    minStock,
+    isLowStock: stockQty <= minStock,
+  };
+}
+
+type AuditChange = { field: string; oldValue: unknown; newValue: unknown };
+
+function normalizeAuditValue(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Prisma.Decimal) return value.toString();
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+async function writeAudit(
+  client: Prisma.TransactionClient | typeof prisma,
+  entityType: 'fabric' | 'accessory' | 'model',
+  entityId: string,
+  changes: AuditChange[],
+  changedBy: string
+) {
+  const rows = changes
+    .map((change) => ({
+      field: change.field,
+      oldValue: normalizeAuditValue(change.oldValue),
+      newValue: normalizeAuditValue(change.newValue),
+    }))
+    .filter((row) => row.oldValue !== row.newValue)
+    .map((row) => ({ entityType, entityId, changedBy, ...row }));
+
+  if (rows.length) {
+    await client.inventoryAuditLog.createMany({ data: rows });
+  }
+}
+
 type RecipeRow = { role?: string; fabricId?: string; consumption?: unknown };
-type AccessoryRow = { name?: string; cost?: unknown };
+type AccessoryRecipeRow = { accessoryId?: string; consumption?: unknown; name?: unknown; cost?: unknown };
 
 function consumptionToMeters(value: unknown, unit: string) {
   return toNumber(value) * (unit === 'yard' ? YARD_TO_METER : 1);
 }
 
+type ModelMetrics = { inProgressCount: number; reservedLength: number };
+
+// Parse a model's accessory recipe into the new {accessoryId, consumption} shape.
+// Tolerates the legacy {name, cost} shape by passing it through unchanged.
+function parseAccessoryRecipe(raw: unknown) {
+  const rows = Array.isArray(raw) ? raw : [];
+  return rows
+    .map((row: any) => {
+      const accessoryId = typeof row?.accessoryId === 'string' ? row.accessoryId.trim() : '';
+      if (accessoryId) {
+        return { accessoryId, consumption: toNumber(row?.consumption, 0) };
+      }
+      const name = typeof row?.name === 'string' ? row.name.trim() : '';
+      return name ? { name, cost: toNumber(row?.cost) } : null;
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+    .filter((row: any) => row.accessoryId || row.name);
+}
+
+// Load fabric + accessory lookup maps needed to serialize a single model.
+async function loadRecipeMaps(recipe: any[], accessories: any[]) {
+  const fabricIds = recipe.map((row: any) => String(row?.fabricId || '')).filter(Boolean);
+  const accessoryIds = accessories.map((row: any) => String(row?.accessoryId || '')).filter(Boolean);
+
+  const [usedFabrics, usedAccessories] = await Promise.all([
+    fabricIds.length ? prisma.fabric.findMany({ where: { id: { in: fabricIds } } }) : Promise.resolve([]),
+    accessoryIds.length ? prisma.accessory.findMany({ where: { id: { in: accessoryIds } } }) : Promise.resolve([]),
+  ]);
+
+  const fabricMap = new Map(
+    usedFabrics.map((fabric) => [
+      fabric.id,
+      { name: fabric.name, unitCost: toNumber(fabric.unitCost), stockLength: toNumber(fabric.stockLength) },
+    ])
+  );
+  const accessoryMap = new Map(
+    usedAccessories.map((accessory) => [
+      accessory.id,
+      { name: accessory.name, unitPrice: toNumber(accessory.unitPrice), stockQty: toNumber(accessory.stockQty) },
+    ])
+  );
+  return { fabricMap, accessoryMap };
+}
+
 function serializeModel(
   model: any,
-  fabricMap: Map<string, { unitCost: number; stockLength: number }>,
-  openIssuesCount: number
+  fabricMap: Map<string, { name?: string; unitCost: number; stockLength: number }>,
+  accessoryMap: Map<string, { name?: string; unitPrice: number; stockQty: number }>,
+  metrics: ModelMetrics
 ) {
   const unit = model.unit || 'meter';
   const recipe: RecipeRow[] = Array.isArray(model.recipe) ? model.recipe : [];
-  const accessories: AccessoryRow[] = Array.isArray(model.accessories) ? model.accessories : [];
+  const accessories: AccessoryRecipeRow[] = Array.isArray(model.accessories) ? model.accessories : [];
 
   const usableRows = recipe
     .map((row) => {
@@ -146,15 +233,52 @@ function serializeModel(
     (sum, entry) => sum + entry.consumptionMeters * (entry.fabric?.unitCost || 0),
     0
   );
-  const accessoriesCost = accessories.reduce((sum, row) => sum + toNumber(row.cost), 0);
+
+  // Accessories support both the new {accessoryId, consumption} shape (real stock)
+  // and the legacy {name, cost} shape (free text) for backward compatibility.
+  const accessoriesResolved = accessories.map((row) => {
+    const accessoryId = String(row.accessoryId || '');
+    if (accessoryId) {
+      const accessory = accessoryMap.get(accessoryId);
+      const consumption = toNumber(row.consumption);
+      const unitPrice = accessory?.unitPrice || 0;
+      return {
+        id: accessoryId,
+        accessoryId,
+        name: accessory?.name || '',
+        consumption: String(row.consumption ?? ''),
+        unitPrice,
+        cost: consumption * unitPrice,
+      };
+    }
+    // legacy free-text accessory
+    return {
+      id: Math.random().toString(36).slice(2),
+      accessoryId: '',
+      name: typeof row.name === 'string' ? row.name : '',
+      consumption: '',
+      unitPrice: null as number | null,
+      cost: toNumber(row.cost),
+    };
+  });
+
+  const accessoriesCost = accessoriesResolved.reduce((sum, row) => sum + row.cost, 0);
   const tailoringCost = toNumber(model.tailoringCost);
   const embroideryCost = toNumber(model.embroideryCost);
   const extraCost = toNumber(model.extraCost);
   const totalCost = fabricCost + accessoriesCost + tailoringCost + embroideryCost + extraCost;
-  const producible = usableRows.length
-    ? Math.min(...usableRows.map((entry) => Math.floor((entry.fabric?.stockLength || 0) / entry.consumptionMeters)))
-    : 0;
-  const reservedLength = recipe.reduce((sum, row) => sum + consumptionToMeters(row.consumption, unit), 0);
+
+  const fabricLimits = usableRows.map((entry) =>
+    Math.floor((entry.fabric?.stockLength || 0) / entry.consumptionMeters)
+  );
+  const accessoryLimits = accessoriesResolved
+    .filter((row) => row.accessoryId && toNumber(row.consumption) > 0)
+    .map((row) => {
+      const accessory = accessoryMap.get(row.accessoryId);
+      return accessory ? Math.floor(accessory.stockQty / toNumber(row.consumption)) : 0;
+    });
+  const limits = [...fabricLimits, ...accessoryLimits];
+  const producible = limits.length ? Math.min(...limits) : 0;
 
   return {
     id: model.id,
@@ -170,11 +294,7 @@ function serializeModel(
       fabricId: String(row.fabricId || ''),
       consumption: String(row.consumption ?? ''),
     })),
-    accessories: accessories.map((row) => ({
-      id: Math.random().toString(36).slice(2),
-      name: row.name || '',
-      cost: String(row.cost ?? ''),
-    })),
+    accessories: accessoriesResolved,
     tailoringCost,
     embroideryCost,
     extraCost,
@@ -183,8 +303,8 @@ function serializeModel(
     totalCost,
     producibleCount: Number.isFinite(producible) ? Math.max(producible, 0) : 0,
     producedCount: Number(model.producedCount || 0),
-    inProgressCount: openIssuesCount,
-    reservedLength,
+    inProgressCount: metrics.inProgressCount,
+    reservedLength: metrics.reservedLength,
   };
 }
 
@@ -227,8 +347,9 @@ export async function GET() {
     const access = await requireAccess();
     if (access.error) return access.error;
 
-    const [fabrics, tailors, issues, requests, models] = await Promise.all([
+    const [fabrics, accessories, tailors, issues, requests, models] = await Promise.all([
       prisma.fabric.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
+      prisma.accessory.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
       prisma.tailor.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
       prisma.tailorFabricIssue.findMany({
         include: { fabric: true, tailor: true },
@@ -252,24 +373,53 @@ export async function GET() {
     const fabricMap = new Map(
       fabrics.map((fabric) => [
         fabric.id,
-        { unitCost: toNumber(fabric.unitCost), stockLength: toNumber(fabric.stockLength) },
+        { name: fabric.name, unitCost: toNumber(fabric.unitCost), stockLength: toNumber(fabric.stockLength) },
       ])
     );
-    const openIssuesCount = serializedIssues.filter((issue) => issue.status !== 'closed').length;
+    const accessoryMap = new Map(
+      accessories.map((accessory) => [
+        accessory.id,
+        { name: accessory.name, unitPrice: toNumber(accessory.unitPrice), stockQty: toNumber(accessory.stockQty) },
+      ])
+    );
+
+    // Per-model production metrics from open issues.
+    const metricsByModel = new Map<string, ModelMetrics>();
+    for (const issue of serializedIssues) {
+      const modelId = (issue as any).designModelId;
+      if (!modelId || issue.status === 'closed') continue;
+      const current = metricsByModel.get(modelId) || { inProgressCount: 0, reservedLength: 0 };
+      current.inProgressCount += Number((issue as any).plannedDressCount || 0);
+      current.reservedLength += issue.remainingAtTailor;
+      metricsByModel.set(modelId, current);
+    }
+
+    const serializedModels = models.map((model) =>
+      serializeModel(
+        model,
+        fabricMap,
+        accessoryMap,
+        metricsByModel.get(model.id) || { inProgressCount: 0, reservedLength: 0 }
+      )
+    );
 
     return NextResponse.json({
       fabrics: fabrics.map(serializeFabric),
+      accessories: accessories.map(serializeAccessory),
       tailors,
       issues: serializedIssues,
       requests: requests.map(serializeRequest),
-      models: models.map((model) => serializeModel(model, fabricMap, openIssuesCount)),
+      models: serializedModels,
       summary: {
         fabricsCount: fabrics.length,
+        accessoriesCount: accessories.length,
         activeTailorsCount: tailors.filter((tailor) => tailor.isActive).length,
         stockMeters,
         withTailorsMeters,
         pendingRequestsCount: requests.filter((request) => request.status === 'pending').length,
         modelsCount: models.length,
+        lowStockFabricsCount: fabrics.filter((f) => toNumber(f.stockLength) <= toNumber(f.minStock)).length,
+        lowStockAccessoriesCount: accessories.filter((a) => toNumber(a.stockQty) <= toNumber(a.minStock)).length,
       },
     });
   } catch (error) {
@@ -463,12 +613,106 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'issue-fabric') {
-      const fabricId = String(body.fabricId || '');
       const tailorId = String(body.tailorId || '');
-      const issuedLength = lengthToMeters(body.issuedLength, body.lengthUnit, 'الكمية المسلمة');
+      const designModelId = String(body.designModelId || '');
+      if (!tailorId) {
+        return NextResponse.json({ error: 'الخياط مطلوب' }, { status: 400 });
+      }
 
-      if (!fabricId || !tailorId) {
-        return NextResponse.json({ error: 'القماش والخياط مطلوبان' }, { status: 400 });
+      // Model-driven delivery: pick a dress model + dress count, deduct its full
+      // bill of materials (all recipe fabrics + accessories) × count.
+      if (designModelId) {
+        const plannedDressCount = Math.max(1, Math.trunc(toNumber(body.plannedDressCount, 1)));
+
+        const issue = await prisma.$transaction(async (tx) => {
+          const model = await tx.designModel.findUnique({ where: { id: designModelId } });
+          if (!model) throw new Error('الموديل غير موجود');
+
+          const unit = model.unit || 'meter';
+          const recipe: RecipeRow[] = Array.isArray(model.recipe) ? (model.recipe as any[]) : [];
+          const accessories = parseAccessoryRecipe(model.accessories);
+
+          const mainRow = recipe.find((row) => (row.role || 'main') === 'main') || recipe[0];
+          if (!mainRow?.fabricId) throw new Error('لا يحتوي الموديل على قماش أساسي');
+
+          const fabricsSnapshot: any[] = [];
+          const mainFabricId = String(mainRow.fabricId);
+          let mainUnitCost = new Prisma.Decimal(0);
+          let mainIssuedLength = new Prisma.Decimal(0);
+
+          // Deduct every recipe fabric.
+          for (const row of recipe) {
+            const rowFabricId = String(row.fabricId || '');
+            if (!rowFabricId) continue;
+            const consumptionMeters = consumptionToMeters(row.consumption, unit) * plannedDressCount;
+            if (consumptionMeters <= 0) continue;
+            const needed = new Prisma.Decimal(consumptionMeters);
+            const fabric = await tx.fabric.findUnique({ where: { id: rowFabricId } });
+            if (!fabric) throw new Error('أحد أقمشة الموديل غير موجود');
+            if (fabric.stockLength.lessThan(needed)) {
+              throw new Error(`كمية القماش "${fabric.name}" في المخزون غير كافية`);
+            }
+            await tx.fabric.update({ where: { id: rowFabricId }, data: { stockLength: { decrement: needed } } });
+            fabricsSnapshot.push({
+              fabricId: rowFabricId,
+              name: fabric.name,
+              role: row.role || 'main',
+              consumption: toNumber(row.consumption),
+              meters: consumptionMeters,
+              unitCost: toNumber(fabric.unitCost),
+            });
+            if (rowFabricId === mainFabricId) {
+              mainUnitCost = fabric.unitCost;
+              mainIssuedLength = needed;
+            }
+          }
+
+          // Deduct accessories that reference real inventory.
+          const accessoriesSnapshot: any[] = [];
+          for (const row of accessories as any[]) {
+            if (!row.accessoryId) continue;
+            const qty = toNumber(row.consumption) * plannedDressCount;
+            if (qty <= 0) continue;
+            const needed = new Prisma.Decimal(qty);
+            const accessory = await tx.accessory.findUnique({ where: { id: row.accessoryId } });
+            if (!accessory) continue;
+            if (accessory.stockQty.lessThan(needed)) {
+              throw new Error(`كمية المستلزم "${accessory.name}" في المخزون غير كافية`);
+            }
+            await tx.accessory.update({ where: { id: row.accessoryId }, data: { stockQty: { decrement: needed } } });
+            accessoriesSnapshot.push({
+              accessoryId: row.accessoryId,
+              name: accessory.name,
+              qty,
+              unitPrice: toNumber(accessory.unitPrice),
+            });
+          }
+
+          return tx.tailorFabricIssue.create({
+            data: {
+              fabricId: mainFabricId,
+              tailorId,
+              designModelId,
+              issuedLength: mainIssuedLength,
+              unitCostAtIssue: mainUnitCost,
+              plannedDressCount,
+              componentsIssued: { fabrics: fabricsSnapshot, accessories: accessoriesSnapshot },
+              issueDate: body.issueDate ? new Date(body.issueDate) : new Date(),
+              reference: body.reference || null,
+              notes: body.notes || null,
+            },
+            include: { fabric: true, tailor: true },
+          });
+        });
+
+        return NextResponse.json(serializeIssue(issue), { status: 201 });
+      }
+
+      // Legacy / manual single-fabric issue.
+      const fabricId = String(body.fabricId || '');
+      const issuedLength = lengthToMeters(body.issuedLength, body.lengthUnit, 'الكمية المسلمة');
+      if (!fabricId) {
+        return NextResponse.json({ error: 'القماش أو الموديل مطلوب' }, { status: 400 });
       }
 
       const issue = await prisma.$transaction(async (tx) => {
@@ -659,10 +903,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'أضف قماشاً واحداً على الأقل مع كمية استهلاك صحيحة' }, { status: 400 });
       }
 
-      const rawAccessories = Array.isArray(body.accessories) ? body.accessories : [];
-      const accessories = rawAccessories
-        .map((row: any) => ({ name: typeof row?.name === 'string' ? row.name.trim() : '', cost: toNumber(row?.cost) }))
-        .filter((row: any) => row.name);
+      const accessories = parseAccessoryRecipe(body.accessories);
 
       const imageData = typeof body.imageData === 'string' && body.imageData.startsWith('data:image/')
         ? body.imageData
@@ -692,17 +933,11 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        const fabricIds = recipe.map((row: any) => row.fabricId);
-        const usedFabrics = await prisma.fabric.findMany({ where: { id: { in: fabricIds } } });
-        const fabricMap = new Map(
-          usedFabrics.map((fabric) => [
-            fabric.id,
-            { unitCost: toNumber(fabric.unitCost), stockLength: toNumber(fabric.stockLength) },
-          ])
+        const { fabricMap, accessoryMap } = await loadRecipeMaps(recipe, accessories);
+        return NextResponse.json(
+          serializeModel(model, fabricMap, accessoryMap, { inProgressCount: 0, reservedLength: 0 }),
+          { status: 201 }
         );
-        const openIssuesCount = await prisma.tailorFabricIssue.count({ where: { status: { not: 'closed' } } });
-
-        return NextResponse.json(serializeModel(model, fabricMap, openIssuesCount), { status: 201 });
       } catch (createError: any) {
         if (createError?.code === 'P2002') {
           return NextResponse.json({ error: `رقم الصنف ${sku} مستخدم بالفعل` }, { status: 409 });
@@ -717,9 +952,20 @@ export async function POST(request: NextRequest) {
       if (!modelId || !['active', 'paused', 'draft'].includes(status)) {
         return NextResponse.json({ error: 'حالة الموديل غير صالحة' }, { status: 400 });
       }
+      const existingStatus = await prisma.designModel.findUnique({ where: { id: modelId }, select: { status: true } });
       const updated = await prisma.designModel.update({ where: { id: modelId }, data: { status } });
-      const openIssuesCount = await prisma.tailorFabricIssue.count({ where: { status: { not: 'closed' } } });
-      return NextResponse.json(serializeModel(updated, new Map(), openIssuesCount));
+      await writeAudit(
+        prisma,
+        'model',
+        modelId,
+        [{ field: 'status', oldValue: existingStatus?.status, newValue: status }],
+        getAuditUser(access.session)
+      );
+      const { fabricMap, accessoryMap } = await loadRecipeMaps(
+        Array.isArray(updated.recipe) ? (updated.recipe as any[]) : [],
+        Array.isArray(updated.accessories) ? (updated.accessories as any[]) : []
+      );
+      return NextResponse.json(serializeModel(updated, fabricMap, accessoryMap, { inProgressCount: 0, reservedLength: 0 }));
     }
 
     if (action === 'delete-model') {
@@ -729,6 +975,247 @@ export async function POST(request: NextRequest) {
       }
       await prisma.designModel.delete({ where: { id: modelId } });
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'update-fabric') {
+      const fabricId = String(body.fabricId || '');
+      if (!fabricId) return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
+
+      const existing = await prisma.fabric.findUnique({ where: { id: fabricId } });
+      if (!existing) return NextResponse.json({ error: 'القماش غير موجود' }, { status: 404 });
+
+      const unit = body.lengthUnit === 'yard' ? 'yard' : 'meter';
+      const name = cleanText(body.name) || existing.name;
+      const sku = body.sku !== undefined ? cleanText(body.sku) || null : existing.sku;
+      const color = body.color !== undefined ? cleanText(body.color) || null : existing.color;
+      const fabricType = body.fabricType !== undefined ? cleanText(body.fabricType) || null : existing.fabricType;
+      const unitCost = body.unitCost !== undefined && body.unitCost !== '' ? costToPerMeter(body.unitCost, unit) : existing.unitCost;
+      const stockLength = body.stockLength !== undefined && body.stockLength !== '' ? lengthToMeters(body.stockLength, unit, 'المخزون') : existing.stockLength;
+      const minStock = body.minStock !== undefined && body.minStock !== '' ? lengthToMeters(body.minStock, unit, 'حد التنبيه') : existing.minStock;
+      const notes = body.notes !== undefined ? cleanText(body.notes) || null : existing.notes;
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.fabric.update({
+          where: { id: fabricId },
+          data: { name, sku, color, fabricType, unitCost, stockLength, minStock, notes },
+        });
+        await writeAudit(tx, 'fabric', fabricId, [
+          { field: 'الاسم', oldValue: existing.name, newValue: name },
+          { field: 'رقم المنتج', oldValue: existing.sku, newValue: sku },
+          { field: 'اللون', oldValue: existing.color, newValue: color },
+          { field: 'النوع', oldValue: existing.fabricType, newValue: fabricType },
+          { field: 'تكلفة المتر', oldValue: existing.unitCost, newValue: unitCost },
+          { field: 'المخزون', oldValue: existing.stockLength, newValue: stockLength },
+          { field: 'حد التنبيه', oldValue: existing.minStock, newValue: minStock },
+        ], getAuditUser(access.session));
+        return result;
+      });
+
+      return NextResponse.json(serializeFabric(updated));
+    }
+
+    if (action === 'delete-fabric') {
+      const fabricId = String(body.fabricId || '');
+      if (!fabricId) return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
+      try {
+        await prisma.fabric.delete({ where: { id: fabricId } });
+      } catch (error: any) {
+        if (error?.code === 'P2003') {
+          return NextResponse.json({ error: 'لا يمكن حذف قماش مرتبط بحركات أو طلبات' }, { status: 409 });
+        }
+        throw error;
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'create-accessory') {
+      const name = cleanText(body.name);
+      if (!name) return NextResponse.json({ error: 'اسم المستلزم مطلوب' }, { status: 400 });
+      const accessory = await prisma.accessory.create({
+        data: {
+          name,
+          sku: cleanText(body.sku) || null,
+          unitPrice: toDecimal(body.unitPrice),
+          stockQty: toDecimal(body.stockQty),
+          minStock: toDecimal(body.minStock),
+          notes: cleanText(body.notes) || null,
+        },
+      });
+      return NextResponse.json(serializeAccessory(accessory), { status: 201 });
+    }
+
+    if (action === 'update-accessory') {
+      const accessoryId = String(body.accessoryId || '');
+      if (!accessoryId) return NextResponse.json({ error: 'المستلزم مطلوب' }, { status: 400 });
+      const existing = await prisma.accessory.findUnique({ where: { id: accessoryId } });
+      if (!existing) return NextResponse.json({ error: 'المستلزم غير موجود' }, { status: 404 });
+
+      const name = cleanText(body.name) || existing.name;
+      const sku = body.sku !== undefined ? cleanText(body.sku) || null : existing.sku;
+      const unitPrice = body.unitPrice !== undefined && body.unitPrice !== '' ? toDecimal(body.unitPrice) : existing.unitPrice;
+      const stockQty = body.stockQty !== undefined && body.stockQty !== '' ? toDecimal(body.stockQty) : existing.stockQty;
+      const minStock = body.minStock !== undefined && body.minStock !== '' ? toDecimal(body.minStock) : existing.minStock;
+      const notes = body.notes !== undefined ? cleanText(body.notes) || null : existing.notes;
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.accessory.update({
+          where: { id: accessoryId },
+          data: { name, sku, unitPrice, stockQty, minStock, notes },
+        });
+        await writeAudit(tx, 'accessory', accessoryId, [
+          { field: 'الاسم', oldValue: existing.name, newValue: name },
+          { field: 'رقم المنتج', oldValue: existing.sku, newValue: sku },
+          { field: 'السعر', oldValue: existing.unitPrice, newValue: unitPrice },
+          { field: 'المخزون', oldValue: existing.stockQty, newValue: stockQty },
+          { field: 'حد التنبيه', oldValue: existing.minStock, newValue: minStock },
+        ], getAuditUser(access.session));
+        return result;
+      });
+
+      return NextResponse.json(serializeAccessory(updated));
+    }
+
+    if (action === 'delete-accessory') {
+      const accessoryId = String(body.accessoryId || '');
+      if (!accessoryId) return NextResponse.json({ error: 'المستلزم مطلوب' }, { status: 400 });
+      await prisma.accessory.delete({ where: { id: accessoryId } });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'create-accessory-purchase-bill') {
+      const billNumber = cleanText(body.billNumber);
+      const purchaseDate = cleanText(body.purchaseDate);
+      const items = Array.isArray(body.items) ? body.items : [];
+
+      if (!billNumber) return NextResponse.json({ error: 'رقم فاتورة الشراء مطلوب' }, { status: 400 });
+      if (!purchaseDate || Number.isNaN(new Date(purchaseDate).getTime())) {
+        return NextResponse.json({ error: 'تاريخ الشراء مطلوب' }, { status: 400 });
+      }
+      if (!items.length) return NextResponse.json({ error: 'أضف مستلزماً واحداً على الأقل للفاتورة' }, { status: 400 });
+
+      const saved = await prisma.$transaction(async (tx) => {
+        const results = [];
+        for (const [index, item] of items.entries()) {
+          const rowLabel = `سطر ${index + 1}`;
+          const accessoryId = cleanText(item?.accessoryId);
+          const name = cleanText(item?.name);
+          const sku = cleanText(item?.sku);
+          const purchasedQty = toPositiveDecimal(item?.purchasedQty, `كمية ${rowLabel}`);
+          const unitPrice = item?.unitPrice !== undefined && item?.unitPrice !== '' ? toDecimal(item.unitPrice) : null;
+          const minStock = item?.minStock !== undefined && item?.minStock !== '' ? toDecimal(item.minStock) : null;
+          const purchaseNote = [`فاتورة شراء ${billNumber}`, `تاريخ الشراء: ${purchaseDate}`, body.notes ? cleanText(body.notes) : null]
+            .filter(Boolean)
+            .join(' - ');
+
+          const existing = accessoryId
+            ? await tx.accessory.findUnique({ where: { id: accessoryId } })
+            : sku
+              ? await tx.accessory.findUnique({ where: { sku } })
+              : null;
+
+          if (accessoryId && !existing) throw new Error(`المستلزم المحدد في ${rowLabel} غير موجود`);
+
+          if (existing) {
+            const updated = await tx.accessory.update({
+              where: { id: existing.id },
+              data: {
+                stockQty: { increment: purchasedQty },
+                unitPrice: unitPrice || existing.unitPrice,
+                minStock: minStock || existing.minStock,
+                notes: [existing.notes, `توريد جديد: ${purchaseNote}`].filter(Boolean).join('\n'),
+              },
+            });
+            results.push(updated);
+            continue;
+          }
+
+          if (!name) throw new Error(`اسم المستلزم مطلوب في ${rowLabel}`);
+          const created = await tx.accessory.create({
+            data: {
+              name,
+              sku: sku || null,
+              unitPrice: unitPrice || toDecimal(0),
+              stockQty: purchasedQty,
+              minStock: minStock || toDecimal(0),
+              notes: purchaseNote,
+            },
+          });
+          results.push(created);
+        }
+        return results;
+      });
+
+      return NextResponse.json({ accessories: saved.map(serializeAccessory) }, { status: 201 });
+    }
+
+    if (action === 'update-model') {
+      const modelId = String(body.modelId || '');
+      if (!modelId) return NextResponse.json({ error: 'الموديل مطلوب' }, { status: 400 });
+      const existing = await prisma.designModel.findUnique({ where: { id: modelId } });
+      if (!existing) return NextResponse.json({ error: 'الموديل غير موجود' }, { status: 404 });
+
+      const unit = body.unit === 'yard' ? 'yard' : 'meter';
+      const recipe = (Array.isArray(body.recipe) ? body.recipe : [])
+        .map((row: any) => ({
+          role: typeof row?.role === 'string' ? row.role : 'main',
+          fabricId: String(row?.fabricId || ''),
+          consumption: toNumber(row?.consumption),
+        }))
+        .filter((row: any) => row.fabricId && row.consumption > 0);
+      if (!recipe.length) {
+        return NextResponse.json({ error: 'أضف قماشاً واحداً على الأقل مع كمية استهلاك صحيحة' }, { status: 400 });
+      }
+      const accessories = parseAccessoryRecipe(body.accessories);
+
+      const imageData =
+        body.imageData === null
+          ? null
+          : typeof body.imageData === 'string' && body.imageData.startsWith('data:image/')
+            ? body.imageData
+            : existing.imageData;
+      if (imageData && imageData.length > MAX_IMAGE_DATA_LENGTH) {
+        return NextResponse.json({ error: 'حجم الصورة كبير جداً (الحد الأقصى ~2 ميجابايت)' }, { status: 400 });
+      }
+
+      const status = ['active', 'paused', 'draft'].includes(body.status) ? body.status : existing.status;
+      const colors = Array.isArray(body.colors)
+        ? body.colors.filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
+        : (existing.colors as string[]);
+      const tailoringCost = toDecimal(body.tailoringCost);
+      const embroideryCost = toDecimal(body.embroideryCost);
+      const extraCost = toDecimal(body.extraCost);
+      const description = typeof body.description === 'string' ? body.description : existing.description;
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.designModel.update({
+          where: { id: modelId },
+          data: { status, description, unit, colors, imageData, recipe, accessories, tailoringCost, embroideryCost, extraCost },
+        });
+        await writeAudit(tx, 'model', modelId, [
+          { field: 'الحالة', oldValue: existing.status, newValue: status },
+          { field: 'تكلفة الخياطة', oldValue: existing.tailoringCost, newValue: tailoringCost },
+          { field: 'تكلفة التطريز', oldValue: existing.embroideryCost, newValue: embroideryCost },
+          { field: 'تكلفة إضافية', oldValue: existing.extraCost, newValue: extraCost },
+        ], getAuditUser(access.session));
+        return result;
+      });
+
+      const { fabricMap, accessoryMap } = await loadRecipeMaps(recipe, accessories);
+      return NextResponse.json(serializeModel(updated, fabricMap, accessoryMap, { inProgressCount: 0, reservedLength: 0 }));
+    }
+
+    if (action === 'fetch-audit') {
+      const entityType = String(body.entityType || '');
+      const entityId = String(body.entityId || '');
+      if (!['fabric', 'accessory', 'model'].includes(entityType) || !entityId) {
+        return NextResponse.json({ error: 'نوع أو معرّف السجل غير صالح' }, { status: 400 });
+      }
+      const logs = await prisma.inventoryAuditLog.findMany({
+        where: { entityType, entityId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      return NextResponse.json({ logs });
     }
 
     return NextResponse.json({ error: 'إجراء غير معروف' }, { status: 400 });
