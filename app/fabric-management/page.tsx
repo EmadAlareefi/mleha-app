@@ -665,6 +665,15 @@ export default function FabricManagementPage() {
 
   const pendingCount = summary?.pendingRequestsCount || 0;
 
+  const fabricBillTotal = purchaseBillItems.reduce(
+    (sum, item) => sum + (Number(item.purchasedLength) || 0) * (Number(item.unitCost) || 0),
+    0
+  );
+  const accessoryBillTotal = accessoryBillItems.reduce(
+    (sum, item) => sum + (Number(item.purchasedQty) || 0) * (Number(item.unitPrice) || 0),
+    0
+  );
+
   return (
     <AppPageShell
       title="إدارة الأقمشة"
@@ -732,10 +741,7 @@ export default function FabricManagementPage() {
                           <TextInput label="تاريخ الشراء" type="date" value={purchaseBillForm.purchaseDate} onChange={(purchaseDate) => setPurchaseBillForm({ ...purchaseBillForm, purchaseDate })} required />
                           <DesignSelect label="المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} allowCreate searchable />
                         </div>
-                        <div className="toolbar-row">
-                          <span className="section-label">الأقمشة في الفاتورة</span>
-                          <button type="button" className="btn-add-row" style={{ width: 'auto' }} onClick={addPurchaseBillItem}><Plus /> إضافة قماش</button>
-                        </div>
+                        <div className="section-label" style={{ marginBottom: 10 }}>الأقمشة في الفاتورة</div>
                         {purchaseBillItems.map((item, index) => (
                           <PurchaseBillItemRow
                             key={item.id}
@@ -750,6 +756,11 @@ export default function FabricManagementPage() {
                             canRemove={purchaseBillItems.length > 1}
                           />
                         ))}
+                        <div className="inv-total">
+                          <span>إجمالي الفاتورة</span>
+                          <span className="inv-total-val">{formatCurrency(fabricBillTotal)}</span>
+                        </div>
+                        <button type="button" className="btn-add-row" onClick={addPurchaseBillItem}><Plus size={15} /> إضافة قماش</button>
                         <TextAreaField label="ملاحظات الفاتورة" value={purchaseBillForm.notes} onChange={(notes) => setPurchaseBillForm({ ...purchaseBillForm, notes })} />
                         <p className="muted-note" style={{ marginTop: 8 }}>ابحث بالاسم أو الرمز. إذا لم تجد القماش، اختر إنشاء قماش جديد من نفس الحقل.</p>
                         <button className="btn" type="submit" disabled={saving}><FileText /> حفظ الفاتورة</button>
@@ -763,10 +774,7 @@ export default function FabricManagementPage() {
                           <TextInput label="تاريخ الشراء" type="date" value={accessoryBillForm.purchaseDate} onChange={(purchaseDate) => setAccessoryBillForm({ ...accessoryBillForm, purchaseDate })} required />
                           <DesignSelect label="المورد" value={accessoryBillForm.supplier} options={supplierOptions} onChange={(supplier) => setAccessoryBillForm({ ...accessoryBillForm, supplier })} allowCreate searchable />
                         </div>
-                        <div className="toolbar-row">
-                          <span className="section-label">المستلزمات في الفاتورة</span>
-                          <button type="button" className="btn-add-row" style={{ width: 'auto' }} onClick={addAccessoryBillItem}><Plus /> إضافة مستلزم</button>
-                        </div>
+                        <div className="section-label" style={{ marginBottom: 10 }}>المستلزمات في الفاتورة</div>
                         {accessoryBillItems.map((item, index) => (
                           <AccessoryBillItemRow
                             key={item.id}
@@ -779,6 +787,11 @@ export default function FabricManagementPage() {
                             canRemove={accessoryBillItems.length > 1}
                           />
                         ))}
+                        <div className="inv-total">
+                          <span>إجمالي الفاتورة</span>
+                          <span className="inv-total-val">{formatCurrency(accessoryBillTotal)}</span>
+                        </div>
+                        <button type="button" className="btn-add-row" onClick={addAccessoryBillItem}><Plus size={15} /> إضافة مستلزم</button>
                         <TextAreaField label="ملاحظات الفاتورة" value={accessoryBillForm.notes} onChange={(notes) => setAccessoryBillForm({ ...accessoryBillForm, notes })} />
                         <p className="muted-note" style={{ marginTop: 8 }}>اختر مستلزماً موجوداً للتزويد، أو اكتب اسم مستلزم جديد لإنشائه.</p>
                         <button className="btn" type="submit" disabled={saving}><FileText /> حفظ الفاتورة</button>
