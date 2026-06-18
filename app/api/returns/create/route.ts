@@ -4,7 +4,6 @@ import { getSallaOrder } from '@/app/lib/salla-api';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { getEffectiveReturnFee } from '@/lib/returns/fees';
-import { getShippingTotal } from '@/lib/returns/shipping';
 import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
 import {
   evaluateReturnWindow,
@@ -261,10 +260,7 @@ export async function POST(request: NextRequest) {
       0
     );
 
-    // Get shipping amount from order (non-refundable) - include tax when available
-    const shippingAmount = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
-
-    // Get processing fee from carrier-specific settings and apply tax/adjustments.
+    // Get the exact processing fee configured for the order's carrier.
     const feeSettingKey = body.type === 'exchange' ? 'exchange_fee' : 'return_fee';
     let configuredProcessingFee = 0;
     try {
@@ -293,10 +289,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const returnFee =
-      configuredProcessingFee > 0
-        ? getEffectiveReturnFee(configuredProcessingFee, shippingAmount)
-        : 0;
+    const returnFee = getEffectiveReturnFee(configuredProcessingFee);
 
     // Calculate total refund: items total - return fee
     const totalRefundAmount = Math.max(0, totalItemsAmount - returnFee);
@@ -482,7 +475,6 @@ export async function POST(request: NextRequest) {
 
         totalRefundAmount,
         returnFee,
-        shippingAmount,
 
         items: {
           create: body.items.map(item => ({

@@ -4,8 +4,7 @@ import Image from 'next/image';
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { getEffectiveReturnFee } from '@/lib/returns/fees';
-import { getShippingTotal } from '@/lib/returns/shipping';
+import { getEffectiveReturnFee, splitReturnFee } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
 import {
@@ -179,7 +178,6 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
-  const shippingTotal = getShippingTotal(order.amounts?.shipping_cost, order.amounts?.shipping_tax);
   const carrierId = useMemo(() => resolveReturnCarrierId(order), [order]);
   const carrier = carrierId ? returnFeeCarriers.find((company) => company.id === carrierId) : null;
   const configuredFee = getCarrierFee(
@@ -188,7 +186,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     type,
     type === 'return' ? returnFee : exchangeFee,
   );
-  const appliedProcessingFee = getEffectiveReturnFee(configuredFee, shippingTotal);
+  const appliedProcessingFee = getEffectiveReturnFee(configuredFee);
   const getNumericValue = (value: unknown): number => {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? value : 0;
@@ -680,6 +678,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               }, 0);
 
               const applicableFee = appliedProcessingFee;
+              const feeBreakdown = splitReturnFee(applicableFee);
               const finalRefund = Math.max(0, itemsTotal - applicableFee);
 
               return (
@@ -689,21 +688,23 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     <span className="font-medium">{itemsTotal.toFixed(2)} ر.س</span>
                   </div>
 
-                  {shippingTotal > 0 && (
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>تكلفة الشحن الأصلية (غير قابلة للاسترداد):</span>
-                      <span>-{shippingTotal.toFixed(2)} ر.س</span>
-                    </div>
-                  )}
-
                   {applicableFee > 0 && (
-                    <div className="flex justify-between text-sm text-red-600">
-                      <span>
-                        رسوم معالجة {type === 'return' ? 'الإرجاع' : 'الاستبدال'}
-                        {carrier ? ` (${carrier.nameAr})` : ''}:
-                      </span>
-                      <span>-{applicableFee.toFixed(2)} ر.س</span>
-                    </div>
+                    <>
+                      <div className="flex justify-between text-sm text-red-600">
+                        <span>
+                          رسوم الشحنة الأساسية (50%)
+                          {carrier ? ` (${carrier.nameAr})` : ''}:
+                        </span>
+                        <span>-{feeBreakdown.baseShipmentFee.toFixed(2)} ر.س</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-red-600">
+                        <span>
+                          رسوم شحنة {type === 'return' ? 'الاسترجاع' : 'الاستبدال'} (50%)
+                          {carrier ? ` (${carrier.nameAr})` : ''}:
+                        </span>
+                        <span>-{feeBreakdown.returnShipmentFee.toFixed(2)} ر.س</span>
+                      </div>
+                    </>
                   )}
 
                   <div className="border-t pt-3 mt-3">
