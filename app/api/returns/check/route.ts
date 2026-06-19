@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
-import { getSallaOrder } from '@/app/lib/salla-api';
+import { getSallaOrder, getSallaOrderShipments } from '@/app/lib/salla-api';
+import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
 import {
   evaluateReturnWindow,
   getCategoryNamesByProductId,
@@ -152,6 +153,58 @@ export async function GET(request: NextRequest) {
       orderId,
       count: existingReturns.length,
     });
+
+    // Salla now issues the return waybill asynchronously, so `smsaTrackingNumber`
+    // is null at creation time. Backfill it from the return-type shipment in Salla
+    // so the customer can see the tracking label.
+    const returnsMissingTracking = existingReturns.filter((ret) => !ret.smsaTrackingNumber);
+    if (returnsMissingTracking.length > 0) {
+      try {
+        const shipments = await getSallaOrderShipments(merchantId, String(orderId));
+        const returnTrackingNumbers = Array.from(
+          new Set(
+            shipments
+              .filter((shipment) => String(shipment?.type || '').toLowerCase() === 'return')
+              .map((shipment) => extractTrackingFromShipment(shipment))
+              .filter((tracking): tracking is string => Boolean(tracking))
+          )
+        );
+
+        for (let i = 0; i < returnsMissingTracking.length && i < returnTrackingNumbers.length; i++) {
+          const target = returnsMissingTracking[i];
+          const trackingNumber = returnTrackingNumbers[i];
+
+          try {
+            await prisma.returnRequest.update({
+              where: { id: target.id },
+              data: { smsaTrackingNumber: trackingNumber },
+            });
+          } catch (updateError) {
+            // smsaTrackingNumber is unique; ignore conflicts but still surface the
+            // tracking number in the response below.
+            log.warn('Failed to persist backfilled return tracking number', {
+              returnRequestId: target.id,
+              trackingNumber,
+              error: updateError,
+            });
+          }
+
+          target.smsaTrackingNumber = trackingNumber;
+        }
+
+        log.info('Backfilled return tracking numbers from Salla shipments', {
+          merchantId,
+          orderId,
+          backfilled: Math.min(returnsMissingTracking.length, returnTrackingNumbers.length),
+        });
+      } catch (shipmentError) {
+        log.warn('Failed to backfill return tracking from Salla shipments', {
+          merchantId,
+          orderId,
+          error: shipmentError,
+        });
+      }
+    }
 
     return NextResponse.json({
       hasExistingReturns: true,

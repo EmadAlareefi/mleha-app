@@ -54,6 +54,26 @@ function getTrackingLinkCandidates(shipment: AnyRecord | null | undefined): unkn
   ];
 }
 
+/**
+ * Extracts the tracking number from a single Salla shipment object
+ * (e.g. an entry returned by GET /admin/v2/shipments?order_id=...).
+ */
+export function extractTrackingFromShipment(shipment: AnyRecord | null | undefined): string | null {
+  if (!shipment) return null;
+
+  for (const candidate of getTrackingCandidates(shipment)) {
+    const trackingNumber = normalizeTrackingCandidate(candidate);
+    if (trackingNumber) return trackingNumber;
+  }
+
+  for (const link of getTrackingLinkCandidates(shipment)) {
+    const trackingNumber = extractTrackingNumberFromLink(link);
+    if (trackingNumber) return trackingNumber;
+  }
+
+  return null;
+}
+
 export function extractSallaTrackingNumber(order: AnyRecord | null | undefined): string | null {
   if (!order) return null;
 

@@ -220,6 +220,52 @@ export async function getSallaOrder(
   }
 }
 
+export interface SallaShipmentRecord {
+  id?: number | string;
+  order_id?: number | string;
+  type?: string; // "shipment" (outbound) | "return"
+  status?: string;
+  courier_name?: string;
+  shipping_number?: string;
+  tracking_number?: string;
+  tracking_link?: string;
+  label?: { url?: string } | string;
+}
+
+/**
+ * Fetches the shipments associated with an order from Salla.
+ *
+ * Salla issues the return waybill (بوليصة الرجيع) asynchronously after a
+ * `create_return_policy` action, so the tracking number is not present in the
+ * action response. Once issued, the return appears here as a `type: "return"`
+ * shipment.
+ */
+export async function getSallaOrderShipments(
+  merchantId: string,
+  orderId: string
+): Promise<SallaShipmentRecord[]> {
+  try {
+    const response = await sallaMakeRequest<{
+      status: number;
+      success: boolean;
+      data: SallaShipmentRecord[];
+    }>(
+      merchantId,
+      `/shipments?order_id=${encodeURIComponent(orderId)}`
+    );
+
+    if (!response || !response.success || !Array.isArray(response.data)) {
+      log.warn('Failed to fetch Salla order shipments', { merchantId, orderId });
+      return [];
+    }
+
+    return response.data;
+  } catch (error) {
+    log.error('Error fetching Salla order shipments', { merchantId, orderId, error });
+    return [];
+  }
+}
+
 /**
  * Fetches a specific order by reference ID (order number) from Salla
  */

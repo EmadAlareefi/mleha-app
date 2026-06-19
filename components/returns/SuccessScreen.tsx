@@ -1,7 +1,12 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+
+// Salla issues the return waybill asynchronously, so poll until it is ready.
+const TRACKING_POLL_INTERVAL_MS = 2000;
+const TRACKING_MAX_WAIT_MS = 3 * 60 * 1000;
 
 interface SuccessScreenProps {
   returnRequest: {
@@ -18,8 +23,69 @@ interface SuccessScreenProps {
 }
 
 export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenProps) {
+  const [trackingNumber, setTrackingNumber] = useState<string | undefined>(
+    returnRequest.smsaTrackingNumber
+  );
+  const [isWaitingForTracking, setIsWaitingForTracking] = useState(
+    !returnRequest.smsaTrackingNumber
+  );
+  const [trackingTimedOut, setTrackingTimedOut] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isWaitingForTracking) {
+      return;
+    }
+
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    // Visual counter that ticks every second.
+    const tick = setInterval(() => {
+      if (!cancelled) {
+        setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+      }
+    }, 1000);
+
+    const poll = async () => {
+      try {
+        const response = await fetch(
+          `/api/returns/tracking-status?returnRequestId=${encodeURIComponent(returnRequest.id)}`
+        );
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        if (!cancelled && data?.ready && data.trackingNumber) {
+          setTrackingNumber(data.trackingNumber);
+          setIsWaitingForTracking(false);
+        }
+      } catch {
+        // Transient error — keep polling.
+      }
+    };
+
+    void poll();
+    const pollInterval = setInterval(() => {
+      if (Date.now() - startedAt >= TRACKING_MAX_WAIT_MS) {
+        if (!cancelled) {
+          setTrackingTimedOut(true);
+          setIsWaitingForTracking(false);
+        }
+        return;
+      }
+      void poll();
+    }, TRACKING_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(tick);
+      clearInterval(pollInterval);
+    };
+  }, [isWaitingForTracking, returnRequest.id]);
+
   const hasLabel = Boolean(returnRequest.smsaLabelDataUrl);
-  const downloadFileName = `return-label-${returnRequest.smsaTrackingNumber || returnRequest.orderNumber}.pdf`;
+  const downloadFileName = `return-label-${trackingNumber || returnRequest.orderNumber}.pdf`;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -56,14 +122,43 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
             <p className="text-lg font-mono font-semibold">{returnRequest.orderNumber}</p>
           </div>
 
-          {returnRequest.smsaTrackingNumber && (
+          {isWaitingForTracking && (
+            <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
+              <div className="flex items-center gap-3">
+                <span
+                  className="inline-block w-5 h-5 shrink-0 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"
+                  aria-hidden="true"
+                />
+                <div>
+                  <p className="text-sm font-medium text-blue-800">
+                    جاري إصدار بوليصة الإرجاع...
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    يتم تجهيز رقم تتبع شحنة الإرجاع من شركة الشحن، وسيظهر هنا تلقائيًا خلال لحظات
+                    {elapsedSeconds > 0 ? ` (${elapsedSeconds} ثانية)` : ''}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {trackingNumber && (
             <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
               <p className="text-sm text-gray-600 mb-1">رقم تتبع شحنة الإرجاع</p>
               <p className="text-lg font-mono font-semibold text-blue-700">
-                {returnRequest.smsaTrackingNumber}
+                {trackingNumber}
               </p>
               <p className="text-xs text-gray-500 mt-2">
                 استخدم هذا الرقم لتتبع شحنة الإرجاع
+              </p>
+            </div>
+          )}
+
+          {trackingTimedOut && !trackingNumber && (
+            <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+              <p className="text-sm text-gray-700">
+                لم يتم إصدار رقم تتبع شحنة الإرجاع بعد. لا تقلق، سيتم تجهيزه قريبًا ويمكنك العودة لاحقًا
+                للاطلاع عليه من خلال إدخال رقم طلبك في صفحة الإرجاع.
               </p>
             </div>
           )}
