@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { calculateReturnFee, getEffectiveReturnFee, splitReturnFee } from '../fees';
+import {
+  calculateReturnFee,
+  getEffectiveReturnFee,
+  getProcessingFee,
+  splitReturnFee,
+  RETURN_FEE,
+  EXCHANGE_FEE,
+} from '../fees';
+
+test('applies the flat processing fee per request type', () => {
+  assert.equal(RETURN_FEE, 60);
+  assert.equal(EXCHANGE_FEE, 40);
+  assert.equal(getProcessingFee('return'), 60);
+  assert.equal(getProcessingFee('exchange'), 40);
+});
 
 test('uses the full configured return fee', () => {
   assert.deepEqual(calculateReturnFee(34.567), {

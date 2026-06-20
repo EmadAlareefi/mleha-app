@@ -12,6 +12,7 @@ import {
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
 import { isEveningDressCategory } from '@/lib/returns/categories';
+import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 
 export const runtime = 'nodejs';
 
@@ -41,6 +42,22 @@ export async function GET(request: NextRequest) {
         { error: 'لم يتم العثور على الطلب', canCreateNew: false },
         { status: 404 }
       );
+    }
+
+    // Orders that already carry an exchange coupon (EX…) are the result of a
+    // previous exchange and cannot be returned or exchanged again.
+    const appliedCouponCodes = extractAppliedCouponCodes(order as any);
+    if (appliedCouponCodes.some((code) => code.toUpperCase().startsWith('EX'))) {
+      log.warn('Order already exchanged, blocking new return/exchange', {
+        merchantId,
+        orderId,
+      });
+      return NextResponse.json({
+        error: 'هذا الطلب تم استبداله مسبقاً ولا يمكن إرجاعه أو استبداله مرة أخرى',
+        errorCode: 'ORDER_ALREADY_EXCHANGED',
+        message: 'تم استخدام كوبون استبدال على هذا الطلب سابقاً، لذلك لا يمكن إنشاء طلب إرجاع أو استبدال جديد له.',
+        canCreateNew: false,
+      }, { status: 400 });
     }
 
     const deliveryDateResult = await resolveReturnDeliveryDate(merchantId, order as any);

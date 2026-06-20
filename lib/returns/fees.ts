@@ -1,5 +1,17 @@
 const roundCurrency = (value: number) => Math.round(value * 100) / 100;
 
+/**
+ * Flat processing fees deducted from the order total.
+ * Returns cost the customer 60 SAR; exchanges only 40 SAR (to encourage
+ * exchanges over returns).
+ */
+export const RETURN_FEE = 60;
+export const EXCHANGE_FEE = 40;
+
+export function getProcessingFee(type: 'return' | 'exchange'): number {
+  return type === 'exchange' ? EXCHANGE_FEE : RETURN_FEE;
+}
+
 interface ReturnFeeCalculation {
   baseAmount: number;
   effectiveFee: number;

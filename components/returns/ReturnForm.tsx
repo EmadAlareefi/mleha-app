@@ -4,16 +4,15 @@ import Image from 'next/image';
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { getEffectiveReturnFee, splitReturnFee } from '@/lib/returns/fees';
+import { getProcessingFee, RETURN_FEE, EXCHANGE_FEE } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
-import {
-  buildCarrierFeeConfig,
-  getCarrierFee,
-  resolveReturnCarrierId,
-  returnFeeCarriers,
-  type CarrierFeeConfig,
-} from '@/lib/returns/carrier-fees';
+
+// Presentational per-shipment-leg amounts. The total deduction is always the
+// flat fee from getProcessingFee (60 SAR return / 40 SAR exchange); these lines
+// just break that total down to make the exchange option look more appealing.
+const SHIPMENT_LEG_FEE = 30; // original outbound shipment, and full return leg
+const EXCHANGE_RETURN_LEG_FEE = 10; // discounted return leg when exchanging
 
 interface OrderItem {
   id: number;
@@ -172,21 +171,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   const [selectedItems, setSelectedItems] = useState<Map<number, number>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [returnFee, setReturnFee] = useState(0);
-  const [exchangeFee, setExchangeFee] = useState(0);
-  const [carrierFees, setCarrierFees] = useState<CarrierFeeConfig>({});
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
-  const carrierId = useMemo(() => resolveReturnCarrierId(order), [order]);
-  const carrier = carrierId ? returnFeeCarriers.find((company) => company.id === carrierId) : null;
-  const configuredFee = getCarrierFee(
-    carrierFees,
-    carrierId,
-    type,
-    type === 'return' ? returnFee : exchangeFee,
-  );
-  const appliedProcessingFee = getEffectiveReturnFee(configuredFee);
+  // Flat processing fee deducted from the order total: 60 SAR return / 40 SAR exchange.
+  const appliedProcessingFee = getProcessingFee(type);
   const getNumericValue = (value: unknown): number => {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? value : 0;
@@ -237,33 +226,6 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     });
     return ids;
   }, [order, itemCategories, outletCategoryProducts]);
-
-  // Load return fee setting on mount
-  useEffect(() => {
-    const loadReturnConfig = async () => {
-      try {
-        const response = await fetch('/api/returns/config');
-        if (!response.ok) {
-          throw new Error(`Config request failed: ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (typeof data.returnFee === 'number' && !Number.isNaN(data.returnFee)) {
-          setReturnFee(data.returnFee);
-        }
-        if (typeof data.exchangeFee === 'number' && !Number.isNaN(data.exchangeFee)) {
-          setExchangeFee(data.exchangeFee);
-        }
-        setCarrierFees(
-          buildCarrierFeeConfig(data.carrierFees || {}, data.returnFee || 0, data.exchangeFee || 0),
-        );
-      } catch (err) {
-        console.error('Failed to load return config:', err);
-      }
-    };
-
-    loadReturnConfig();
-  }, []);
 
   // Fetch categories for all items
   useEffect(() => {
@@ -517,18 +479,23 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                 : 'border-gray-200 hover:border-gray-300'
             }`}
           >
-            إرجاع
+            <span className="block font-medium">إرجاع</span>
+            <span className="block text-xs text-gray-500 mt-1">رسوم {RETURN_FEE} ر.س</span>
           </button>
           <button
             type="button"
             onClick={() => setType('exchange')}
-            className={`flex-1 py-3 px-4 rounded-lg border-2 transition-colors ${
+            className={`relative flex-1 py-3 px-4 rounded-lg border-2 transition-colors ${
               type === 'exchange'
-                ? 'border-blue-600 bg-blue-50 text-blue-700'
+                ? 'border-green-600 bg-green-50 text-green-700'
                 : 'border-gray-200 hover:border-gray-300'
             }`}
           >
-            استبدال
+            <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">
+              وفّر {RETURN_FEE - EXCHANGE_FEE} ر.س + شحن مجاني
+            </span>
+            <span className="block font-medium">استبدال</span>
+            <span className="block text-xs text-gray-500 mt-1">رسوم {EXCHANGE_FEE} ر.س فقط</span>
           </button>
         </div>
       </Card>
@@ -678,7 +645,6 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               }, 0);
 
               const applicableFee = appliedProcessingFee;
-              const feeBreakdown = splitReturnFee(applicableFee);
               const finalRefund = Math.max(0, itemsTotal - applicableFee);
 
               return (
@@ -688,22 +654,46 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     <span className="font-medium">{itemsTotal.toFixed(2)} ر.س</span>
                   </div>
 
-                  {applicableFee > 0 && (
+                  {type === 'return' ? (
                     <>
                       <div className="flex justify-between text-sm text-red-600">
-                        <span>
-                          رسوم الشحنة الأساسية (50%)
-                          {carrier ? ` (${carrier.nameAr})` : ''}:
-                        </span>
-                        <span>-{feeBreakdown.baseShipmentFee.toFixed(2)} ر.س</span>
+                        <span>رسوم الشحنة الأساسية:</span>
+                        <span>-{SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
                       </div>
                       <div className="flex justify-between text-sm text-red-600">
-                        <span>
-                          رسوم شحنة {type === 'return' ? 'الاسترجاع' : 'الاستبدال'} (50%)
-                          {carrier ? ` (${carrier.nameAr})` : ''}:
-                        </span>
-                        <span>-{feeBreakdown.returnShipmentFee.toFixed(2)} ر.س</span>
+                        <span>رسوم شحنة الاسترجاع:</span>
+                        <span>-{SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
                       </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-sm text-red-600">
+                        <span>رسوم الشحنة الأساسية:</span>
+                        <span>-{SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">رسوم شحنة الاستبدال:</span>
+                        <span className="flex items-baseline gap-2">
+                          <span className="line-through text-gray-400">
+                            -{SHIPMENT_LEG_FEE.toFixed(2)}
+                          </span>
+                          <span className="font-semibold text-red-600">
+                            -{EXCHANGE_RETURN_LEG_FEE.toFixed(2)} ر.س
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">شحنة الاستبدال الجديدة:</span>
+                        <span className="flex items-baseline gap-2">
+                          <span className="line-through text-gray-400">
+                            -{SHIPMENT_LEG_FEE.toFixed(2)}
+                          </span>
+                          <span className="font-semibold text-green-600">مجاني</span>
+                        </span>
+                      </div>
+                      <p className="text-xs text-green-700 bg-green-50 rounded-md px-2 py-1">
+                        كوبون الاستبدال يمنحك شحن مجاني للطلب الجديد 🎁
+                      </p>
                     </>
                   )}
 

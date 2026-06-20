@@ -379,6 +379,17 @@ export default function ReturnsPage() {
           return;
         }
 
+        if (returnsData.errorCode === 'ORDER_ALREADY_EXCHANGED') {
+          setErrorDetails({
+            title: 'تم استبدال هذا الطلب مسبقاً',
+            message: returnsData.message || returnsData.error,
+            variant: 'error',
+          });
+          setErrorDialogOpen(true);
+          setLoading(false);
+          return;
+        }
+
         continueWithManualReturn(
           returnsData.message || returnsData.error || 'تعذر التحقق من حالة الطلب.',
           'يمكنك متابعة تقديم الطلب وسيتم مراجعته يدويًا.'
