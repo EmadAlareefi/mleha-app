@@ -492,6 +492,24 @@
 .fab-design .rep-row.fabric-main { grid-template-columns: 38px 1fr 130px 38px; }
 .fab-design .rep-row.fabric-extra { grid-template-columns: 110px 1fr 130px 38px; }
 .fab-design .rep-row.acc { grid-template-columns: 1fr 130px 38px; }
+.fab-design .rep-row > * { min-width: 0; }
+.fab-design .rep-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px dashed var(--primary);
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fab-design .rep-add-btn svg { width: 16px; height: 16px; }
 .fab-design .iconbtn {
   width: 38px;
   height: 38px;

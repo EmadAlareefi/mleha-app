@@ -1354,7 +1354,7 @@ function ModelEditDrawer({
           </div>
         );
       })}
-      <button className="iconbtn add" type="button" title="إضافة إكسسوار" style={{ marginTop: 8 }} onClick={() => setAccessoryRows((current) => [...current, { id: makeId('eacc'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' }])}>
+      <button className="rep-add-btn" type="button" title="إضافة إكسسوار" onClick={() => setAccessoryRows((current) => [...current, { id: makeId('eacc'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' }])}>
         <Plus /> إضافة إكسسوار
       </button>
 

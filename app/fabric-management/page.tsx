@@ -345,8 +345,8 @@ export default function FabricManagementPage() {
       }));
       setModelIssueForm((current) => ({
         ...current,
-        designModelId: current.designModelId || payload.models[0]?.id || '',
-        tailorId: current.tailorId || payload.tailors[0]?.id || '',
+        designModelId: current.designModelId || '',
+        tailorId: current.tailorId || '',
       }));
     } catch (fetchError: any) {
       setError(fetchError.message || 'فشل في جلب بيانات الأقمشة');
@@ -856,7 +856,7 @@ export default function FabricManagementPage() {
                     {prodTab === 'receive' && (
                       <form onSubmit={handleDeliverySubmit}>
                         <div className="grid">
-                          <DesignSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" searchable />
+                          <DesignSelect label="اختر الفستان" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر الفستان" searchable />
                           <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
                           <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
                           <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
