@@ -252,6 +252,7 @@ export function ModelsTabSpec({
   const [error, setError] = useState<string | null>(null);
   const [selectedColors, setSelectedColors] = useState<string[]>(['متعدد الألوان']);
   const [customColors, setCustomColors] = useState<ColorChip[]>([]);
+  const [customRoles, setCustomRoles] = useState<SelectOption[]>([]);
   const [editModel, setEditModel] = useState<DesignModel | null>(null);
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>([
     { id: 'main', role: 'main', fabricId: '', consumption: '' },
@@ -331,6 +332,17 @@ export function ModelsTabSpec({
       setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: value } : row)));
     }
     setOpenSelect(null);
+  };
+
+  const roleOptions = [...fabricRoleOptions, ...customRoles];
+
+  const handleRoleCustomAdd = (id: string, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setCustomRoles((current) =>
+      current.some((option) => option.value === trimmed) ? current : [...current, { value: trimmed, label: trimmed }]
+    );
+    setSelectValue(id, trimmed);
   };
 
   const toggleColor = (name: string) => {
@@ -556,11 +568,14 @@ export function ModelsTabSpec({
                       ) : (
                         <SelectBox
                           id={`role-${row.id}`}
-                          options={fabricRoleOptions}
+                          options={roleOptions}
                           value={row.role}
                           openSelect={openSelect}
                           setOpenSelect={setOpenSelect}
                           onChange={setSelectValue}
+                          allowCustom
+                          onCustomAdd={handleRoleCustomAdd}
+                          addPlaceholder="نوع جديد"
                         />
                       )}
                       <SelectBox
@@ -1124,6 +1139,14 @@ function ModelEditDrawer({
   const [description, setDescription] = useState(model.description || '');
   const [selectedColors, setSelectedColors] = useState<string[]>(decodedColors.names);
   const [customColors, setCustomColors] = useState<ColorChip[]>(decodedColors.customColors);
+  const [customRoles, setCustomRoles] = useState<SelectOption[]>(() => {
+    const known = new Set(fabricRoleOptions.map((option) => option.value));
+    const extras = new Map<string, SelectOption>();
+    model.fabrics.forEach((row) => {
+      if (row.role && !known.has(row.role)) extras.set(row.role, { value: row.role, label: row.role });
+    });
+    return [...extras.values()];
+  });
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>(
     model.fabrics.length
       ? model.fabrics.map((row) => ({ id: makeId('erow'), role: row.role, fabricId: row.fabricId, consumption: String(row.consumption) }))
@@ -1183,6 +1206,17 @@ function ModelEditDrawer({
       setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: value } : row)));
     }
     setOpenSelect(null);
+  };
+
+  const roleOptions = [...fabricRoleOptions, ...customRoles];
+
+  const handleRoleCustomAdd = (id: string, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setCustomRoles((current) =>
+      current.some((option) => option.value === trimmed) ? current : [...current, { value: trimmed, label: trimmed }]
+    );
+    dispatchSelect(id, trimmed);
   };
 
   const toggleColor = (name: string) =>
@@ -1273,7 +1307,7 @@ function ModelEditDrawer({
           {index === 0 ? (
             <div className="iconbtn" title="قماش أساسي" style={{ fontSize: 18, color: 'var(--amber)', borderColor: 'var(--amber-soft)', background: 'var(--amber-soft)' }}>★</div>
           ) : (
-            <SelectBox id={`edit-role-${row.id}`} options={fabricRoleOptions} value={row.role} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={dispatchSelect} />
+            <SelectBox id={`edit-role-${row.id}`} options={roleOptions} value={row.role} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={dispatchSelect} allowCustom onCustomAdd={handleRoleCustomAdd} addPlaceholder="نوع جديد" />
           )}
           <SelectBox
             id={`edit-fabric-${row.id}`}
