@@ -218,15 +218,6 @@ const initialTailorForm = {
   notes: '',
 };
 
-const initialStockForm = {
-  fabricId: '',
-  purchasedLength: '',
-  unitCost: '',
-  supplier: '',
-  purchaseBill: '',
-  notes: '',
-};
-
 type PurchaseBillForm = {
   billNumber: string;
   purchaseDate: string;
@@ -240,7 +231,6 @@ type PurchaseBillItem = {
   purchasedLength: string;
   unitCost: string;
   minStock: string;
-  notes: string;
 };
 
 type CreateFabricDialogState = {
@@ -266,7 +256,6 @@ const createPurchaseBillItem = (): PurchaseBillItem => ({
   purchasedLength: '',
   unitCost: '',
   minStock: '',
-  notes: '',
 });
 
 const initialCreateFabricDialog: CreateFabricDialogState = {
@@ -282,11 +271,11 @@ const looksLikeSku = (value: string) => /[0-9]/.test(value) || /^[A-Za-z0-9_-]+$
 const initialDeliveryForm = {
   issueId: '',
   deliveredDressCount: '',
-  consumedLength: '',
   returnedLength: '',
   tailoringCost: '',
   extraCost: '',
   deliveryDate: new Date().toISOString().split('T')[0],
+  notes: '',
 };
 
 // Model-driven delivery: pick a dress model + count, deduct its full BOM.
@@ -333,7 +322,6 @@ export default function FabricManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [lengthUnit, setLengthUnit] = useState('meter');
   const [tailorForm, setTailorForm] = useState(initialTailorForm);
-  const [stockForm, setStockForm] = useState(initialStockForm);
   const [purchaseBillForm, setPurchaseBillForm] = useState<PurchaseBillForm>(() => initialPurchaseBillForm());
   const [purchaseBillItems, setPurchaseBillItems] = useState<PurchaseBillItem[]>(() => [createPurchaseBillItem()]);
   const [createFabricDialog, setCreateFabricDialog] = useState<CreateFabricDialogState>(initialCreateFabricDialog);
@@ -351,10 +339,6 @@ export default function FabricManagementPage() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to fetch fabric data');
       setData(payload);
-      setStockForm((current) => ({
-        ...current,
-        fabricId: current.fabricId || payload.fabrics[0]?.id || '',
-      }));
       setDeliveryForm((current) => ({
         ...current,
         issueId: current.issueId || payload.issues[0]?.id || '',
@@ -559,17 +543,6 @@ export default function FabricManagementPage() {
     if (saved) setTailorForm(initialTailorForm);
   };
 
-  const handleStockSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    const saved = await postAction({ action: 'add-fabric-stock', ...stockForm, lengthUnit });
-    if (saved) {
-      setStockForm({
-        ...initialStockForm,
-        fabricId: data?.fabrics[0]?.id || '',
-      });
-    }
-  };
-
   const handlePurchaseBillSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (purchaseBillItems.some((item) => !item.fabricId)) {
@@ -742,12 +715,13 @@ export default function FabricManagementPage() {
                           <DesignSelect label="المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} allowCreate searchable />
                         </div>
                         <div className="section-label" style={{ marginBottom: 10 }}>الأقمشة في الفاتورة</div>
-                        {purchaseBillItems.map((item, index) => (
+                        <div className="inv-head">
+                          <div>القماش</div><div>رقم المنتج</div><div>الكمية</div><div>التكلفة</div><div>حد التنبيه</div><div>الإجمالي</div><div></div>
+                        </div>
+                        {purchaseBillItems.map((item) => (
                           <PurchaseBillItemRow
                             key={item.id}
                             item={item}
-                            index={index}
-                            lengthUnit={lengthUnit}
                             fabricOptions={fabricOptions}
                             onFabricSelect={(fabricId) => selectPurchaseBillFabric(item.id, fabricId)}
                             onCreateFabric={(searchValue) => openCreateFabricDialog(item.id, searchValue)}
@@ -775,11 +749,13 @@ export default function FabricManagementPage() {
                           <DesignSelect label="المورد" value={accessoryBillForm.supplier} options={supplierOptions} onChange={(supplier) => setAccessoryBillForm({ ...accessoryBillForm, supplier })} allowCreate searchable />
                         </div>
                         <div className="section-label" style={{ marginBottom: 10 }}>المستلزمات في الفاتورة</div>
-                        {accessoryBillItems.map((item, index) => (
+                        <div className="inv-head acc-inv-head">
+                          <div>المستلزم</div><div>رقم المنتج</div><div>الكمية</div><div>السعر</div><div>الإجمالي</div><div></div>
+                        </div>
+                        {accessoryBillItems.map((item) => (
                           <AccessoryBillItemRow
                             key={item.id}
                             item={item}
-                            index={index}
                             accessoryOptions={accessoryOptions}
                             onAccessorySelect={(accessoryId) => selectAccessoryBillItem(item.id, accessoryId)}
                             onChange={(changes) => updateAccessoryBillItem(item.id, changes)}
@@ -797,19 +773,6 @@ export default function FabricManagementPage() {
                         <button className="btn" type="submit" disabled={saving}><FileText /> حفظ الفاتورة</button>
                       </form>
                     )}
-                  </FormAccordionCard>
-
-                  <FormAccordionCard marker="ب" title="تعديل مخزون بدون فاتورة" description="استخدم هذا القسم لإضافة كمية واحدة كتصحيح يدوي منفصل عن فواتير الشراء" tag="تعديل يدوي">
-                    <form onSubmit={handleStockSubmit}>
-                      <div className="grid">
-                        <DesignSelect label="القماش" value={stockForm.fabricId} options={fabricOptions} onChange={(fabricId) => setStockForm({ ...stockForm, fabricId })} placeholder="اختر القماش" searchable />
-                        <TextInput label={lengthUnit === 'yard' ? 'الكمية المشتراة بالياردة' : 'الكمية المشتراة بالمتر'} type="number" value={stockForm.purchasedLength} onChange={(purchasedLength) => setStockForm({ ...stockForm, purchasedLength })} required />
-                        <TextInput label={lengthUnit === 'yard' ? 'تكلفة الياردة الجديدة' : 'تكلفة المتر الجديدة'} type="number" value={stockForm.unitCost} onChange={(unitCost) => setStockForm({ ...stockForm, unitCost })} />
-                        <DesignSelect label="المورد" value={stockForm.supplier} options={supplierOptions} onChange={(supplier) => setStockForm({ ...stockForm, supplier })} allowCreate searchable />
-                        <TextAreaField label="سبب التعديل أو ملاحظات" value={stockForm.notes} onChange={(notes) => setStockForm({ ...stockForm, notes })} className="full" />
-                      </div>
-                      <button className="btn" type="submit" disabled={saving || !data?.fabrics.length}><Ruler /> حفظ التعديل</button>
-                    </form>
                   </FormAccordionCard>
 
                   <div className="card">
@@ -895,11 +858,11 @@ export default function FabricManagementPage() {
                         <div className="grid">
                           <DesignSelect label="سجل القماش" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر سجل القماش" searchable />
                           <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
-                          <TextInput label={lengthUnit === 'yard' ? 'المستهلك من القماش بالياردة' : 'المستهلك من القماش بالمتر'} type="number" value={deliveryForm.consumedLength} onChange={(consumedLength) => setDeliveryForm({ ...deliveryForm, consumedLength })} />
                           <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
                           <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
                           <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
                           <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
+                          <TextAreaField label="ملاحظات" value={deliveryForm.notes} onChange={(notes) => setDeliveryForm({ ...deliveryForm, notes })} className="full" />
                         </div>
                         <button className="btn" type="submit" disabled={saving || !openIssues.length}><CheckCircle2 /> حفظ الاستلام</button>
                       </form>
@@ -1096,6 +1059,8 @@ function DesignSelect({
   onCreate,
   searchable = false,
   className = '',
+  bare = false,
+  fallbackLabel = '',
 }: {
   label?: string;
   value: string;
@@ -1106,6 +1071,8 @@ function DesignSelect({
   onCreate?: (value: string) => void;
   searchable?: boolean;
   className?: string;
+  bare?: boolean;
+  fallbackLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -1150,18 +1117,16 @@ function DesignSelect({
     setOpen(false);
   };
 
-  return (
-    <div className={`field ${className}`}>
-      {label && <label>{label}</label>}
-      <div className="sel-wrap" ref={wrapRef}>
+  const wrap = (
+    <div className="sel-wrap" ref={wrapRef}>
         <button
           type="button"
           className={`sel-trigger ${open ? 'open' : ''}`}
           aria-expanded={open}
           onClick={() => setOpen((current) => !current)}
         >
-          <span className="sel-val" style={selected ? undefined : { color: 'var(--muted-foreground)' }}>
-            {selected ? selected.label : placeholder}
+          <span className="sel-val" style={selected || fallbackLabel ? undefined : { color: 'var(--muted-foreground)' }}>
+            {selected ? selected.label : fallbackLabel || placeholder}
           </span>
           <span className="sel-chev">▾</span>
         </button>
@@ -1208,14 +1173,19 @@ function DesignSelect({
           </div>
         </div>
       </div>
+  );
+
+  if (bare) return wrap;
+  return (
+    <div className={`field ${className}`}>
+      {label && <label>{label}</label>}
+      {wrap}
     </div>
   );
 }
 
 function PurchaseBillItemRow({
   item,
-  index,
-  lengthUnit,
   fabricOptions,
   onFabricSelect,
   onCreateFabric,
@@ -1224,8 +1194,6 @@ function PurchaseBillItemRow({
   canRemove,
 }: {
   item: PurchaseBillItem;
-  index: number;
-  lengthUnit: string;
   fabricOptions: SelectOption[];
   onFabricSelect: (fabricId: string) => void;
   onCreateFabric: (searchValue: string) => void;
@@ -1233,31 +1201,29 @@ function PurchaseBillItemRow({
   onRemove: () => void;
   canRemove: boolean;
 }) {
-  const quantityLabel = lengthUnit === 'yard' ? 'الكمية بالياردة' : 'الكمية بالمتر';
-  const costLabel = lengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر';
-  const stockLabel = lengthUnit === 'yard' ? 'حد التنبيه بالياردة' : 'حد التنبيه بالمتر';
+  const sku = fabricOptions.find((option) => option.value === item.fabricId)?.sku || '';
+  const rowTotal = (Number(item.purchasedLength) || 0) * (Number(item.unitCost) || 0);
   return (
-    <div className="bill-item">
-      <div className="bill-item-head">
-        <span className="t">قماش {index + 1}</span>
-        <button type="button" className="iconbtn del" onClick={onRemove} disabled={!canRemove} aria-label="حذف القماش">
-          <Trash2 />
-        </button>
+    <div className="inv-row">
+      <DesignSelect bare placeholder="أضف / اختر القماش" value={item.fabricId} options={fabricOptions} onChange={onFabricSelect} onCreate={onCreateFabric} searchable />
+      <div className="field" data-label="رقم المنتج"><div className="inp" style={{ color: 'var(--muted-foreground)' }}>{sku || '—'}</div></div>
+      <div className="field" data-label="الكمية">
+        <div className="inp"><input type="number" min="0" step="0.01" value={item.purchasedLength} required onChange={(event) => onChange({ purchasedLength: event.target.value })} style={inputResetStyle} /></div>
       </div>
-      <div className="bill-grid fabric">
-        <DesignSelect label="القماش" value={item.fabricId} options={fabricOptions} onChange={onFabricSelect} onCreate={onCreateFabric} searchable />
-        <TextInput label={quantityLabel} type="number" value={item.purchasedLength} onChange={(purchasedLength) => onChange({ purchasedLength })} required />
-        <TextInput label={costLabel} type="number" value={item.unitCost} onChange={(unitCost) => onChange({ unitCost })} />
-        <TextInput label={stockLabel} type="number" value={item.minStock} onChange={(minStock) => onChange({ minStock })} />
-        <TextInput label="ملاحظة السطر" value={item.notes} onChange={(notes) => onChange({ notes })} />
+      <div className="field" data-label="التكلفة">
+        <div className="inp"><input type="number" min="0" step="0.01" value={item.unitCost} onChange={(event) => onChange({ unitCost: event.target.value })} style={inputResetStyle} /></div>
       </div>
+      <div className="field" data-label="حد التنبيه">
+        <div className="inp"><input type="number" min="0" step="0.01" value={item.minStock} onChange={(event) => onChange({ minStock: event.target.value })} style={inputResetStyle} /></div>
+      </div>
+      <div className="field auto" data-label="الإجمالي"><div className="inp">{formatCurrency(rowTotal)}</div></div>
+      <button type="button" className="iconbtn del" onClick={onRemove} disabled={!canRemove} aria-label="حذف القماش"><Trash2 /></button>
     </div>
   );
 }
 
 function AccessoryBillItemRow({
   item,
-  index,
   accessoryOptions,
   onAccessorySelect,
   onChange,
@@ -1265,27 +1231,25 @@ function AccessoryBillItemRow({
   canRemove,
 }: {
   item: AccessoryBillItem;
-  index: number;
   accessoryOptions: SelectOption[];
   onAccessorySelect: (accessoryId: string) => void;
   onChange: (changes: Partial<AccessoryBillItem>) => void;
   onRemove: () => void;
   canRemove: boolean;
 }) {
+  const rowTotal = (Number(item.purchasedQty) || 0) * (Number(item.unitPrice) || 0);
   return (
-    <div className="bill-item">
-      <div className="bill-item-head">
-        <span className="t">مستلزم {index + 1}</span>
-        <button type="button" className="iconbtn del" onClick={onRemove} disabled={!canRemove} aria-label="حذف المستلزم">
-          <Trash2 />
-        </button>
+    <div className="inv-row acc-inv-row">
+      <DesignSelect bare placeholder="أضف / اختر المستلزم" value={item.accessoryId} fallbackLabel={item.name} options={accessoryOptions} onChange={onAccessorySelect} onCreate={(name) => onChange({ accessoryId: '', name, sku: '' })} searchable />
+      <div className="field" data-label="رقم المنتج"><div className="inp" style={{ color: 'var(--muted-foreground)' }}>{item.sku || '—'}</div></div>
+      <div className="field" data-label="الكمية">
+        <div className="inp"><input type="number" min="0" step="0.01" value={item.purchasedQty} required onChange={(event) => onChange({ purchasedQty: event.target.value })} style={inputResetStyle} /></div>
       </div>
-      <div className="bill-grid acc">
-        <DesignSelect label="المستلزم الموجود" value={item.accessoryId} options={accessoryOptions} onChange={onAccessorySelect} placeholder="اختر أو اترك فارغاً" searchable />
-        <TextInput label="اسم مستلزم جديد" value={item.name} onChange={(name) => onChange({ name })} />
-        <TextInput label="الكمية" type="number" value={item.purchasedQty} onChange={(purchasedQty) => onChange({ purchasedQty })} required />
-        <TextInput label="السعر" type="number" value={item.unitPrice} onChange={(unitPrice) => onChange({ unitPrice })} />
+      <div className="field" data-label="السعر">
+        <div className="inp"><input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => onChange({ unitPrice: event.target.value })} style={inputResetStyle} /></div>
       </div>
+      <div className="field auto" data-label="الإجمالي"><div className="inp">{formatCurrency(rowTotal)}</div></div>
+      <button type="button" className="iconbtn del" onClick={onRemove} disabled={!canRemove} aria-label="حذف المستلزم"><Trash2 /></button>
     </div>
   );
 }
