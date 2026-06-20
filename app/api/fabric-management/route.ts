@@ -79,10 +79,11 @@ function serializeIssue(issue: any) {
   const returned = toNumber(issue.returnedLength);
   const unitCost = toNumber(issue.unitCostAtIssue);
   const tailoringCost = toNumber(issue.tailoringCost);
+  const embroideryCost = toNumber(issue.embroideryCost);
   const extraCost = toNumber(issue.extraCost);
   const dressCount = Number(issue.deliveredDressCount || 0);
   const remainingAtTailor = Math.max(issued - consumed - returned, 0);
-  const totalDressCost = consumed * unitCost + tailoringCost + extraCost;
+  const totalDressCost = consumed * unitCost + tailoringCost + embroideryCost + extraCost;
 
   return {
     ...issue,
@@ -91,6 +92,7 @@ function serializeIssue(issue: any) {
     consumedLength: consumed,
     returnedLength: returned,
     tailoringCost,
+    embroideryCost,
     extraCost,
     remainingAtTailor,
     totalDressCost,
@@ -215,7 +217,8 @@ function serializeModel(
   model: any,
   fabricMap: Map<string, { name?: string; unitCost: number; stockLength: number }>,
   accessoryMap: Map<string, { name?: string; unitPrice: number; stockQty: number }>,
-  metrics: ModelMetrics
+  metrics: ModelMetrics,
+  autoCosts?: { tailoringCost: number; embroideryCost: number }
 ) {
   const unit = model.unit || 'meter';
   const recipe: RecipeRow[] = Array.isArray(model.recipe) ? model.recipe : [];
@@ -263,8 +266,10 @@ function serializeModel(
   });
 
   const accessoriesCost = accessoriesResolved.reduce((sum, row) => sum + row.cost, 0);
-  const tailoringCost = toNumber(model.tailoringCost);
-  const embroideryCost = toNumber(model.embroideryCost);
+  // Tailoring & embroidery costs are auto-derived from the production cycle
+  // (weighted per-dress average of the model's deliveries) when available.
+  const tailoringCost = autoCosts ? autoCosts.tailoringCost : toNumber(model.tailoringCost);
+  const embroideryCost = autoCosts ? autoCosts.embroideryCost : toNumber(model.embroideryCost);
   const extraCost = toNumber(model.extraCost);
   const totalCost = fabricCost + accessoriesCost + tailoringCost + embroideryCost + extraCost;
 
@@ -385,13 +390,35 @@ export async function GET() {
 
     // Per-model production metrics from open issues.
     const metricsByModel = new Map<string, ModelMetrics>();
+    // Per-model cost aggregation from delivered issues. Production-cycle costs are
+    // batch totals, so we accumulate totals + dress counts to get a weighted
+    // per-dress average for the models tab.
+    const costAggByModel = new Map<string, { tailoring: number; embroidery: number; dresses: number }>();
     for (const issue of serializedIssues) {
       const modelId = (issue as any).designModelId;
-      if (!modelId || issue.status === 'closed') continue;
-      const current = metricsByModel.get(modelId) || { inProgressCount: 0, reservedLength: 0 };
-      current.inProgressCount += Number((issue as any).plannedDressCount || 0);
-      current.reservedLength += issue.remainingAtTailor;
-      metricsByModel.set(modelId, current);
+      if (!modelId) continue;
+      if (issue.status !== 'closed') {
+        const current = metricsByModel.get(modelId) || { inProgressCount: 0, reservedLength: 0 };
+        current.inProgressCount += Number((issue as any).plannedDressCount || 0);
+        current.reservedLength += issue.remainingAtTailor;
+        metricsByModel.set(modelId, current);
+      }
+      const dresses = Number((issue as any).deliveredDressCount || 0);
+      if (dresses > 0) {
+        const agg = costAggByModel.get(modelId) || { tailoring: 0, embroidery: 0, dresses: 0 };
+        agg.tailoring += issue.tailoringCost;
+        agg.embroidery += (issue as any).embroideryCost || 0;
+        agg.dresses += dresses;
+        costAggByModel.set(modelId, agg);
+      }
+    }
+
+    const autoCostByModel = new Map<string, { tailoringCost: number; embroideryCost: number }>();
+    for (const [modelId, agg] of costAggByModel) {
+      autoCostByModel.set(modelId, {
+        tailoringCost: agg.dresses > 0 ? agg.tailoring / agg.dresses : 0,
+        embroideryCost: agg.dresses > 0 ? agg.embroidery / agg.dresses : 0,
+      });
     }
 
     const serializedModels = models.map((model) =>
@@ -399,7 +426,8 @@ export async function GET() {
         model,
         fabricMap,
         accessoryMap,
-        metricsByModel.get(model.id) || { inProgressCount: 0, reservedLength: 0 }
+        metricsByModel.get(model.id) || { inProgressCount: 0, reservedLength: 0 },
+        autoCostByModel.get(model.id) || { tailoringCost: 0, embroideryCost: 0 }
       )
     );
 
@@ -783,6 +811,7 @@ export async function POST(request: NextRequest) {
             consumedLength,
             returnedLength,
             tailoringCost: toDecimal(body.tailoringCost),
+            embroideryCost: toDecimal(body.embroideryCost),
             extraCost: toDecimal(body.extraCost),
             deliveryDate: body.deliveryDate ? new Date(body.deliveryDate) : new Date(),
             status: body.status || 'delivered',

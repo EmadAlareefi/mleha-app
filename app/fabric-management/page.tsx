@@ -80,6 +80,7 @@ type TailorFabricIssue = {
   consumedLength: number;
   returnedLength: number;
   tailoringCost: number;
+  embroideryCost: number;
   extraCost: number;
   remainingAtTailor: number;
   totalDressCost: number;
@@ -273,6 +274,7 @@ const initialDeliveryForm = {
   deliveredDressCount: '',
   returnedLength: '',
   tailoringCost: '',
+  embroideryCost: '',
   extraCost: '',
   deliveryDate: new Date().toISOString().split('T')[0],
   notes: '',
@@ -860,6 +862,7 @@ export default function FabricManagementPage() {
                           <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
                           <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
                           <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
+                          <TextInput label="تكلفة التطريز" type="number" value={deliveryForm.embroideryCost} onChange={(embroideryCost) => setDeliveryForm({ ...deliveryForm, embroideryCost })} />
                           <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
                           <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
                           <TextAreaField label="ملاحظات" value={deliveryForm.notes} onChange={(notes) => setDeliveryForm({ ...deliveryForm, notes })} className="full" />

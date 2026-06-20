@@ -487,6 +487,8 @@
 .fab-design .inv-total .inv-total-val { color: var(--green); font-size: 16px; font-weight: 800; }
 
 /* ===== repeated fabric / accessory rows (models form) ===== */
+.fab-design .rep-section-title { font-size: 15px; font-weight: 700; margin: 18px 0 10px; color: var(--primary); }
+.fab-design .rep-section-title:first-child { margin-top: 0; }
 .fab-design .rep-label { font-size: 13.5px; font-weight: 700; margin: 4px 0 8px; color: var(--primary); }
 .fab-design .rep-row { display: grid; gap: 10px; align-items: end; margin-bottom: 10px; }
 .fab-design .rep-row.fabric-main { grid-template-columns: 38px 1fr 130px 38px; }

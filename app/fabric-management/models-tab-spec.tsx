@@ -260,8 +260,8 @@ export function ModelsTabSpec({
   const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>(() => [
     { id: makeId('accessory'), accessoryId: '', consumption: '' },
   ]);
-  const [tailoringCost, setTailoringCost] = useState('40');
-  const [embroideryCost, setEmbroideryCost] = useState('20');
+  // Tailoring & embroidery are auto-derived from the production cycle; a brand-new
+  // model has no deliveries yet, so both stay 0 and read-only here.
   const [extraCost, setExtraCost] = useState('10');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
@@ -292,11 +292,11 @@ export function ModelsTabSpec({
         rows: recipeRows,
         accessories: accessoryRows,
         unit,
-        tailoringCost,
-        embroideryCost,
+        tailoringCost: '0',
+        embroideryCost: '0',
         extraCost,
       }),
-    [accessoriesInventory, accessoryRows, embroideryCost, extraCost, fabrics, recipeRows, tailoringCost, unit]
+    [accessoriesInventory, accessoryRows, extraCost, fabrics, recipeRows, unit]
   );
 
   const visibleModels = models;
@@ -431,8 +431,8 @@ export function ModelsTabSpec({
       accessories: accessoryRows
         .filter((row) => row.accessoryId)
         .map((row) => ({ accessoryId: row.accessoryId, consumption: row.consumption })),
-      tailoringCost,
-      embroideryCost,
+      tailoringCost: 0,
+      embroideryCost: 0,
       extraCost,
     });
     if (saved) {
@@ -664,8 +664,8 @@ export function ModelsTabSpec({
                 <div className="grid">
                   <DisplayField label="تكلفة القماش" value={formatCurrency(calculations.fabricCost)} auto hint="من الأقمشة × أسعارها" />
                   <DisplayField label="تكلفة الإكسسوارات" value={formatCurrency(calculations.accessoriesCost)} auto hint="مجموع أسعار الإكسسوارات" />
-                  <EditableField label="تكلفة الخياطة" value={tailoringCost} onChange={setTailoringCost} suffix="ر.س" type="number" />
-                  <EditableField label="تكلفة التطريز" value={embroideryCost} onChange={setEmbroideryCost} suffix="ر.س" type="number" />
+                  <DisplayField label="تكلفة الخياطة" value={formatCurrency(calculations.tailoringCost)} auto hint="تلقائي من دورة الإنتاج" />
+                  <DisplayField label="تكلفة التطريز" value={formatCurrency(calculations.embroideryCost)} auto hint="تلقائي من دورة الإنتاج" />
                   <EditableField label="تكلفة إضافية" value={extraCost} onChange={setExtraCost} suffix="ر.س" type="number" hint="كي • تغليف…" />
                   <DisplayField label="التكلفة الإجمالية" value={formatCurrency(calculations.totalCost)} auto hint="مجموع ما سبق" />
                 </div>
@@ -1139,14 +1139,6 @@ function ModelEditDrawer({
   const [description, setDescription] = useState(model.description || '');
   const [selectedColors, setSelectedColors] = useState<string[]>(decodedColors.names);
   const [customColors, setCustomColors] = useState<ColorChip[]>(decodedColors.customColors);
-  const [customRoles, setCustomRoles] = useState<SelectOption[]>(() => {
-    const known = new Set(fabricRoleOptions.map((option) => option.value));
-    const extras = new Map<string, SelectOption>();
-    model.fabrics.forEach((row) => {
-      if (row.role && !known.has(row.role)) extras.set(row.role, { value: row.role, label: row.role });
-    });
-    return [...extras.values()];
-  });
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>(
     model.fabrics.length
       ? model.fabrics.map((row) => ({ id: makeId('erow'), role: row.role, fabricId: row.fabricId, consumption: String(row.consumption) }))
@@ -1155,8 +1147,7 @@ function ModelEditDrawer({
   const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>(
     model.accessories.map((row) => ({ id: makeId('eacc'), accessoryId: row.accessoryId, consumption: String(row.consumption) }))
   );
-  const [tailoringCost, setTailoringCost] = useState(String(model.tailoringCost));
-  const [embroideryCost, setEmbroideryCost] = useState(String(model.embroideryCost));
+  // Tailoring & embroidery are read-only here — auto-derived from the production cycle.
   const [extraCost, setExtraCost] = useState(String(model.extraCost));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1188,17 +1179,14 @@ function ModelEditDrawer({
     rows: recipeRows,
     accessories: accessoryRows,
     unit: drawerUnit,
-    tailoringCost,
-    embroideryCost,
+    tailoringCost: String(model.tailoringCost),
+    embroideryCost: String(model.embroideryCost),
     extraCost,
   });
 
   const dispatchSelect = (id: string, value: string) => {
     if (id === 'edit-status') setStatus(value);
-    else if (id.startsWith('edit-role-')) {
-      const rowId = id.replace('edit-role-', '');
-      setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, role: value } : row)));
-    } else if (id.startsWith('edit-fabric-')) {
+    else if (id.startsWith('edit-fabric-')) {
       const rowId = id.replace('edit-fabric-', '');
       setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
     } else if (id.startsWith('edit-accessory-')) {
@@ -1206,17 +1194,6 @@ function ModelEditDrawer({
       setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: value } : row)));
     }
     setOpenSelect(null);
-  };
-
-  const roleOptions = [...fabricRoleOptions, ...customRoles];
-
-  const handleRoleCustomAdd = (id: string, value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    setCustomRoles((current) =>
-      current.some((option) => option.value === trimmed) ? current : [...current, { value: trimmed, label: trimmed }]
-    );
-    dispatchSelect(id, trimmed);
   };
 
   const toggleColor = (name: string) =>
@@ -1239,8 +1216,8 @@ function ModelEditDrawer({
           imageData,
           recipe: recipeRows.map((row) => ({ role: row.role, fabricId: row.fabricId, consumption: row.consumption })),
           accessories: accessoryRows.filter((row) => row.accessoryId).map((row) => ({ accessoryId: row.accessoryId, consumption: row.consumption })),
-          tailoringCost,
-          embroideryCost,
+          tailoringCost: model.tailoringCost,
+          embroideryCost: model.embroideryCost,
           extraCost,
         }),
       });
@@ -1301,13 +1278,13 @@ function ModelEditDrawer({
         <EditableField label="الوصف" value={description} onChange={setDescription} className="full" area />
       </div>
 
-      <div className="rep-label" style={{ marginTop: 14 }}>الأقمشة</div>
+      <div className="rep-section-title">ب – الأقمشة والمستلزمات</div>
+
+      <div className="rep-label">الأقمشة ({recipeRows.length})</div>
       {recipeRows.map((row, index) => (
-        <div className={`rep-row ${index === 0 ? 'fabric-main' : 'fabric-extra'}`} key={row.id}>
-          {index === 0 ? (
+        <div className={`rep-row ${index === 0 ? 'fabric-main' : 'acc'}`} key={row.id}>
+          {index === 0 && (
             <div className="iconbtn" title="قماش أساسي" style={{ fontSize: 18, color: 'var(--amber)', borderColor: 'var(--amber-soft)', background: 'var(--amber-soft)' }}>★</div>
-          ) : (
-            <SelectBox id={`edit-role-${row.id}`} options={roleOptions} value={row.role} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={dispatchSelect} allowCustom onCustomAdd={handleRoleCustomAdd} addPlaceholder="نوع جديد" />
           )}
           <SelectBox
             id={`edit-fabric-${row.id}`}
@@ -1331,8 +1308,8 @@ function ModelEditDrawer({
         </div>
       ))}
 
-      <div className="rep-label" style={{ marginTop: 10 }}>الإكسسوارات والمستلزمات</div>
-      {accessoryRows.map((row) => {
+      <div className="rep-label">الإكسسوارات والمستلزمات ({accessoryRows.length})</div>
+      {accessoryRows.map((row, index) => {
         const accessory = accessoriesInventory.find((item) => item.id === row.accessoryId);
         const rowCost = toNumber(row.consumption) * (accessory?.unitPrice || 0);
         return (
@@ -1347,23 +1324,31 @@ function ModelEditDrawer({
               placeholder="اختر الإكسسوار"
             />
             <EditableField value={row.consumption} onChange={(consumption) => setAccessoryRows((current) => current.map((item) => (item.id === row.id ? { ...item, consumption } : item)))} suffix="كمية" type="number" />
-            <button className="iconbtn del" type="button" title="حذف" onClick={() => setAccessoryRows((current) => current.filter((item) => item.id !== row.id))}>
-              <Trash2 />
-            </button>
+            {index === 0 ? (
+              <button className="iconbtn add" type="button" title="إضافة إكسسوار" onClick={() => setAccessoryRows((current) => [...current, { id: makeId('eacc'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' }])}>
+                <Plus />
+              </button>
+            ) : (
+              <button className="iconbtn del" type="button" title="حذف" onClick={() => setAccessoryRows((current) => current.filter((item) => item.id !== row.id))}>
+                <Trash2 />
+              </button>
+            )}
             <span className="hint" style={{ gridColumn: '1 / -1', marginTop: -4 }}>{formatCurrency(rowCost)}</span>
           </div>
         );
       })}
-      <button className="rep-add-btn" type="button" title="إضافة إكسسوار" onClick={() => setAccessoryRows((current) => [...current, { id: makeId('eacc'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' }])}>
-        <Plus /> إضافة إكسسوار
-      </button>
+      {!accessoryRows.length && (
+        <button className="rep-add-btn" type="button" title="إضافة إكسسوار" onClick={() => setAccessoryRows((current) => [...current, { id: makeId('eacc'), accessoryId: accessoriesInventory[0]?.id || '', consumption: '1' }])}>
+          <Plus /> إضافة إكسسوار
+        </button>
+      )}
 
-      <div className="rep-label" style={{ marginTop: 14 }}>التكاليف</div>
+      <div className="rep-section-title">د – التكاليف</div>
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <DisplayField label="تكلفة القماش" value={formatCurrency(calculations.fabricCost)} auto />
         <DisplayField label="تكلفة الإكسسوارات" value={formatCurrency(calculations.accessoriesCost)} auto />
-        <EditableField label="تكلفة الخياطة" value={tailoringCost} onChange={setTailoringCost} suffix="ر.س" type="number" />
-        <EditableField label="تكلفة التطريز" value={embroideryCost} onChange={setEmbroideryCost} suffix="ر.س" type="number" />
+        <DisplayField label="تكلفة الخياطة" value={formatCurrency(model.tailoringCost)} auto hint="تلقائي من دورة الإنتاج" />
+        <DisplayField label="تكلفة التطريز" value={formatCurrency(model.embroideryCost)} auto hint="تلقائي من دورة الإنتاج" />
         <EditableField label="تكلفة إضافية" value={extraCost} onChange={setExtraCost} suffix="ر.س" type="number" />
         <DisplayField label="التكلفة الإجمالية" value={formatCurrency(calculations.totalCost)} auto />
       </div>

@@ -1237,6 +1237,7 @@ model TailorFabricIssue {
   consumedLength      Decimal?  @db.Decimal(12, 2)
   returnedLength      Decimal?  @db.Decimal(12, 2)
   tailoringCost       Decimal?  @db.Decimal(12, 2)
+  embroideryCost      Decimal?  @db.Decimal(12, 2)
   extraCost           Decimal?  @db.Decimal(12, 2)
   deliveryDate        DateTime?
 
