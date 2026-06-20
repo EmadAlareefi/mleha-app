@@ -1,0 +1,387 @@
+<div class="mleha-aff" dir="rtl">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=El+Messiri:wght@500;600;700&family=Readex+Pro:wght@300;400;500;600&display=swap');
+.mleha-aff{
+    --rose:#9d3d38;
+    --rose-deep:#7d2f2b;
+    --rose-soft:#f3e3e1;
+    --rose-tint:#fbf4f3;
+    --ink:#2a2422;
+    --muted:#897e7a;
+    --line:#ece4e2;
+    --bg:#fdf9f8;
+    --card:#ffffff;
+    --gold:#c9a24b;
+    --ok:#2f7d5b;
+    --ok-soft:#e6f2ec;
+    --shadow:0 10px 40px -18px rgba(125,47,43,.28);
+    --r:18px;
+  }
+.mleha-aff,.mleha-aff *{box-sizing:border-box;margin:0;padding:0;border:0;list-style:none;color:inherit;text-transform:none;text-decoration:none;font-family:inherit;letter-spacing:normal;text-shadow:none;float:none}
+.mleha-aff{scroll-behavior:smooth}
+.mleha-aff{
+    font-family:'Readex Pro',sans-serif;
+    background:transparent;
+    color:var(--ink);
+    line-height:1.75;
+    font-weight:300;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+.mleha-aff h1,.mleha-aff h2,.mleha-aff h3,.mleha-aff .display{font-family:'El Messiri',serif;font-weight:600;line-height:1.3}
+.mleha-aff .wrap{max-width:860px;margin:0 auto;padding:0 20px}
+.mleha-aff .accent{color:var(--rose)}
+/* ===== HERO ===== */
+  .mleha-aff header.hero{
+    position:relative;
+    background:
+      radial-gradient(120% 90% at 90% -10%, rgba(201,162,75,.18), transparent 55%),
+      linear-gradient(160deg,var(--rose) 0%, var(--rose-deep) 100%);
+    color:#fff;
+    padding:64px 0 130px;
+    text-align:center;
+    overflow:hidden;
+  }
+.mleha-aff header.hero::after{
+    content:"";position:absolute;inset:0;opacity:.06;
+    background-image:radial-gradient(circle at 1px 1px,#fff 1px,transparent 0);
+    background-size:22px 22px;
+  }
+.mleha-aff .brand{font-family:'El Messiri',serif;font-size:15px;letter-spacing:6px;opacity:.85;margin-bottom:18px;position:relative}
+.mleha-aff header.hero h1{font-size:clamp(30px,6vw,46px);color:#fff;margin-bottom:14px;position:relative}
+.mleha-aff header.hero p{max-width:540px;margin:0 auto;font-weight:300;opacity:.92;position:relative}
+.mleha-aff .updated{display:inline-block;margin-top:22px;font-size:14px;background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.22);padding:7px 18px;border-radius:30px;position:relative;font-weight:500}
+/* ===== TLDR CARDS ===== */
+  .mleha-aff .tldr{margin-top:-90px;position:relative;z-index:3;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.mleha-aff .tcard{background:var(--card);border-radius:var(--r);padding:20px 16px;text-align:center;
+    box-shadow:var(--shadow);border:1px solid var(--line);transition:.3s}
+.mleha-aff .tcard:hover{transform:translateY(-4px)}
+.mleha-aff .tcard .ic{width:46px;height:46px;margin:0 auto 12px;border-radius:14px;background:var(--rose-soft);
+    display:grid;place-items:center;color:var(--rose);}
+.mleha-aff .tcard .ic svg{width:24px;height:24px;stroke:var(--rose);fill:none;stroke-width:1.6}
+.mleha-aff .tcard b{display:block;font-family:'El Messiri',serif;font-size:16px;margin-bottom:4px}
+.mleha-aff .tcard span{font-size:12.5px;color:var(--muted)}
+.mleha-aff section{padding:56px 0}
+.mleha-aff .eyebrow{font-size:13px;letter-spacing:3px;color:var(--rose);font-weight:500;margin-bottom:8px}
+.mleha-aff .sec-title{font-size:clamp(24px,4vw,32px);margin-bottom:8px}
+.mleha-aff .sec-sub{color:var(--muted);margin-bottom:30px;font-size:15px}
+/* ===== TIMELINE ===== */
+  .mleha-aff .timeline{position:relative;padding-right:20px}
+.mleha-aff .timeline::before{content:"";position:absolute;right:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.mleha-aff .step{position:relative;padding:0 32px 26px 0}
+.mleha-aff .step:last-child{padding-bottom:0}
+.mleha-aff .step::before{content:"";position:absolute;right:0;top:4px;width:16px;height:16px;border-radius:50%;
+    background:#fff;border:3px solid var(--rose);z-index:2}
+.mleha-aff .step b{font-family:'El Messiri',serif;font-size:16px;display:block;margin-bottom:3px}
+.mleha-aff .step span{font-size:14px;color:var(--muted)}
+/* ===== ACCORDION ===== */
+  .mleha-aff .acc{border:none;border-bottom:1px solid var(--line);border-radius:0;margin-bottom:0;
+    overflow:hidden;background:transparent}
+.mleha-aff .acc:first-of-type{border-top:1px solid var(--line)}
+.mleha-aff .acc summary{padding:22px 2px;cursor:pointer;font-family:'El Messiri',serif;font-size:17px;
+    display:flex;justify-content:space-between;align-items:center;gap:16px;list-style:none;transition:color .2s}
+.mleha-aff .acc summary::-webkit-details-marker{display:none}
+.mleha-aff .acc summary:hover{color:var(--rose)}
+.mleha-aff .acc summary .chev{transition:transform .35s cubic-bezier(.2,.7,.3,1);color:var(--rose);
+    font-size:24px;line-height:1;font-weight:300;flex-shrink:0}
+.mleha-aff .acc[open] summary .chev,.mleha-aff .acc.open-anim summary .chev{transform:rotate(45deg)}
+.mleha-aff .acc-body{max-height:0;opacity:0;overflow:hidden;
+    transition:max-height .42s cubic-bezier(.33,1,.68,1),opacity .3s ease}
+.mleha-aff .acc-body ul{list-style:none;margin:0;padding:0 2px 22px}
+.mleha-aff .acc-body li{padding:8px 20px 8px 0;position:relative;font-size:14.5px;color:#4a423f;line-height:1.7}
+.mleha-aff .acc-body li::before{content:"";position:absolute;right:4px;top:16px;width:6px;height:6px;border-radius:50%;background:var(--rose);opacity:.5}
+.mleha-aff .tag-fee{color:var(--rose);font-weight:600}
+/* ===== CALCULATOR ===== */
+  .mleha-aff .calc{background:linear-gradient(165deg,#fff,var(--rose-tint));border:1px solid var(--line);
+    border-radius:24px;box-shadow:var(--shadow);padding:30px;display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:32px}
+.mleha-aff .calc label{display:block;font-size:13.5px;font-weight:500;margin-bottom:8px;color:var(--ink)}
+.mleha-aff .calc input{width:100%;padding:13px 15px;border:1.5px solid var(--line);border-radius:12px;
+    font-family:'Readex Pro';font-size:16px;background:#fff;color:var(--ink);margin-bottom:20px;transition:.2s}
+.mleha-aff .calc input:focus{outline:none;border-color:var(--rose);box-shadow:0 0 0 3px var(--rose-soft)}
+.mleha-aff .calc > *{min-width:0}
+.mleha-aff .calc-out{background:var(--rose-deep);color:#fff;border-radius:18px;padding:clamp(16px,4%,26px);
+    display:flex;flex-direction:column;justify-content:center;min-width:0;overflow:hidden}
+.mleha-aff .calc-out .small{font-size:clamp(11px,2vw,13px);opacity:.8;line-height:1.5}
+.mleha-aff .calc-out .big{font-family:'El Messiri',serif;font-size:clamp(28px,7vw,42px);font-weight:700;
+    margin:6px 0 2px;display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap}
+.mleha-aff .calc-out .big small{font-size:clamp(14px,3vw,18px);font-weight:500;opacity:.7;white-space:nowrap}
+.mleha-aff .note-mini{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.6}
+/* ===== FORM EMBED ===== */
+  .mleha-aff .formwrap{background:var(--card);border:1px solid var(--line);border-radius:24px;
+    box-shadow:var(--shadow);overflow:hidden}
+.mleha-aff .form-head{background:linear-gradient(160deg,var(--rose),var(--rose-deep));color:#fff;padding:26px 28px;text-align:center}
+.mleha-aff .form-head h3{color:#fff;font-size:22px}
+.mleha-aff .form-head p{opacity:.9;font-size:14px;font-weight:300;margin-top:6px}
+.mleha-aff .form-frame{width:100%;min-height:900px;border:0;display:block;background:#fff}
+.mleha-aff .form-fallback{text-align:center;padding:18px;font-size:13.5px;color:var(--muted);border-top:1px solid var(--line)}
+.mleha-aff .form-fallback a{color:var(--rose);font-weight:600;border-bottom:1px solid var(--rose-soft)}
+.mleha-aff .cta{display:inline-flex;align-items:center;gap:9px;background:var(--rose);color:#fff;text-decoration:none;
+    padding:14px 26px;border-radius:13px;font-weight:500;margin-top:18px;transition:.2s;font-size:15px}
+.mleha-aff .cta:hover{background:var(--rose-deep);transform:translateY(-2px)}
+.mleha-aff .cta svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:1.8}
+/* ===== CLOSING ===== */
+  .mleha-aff .closing{background:linear-gradient(160deg,var(--rose),var(--rose-deep));color:#fff;text-align:center;
+    border-radius:24px;padding:46px 28px;margin:20px 0}
+.mleha-aff .closing h3{color:#fff;font-size:24px;margin-bottom:10px}
+.mleha-aff .closing p{opacity:.9;max-width:460px;margin:0 auto 22px;font-weight:300}
+.mleha-aff .closing .cta{background:#fff;color:var(--rose)}
+.mleha-aff .closing .cta svg{stroke:var(--rose)}
+.mleha-aff .whats{display:inline-flex;align-items:center;gap:8px;color:#fff;text-decoration:none;margin-top:16px;
+    font-size:14px;border-bottom:1px solid rgba(255,255,255,.4);padding-bottom:2px}
+.mleha-aff footer{text-align:center;padding:34px 20px;color:var(--muted);font-size:13px}
+.mleha-aff .reveal{opacity:0;transform:translateY(24px);transition:.7s cubic-bezier(.2,.7,.3,1)}
+.mleha-aff .reveal.in{opacity:1;transform:none}
+/* ===== RESPONSIVE ===== */
+  @media(max-width:768px){
+  .mleha-aff section{padding:40px 0}
+  .mleha-aff .form-head{padding:20px 22px}
+  .mleha-aff .acc summary{font-size:16px;padding:20px 2px}
+  .mleha-aff .closing{padding:36px 22px}
+  .mleha-aff .closing h3{font-size:20px}
+  .mleha-aff .calc{padding:24px;gap:24px}
+  .mleha-aff .calc-out{order:2}
+}
+  @media(max-width:640px){
+  .mleha-aff header.hero{padding:48px 20px 110px}
+  .mleha-aff .tldr{grid-template-columns:repeat(2,1fr);gap:12px}
+  .mleha-aff .tcard{padding:16px 12px}
+  .mleha-aff .tcard b{font-size:14px}
+  .mleha-aff .tcard span{font-size:11.5px}
+  .mleha-aff .calc{gap:20px;padding:20px}
+  .mleha-aff .calc-out{order:2}
+  .mleha-aff .form-head h3{font-size:19px}
+  .mleha-aff .acc summary{font-size:15px;padding:18px 2px}
+  .mleha-aff .acc-body li{font-size:13.5px}
+  .mleha-aff .closing{padding:30px 18px;border-radius:18px}
+  .mleha-aff .closing h3{font-size:19px}
+  .mleha-aff .sec-sub{font-size:13.5px}
+  .mleha-aff .step b{font-size:15px}
+  .mleha-aff .step span{font-size:13px}
+  .mleha-aff .cta{padding:13px 22px;font-size:14px;width:100%;justify-content:center}
+  .mleha-aff .closing .cta{width:auto}
+}
+  @media(max-width:420px){
+  .mleha-aff header.hero{padding:36px 16px 100px}
+  .mleha-aff .brand{font-size:13px;letter-spacing:4px}
+  .mleha-aff header.hero p{font-size:13.5px}
+  .mleha-aff .tldr{grid-template-columns:1fr;gap:10px}
+  .mleha-aff .tcard{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center;text-align:right;padding:16px}
+  .mleha-aff .tcard .ic{margin:0;grid-row:1;grid-column:1}
+  .mleha-aff .tcard b{font-size:15px;margin:0;grid-row:1;grid-column:2}
+  .mleha-aff .tcard span{font-size:12.5px;grid-row:2;grid-column:1/-1;margin-top:2px}
+  .mleha-aff .acc summary{font-size:14.5px;padding:16px 2px}
+  .mleha-aff .acc summary .chev{font-size:20px}
+  .mleha-aff .acc-body li{font-size:13px}
+  .mleha-aff .closing{padding:26px 16px}
+  .mleha-aff .closing h3{font-size:17px}
+  .mleha-aff .closing p{font-size:13.5px}
+}
+</style>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">مليحة</div>
+    <h1>برنامج التسويق بالعمولة</h1>
+    <p>شاركي منتجات مليحة مع متابعينك، وحوّلي محتواكِ إلى دخل ثابت. عمولة شفّافة وتتبّع كامل لأرباحك.</p>
+    <div class="updated">عمولة تبدأ من ٥٪ على كل عملية بيع</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- TL;DR -->
+  <div class="tldr">
+    <div class="tcard">
+      <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+      <b>عمولة ٥٪</b><span>من صافي قيمة كل طلب<br>عدا الشحن والضريبة</span>
+    </div>
+    <div class="tcard">
+      <div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+      <b>لوحة تحكم خاصة</b><span>تابعي طلباتك<br>وأرباحك لحظة بلحظة</span>
+    </div>
+    <div class="tcard">
+      <div class="ic"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg></div>
+      <b>عمولة فورية</b><span>تُحتسب تلقائياً<br>من أول عملية بيع</span>
+    </div>
+    <div class="tcard">
+      <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4L12 17l-6.3 4.4L8 14 2 9.4h7.6z"/></svg></div>
+      <b>براند موثوق</b><span>شراكة مع علامة<br>سعودية معروفة</span>
+    </div>
+  </div>
+
+  <!-- HOW IT WORKS -->
+  <section id="how">
+    <div class="eyebrow">سهلة وواضحة</div>
+    <h2 class="sec-title">كيف تنضمّين وتبدئين؟</h2>
+    <p class="sec-sub">أربع خطوات فقط من التقديم حتى أول عمولة تصل لك.</p>
+    <div class="timeline">
+      <div class="step"><b>١. عبّي نموذج الانضمام</b><span>دقيقة واحدة تكفي — تجدينه بالأسفل مباشرة.</span></div>
+      <div class="step"><b>٢. نراجع طلبك ونوافق</b><span>نتواصل معك عبر وسيلتك المفضّلة لتفعيل حسابك.</span></div>
+      <div class="step"><b>٣. تستلمين رابطك ولوحة التحكم</b><span>رابط خاص بك + لوحة لمتابعة الطلبات والأرباح.</span></div>
+      <div class="step"><b>٤. سوّقي واستلمي عمولتك</b><span>شاركي الرابط، وكل عملية بيع تُحتسب لك تلقائياً.</span></div>
+    </div>
+  </section>
+
+  <!-- CALCULATOR -->
+  <section id="calc">
+    <div class="eyebrow">بدون تعقيد</div>
+    <h2 class="sec-title">احسبي عمولتك المتوقّعة</h2>
+    <p class="sec-sub">جرّبي كم تربحين شهرياً حسب عدد ومتوسط الطلبات.</p>
+    <div class="calc">
+      <div>
+        <label>متوسط قيمة الطلب (ريال)</label>
+        <input id="avg" type="number" inputmode="numeric" placeholder="مثال: 350" value="350">
+        <label>عدد الطلبات المتوقّعة شهرياً</label>
+        <input id="qty" type="number" inputmode="numeric" placeholder="مثال: 20" value="20">
+        <p class="note-mini">الحساب على أساس عمولة ٥٪ من صافي قيمة الطلب (تقديري).</p>
+      </div>
+      <div class="calc-out">
+        <span class="small">عمولتك التقريبية شهرياً</span>
+        <div class="big"><span id="out">--</span> <small>ريال</small></div>
+        <span class="small" id="outNote"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FORM -->
+  <section id="join">
+    <div class="eyebrow">الخطوة الأخيرة</div>
+    <h2 class="sec-title">انضمّي الآن</h2>
+    <p class="sec-sub">عبّي النموذج وأرسليه، وبنتواصل معك لتفعيل حسابك.</p>
+    <div class="formwrap">
+      <div class="form-head">
+        <h3>نموذج الانضمام للبرنامج</h3>
+        <p>كل الحقول تأخذ منك أقل من دقيقة</p>
+      </div>
+      <iframe class="form-frame" id="brnamg-altsoyk-balaamol-fjkuib"
+        src="https://opnform.com/forms/brnamg-altsoyk-balaamol-fjkuib"
+        title="نموذج الانضمام لبرنامج التسويق بالعمولة"
+        loading="lazy"></iframe>
+      <div class="form-fallback">
+        لا يظهر النموذج؟ <a href="https://opnform.com/forms/brnamg-altsoyk-balaamol-fjkuib" target="_blank" rel="noopener">افتحيه في صفحة مستقلة</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- TERMS (condensed) -->
+  <section id="terms">
+    <div class="eyebrow">الشروط باختصار</div>
+    <h2 class="sec-title">ما تحتاجين معرفته قبل البدء</h2>
+    <p class="sec-sub">اضغطي على أي بند لقراءة تفاصيله.</p>
+
+    <details class="acc">
+      <summary>العمولة والاحتساب <span class="chev">+</span></summary>
+      <div class="acc-body"><ul>
+        <li>العمولة <span class="tag-fee">٥٪ من صافي قيمة الطلب</span> بعد خصم الشحن والضريبة.</li>
+        <li>تُحتسب العمولة تلقائياً عبر النظام لكل عملية بيع تتم من رابطك الخاص.</li>
+        <li>تتابعين طلباتك وأرباحك من لوحة التحكم الخاصة بك أولاً بأول.</li>
+      </ul></div>
+    </details>
+
+    <details class="acc">
+      <summary>قواعد الاستخدام <span class="chev">+</span></summary>
+      <div class="acc-body"><ul>
+        <li>عدم استخدام اسم مليحة أو شعارها في اسم الحساب أو الهوية.</li>
+        <li>عدم تشغيل حملات إعلانات Google باستخدام اسم العلامة التجارية.</li>
+        <li>عدم التواصل المباشر مع العملاء عبر القنوات الرسمية للمتجر.</li>
+      </ul></div>
+    </details>
+
+    <details class="acc">
+      <summary>أحكام عامة <span class="chev">+</span></summary>
+      <div class="acc-body"><ul>
+        <li>تحتفظ إدارة مليحة بحق تعديل شروط البرنامج في أي وقت.</li>
+        <li>يحق للإدارة إيقاف أي حساب يخالف الشروط أو يسيء استخدام البرنامج.</li>
+      </ul></div>
+    </details>
+  </section>
+
+  <!-- CLOSING -->
+  <div class="closing">
+    <h3>عندك سؤال قبل ما تنضمّين؟</h3>
+    <p>فريقنا جاهز يجاوبك على أي استفسار حول البرنامج أو العمولة.</p>
+    <a class="cta" href="#join">
+      <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+      انتقلي للنموذج
+    </a>
+    <div><a class="whats" href="https://wa.me/+966531349631" target="_blank" rel="noopener">أو راسلينا على واتساب</a></div>
+  </div>
+
+  <footer>
+    بانضمامك لبرنامج التسويق بالعمولة، أنتِ توافقين على الشروط الموضحة أعلاه.<br>
+    مليحة® علامة تجارية مسجلة · براند سعودي نفتخر به
+  </footer>
+</div>
+
+<!-- OpnForm SDK: auto-resizes the iframe to fit the form -->
+<script src="https://opnform.com/widgets/opnform-sdk.min.js"></script>
+<script>
+(function(){
+const root = document.querySelector('.mleha-aff');
+
+/* ===== CALCULATOR ===== */
+const RATE = 0.05;
+const avgEl = root.querySelector('#avg');
+const qtyEl = root.querySelector('#qty');
+const outEl = root.querySelector('#out');
+const noteEl = root.querySelector('#outNote');
+function calc(){
+  const a = parseFloat(avgEl.value)||0;
+  const q = parseFloat(qtyEl.value)||0;
+  if(a<=0||q<=0){ outEl.textContent='--'; noteEl.textContent=''; return; }
+  const monthly = Math.round(a*q*RATE);
+  outEl.textContent = monthly.toLocaleString('ar-EG');
+  noteEl.textContent = '≈ ' + (monthly*12).toLocaleString('ar-EG') + ' ريال سنوياً';
+}
+avgEl.addEventListener('input', calc);
+qtyEl.addEventListener('input', calc);
+calc();
+
+/* ===== ACCORDION: exclusive + smooth ===== */
+function accClear(d){
+  const body = d.querySelector('.acc-body');
+  if(d._te){ body.removeEventListener('transitionend', d._te); d._te = null; }
+  return body;
+}
+function accExpand(d){
+  const body = accClear(d);
+  d.open = true; d.classList.add('open-anim');
+  const start = body.getBoundingClientRect().height;
+  body.style.maxHeight = start + 'px';
+  void body.offsetHeight;
+  body.style.maxHeight = body.scrollHeight + 'px';
+  body.style.opacity = '1';
+  d._te = (ev)=>{ if(ev.propertyName!=='max-height') return;
+    body.style.maxHeight='none'; body.removeEventListener('transitionend', d._te); d._te=null; };
+  body.addEventListener('transitionend', d._te);
+}
+function accCollapse(d){
+  const body = accClear(d);
+  const start = body.getBoundingClientRect().height;
+  body.style.maxHeight = start + 'px';
+  void body.offsetHeight;
+  d.classList.remove('open-anim');
+  body.style.maxHeight = '0px'; body.style.opacity='0';
+  d._te = (ev)=>{ if(ev.propertyName!=='max-height') return;
+    d.open=false; body.removeEventListener('transitionend', d._te); d._te=null; };
+  body.addEventListener('transitionend', d._te);
+}
+root.querySelectorAll('details.acc').forEach(d=>{
+  d.querySelector('summary').addEventListener('click', e=>{
+    e.preventDefault();
+    const isOpen = d.classList.contains('open-anim');
+    if(isOpen){ accCollapse(d); }
+    else{ root.querySelectorAll('details.acc.open-anim').forEach(o=>{ if(o!==d) accCollapse(o); }); accExpand(d); }
+  });
+});
+
+/* ===== SCROLL REVEAL ===== */
+const io = new IntersectionObserver((es)=>{
+  es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} });
+},{threshold:.12});
+root.querySelectorAll('section, .closing').forEach(s=>{s.classList.add('reveal');io.observe(s)});
+
+})();
+</script>
+</div>

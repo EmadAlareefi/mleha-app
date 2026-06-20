@@ -85,11 +85,55 @@ export type DesignModel = {
 const METER_TO_YARD = 1.0936132983;
 const YARD_TO_METER = 0.9144;
 
-const statusOptions: SelectOption[] = [
+const BASE_STATUS_OPTIONS: SelectOption[] = [
   { value: 'active', label: 'نشط' },
   { value: 'paused', label: 'موقوف' },
   { value: 'draft', label: 'تحت التطوير' },
 ];
+
+const STATUS_OPTIONS_STORAGE_KEY = 'mleha:model-status-options';
+
+// Status options are user-editable: built-ins plus any custom statuses the user
+// adds/renames. Persisted in localStorage and merged with statuses already used
+// by existing models so an in-use status can never disappear from the dropdown.
+function loadStatusOptions(): SelectOption[] {
+  if (typeof window === 'undefined') return BASE_STATUS_OPTIONS;
+  try {
+    const raw = window.localStorage.getItem(STATUS_OPTIONS_STORAGE_KEY);
+    if (!raw) return BASE_STATUS_OPTIONS;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return BASE_STATUS_OPTIONS;
+    const cleaned = parsed
+      .filter((item) => item && typeof item.value === 'string')
+      .map((item) => ({ value: item.value, label: String(item.label || item.value) }));
+    return cleaned.length ? cleaned : BASE_STATUS_OPTIONS;
+  } catch {
+    return BASE_STATUS_OPTIONS;
+  }
+}
+
+function saveStatusOptions(options: SelectOption[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STATUS_OPTIONS_STORAGE_KEY, JSON.stringify(options));
+  } catch {
+    /* ignore quota / serialization errors */
+  }
+}
+
+// Ensure every status value used by an existing model is present as an option.
+function mergeModelStatuses(options: SelectOption[], models: DesignModel[]): SelectOption[] {
+  const map = new Map(options.map((option) => [option.value, option]));
+  let changed = false;
+  models.forEach((model) => {
+    const value = (model.status || '').trim();
+    if (value && !map.has(value)) {
+      map.set(value, { value, label: value });
+      changed = true;
+    }
+  });
+  return changed ? Array.from(map.values()) : options;
+}
 
 const unitOptions: SelectOption[] = [
   { value: 'meter', label: 'متر' },
@@ -175,8 +219,8 @@ function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function getStatusLabel(status: string) {
-  return statusOptions.find((option) => option.value === status)?.label || status;
+function getStatusLabel(status: string, options: SelectOption[] = BASE_STATUS_OPTIONS) {
+  return options.find((option) => option.value === status)?.label || status;
 }
 
 function getRoleLabel(role: string) {
@@ -246,6 +290,7 @@ export function ModelsTabSpec({
   const [openSelect, setOpenSelect] = useState<string | null>(null);
   const [sku, setSku] = useState('');
   const [status, setStatus] = useState('active');
+  const [statusOptions, setStatusOptions] = useState<SelectOption[]>(() => loadStatusOptions());
   const [description, setDescription] = useState('تفاصيل التصميم والقصة…');
   const [imageData, setImageData] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -316,6 +361,50 @@ export function ModelsTabSpec({
   const totalProducibleCount = visibleModels.reduce((sum, model) => sum + model.producibleCount, 0);
   const totalReservedLength = visibleModels.reduce((sum, model) => sum + model.reservedLength, 0);
   const currentUnitLabel = unitOptions.find((option) => option.value === unit)?.label || 'متر';
+
+  // Keep the dropdown in sync with statuses already saved on existing models.
+  useEffect(() => {
+    setStatusOptions((current) => {
+      const merged = mergeModelStatuses(current, models);
+      if (merged !== current) saveStatusOptions(merged);
+      return merged;
+    });
+  }, [models]);
+
+  const persistStatusOptions = (next: SelectOption[]) => {
+    setStatusOptions(next);
+    saveStatusOptions(next);
+  };
+
+  // Adds the status to the shared option list (if new) and returns the value to
+  // select. The caller decides where to apply that selection (create form vs. drawer).
+  const addStatusOption = (rawLabel: string): string => {
+    const label = rawLabel.trim();
+    if (!label) return '';
+    const existing = statusOptions.find(
+      (option) => option.value === label || option.label.trim() === label
+    );
+    if (existing) return existing.value;
+    persistStatusOptions([...statusOptions, { value: label, label }]);
+    return label;
+  };
+
+  const editStatusOption = (value: string, rawLabel: string) => {
+    const label = rawLabel.trim();
+    if (!label) return;
+    persistStatusOptions(
+      statusOptions.map((option) => (option.value === value ? { ...option, label } : option))
+    );
+  };
+
+  const deleteStatusOption = (value: string) => {
+    if (statusOptions.length <= 1) return;
+    persistStatusOptions(statusOptions.filter((option) => option.value !== value));
+    if (status === value) {
+      const fallback = statusOptions.find((option) => option.value !== value);
+      if (fallback) setStatus(fallback.value);
+    }
+  };
 
   const setSelectValue = (id: string, value: string) => {
     if (id === 'status') setStatus(value);
@@ -512,6 +601,15 @@ export function ModelsTabSpec({
                       openSelect={openSelect}
                       setOpenSelect={setOpenSelect}
                       onChange={setSelectValue}
+                      allowCustom
+                      onCustomAdd={(id, value) => {
+                        const resolved = addStatusOption(value);
+                        if (resolved) setSelectValue(id, resolved);
+                      }}
+                      addPlaceholder="حالة جديدة…"
+                      editableOptions
+                      onEditOption={(_id, value, label) => editStatusOption(value, label)}
+                      onDeleteOption={(_id, value) => deleteStatusOption(value)}
                     />
 
                     <ColorPicker
@@ -727,6 +825,7 @@ export function ModelsTabSpec({
                       key={model.id}
                       model={model}
                       fabrics={fabrics}
+                      statusOptions={statusOptions}
                       isOpen={Boolean(openRows[model.id])}
                       onToggle={() => setOpenRows((current) => ({ ...current, [model.id]: !current[model.id] }))}
                       onEdit={() => setEditModel(model)}
@@ -757,6 +856,10 @@ export function ModelsTabSpec({
             unit={unit}
             openSelect={openSelect}
             setOpenSelect={setOpenSelect}
+            statusOptions={statusOptions}
+            onAddStatus={addStatusOption}
+            onEditStatus={editStatusOption}
+            onDeleteStatus={deleteStatusOption}
             onClose={() => setEditModel(null)}
             onSaved={onChanged}
           />
@@ -866,6 +969,9 @@ export function SelectBox({
   allowCustom,
   onCustomAdd,
   addPlaceholder = 'اكتب خياراً جديداً…',
+  editableOptions,
+  onEditOption,
+  onDeleteOption,
 }: {
   id: string;
   label?: string;
@@ -880,6 +986,9 @@ export function SelectBox({
   allowCustom?: boolean;
   onCustomAdd?: (id: string, value: string) => void;
   addPlaceholder?: string;
+  editableOptions?: boolean;
+  onEditOption?: (id: string, value: string, nextLabel: string) => void;
+  onDeleteOption?: (id: string, value: string) => void;
 }) {
   const commitCustom = (raw: string) => {
     const trimmed = raw.trim();
@@ -889,6 +998,13 @@ export function SelectBox({
   const selected = options.find((option) => option.value === value);
   const isOpen = openSelect === id;
   const [customValue, setCustomValue] = useState('');
+  const [editing, setEditing] = useState<{ value: string; label: string } | null>(null);
+  const commitEdit = () => {
+    if (!editing) return;
+    const next = editing.label.trim();
+    if (next) onEditOption?.(id, editing.value, next);
+    setEditing(null);
+  };
 
   return (
     <div className={`field ${className}`}>
@@ -904,16 +1020,72 @@ export function SelectBox({
         </button>
         <div className={`sel-menu ${isOpen ? 'open' : ''}`}>
           <div className="sel-options-list">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`sel-option ${option.value === value ? 'selected' : ''}`}
-                onClick={() => onChange(id, option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+            {options.map((option) =>
+              editableOptions && editing?.value === option.value ? (
+                <div className="sel-edit-row" key={option.value}>
+                  <input
+                    className="sel-add-input"
+                    value={editing.label}
+                    autoFocus
+                    onChange={(event) => setEditing({ value: option.value, label: event.target.value })}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        commitEdit();
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        setEditing(null);
+                      }
+                    }}
+                  />
+                  <button type="button" className="sel-opt-icon ok" title="حفظ" onClick={commitEdit}>✓</button>
+                  <button type="button" className="sel-opt-icon" title="إلغاء" onClick={() => setEditing(null)}>✕</button>
+                </div>
+              ) : editableOptions ? (
+                <div className={`sel-option-row ${option.value === value ? 'selected' : ''}`} key={option.value}>
+                  <button
+                    type="button"
+                    className={`sel-option ${option.value === value ? 'selected' : ''}`}
+                    onClick={() => onChange(id, option.value)}
+                  >
+                    {option.label}
+                  </button>
+                  <button
+                    type="button"
+                    className="sel-opt-icon"
+                    title="تعديل"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditing({ value: option.value, label: option.label });
+                    }}
+                  >
+                    ✎
+                  </button>
+                  {options.length > 1 && (
+                    <button
+                      type="button"
+                      className="sel-opt-icon del"
+                      title="حذف"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDeleteOption?.(id, option.value);
+                      }}
+                    >
+                      🗑
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`sel-option ${option.value === value ? 'selected' : ''}`}
+                  onClick={() => onChange(id, option.value)}
+                >
+                  {option.label}
+                </button>
+              )
+            )}
             {!options.length && <div className="sel-option">لا توجد خيارات</div>}
           </div>
           {allowCustom && (
@@ -1118,6 +1290,10 @@ function ModelEditDrawer({
   accessoriesInventory,
   openSelect,
   setOpenSelect,
+  statusOptions,
+  onAddStatus,
+  onEditStatus,
+  onDeleteStatus,
   onClose,
   onSaved,
 }: {
@@ -1127,6 +1303,10 @@ function ModelEditDrawer({
   unit: 'meter' | 'yard';
   openSelect: string | null;
   setOpenSelect: (value: string | null) => void;
+  statusOptions: SelectOption[];
+  onAddStatus: (label: string) => string;
+  onEditStatus: (value: string, label: string) => void;
+  onDeleteStatus: (value: string) => void;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
@@ -1258,6 +1438,18 @@ function ModelEditDrawer({
           openSelect={openSelect}
           setOpenSelect={setOpenSelect}
           onChange={dispatchSelect}
+          allowCustom
+          onCustomAdd={(_id, value) => {
+            const resolved = onAddStatus(value);
+            if (resolved) {
+              setStatus(resolved);
+              setOpenSelect(null);
+            }
+          }}
+          addPlaceholder="حالة جديدة…"
+          editableOptions
+          onEditOption={(_id, value, label) => onEditStatus(value, label)}
+          onDeleteOption={(_id, value) => onDeleteStatus(value)}
         />
         <ColorPicker
           id="edit-colors"
@@ -1396,6 +1588,7 @@ function ModelEditDrawer({
 function ModelTableRows({
   model,
   fabrics,
+  statusOptions,
   isOpen,
   onToggle,
   onEdit,
@@ -1404,6 +1597,7 @@ function ModelTableRows({
 }: {
   model: DesignModel;
   fabrics: Fabric[];
+  statusOptions: SelectOption[];
   isOpen: boolean;
   onToggle: () => void;
   onEdit: () => void;
@@ -1412,7 +1606,7 @@ function ModelTableRows({
 }) {
   const mainFabricRow = model.fabrics[0];
   const mainFabric = fabrics.find((fabric) => fabric.id === mainFabricRow?.fabricId);
-  const statusLabel = getStatusLabel(model.status);
+  const statusLabel = getStatusLabel(model.status, statusOptions);
   const statusClass = model.status === 'active' ? 'ok' : 'warn';
   const unitLabel = model.unit === 'yard' ? 'ياردة' : 'م';
   const mainConsumption = mainFabricRow
@@ -1484,15 +1678,45 @@ function ModelTableRows({
                 </div>
               </div>
             </div>
-            <div className="note" style={{ marginTop: 14 }}>
-              <b>وصفة القماش:</b>{' '}
-              {model.fabrics
-                .map((row) => {
-                  const fabric = fabrics.find((item) => item.id === row.fabricId);
-                  const fabricLabel = fabric ? `${fabric.name}${fabric.sku ? ` (${fabric.sku})` : ''}` : '-';
-                  return `${getRoleLabel(row.role)}: ${fabricLabel} × ${row.consumption} ${unitLabel}`;
-                })
-                .join(' • ')}
+            <div className="recipe-blocks">
+              <div className="recipe-block">
+                <div className="recipe-head">
+                  <span className="recipe-title">الأقمشة</span>
+                  <span className="recipe-count">{model.fabrics.length}</span>
+                </div>
+                {model.fabrics.length ? (
+                  model.fabrics.map((row) => {
+                    const fabric = fabrics.find((item) => item.id === row.fabricId);
+                    return (
+                      <div className="recipe-row" key={row.id}>
+                        <span className="recipe-name">
+                          {fabric?.name || '-'}
+                          <span className={`recipe-tag ${row.role === 'main' ? 'main' : ''}`}>{getRoleLabel(row.role)}</span>
+                        </span>
+                        <span className="recipe-val">{row.consumption} {unitLabel}</span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="recipe-empty">لا توجد أقمشة</div>
+                )}
+              </div>
+              <div className="recipe-block">
+                <div className="recipe-head">
+                  <span className="recipe-title">المستلزمات</span>
+                  <span className="recipe-count">{model.accessories.length}</span>
+                </div>
+                {model.accessories.length ? (
+                  model.accessories.map((row) => (
+                    <div className="recipe-row" key={row.id}>
+                      <span className="recipe-name">{row.name}</span>
+                      <span className="recipe-val">{row.consumption}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recipe-empty">لا توجد مستلزمات</div>
+                )}
+              </div>
             </div>
           </div>
         </td>
