@@ -140,13 +140,59 @@ const unitOptions: SelectOption[] = [
   { value: 'yard', label: 'ياردة' },
 ];
 
-const fabricRoleOptions: SelectOption[] = [
+const BASE_ROLE_OPTIONS: SelectOption[] = [
   { value: 'main', label: 'أساسي' },
   { value: 'bottom', label: 'قطعة سفلية' },
   { value: 'inner', label: 'قماش داخلي' },
   { value: 'lining', label: 'بطانة' },
   { value: 'embroidery', label: 'تطريز' },
 ];
+
+const ROLE_OPTIONS_STORAGE_KEY = 'mleha:model-role-options';
+
+// Fabric-role options are user-editable: built-ins plus any custom roles the user
+// adds/renames. Persisted in localStorage and merged with roles already used by
+// existing models so an in-use role can never disappear from the dropdown.
+function loadRoleOptions(): SelectOption[] {
+  if (typeof window === 'undefined') return BASE_ROLE_OPTIONS;
+  try {
+    const raw = window.localStorage.getItem(ROLE_OPTIONS_STORAGE_KEY);
+    if (!raw) return BASE_ROLE_OPTIONS;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return BASE_ROLE_OPTIONS;
+    const cleaned = parsed
+      .filter((item) => item && typeof item.value === 'string')
+      .map((item) => ({ value: item.value, label: String(item.label || item.value) }));
+    return cleaned.length ? cleaned : BASE_ROLE_OPTIONS;
+  } catch {
+    return BASE_ROLE_OPTIONS;
+  }
+}
+
+function saveRoleOptions(options: SelectOption[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(ROLE_OPTIONS_STORAGE_KEY, JSON.stringify(options));
+  } catch {
+    /* ignore quota / serialization errors */
+  }
+}
+
+// Ensure every role value used by an existing model's fabrics is present as an option.
+function mergeModelRoles(options: SelectOption[], models: DesignModel[]): SelectOption[] {
+  const map = new Map(options.map((option) => [option.value, option]));
+  let changed = false;
+  models.forEach((model) => {
+    model.fabrics.forEach((row) => {
+      const value = (row.role || '').trim();
+      if (value && !map.has(value)) {
+        map.set(value, { value, label: value });
+        changed = true;
+      }
+    });
+  });
+  return changed ? Array.from(map.values()) : options;
+}
 
 
 type ColorChip = { name: string; value: string; border?: boolean; custom?: boolean };
@@ -223,8 +269,8 @@ function getStatusLabel(status: string, options: SelectOption[] = BASE_STATUS_OP
   return options.find((option) => option.value === status)?.label || status;
 }
 
-function getRoleLabel(role: string) {
-  return fabricRoleOptions.find((option) => option.value === role)?.label || role;
+function getRoleLabel(role: string, options: SelectOption[] = BASE_ROLE_OPTIONS) {
+  return options.find((option) => option.value === role)?.label || role;
 }
 
 function calculateModel(input: {
@@ -297,7 +343,7 @@ export function ModelsTabSpec({
   const [error, setError] = useState<string | null>(null);
   const [selectedColors, setSelectedColors] = useState<string[]>(['متعدد الألوان']);
   const [customColors, setCustomColors] = useState<ColorChip[]>([]);
-  const [customRoles, setCustomRoles] = useState<SelectOption[]>([]);
+  const [roleOptions, setRoleOptions] = useState<SelectOption[]>(() => loadRoleOptions());
   const [editModel, setEditModel] = useState<DesignModel | null>(null);
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>([
     { id: 'main', role: 'main', fabricId: '', consumption: '' },
@@ -406,6 +452,52 @@ export function ModelsTabSpec({
     }
   };
 
+  // Keep the role dropdown in sync with roles already used by existing models.
+  useEffect(() => {
+    setRoleOptions((current) => {
+      const merged = mergeModelRoles(current, models);
+      if (merged !== current) saveRoleOptions(merged);
+      return merged;
+    });
+  }, [models]);
+
+  const persistRoleOptions = (next: SelectOption[]) => {
+    setRoleOptions(next);
+    saveRoleOptions(next);
+  };
+
+  // Adds the role to the shared option list (if new) and returns the value to
+  // select. The caller decides where to apply that selection (create form vs. drawer).
+  const addRoleOption = (rawLabel: string): string => {
+    const label = rawLabel.trim();
+    if (!label) return '';
+    const existing = roleOptions.find(
+      (option) => option.value === label || option.label.trim() === label
+    );
+    if (existing) return existing.value;
+    persistRoleOptions([...roleOptions, { value: label, label }]);
+    return label;
+  };
+
+  const editRoleOption = (value: string, rawLabel: string) => {
+    const label = rawLabel.trim();
+    if (!label) return;
+    persistRoleOptions(
+      roleOptions.map((option) => (option.value === value ? { ...option, label } : option))
+    );
+  };
+
+  const deleteRoleOption = (value: string) => {
+    if (roleOptions.length <= 1) return;
+    persistRoleOptions(roleOptions.filter((option) => option.value !== value));
+    const fallback = roleOptions.find((option) => option.value !== value);
+    if (fallback) {
+      setRecipeRows((current) =>
+        current.map((row) => (row.role === value ? { ...row, role: fallback.value } : row))
+      );
+    }
+  };
+
   const setSelectValue = (id: string, value: string) => {
     if (id === 'status') setStatus(value);
     if (id.startsWith('fabric-')) {
@@ -421,17 +513,6 @@ export function ModelsTabSpec({
       setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: value } : row)));
     }
     setOpenSelect(null);
-  };
-
-  const roleOptions = [...fabricRoleOptions, ...customRoles];
-
-  const handleRoleCustomAdd = (id: string, value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    setCustomRoles((current) =>
-      current.some((option) => option.value === trimmed) ? current : [...current, { value: trimmed, label: trimmed }]
-    );
-    setSelectValue(id, trimmed);
   };
 
   const toggleColor = (name: string) => {
@@ -672,8 +753,14 @@ export function ModelsTabSpec({
                           setOpenSelect={setOpenSelect}
                           onChange={setSelectValue}
                           allowCustom
-                          onCustomAdd={handleRoleCustomAdd}
+                          onCustomAdd={(id, value) => {
+                            const resolved = addRoleOption(value);
+                            if (resolved) setSelectValue(id, resolved);
+                          }}
                           addPlaceholder="نوع جديد"
+                          editableOptions
+                          onEditOption={(_id, value, label) => editRoleOption(value, label)}
+                          onDeleteOption={(_id, value) => deleteRoleOption(value)}
                         />
                       )}
                       <SelectBox
@@ -860,6 +947,10 @@ export function ModelsTabSpec({
             onAddStatus={addStatusOption}
             onEditStatus={editStatusOption}
             onDeleteStatus={deleteStatusOption}
+            roleOptions={roleOptions}
+            onAddRole={addRoleOption}
+            onEditRole={editRoleOption}
+            onDeleteRole={deleteRoleOption}
             onClose={() => setEditModel(null)}
             onSaved={onChanged}
           />
@@ -1294,6 +1385,10 @@ function ModelEditDrawer({
   onAddStatus,
   onEditStatus,
   onDeleteStatus,
+  roleOptions,
+  onAddRole,
+  onEditRole,
+  onDeleteRole,
   onClose,
   onSaved,
 }: {
@@ -1307,13 +1402,17 @@ function ModelEditDrawer({
   onAddStatus: (label: string) => string;
   onEditStatus: (value: string, label: string) => void;
   onDeleteStatus: (value: string) => void;
+  roleOptions: SelectOption[];
+  onAddRole: (label: string) => string;
+  onEditRole: (value: string, label: string) => void;
+  onDeleteRole: (value: string) => void;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
   const drawerUnit = model.unit;
   const unitLabel = drawerUnit === 'yard' ? 'ياردة' : 'م';
 
-  const imageData = model.imageData ?? null;
+  const [imageData, setImageData] = useState<string | null>(model.imageData ?? null);
   const decodedColors = decodeStoredColors(model.colors);
   const [status, setStatus] = useState(model.status);
   const [description, setDescription] = useState(model.description || '');
@@ -1369,11 +1468,31 @@ function ModelEditDrawer({
     else if (id.startsWith('edit-fabric-')) {
       const rowId = id.replace('edit-fabric-', '');
       setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
+    } else if (id.startsWith('edit-role-')) {
+      const rowId = id.replace('edit-role-', '');
+      setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, role: value } : row)));
     } else if (id.startsWith('edit-accessory-')) {
       const rowId = id.replace('edit-accessory-', '');
       setAccessoryRows((current) => current.map((row) => (row.id === rowId ? { ...row, accessoryId: value } : row)));
     }
     setOpenSelect(null);
+  };
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('الملف يجب أن يكون صورة');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('حجم الصورة كبير جداً (الحد الأقصى 2 ميجابايت)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
   };
 
   const toggleColor = (name: string) =>
@@ -1429,6 +1548,32 @@ function ModelEditDrawer({
       }
     >
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="sec-a-img" style={{ gridColumn: '1 / -1' }}>
+          <label>صورة المنتج</label>
+          <label className="imgbox sec-a-imgbox" style={{ cursor: 'pointer', overflow: 'hidden', padding: 0 }}>
+            {imageData ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={imageData} alt="صورة المنتج" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <span>
+                🖼️
+                <br />
+                اسحب الصورة أو اضغط للرفع
+              </span>
+            )}
+            <input type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
+          </label>
+          {imageData && (
+            <button
+              type="button"
+              className="btn ghost"
+              style={{ margin: '8px 0 0', padding: '4px 12px', fontSize: 12 }}
+              onClick={() => setImageData(null)}
+            >
+              إزالة الصورة
+            </button>
+          )}
+        </div>
         <DisplayField label="رقم الصنف (SKU)" value={model.sku} />
         <SelectBox
           id="edit-status"
@@ -1475,8 +1620,26 @@ function ModelEditDrawer({
       <div className="rep-label">الأقمشة ({recipeRows.length})</div>
       {recipeRows.map((row, index) => (
         <div className={`rep-row ${index === 0 ? 'fabric-main' : 'acc'}`} key={row.id}>
-          {index === 0 && (
+          {index === 0 ? (
             <div className="iconbtn" title="قماش أساسي" style={{ fontSize: 18, color: 'var(--amber)', borderColor: 'var(--amber-soft)', background: 'var(--amber-soft)' }}>★</div>
+          ) : (
+            <SelectBox
+              id={`edit-role-${row.id}`}
+              options={roleOptions}
+              value={row.role}
+              openSelect={openSelect}
+              setOpenSelect={setOpenSelect}
+              onChange={dispatchSelect}
+              allowCustom
+              onCustomAdd={(id, value) => {
+                const resolved = onAddRole(value);
+                if (resolved) dispatchSelect(id, resolved);
+              }}
+              addPlaceholder="نوع جديد"
+              editableOptions
+              onEditOption={(_id, value, label) => onEditRole(value, label)}
+              onDeleteOption={(_id, value) => onDeleteRole(value)}
+            />
           )}
           <SelectBox
             id={`edit-fabric-${row.id}`}
