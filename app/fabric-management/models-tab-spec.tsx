@@ -1351,7 +1351,7 @@ function Drawer({
   return createPortal(
     <>
       <div className="fab-design-drawer-overlay" onClick={onClose} />
-      <div className="fab-design-drawer fab-design" dir="rtl">
+      <div className="fab-design-drawer fab-design-modal fab-design" dir="rtl">
         <div className="drawer-head">
           <h3>{title}</h3>
           <button type="button" className="drawer-close" onClick={onClose}>
