@@ -1619,7 +1619,7 @@ function ModelEditDrawer({
 
       <div className="rep-label">الأقمشة ({recipeRows.length})</div>
       {recipeRows.map((row, index) => (
-        <div className={`rep-row ${index === 0 ? 'fabric-main' : 'acc'}`} key={row.id}>
+        <div className={`rep-row ${index === 0 ? 'fabric-main' : 'fabric-extra'}`} key={row.id}>
           {index === 0 ? (
             <div className="iconbtn" title="قماش أساسي" style={{ fontSize: 18, color: 'var(--amber)', borderColor: 'var(--amber-soft)', background: 'var(--amber-soft)' }}>★</div>
           ) : (
