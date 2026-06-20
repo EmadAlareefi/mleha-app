@@ -68,51 +68,60 @@ export function extractAppliedCouponCodes(order: AnyRecord): string[] {
     }
   };
 
-  COUPON_KEYS.forEach((key) => {
-    if (key in order) {
-      push(order[key]);
-    }
-  });
+  // Salla nests applied coupons/discounts under `order.amounts.discounts`, so we
+  // scan both the order root and the amounts object for coupon information.
+  const sources: AnyRecord[] = [order];
+  if (order.amounts && typeof order.amounts === 'object') {
+    sources.push(order.amounts as AnyRecord);
+  }
 
-  const collections = COUPON_COLLECTION_KEYS.map((key) => order[key]).filter(
-    (value) => value !== undefined && value !== null
-  );
+  for (const source of sources) {
+    COUPON_KEYS.forEach((key) => {
+      if (key in source) {
+        push(source[key]);
+      }
+    });
 
-  for (const collection of collections) {
-    if (Array.isArray(collection)) {
-      collection.forEach((entry) => {
-        if (typeof entry === 'string' || typeof entry === 'number') {
-          push(entry);
-          return;
-        }
-        if (entry && typeof entry === 'object') {
-          for (const key of COUPON_OBJECT_KEYS) {
-            if (key in entry) {
-              push((entry as AnyRecord)[key]);
-              break;
+    const collections = COUPON_COLLECTION_KEYS.map((key) => source[key]).filter(
+      (value) => value !== undefined && value !== null
+    );
+
+    for (const collection of collections) {
+      if (Array.isArray(collection)) {
+        collection.forEach((entry) => {
+          if (typeof entry === 'string' || typeof entry === 'number') {
+            push(entry);
+            return;
+          }
+          if (entry && typeof entry === 'object') {
+            for (const key of COUPON_OBJECT_KEYS) {
+              if (key in entry) {
+                push((entry as AnyRecord)[key]);
+                break;
+              }
             }
           }
-        }
-      });
-      continue;
-    }
+        });
+        continue;
+      }
 
-    if (collection && typeof collection === 'object') {
-      for (const key of COUPON_OBJECT_KEYS) {
-        if (key in (collection as AnyRecord)) {
-          push((collection as AnyRecord)[key]);
+      if (collection && typeof collection === 'object') {
+        for (const key of COUPON_OBJECT_KEYS) {
+          if (key in (collection as AnyRecord)) {
+            push((collection as AnyRecord)[key]);
+          }
         }
       }
     }
-  }
 
-  if (order.discount && typeof order.discount === 'object') {
-    const discount = order.discount as AnyRecord;
-    if (discount.coupon) {
-      push(discount.coupon);
-    }
-    if (discount.code) {
-      push(discount.code);
+    if (source.discount && typeof source.discount === 'object') {
+      const discount = source.discount as AnyRecord;
+      if (discount.coupon) {
+        push(discount.coupon);
+      }
+      if (discount.code) {
+        push(discount.code);
+      }
     }
   }
 
