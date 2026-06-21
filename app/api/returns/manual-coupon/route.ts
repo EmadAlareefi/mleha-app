@@ -5,6 +5,7 @@ import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
+const SALLA_CUSTOMER_MARKUP = 0.15; // Salla adds 15% (VAT) to coupon value
 
 /**
  * POST /api/returns/manual-coupon
@@ -73,12 +74,16 @@ export async function POST(request: NextRequest) {
     const assumedExpiry = new Date();
     assumedExpiry.setDate(assumedExpiry.getDate() + DEFAULT_COUPON_EXPIRY_DAYS);
 
+    const fullAmount = Number(couponAmount.toFixed(2));
+    const discountedAmount = Number((fullAmount / (1 + SALLA_CUSTOMER_MARKUP)).toFixed(2));
+
     const notification = await notifyExchangeCoupon({
       customerName: returnRequest.customerName,
       customerPhone: returnRequest.customerPhone,
       orderNumber: returnRequest.orderNumber,
       couponCode: couponCode.trim(),
-      amount: Number(couponAmount.toFixed(2)),
+      discountedAmount,
+      fullAmount,
       expiryDate: assumedExpiry,
     });
 

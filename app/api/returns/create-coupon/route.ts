@@ -153,7 +153,8 @@ export async function POST(request: NextRequest) {
       customerPhone: returnRequest.customerPhone,
       orderNumber: returnRequest.orderNumber,
       couponCode: result.coupon.code,
-      amount: discountedAmount,
+      discountedAmount,
+      fullAmount: sanitizedAmount,
       expiryDate,
     });
 

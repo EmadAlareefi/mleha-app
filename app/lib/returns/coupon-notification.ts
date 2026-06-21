@@ -10,9 +10,11 @@ export interface CouponNotificationInput {
   customerPhone?: string | null;
   orderNumber?: string | null;
   couponCode: string;
-  amount: number;
+  /** Coupon face value sent to Salla (pre-VAT base). */
+  discountedAmount: number;
+  /** Effective VAT-inclusive credit the customer receives. */
+  fullAmount: number;
   expiryDate?: Date;
-  currencyLabel?: string;
 }
 
 export interface CouponNotificationResult {
@@ -23,14 +25,17 @@ export interface CouponNotificationResult {
 }
 
 const FALLBACK_TEMPLATE_ID = env.ZOKO_TPL_EXCHANGE_COUPON || 'exchange_coupon_ready';
-const FALLBACK_CURRENCY = process.env.EXCHANGE_COUPON_CURRENCY_LABEL || 'ر.س';
 const FALLBACK_CUSTOMER_NAME = 'عميلنا العزيز';
 
-const formatAmount = (amount: number, currencyLabel: string = FALLBACK_CURRENCY) => {
-  if (!Number.isFinite(amount)) {
-    return `0.00 ${currencyLabel}`;
-  }
-  return `${amount.toFixed(2)} ${currencyLabel}`;
+/**
+ * Combined amount shown to the customer, e.g. "383.48 (441.00 شامل الضريبة)".
+ * The discounted value is the coupon face value; the full value is the
+ * VAT-inclusive credit the customer effectively receives at checkout.
+ */
+const formatCouponAmount = (discountedAmount: number, fullAmount: number) => {
+  const safeDiscounted = Number.isFinite(discountedAmount) ? discountedAmount : 0;
+  const safeFull = Number.isFinite(fullAmount) ? fullAmount : 0;
+  return `${safeDiscounted.toFixed(2)} (${safeFull.toFixed(2)} شامل الضريبة)`;
 };
 
 const formatExpiry = (expiryDate?: Date) => {
@@ -74,7 +79,7 @@ export async function notifyExchangeCoupon(
   const templateArgs: (string | number)[] = [
     payload.customerName?.trim() || FALLBACK_CUSTOMER_NAME,
     payload.couponCode,
-    formatAmount(payload.amount, payload.currencyLabel),
+    formatCouponAmount(payload.discountedAmount, payload.fullAmount),
     formatExpiry(payload.expiryDate),
     payload.orderNumber || '',
   ];
