@@ -4,14 +4,14 @@ import { log } from '@/app/lib/logger';
 import { getSallaOrder, getSallaOrderShipments } from '@/app/lib/salla-api';
 import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
 import {
-  evaluateReturnWindow,
   getCategoryNamesByProductId,
   getDiscountedProductIds,
   getOutletProductIds,
   getProductIdsForOrderItems,
+  getReturnWindowPolicy,
+  getWindowExpiredProductIds,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
-import { isEveningDressCategory } from '@/lib/returns/categories';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 
 export const runtime = 'nodejs';
@@ -91,35 +91,34 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const productCategoryGroups = Object.values(categoriesByProductId);
-    const allDetectedProductsAreEveningDresses =
-      productCategoryGroups.length > 0 &&
-      productCategoryGroups.every((categoryNames) => categoryNames.some(isEveningDressCategory));
-    const categoryNamesForPreCheck = allDetectedProductsAreEveningDresses
-      ? Object.values(categoriesByProductId).flat()
-      : [];
-    const windowEvaluation = evaluateReturnWindow({
-      categoryNames: categoryNamesForPreCheck,
-      deliveryDate: deliveryDateResult.date,
-    });
+    // Evaluate the return window per item using each product's own category, so evening
+    // dresses (24h) and other categories (3 days) are judged independently. Only block the
+    // whole order when every item is past its own window.
+    const windowExpiredProductIds = getWindowExpiredProductIds(
+      categoriesByProductId,
+      deliveryDateResult.date
+    );
+    const allProductsExpired =
+      productIds.length > 0 && productIds.every((productId) => windowExpiredProductIds.has(productId));
 
-    if (!windowEvaluation.eligible) {
-      log.warn('Shipment delivery date exceeds allowed return window', {
+    if (allProductsExpired) {
+      // Use the evening-dress message only when every product is an evening dress; otherwise
+      // the default 3-day window is the binding constraint.
+      const orderPolicy = getReturnWindowPolicy(Object.values(categoriesByProductId).flat());
+
+      log.warn('Shipment delivery date exceeds allowed return window for all items', {
         merchantId,
         orderId,
         deliveryDate: deliveryDateResult.date.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
-        elapsedHours: windowEvaluation.elapsedHours.toFixed(2),
-        policyWindowHours: windowEvaluation.policy.windowHours,
+        policyWindowHours: orderPolicy.windowHours,
       });
 
       return NextResponse.json({
         error: 'انتهت مدة الإرجاع المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
-        message: windowEvaluation.policy.message,
-        daysSinceDelivery: Math.floor(windowEvaluation.daysSinceDelivery),
-        elapsedHours: Math.floor(windowEvaluation.elapsedHours),
-        allowedHours: windowEvaluation.policy.windowHours,
+        message: orderPolicy.message,
+        allowedHours: orderPolicy.windowHours,
         deliveryDate: deliveryDateResult.date.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
         canCreateNew: false,
@@ -162,6 +161,7 @@ export async function GET(request: NextRequest) {
         returns: [],
         allowMultipleRequests: allowMultiple,
         canCreateNew: true,
+        windowExpiredProductIds: Array.from(windowExpiredProductIds),
       });
     }
 
@@ -238,6 +238,7 @@ export async function GET(request: NextRequest) {
       })),
       allowMultipleRequests: allowMultiple,
       canCreateNew: allowMultiple, // Can create new only if multiple requests are allowed
+      windowExpiredProductIds: Array.from(windowExpiredProductIds),
     });
 
   } catch (error) {

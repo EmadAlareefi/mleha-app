@@ -379,3 +379,40 @@ export const evaluateReturnWindow = (params: {
     daysSinceDelivery,
   };
 };
+
+/**
+ * Evaluates the return window for each product individually using that product's own
+ * category names, so evening dresses (24h) and other categories (3 days) are judged by
+ * their own policy instead of a single window applied to the whole order.
+ */
+export const evaluateReturnWindowByProductId = (params: {
+  categoriesByProductId: Record<string, string[]>;
+  deliveryDate: Date;
+  now?: Date;
+}): Record<string, ReturnWindowEvaluation> => {
+  const now = params.now ?? new Date();
+  return Object.fromEntries(
+    Object.entries(params.categoriesByProductId).map(([productId, categoryNames]) => [
+      productId,
+      evaluateReturnWindow({ categoryNames, deliveryDate: params.deliveryDate, now }),
+    ])
+  );
+};
+
+/**
+ * Returns the set of product ids whose own return window has already expired.
+ */
+export const getWindowExpiredProductIds = (
+  categoriesByProductId: Record<string, string[]>,
+  deliveryDate: Date,
+  now?: Date
+): Set<string> => {
+  const evaluations = evaluateReturnWindowByProductId({ categoriesByProductId, deliveryDate, now });
+  const expired = new Set<string>();
+  Object.entries(evaluations).forEach(([productId, evaluation]) => {
+    if (!evaluation.eligible) {
+      expired.add(productId);
+    }
+  });
+  return expired;
+};

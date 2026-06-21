@@ -1325,14 +1325,21 @@ function AssignmentCard({
                     className="flex flex-col sm:flex-row gap-3 rounded-lg border border-gray-100 p-3"
                   >
                     {item.image && (
-                      <Image
-                        src={item.image}
-                        alt={item.name || item.sku || 'منتج'}
-                        width={256}
-                        height={256}
-                        unoptimized
-                        className="w-full h-full rounded-md object-cover border border-gray-100 sm:w-16 sm:h-16"
-                      />
+                      <div className="flex flex-wrap gap-2">
+                        {Array.from({
+                          length: Math.max(1, Math.floor(item.quantity || 1)),
+                        }).map((_, copyIndex) => (
+                          <Image
+                            key={`${item.sku ?? 'item'}-${index}-img-${copyIndex}`}
+                            src={item.image as string}
+                            alt={item.name || item.sku || 'منتج'}
+                            width={256}
+                            height={256}
+                            unoptimized
+                            className="w-16 h-16 rounded-md object-cover border border-gray-100"
+                          />
+                        ))}
+                      </div>
                     )}
                     <div className="flex-1 space-y-3">
                       <div>
@@ -1717,10 +1724,17 @@ function ProductMeta({
             <span className="text-xl font-bold text-blue-900">{skuDisplay}</span>
           </div>
         )}
-        <div className="inline-flex items-center gap-2 bg-green-50 border-2 border-green-500 px-4 py-3 rounded-lg">
-          <span className="text-sm font-semibold text-green-700">الكمية:</span>
-          <span className="text-xl font-bold text-green-900">×{item.quantity}</span>
-        </div>
+        {Array.from({
+          length: Math.max(1, Math.floor(item.quantity || 1)),
+        }).map((_, copyIndex) => (
+          <div
+            key={`qty-${copyIndex}`}
+            className="inline-flex items-center gap-2 bg-green-50 border-2 border-green-500 px-4 py-3 rounded-lg"
+          >
+            <span className="text-sm font-semibold text-green-700">الكمية:</span>
+            <span className="text-xl font-bold text-green-900">×1</span>
+          </div>
+        ))}
         {(normalizedSku || hasLocation) && (
           <div
             className={`flex flex-col gap-1 rounded-lg border-2 px-4 py-3 ${hasLocation ? 'bg-amber-50 border-amber-500' : 'bg-gray-100 border-dashed border-gray-400'}`}

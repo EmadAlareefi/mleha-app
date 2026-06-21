@@ -7,7 +7,7 @@ import { getProcessingFee } from '@/lib/returns/fees';
 import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import {
-  evaluateReturnWindow,
+  evaluateReturnWindowByProductId,
   getCategoryNamesByProductId,
   getDiscountedProductIds,
   getOutletProductIds,
@@ -218,9 +218,11 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const selectedCategoryNames = Object.values(selectedCategoriesByProductId).flat();
-    const windowEvaluation = evaluateReturnWindow({
-      categoryNames: selectedCategoryNames,
+    // Evaluate the return window per selected item using each product's own category, so a
+    // mix of evening dresses (24h) and other categories (3 days) only blocks the items whose
+    // own window has expired — not the whole selection.
+    const selectedWindowEvaluations = evaluateReturnWindowByProductId({
+      categoriesByProductId: selectedCategoriesByProductId,
       deliveryDate,
     });
 
@@ -229,27 +231,37 @@ export async function POST(request: NextRequest) {
       orderId: body.orderId,
       dateSource: deliveryDateResult.source,
       normalizedDate: deliveryDate.toISOString(),
-      selectedCategoryNames,
-      policyWindowHours: windowEvaluation.policy.windowHours,
+      selectedCategoriesByProductId,
     });
 
-    if (!windowEvaluation.eligible) {
-      log.warn('Shipment delivery date exceeds allowed return window', {
+    const expiredItem = body.items.find((item) => {
+      const evaluation = selectedWindowEvaluations[item.productId];
+      return evaluation && !evaluation.eligible;
+    });
+
+    if (expiredItem) {
+      const evaluation = selectedWindowEvaluations[expiredItem.productId];
+
+      log.warn('Selected item exceeds allowed return window', {
         merchantId: body.merchantId,
         orderId: body.orderId,
+        productId: expiredItem.productId,
+        productName: expiredItem.productName,
         deliveryDate: deliveryDate.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
-        elapsedHours: windowEvaluation.elapsedHours.toFixed(2),
-        policyWindowHours: windowEvaluation.policy.windowHours,
+        elapsedHours: evaluation.elapsedHours.toFixed(2),
+        policyWindowHours: evaluation.policy.windowHours,
       });
 
       return NextResponse.json({
         error: 'انتهت مدة الإرجاع المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
-        message: windowEvaluation.policy.message,
-        daysSinceDelivery: Math.floor(windowEvaluation.daysSinceDelivery),
-        elapsedHours: Math.floor(windowEvaluation.elapsedHours),
-        allowedHours: windowEvaluation.policy.windowHours,
+        message: evaluation.policy.message,
+        productId: expiredItem.productId,
+        productName: expiredItem.productName,
+        daysSinceDelivery: Math.floor(evaluation.daysSinceDelivery),
+        elapsedHours: Math.floor(evaluation.elapsedHours),
+        allowedHours: evaluation.policy.windowHours,
         deliveryDate: deliveryDate.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
       }, { status: 400 });

@@ -99,6 +99,7 @@ interface ReturnFormProps {
     address: string;
     city: string;
   };
+  windowExpiredProductIds?: string[];
   onSuccess: (result: any) => void;
 }
 
@@ -164,7 +165,7 @@ const getOrderItemProductIdWithFallback = (item: OrderItem, fallback?: number | 
   return fallbackValue ?? String(item.id);
 };
 
-export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess }: ReturnFormProps) {
+export default function ReturnForm({ order, merchantId, merchantInfo, windowExpiredProductIds, onSuccess }: ReturnFormProps) {
   const [type, setType] = useState<'return' | 'exchange'>('return');
   const [reason, setReason] = useState('');
   const [reasonDetails, setReasonDetails] = useState('');
@@ -226,6 +227,22 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     });
     return ids;
   }, [order, itemCategories, outletCategoryProducts]);
+  // Items whose own return window has already expired (e.g. evening dresses past 24h while the
+  // rest of the order is still within the 3-day window). Computed server-side in /api/returns/check.
+  const windowExpiredItemIds = useMemo(() => {
+    const expiredProductIds = new Set(windowExpiredProductIds ?? []);
+    const ids = new Set<number>();
+    if (expiredProductIds.size === 0) {
+      return ids;
+    }
+    order.items?.forEach((item) => {
+      const productId = getOrderItemProductId(item);
+      if (productId && expiredProductIds.has(productId)) {
+        ids.add(item.id);
+      }
+    });
+    return ids;
+  }, [order, windowExpiredProductIds]);
 
   // Fetch categories for all items
   useEffect(() => {
@@ -332,7 +349,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
   }, [type, selectedItems, outletCategoryItemIds]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
-    if (discountedCategoryItemIds.has(itemId) || (type === 'return' && outletCategoryItemIds.has(itemId))) {
+    if (
+      discountedCategoryItemIds.has(itemId) ||
+      windowExpiredItemIds.has(itemId) ||
+      (type === 'return' && outletCategoryItemIds.has(itemId))
+    ) {
       return;
     }
     const newSelectedItems = new Map(selectedItems);
@@ -373,6 +394,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
     for (const itemId of selectedItems.keys()) {
       if (discountedCategoryItemIds.has(itemId)) {
         setError('لا يمكن إرجاع أو استبدال المنتجات ضمن فئات التخفيضات.');
+        return;
+      }
+      if (windowExpiredItemIds.has(itemId)) {
+        setError('انتهت مدة إرجاع فساتين السهرة (24 ساعة من وقت التسليم).');
         return;
       }
       if (type === 'return' && outletCategoryItemIds.has(itemId)) {
@@ -523,7 +548,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
               const isOutletCategoryItem =
                 isOutletProduct || isOutletCategory(category) || outletCategoryItemIds.has(item.id);
               const isExchangeOnlyUnavailable = type === 'return' && isOutletCategoryItem;
-              const isItemDisabled = isDiscountedCategoryItem || isExchangeOnlyUnavailable;
+              const isWindowExpiredItem = windowExpiredItemIds.has(item.id);
+              const isItemDisabled =
+                isDiscountedCategoryItem || isExchangeOnlyUnavailable || isWindowExpiredItem;
               const { color, size } = getItemAttributes(item);
               const imageSrc = item.images?.[0]?.image || item.product?.thumbnail || item.thumbnail;
 
@@ -607,6 +634,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, onSuccess 
                     {isExchangeOnlyUnavailable && (
                       <p className="text-xs text-amber-700 font-medium">
                         هذا المنتج متاح للاستبدال فقط
+                      </p>
+                    )}
+                    {isWindowExpiredItem && (
+                      <p className="text-xs text-red-600 font-medium">
+                        انتهت مدة إرجاع فساتين السهرة (24 ساعة من وقت التسليم)
                       </p>
                     )}
                     <p className="text-xs text-gray-500">
