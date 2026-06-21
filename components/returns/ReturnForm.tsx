@@ -4,15 +4,14 @@ import Image from 'next/image';
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { getProcessingFee, RETURN_FEE, EXCHANGE_FEE } from '@/lib/returns/fees';
+import {
+  getProcessingFee,
+  getOriginalShippingFee,
+  RETURN_SHIPMENT_LEG_FEE,
+  EXCHANGE_SHIPMENT_LEG_FEE,
+} from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
-
-// Presentational per-shipment-leg amounts. The total deduction is always the
-// flat fee from getProcessingFee (60 SAR return / 40 SAR exchange); these lines
-// just break that total down to make the exchange option look more appealing.
-const SHIPMENT_LEG_FEE = 30; // original outbound shipment, and full return leg
-const EXCHANGE_RETURN_LEG_FEE = 10; // discounted return leg when exchanging
 
 interface OrderItem {
   id: number;
@@ -175,8 +174,13 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
-  // Flat processing fee deducted from the order total: 60 SAR return / 40 SAR exchange.
-  const appliedProcessingFee = getProcessingFee(type);
+  // Processing fee deducted from the refund = the original outbound shipping the
+  // customer actually paid + the flat return-leg fee for the selected type.
+  const originalShippingFee = getOriginalShippingFee(order.amounts);
+  const appliedProcessingFee = getProcessingFee(type, order.amounts);
+  const returnTypeFee = getProcessingFee('return', order.amounts);
+  const exchangeTypeFee = getProcessingFee('exchange', order.amounts);
+  const exchangeSavings = RETURN_SHIPMENT_LEG_FEE - EXCHANGE_SHIPMENT_LEG_FEE;
   const getNumericValue = (value: unknown): number => {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? value : 0;
@@ -505,7 +509,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
             }`}
           >
             <span className="block font-medium">إرجاع</span>
-            <span className="block text-xs text-gray-500 mt-1">رسوم {RETURN_FEE} ر.س</span>
+            <span className="block text-xs text-gray-500 mt-1">رسوم {returnTypeFee.toFixed(2)} ر.س</span>
           </button>
           <button
             type="button"
@@ -517,10 +521,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
             }`}
           >
             <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">
-              وفّر {RETURN_FEE - EXCHANGE_FEE} ر.س + شحن مجاني
+              وفّر {exchangeSavings.toFixed(2)} ر.س + شحن مجاني
             </span>
             <span className="block font-medium">استبدال</span>
-            <span className="block text-xs text-gray-500 mt-1">رسوم {EXCHANGE_FEE} ر.س فقط</span>
+            <span className="block text-xs text-gray-500 mt-1">رسوم {exchangeTypeFee.toFixed(2)} ر.س فقط</span>
           </button>
         </div>
       </Card>
@@ -688,29 +692,33 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
 
                   {type === 'return' ? (
                     <>
-                      <div className="flex justify-between text-sm text-red-600">
-                        <span>رسوم الشحنة الأساسية:</span>
-                        <span>-{SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
-                      </div>
+                      {originalShippingFee > 0 && (
+                        <div className="flex justify-between text-sm text-red-600">
+                          <span>رسوم الشحنة الأساسية:</span>
+                          <span>-{originalShippingFee.toFixed(2)} ر.س</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-sm text-red-600">
                         <span>رسوم شحنة الاسترجاع:</span>
-                        <span>-{SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
+                        <span>-{RETURN_SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="flex justify-between text-sm text-red-600">
-                        <span>رسوم الشحنة الأساسية:</span>
-                        <span>-{SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
-                      </div>
+                      {originalShippingFee > 0 && (
+                        <div className="flex justify-between text-sm text-red-600">
+                          <span>رسوم الشحنة الأساسية:</span>
+                          <span>-{originalShippingFee.toFixed(2)} ر.س</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-700">رسوم شحنة الاستبدال:</span>
                         <span className="flex items-baseline gap-2">
                           <span className="line-through text-gray-400">
-                            -{SHIPMENT_LEG_FEE.toFixed(2)}
+                            -{RETURN_SHIPMENT_LEG_FEE.toFixed(2)}
                           </span>
                           <span className="font-semibold text-red-600">
-                            -{EXCHANGE_RETURN_LEG_FEE.toFixed(2)} ر.س
+                            -{EXCHANGE_SHIPMENT_LEG_FEE.toFixed(2)} ر.س
                           </span>
                         </span>
                       </div>
@@ -718,7 +726,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                         <span className="text-gray-700">شحنة الاستبدال الجديدة:</span>
                         <span className="flex items-baseline gap-2">
                           <span className="line-through text-gray-400">
-                            -{SHIPMENT_LEG_FEE.toFixed(2)}
+                            -{RETURN_SHIPMENT_LEG_FEE.toFixed(2)}
                           </span>
                           <span className="font-semibold text-green-600">مجاني</span>
                         </span>

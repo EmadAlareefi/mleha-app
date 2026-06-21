@@ -4,16 +4,31 @@ import {
   calculateReturnFee,
   getEffectiveReturnFee,
   getProcessingFee,
+  getOriginalShippingFee,
   splitReturnFee,
-  RETURN_FEE,
-  EXCHANGE_FEE,
+  RETURN_SHIPMENT_LEG_FEE,
+  EXCHANGE_SHIPMENT_LEG_FEE,
 } from '../fees';
 
-test('applies the flat processing fee per request type', () => {
-  assert.equal(RETURN_FEE, 60);
-  assert.equal(EXCHANGE_FEE, 40);
-  assert.equal(getProcessingFee('return'), 60);
-  assert.equal(getProcessingFee('exchange'), 40);
+test('charges only the flat return-leg fee when shipping is unknown or free', () => {
+  assert.equal(RETURN_SHIPMENT_LEG_FEE, 30);
+  assert.equal(EXCHANGE_SHIPMENT_LEG_FEE, 10);
+  assert.equal(getProcessingFee('return'), 30);
+  assert.equal(getProcessingFee('exchange'), 10);
+  assert.equal(getProcessingFee('return', { shipping_cost: { amount: 0 } }), 30);
+});
+
+test('adds the original outbound shipping the customer paid to the fee', () => {
+  const amounts = { shipping_cost: { amount: 30 }, shipping_tax: { amount: 4.5 } };
+  assert.equal(getOriginalShippingFee(amounts), 34.5);
+  assert.equal(getProcessingFee('return', amounts), 64.5);
+  assert.equal(getProcessingFee('exchange', amounts), 44.5);
+});
+
+test('parses string shipping amounts', () => {
+  const amounts = { shipping_cost: { amount: '25' }, shipping_tax: { amount: '3.75' } };
+  assert.equal(getOriginalShippingFee(amounts), 28.75);
+  assert.equal(getProcessingFee('return', amounts), 58.75);
 });
 
 test('uses the full configured return fee', () => {
