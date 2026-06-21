@@ -1,5 +1,6 @@
 import { sallaMakeRequest } from './salla-oauth';
 import { log } from './logger';
+import { normalizeKSA } from './phone';
 
 // Salla API Types
 export interface SallaOrder {
@@ -484,6 +485,93 @@ export async function findOrdersByCustomerContact(
     return [];
   } catch (error) {
     log.error('Error finding orders by contact', { merchantId, emailOrPhone, error });
+    return [];
+  }
+}
+
+/**
+ * Fetches invoices for a single order (Salla: GET /orders/{orderId}/invoices)
+ */
+export async function getSallaOrderInvoices(
+  merchantId: string,
+  orderId: string | number
+): Promise<any[]> {
+  try {
+    const response = await sallaMakeRequest<{ success: boolean; data: any[] }>(
+      merchantId,
+      `/orders/${orderId}/invoices`
+    );
+
+    if (response && response.success) {
+      return response.data || [];
+    }
+
+    return [];
+  } catch (error) {
+    log.error('Error fetching order invoices', { merchantId, orderId, error });
+    return [];
+  }
+}
+
+/**
+ * Invoice annotated with its source order context.
+ */
+export interface CustomerInvoice {
+  orderId: number;
+  orderNumber: string | number;
+  invoice: any;
+}
+
+/**
+ * Fetches all invoices for a customer identified by phone number.
+ *
+ * Salla has no "invoices by customer" endpoint, so this finds the customer's
+ * orders by phone, then fetches the invoices for each order.
+ */
+export async function getInvoicesByCustomerPhone(
+  merchantId: string,
+  phone: string
+): Promise<CustomerInvoice[]> {
+  try {
+    const normalized = normalizeKSA(phone);
+
+    // Salla's `?mobile=` matching is format-sensitive. Try the normalized
+    // E.164 value first, then fall back to the local `05xxxxxxxx` form.
+    let orders = await findOrdersByCustomerContact(merchantId, normalized);
+
+    if (orders.length === 0 && normalized.startsWith('+966')) {
+      const localForm = '0' + normalized.slice(4);
+      orders = await findOrdersByCustomerContact(merchantId, localForm);
+    }
+
+    if (orders.length === 0) {
+      return [];
+    }
+
+    // Fetch invoices per order with bounded concurrency to avoid rate limits.
+    const CONCURRENCY = 5;
+    const results: CustomerInvoice[] = [];
+
+    for (let i = 0; i < orders.length; i += CONCURRENCY) {
+      const chunk = orders.slice(i, i + CONCURRENCY);
+      const chunkInvoices = await Promise.all(
+        chunk.map(async (order) => {
+          const invoices = await getSallaOrderInvoices(merchantId, order.id);
+          return invoices.map((invoice) => ({
+            orderId: order.id,
+            orderNumber: order.reference_id ?? order.order_number ?? order.id,
+            invoice,
+          }));
+        })
+      );
+      for (const invoices of chunkInvoices) {
+        results.push(...invoices);
+      }
+    }
+
+    return results;
+  } catch (error) {
+    log.error('Error fetching invoices by customer phone', { merchantId, phone, error });
     return [];
   }
 }
