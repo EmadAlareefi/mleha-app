@@ -7,8 +7,7 @@ import { Card } from '@/components/ui/card';
 import {
   getProcessingFee,
   getOriginalShippingFee,
-  RETURN_SHIPMENT_LEG_FEE,
-  EXCHANGE_SHIPMENT_LEG_FEE,
+  getShipmentLegFee,
 } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
@@ -174,13 +173,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
-  // Processing fee deducted from the refund = the original outbound shipping the
-  // customer actually paid + the flat return-leg fee for the selected type.
+  // Refund = (items + original shipping the customer paid, incl. VAT) minus the
+  // two shipment legs. Each leg is flat per type: 30 SAR return / 20 SAR exchange.
   const originalShippingFee = getOriginalShippingFee(order.amounts);
-  const appliedProcessingFee = getProcessingFee(type, order.amounts);
-  const returnTypeFee = getProcessingFee('return', order.amounts);
-  const exchangeTypeFee = getProcessingFee('exchange', order.amounts);
-  const exchangeSavings = RETURN_SHIPMENT_LEG_FEE - EXCHANGE_SHIPMENT_LEG_FEE;
+  const shipmentLegFee = getShipmentLegFee(type);
+  const appliedProcessingFee = getProcessingFee(type);
+  const returnTypeFee = getProcessingFee('return');
+  const exchangeTypeFee = getProcessingFee('exchange');
+  const exchangeSavings = returnTypeFee - exchangeTypeFee;
   const getNumericValue = (value: unknown): number => {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? value : 0;
@@ -509,7 +509,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
             }`}
           >
             <span className="block font-medium">إرجاع</span>
-            <span className="block text-xs text-gray-500 mt-1">رسوم {returnTypeFee.toFixed(2)} ر.س</span>
+            <span className="block text-xs text-gray-500 mt-1">رسوم {returnTypeFee} ر.س</span>
           </button>
           <button
             type="button"
@@ -521,10 +521,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
             }`}
           >
             <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">
-              وفّر {exchangeSavings.toFixed(2)} ر.س + شحن مجاني
+              وفّر {exchangeSavings} ر.س + شحن مجاني
             </span>
             <span className="block font-medium">استبدال</span>
-            <span className="block text-xs text-gray-500 mt-1">رسوم {exchangeTypeFee.toFixed(2)} ر.س فقط</span>
+            <span className="block text-xs text-gray-500 mt-1">رسوم {exchangeTypeFee} ر.س فقط</span>
           </button>
         </div>
       </Card>
@@ -680,8 +680,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                 return sum + (itemPrice * quantity);
               }, 0);
 
-              const applicableFee = appliedProcessingFee;
-              const finalRefund = Math.max(0, itemsTotal - applicableFee);
+              const orderTotal = itemsTotal + originalShippingFee;
+              const finalRefund = Math.max(0, orderTotal - appliedProcessingFee);
+              const isExchange = type === 'exchange';
+              const returnLegLabel = isExchange ? 'رسوم شحنة الاستبدال:' : 'رسوم شحنة الاسترجاع:';
 
               return (
                 <>
@@ -690,56 +692,36 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                     <span className="font-medium">{itemsTotal.toFixed(2)} ر.س</span>
                   </div>
 
-                  {type === 'return' ? (
-                    <>
-                      {originalShippingFee > 0 && (
-                        <div className="flex justify-between text-sm text-red-600">
-                          <span>رسوم الشحنة الأساسية:</span>
-                          <span>-{originalShippingFee.toFixed(2)} ر.س</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm text-red-600">
-                        <span>رسوم شحنة الاسترجاع:</span>
-                        <span>-{RETURN_SHIPMENT_LEG_FEE.toFixed(2)} ر.س</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {originalShippingFee > 0 && (
-                        <div className="flex justify-between text-sm text-red-600">
-                          <span>رسوم الشحنة الأساسية:</span>
-                          <span>-{originalShippingFee.toFixed(2)} ر.س</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">رسوم شحنة الاستبدال:</span>
-                        <span className="flex items-baseline gap-2">
-                          <span className="line-through text-gray-400">
-                            -{RETURN_SHIPMENT_LEG_FEE.toFixed(2)}
-                          </span>
-                          <span className="font-semibold text-red-600">
-                            -{EXCHANGE_SHIPMENT_LEG_FEE.toFixed(2)} ر.س
-                          </span>
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">شحنة الاستبدال الجديدة:</span>
-                        <span className="flex items-baseline gap-2">
-                          <span className="line-through text-gray-400">
-                            -{RETURN_SHIPMENT_LEG_FEE.toFixed(2)}
-                          </span>
-                          <span className="font-semibold text-green-600">مجاني</span>
-                        </span>
-                      </div>
-                      <p className="text-xs text-green-700 bg-green-50 rounded-md px-2 py-1">
-                        كوبون الاستبدال يمنحك شحن مجاني للطلب الجديد 🎁
-                      </p>
-                    </>
+                  {originalShippingFee > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>شحن الطلب الأصلي (شامل الضريبة):</span>
+                      <span className="font-medium">{originalShippingFee.toFixed(2)} ر.س</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between text-sm border-t pt-3">
+                    <span className="font-medium">الإجمالي:</span>
+                    <span className="font-semibold">{orderTotal.toFixed(2)} ر.س</span>
+                  </div>
+
+                  <div className="flex justify-between text-sm text-red-600">
+                    <span>رسوم الشحنة الأساسية:</span>
+                    <span>-{shipmentLegFee.toFixed(2)} ر.س</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-red-600">
+                    <span>{returnLegLabel}</span>
+                    <span>-{shipmentLegFee.toFixed(2)} ر.س</span>
+                  </div>
+
+                  {isExchange && (
+                    <p className="text-xs text-green-700 bg-green-50 rounded-md px-2 py-1">
+                      كوبون الاستبدال يمنحك شحن مجاني للطلب الجديد 🎁
+                    </p>
                   )}
 
                   <div className="border-t pt-3 mt-3">
                     <div className="flex justify-between text-lg font-bold">
-                      <span>المبلغ المسترد:</span>
+                      <span>{isExchange ? 'قيمة كوبون الاستبدال:' : 'المبلغ المسترد:'}</span>
                       <span className="text-green-600">{finalRefund.toFixed(2)} ر.س</span>
                     </div>
                   </div>

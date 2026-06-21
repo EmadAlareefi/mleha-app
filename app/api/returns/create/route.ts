@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
-import { getProcessingFee } from '@/lib/returns/fees';
+import { getProcessingFee, getOriginalShippingFee } from '@/lib/returns/fees';
 import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import {
@@ -284,12 +284,17 @@ export async function POST(request: NextRequest) {
       0
     );
 
-    // Processing fee = the original outbound shipping the customer actually paid
-    // + the flat return-leg fee (30 SAR return / 10 SAR exchange).
-    const returnFee = getProcessingFee(body.type, order.amounts);
+    // The order total returned to the customer is items + the original shipping
+    // they paid (gross, incl. VAT). From that we deduct the two shipment legs:
+    // the original outbound shipment + the return/exchange shipment.
+    const originalShipping = getOriginalShippingFee(order.amounts);
+    const orderTotal = totalItemsAmount + originalShipping;
 
-    // Calculate total refund: items total - return fee
-    const totalRefundAmount = Math.max(0, totalItemsAmount - returnFee);
+    // Flat processing fee = both shipment legs (60 SAR return / 40 SAR exchange).
+    const returnFee = getProcessingFee(body.type);
+
+    // Calculate total refund: (items + original shipping) - return fee
+    const totalRefundAmount = Math.max(0, orderTotal - returnFee);
 
     const parsedOrderId = parseInt(body.orderId, 10);
     const normalizedOrderId = Number.isNaN(parsedOrderId) ? body.orderId : parsedOrderId;
