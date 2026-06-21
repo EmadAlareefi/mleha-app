@@ -1,6 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { getSallaProduct, type SallaOrderItem } from '@/app/lib/salla-api';
+import { getSallaProduct, getSallaOrderDeliveredDate, type SallaOrderItem } from '@/app/lib/salla-api';
+import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
+import { detectShipmentCompany } from '@/lib/shipment-detector';
 import { extractOrderDate } from '@/lib/returns/order-date';
 import {
   EVENING_DRESS_CATEGORY,
@@ -242,6 +244,19 @@ export const resolveReturnDeliveryDate = async (
     },
     orderBy: { updatedAt: 'desc' },
   });
+
+  // AJ-EX and Redbox courier scan data rarely carries a reliable delivered timestamp, so for those
+  // couriers prefer the order-history "تم التوصيل" conversion date from Salla over the weaker
+  // shipment fallbacks below (e.g. sallaShipment.updatedAt). The order payload itself usually has no
+  // tracking number, so detect the courier from the stored shipment's tracking number first.
+  const trackingNumber = sallaShipment?.trackingNumber || extractSallaTrackingNumber(order);
+  const courierId = trackingNumber ? detectShipmentCompany(trackingNumber).id : null;
+  if (orderId && (courierId === 'ajex' || courierId === 'redbox')) {
+    const historyDeliveredDate = await getSallaOrderDeliveredDate(merchantId, orderId);
+    if (historyDeliveredDate) {
+      return { date: historyDeliveredDate, source: 'salla.history.delivered' };
+    }
+  }
 
   const sallaDeliveryDate =
     getDeliveryDateFromShipmentData(sallaShipment?.shipmentData) ??

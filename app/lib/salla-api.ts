@@ -266,6 +266,101 @@ export async function getSallaOrderShipments(
   }
 }
 
+export interface SallaOrderHistoryEntry {
+  status?: {
+    id?: number | string;
+    name?: string;
+    slug?: string;
+  } | string;
+  status_name?: string;
+  slug?: string;
+  created_at?: { date?: string } | string;
+  created?: { date?: string } | string;
+}
+
+const DELIVERED_STATUS_SLUG = 'delivered';
+const DELIVERED_STATUS_NAME = 'تم التوصيل';
+
+const parseSallaHistoryDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  const raw = typeof value === 'string' ? value : (value as { date?: string }).date;
+  if (!raw || typeof raw !== 'string') return null;
+  const parsed = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isDeliveredHistoryEntry = (entry: SallaOrderHistoryEntry): boolean => {
+  const slug =
+    typeof entry.status === 'object' ? entry.status?.slug : entry.slug;
+  const name =
+    typeof entry.status === 'object'
+      ? entry.status?.name
+      : typeof entry.status === 'string'
+        ? entry.status
+        : entry.status_name;
+
+  if (typeof slug === 'string' && slug.toLowerCase() === DELIVERED_STATUS_SLUG) {
+    return true;
+  }
+  return typeof name === 'string' && name.includes(DELIVERED_STATUS_NAME);
+};
+
+/**
+ * Pure helper: given a Salla order history `data` array, returns the earliest timestamp
+ * at which the order converted to "تم التوصيل" (delivered), or null when there is none.
+ * Exported for unit testing without hitting the network.
+ */
+export function extractDeliveredDateFromHistory(
+  history: SallaOrderHistoryEntry[] | null | undefined
+): Date | null {
+  if (!Array.isArray(history)) {
+    return null;
+  }
+
+  const deliveredDates = history
+    .filter(isDeliveredHistoryEntry)
+    .map((entry) => parseSallaHistoryDate(entry.created_at ?? entry.created))
+    .filter((date): date is Date => Boolean(date))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  return deliveredDates[0] ?? null;
+}
+
+/**
+ * Fetches the order status history from Salla and returns the earliest timestamp
+ * at which the order converted to "تم التوصيل" (delivered).
+ *
+ * Used to determine the delivery date for AJ-EX / Redbox shipments, whose courier
+ * scan data rarely carries a reliable delivered timestamp. Returns null if there is
+ * no delivered history entry or the request fails (never throws).
+ */
+export async function getSallaOrderDeliveredDate(
+  merchantId: string,
+  orderId: string
+): Promise<Date | null> {
+  if (!merchantId || !orderId) {
+    return null;
+  }
+
+  try {
+    const response = await sallaMakeRequest<{
+      status: number;
+      success: boolean;
+      data: SallaOrderHistoryEntry[];
+    }>(merchantId, `/orders/${orderId}/histories`);
+
+    if (!response || !response.success || !Array.isArray(response.data)) {
+      log.warn('Failed to fetch Salla order histories', { merchantId, orderId });
+      return null;
+    }
+
+    return extractDeliveredDateFromHistory(response.data);
+  } catch (error) {
+    log.error('Error fetching Salla order delivered date', { merchantId, orderId, error });
+    return null;
+  }
+}
+
 /**
  * Fetches a specific order by reference ID (order number) from Salla
  */
