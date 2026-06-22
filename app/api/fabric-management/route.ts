@@ -218,7 +218,8 @@ function serializeModel(
   fabricMap: Map<string, { name?: string; unitCost: number; stockLength: number }>,
   accessoryMap: Map<string, { name?: string; unitPrice: number; stockQty: number }>,
   metrics: ModelMetrics,
-  autoCosts?: { tailoringCost: number; embroideryCost: number }
+  autoCosts?: { tailoringCost: number; embroideryCost: number },
+  tailors?: string[]
 ) {
   const unit = model.unit || 'meter';
   const recipe: RecipeRow[] = Array.isArray(model.recipe) ? model.recipe : [];
@@ -290,6 +291,7 @@ function serializeModel(
     sku: model.sku,
     status: model.status,
     description: model.description || '',
+    size: model.size || '',
     unit,
     colors: Array.isArray(model.colors) ? model.colors : [],
     imageData: model.imageData || null,
@@ -300,6 +302,7 @@ function serializeModel(
       consumption: String(row.consumption ?? ''),
     })),
     accessories: accessoriesResolved,
+    tailors: tailors || [],
     tailoringCost,
     embroideryCost,
     extraCost,
@@ -390,6 +393,19 @@ export async function GET() {
 
     // Per-model production metrics from open issues.
     const metricsByModel = new Map<string, ModelMetrics>();
+    // Per-model linked tailors, derived from the model's fabric issues. Issues are
+    // ordered most-recent-first, so the first time we see a tailor for a model it is
+    // the latest one; open (non-closed) issues take priority over closed history.
+    const tailorsByModel = new Map<string, { open: string[]; all: string[] }>();
+    for (const issue of issues) {
+      const modelId = issue.designModelId;
+      const tailorName = issue.tailor?.name?.trim();
+      if (!modelId || !tailorName) continue;
+      const entry = tailorsByModel.get(modelId) || { open: [], all: [] };
+      if (!entry.all.includes(tailorName)) entry.all.push(tailorName);
+      if (issue.status !== 'closed' && !entry.open.includes(tailorName)) entry.open.push(tailorName);
+      tailorsByModel.set(modelId, entry);
+    }
     // Per-model cost aggregation from delivered issues. Production-cycle costs are
     // batch totals, so we accumulate totals + dress counts to get a weighted
     // per-dress average for the models tab.
@@ -421,15 +437,19 @@ export async function GET() {
       });
     }
 
-    const serializedModels = models.map((model) =>
-      serializeModel(
+    const serializedModels = models.map((model) => {
+      const linked = tailorsByModel.get(model.id);
+      // Prefer tailors holding open issues; fall back to the full history.
+      const modelTailors = linked ? (linked.open.length ? linked.open : linked.all) : [];
+      return serializeModel(
         model,
         fabricMap,
         accessoryMap,
         metricsByModel.get(model.id) || { inProgressCount: 0, reservedLength: 0 },
-        autoCostByModel.get(model.id) || { tailoringCost: 0, embroideryCost: 0 }
-      )
-    );
+        autoCostByModel.get(model.id) || { tailoringCost: 0, embroideryCost: 0 },
+        modelTailors
+      );
+    });
 
     return NextResponse.json({
       fabrics: fabrics.map(serializeFabric),
@@ -724,6 +744,7 @@ export async function POST(request: NextRequest) {
               issuedLength: mainIssuedLength,
               unitCostAtIssue: mainUnitCost,
               plannedDressCount,
+              size: body.size ? String(body.size) : null,
               componentsIssued: { fabrics: fabricsSnapshot, accessories: accessoriesSnapshot },
               issueDate: body.issueDate ? new Date(body.issueDate) : new Date(),
               reference: body.reference || null,
@@ -761,6 +782,7 @@ export async function POST(request: NextRequest) {
             tailorId,
             issuedLength,
             unitCostAtIssue: fabric.unitCost,
+            size: body.size ? String(body.size) : null,
             issueDate: body.issueDate ? new Date(body.issueDate) : new Date(),
             reference: body.reference || null,
             notes: body.notes || null,
@@ -815,6 +837,7 @@ export async function POST(request: NextRequest) {
             extraCost: toDecimal(body.extraCost),
             deliveryDate: body.deliveryDate ? new Date(body.deliveryDate) : new Date(),
             status: body.status || 'delivered',
+            size: body.size ? String(body.size) : existing.size,
             notes: body.notes || existing.notes,
           },
           include: { fabric: true, tailor: true },
@@ -951,6 +974,7 @@ export async function POST(request: NextRequest) {
             sku,
             status: ['active', 'paused', 'draft'].includes(body.status) ? body.status : 'active',
             description: typeof body.description === 'string' ? body.description : null,
+            size: typeof body.size === 'string' && body.size.trim() ? body.size.trim() : null,
             unit,
             colors,
             imageData,
@@ -1214,11 +1238,17 @@ export async function POST(request: NextRequest) {
       const embroideryCost = toDecimal(body.embroideryCost);
       const extraCost = toDecimal(body.extraCost);
       const description = typeof body.description === 'string' ? body.description : existing.description;
+      const size =
+        body.size === null
+          ? null
+          : typeof body.size === 'string'
+            ? (body.size.trim() || null)
+            : existing.size;
 
       const updated = await prisma.$transaction(async (tx) => {
         const result = await tx.designModel.update({
           where: { id: modelId },
-          data: { status, description, unit, colors, imageData, recipe, accessories, tailoringCost, embroideryCost, extraCost },
+          data: { status, description, size, unit, colors, imageData, recipe, accessories, tailoringCost, embroideryCost, extraCost },
         });
         await writeAudit(tx, 'model', modelId, [
           { field: 'الحالة', oldValue: existing.status, newValue: status },

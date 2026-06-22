@@ -66,10 +66,12 @@ export type DesignModel = {
   status: string;
   colors: string[];
   description: string;
+  size?: string | null;
   unit: 'meter' | 'yard';
   imageData?: string | null;
   fabrics: RecipeFabricRow[];
   accessories: ModelAccessory[];
+  tailors: string[];
   tailoringCost: number;
   embroideryCost: number;
   extraCost: number;
@@ -89,6 +91,13 @@ const BASE_STATUS_OPTIONS: SelectOption[] = [
   { value: 'active', label: 'نشط' },
   { value: 'paused', label: 'موقوف' },
   { value: 'draft', label: 'تحت التطوير' },
+];
+
+const DRESS_SIZE_OPTIONS: SelectOption[] = [
+  { value: '', label: 'بدون مقاس' },
+  ...['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
+    '36', '38', '40', '42', '44', '46', '48', '50', '52', '54',
+    'مقاس حر'].map((value) => ({ value, label: value })),
 ];
 
 const STATUS_OPTIONS_STORAGE_KEY = 'mleha:model-status-options';
@@ -338,6 +347,7 @@ export function ModelsTabSpec({
   const [status, setStatus] = useState('active');
   const [statusOptions, setStatusOptions] = useState<SelectOption[]>(() => loadStatusOptions());
   const [description, setDescription] = useState('تفاصيل التصميم والقصة…');
+  const [size, setSize] = useState('');
   const [imageData, setImageData] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -500,6 +510,7 @@ export function ModelsTabSpec({
 
   const setSelectValue = (id: string, value: string) => {
     if (id === 'status') setStatus(value);
+    if (id === 'size') setSize(value);
     if (id.startsWith('fabric-')) {
       const rowId = id.replace('fabric-', '');
       setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
@@ -594,6 +605,7 @@ export function ModelsTabSpec({
       sku: sku.trim(),
       status,
       description,
+      size,
       unit,
       colors: encodeColors(selectedColors, customColors),
       imageData,
@@ -609,6 +621,7 @@ export function ModelsTabSpec({
       setImageData(null);
       setSelectedColors(['متعدد الألوان']);
       setDescription('تفاصيل التصميم والقصة…');
+      setSize('');
     }
   };
 
@@ -710,6 +723,25 @@ export function ModelsTabSpec({
                         setCustomColors((current) => current.filter((c) => c.name !== name));
                         setSelectedColors((current) => current.filter((c) => c !== name));
                       }}
+                    />
+
+                    <SelectBox
+                      id="size"
+                      label="المقاس (اختياري)"
+                      options={DRESS_SIZE_OPTIONS}
+                      value={size}
+                      placeholder="بدون مقاس"
+                      openSelect={openSelect}
+                      setOpenSelect={setOpenSelect}
+                      onChange={setSelectValue}
+                    />
+
+                    <DisplayField
+                      label="الخياط المرتبط"
+                      value="—"
+                      auto
+                      hint="يُحدّد تلقائياً بعد صرف القماش للخياط"
+                      className="full"
                     />
 
                     <EditableField label="الوصف" value={description} onChange={setDescription} className="full" area />
@@ -1416,6 +1448,7 @@ function ModelEditDrawer({
   const decodedColors = decodeStoredColors(model.colors);
   const [status, setStatus] = useState(model.status);
   const [description, setDescription] = useState(model.description || '');
+  const [size, setSize] = useState(model.size || '');
   const [selectedColors, setSelectedColors] = useState<string[]>(decodedColors.names);
   const [customColors, setCustomColors] = useState<ColorChip[]>(decodedColors.customColors);
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>(
@@ -1465,6 +1498,7 @@ function ModelEditDrawer({
 
   const dispatchSelect = (id: string, value: string) => {
     if (id === 'edit-status') setStatus(value);
+    else if (id === 'edit-size') setSize(value);
     else if (id.startsWith('edit-fabric-')) {
       const rowId = id.replace('edit-fabric-', '');
       setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
@@ -1510,6 +1544,7 @@ function ModelEditDrawer({
           modelId: model.id,
           status,
           description,
+          size,
           unit: drawerUnit,
           colors: encodeColors(selectedColors, customColors),
           imageData,
@@ -1611,6 +1646,23 @@ function ModelEditDrawer({
             setCustomColors((current) => current.filter((c) => c.name !== name));
             setSelectedColors((current) => current.filter((c) => c !== name));
           }}
+        />
+        <SelectBox
+          id="edit-size"
+          label="المقاس (اختياري)"
+          options={DRESS_SIZE_OPTIONS}
+          value={size}
+          placeholder="بدون مقاس"
+          openSelect={openSelect}
+          setOpenSelect={setOpenSelect}
+          onChange={dispatchSelect}
+        />
+        <DisplayField
+          label="الخياط المرتبط"
+          value={model.tailors.length ? model.tailors.join('، ') : 'لا يوجد بعد'}
+          auto
+          hint="تلقائي من دورة الإنتاج (صرف القماش للخياط)"
+          className="full"
         />
         <EditableField label="الوصف" value={description} onChange={setDescription} className="full" area />
       </div>

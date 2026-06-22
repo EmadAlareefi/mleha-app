@@ -1231,6 +1231,7 @@ model TailorFabricIssue {
   status          String   @default("with_tailor")
 
   plannedDressCount Int?
+  size              String? // optional dress size for this issue/delivery
   componentsIssued  Json? // snapshot: { fabrics:[{fabricId,name,consumption,meters,unitCost}], accessories:[{accessoryId,name,qty,unitPrice}] }
 
   deliveredDressCount Int?
@@ -1291,6 +1292,7 @@ model DesignModel {
   sku         String  @unique
   status      String  @default("active")
   description String? @db.Text
+  size        String? // optional dress size
   unit        String  @default("meter")
   colors      String[]
   imageData   String? @db.Text // base64 data URL of the product image

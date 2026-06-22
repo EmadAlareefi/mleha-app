@@ -88,6 +88,7 @@ type TailorFabricIssue = {
   deliveryDate?: string | null;
   designModelId?: string | null;
   plannedDressCount?: number | null;
+  size?: string | null;
   componentsIssued?: {
     fabrics?: Array<{ fabricId: string; name: string; meters: number }>;
     accessories?: Array<{ accessoryId: string; name: string; qty: number }>;
@@ -164,6 +165,13 @@ const EMPTY_OPTION: SelectOption = { value: '', label: 'غير محدد' };
 const LENGTH_UNIT_OPTIONS: SelectOption[] = [
   { value: 'meter', label: 'متر' },
   { value: 'yard', label: 'ياردة' },
+];
+
+const DRESS_SIZE_OPTIONS: SelectOption[] = [
+  EMPTY_OPTION,
+  ...['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
+    '36', '38', '40', '42', '44', '46', '48', '50', '52', '54',
+    'مقاس حر'].map((value) => ({ value, label: value })),
 ];
 
 const FABRIC_COLOR_OPTIONS: SelectOption[] = [
@@ -276,6 +284,7 @@ const initialDeliveryForm = {
   tailoringCost: '',
   embroideryCost: '',
   extraCost: '',
+  size: '',
   deliveryDate: new Date().toISOString().split('T')[0],
   notes: '',
 };
@@ -285,6 +294,7 @@ const initialModelIssueForm = {
   designModelId: '',
   tailorId: '',
   plannedDressCount: '1',
+  size: '',
   issueDate: new Date().toISOString().split('T')[0],
   reference: '',
   notes: '',
@@ -847,6 +857,7 @@ export default function FabricManagementPage() {
                         <div className="grid" style={{ marginTop: 14 }}>
                           <DesignSelect label="الخياط" value={modelIssueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setModelIssueForm({ ...modelIssueForm, tailorId })} placeholder="اختر الخياط" searchable />
                           <TextInput label="عدد الفساتين" type="number" value={modelIssueForm.plannedDressCount} onChange={(plannedDressCount) => setModelIssueForm({ ...modelIssueForm, plannedDressCount })} required />
+                          <DesignSelect label="المقاس (اختياري)" value={modelIssueForm.size} options={DRESS_SIZE_OPTIONS} onChange={(size) => setModelIssueForm({ ...modelIssueForm, size })} placeholder="بدون مقاس" />
                           <TextInput label="تاريخ التسليم" type="date" value={modelIssueForm.issueDate} onChange={(issueDate) => setModelIssueForm({ ...modelIssueForm, issueDate })} />
                           <TextInput label="مرجع" value={modelIssueForm.reference} onChange={(reference) => setModelIssueForm({ ...modelIssueForm, reference })} />
                           <TextAreaField label="ملاحظات" value={modelIssueForm.notes} onChange={(notes) => setModelIssueForm({ ...modelIssueForm, notes })} className="full" />
@@ -858,8 +869,9 @@ export default function FabricManagementPage() {
                     {prodTab === 'receive' && (
                       <form onSubmit={handleDeliverySubmit}>
                         <div className="grid">
-                          <DesignSelect label="اختر الفستان" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId })} placeholder="اختر الفستان" searchable />
+                          <DesignSelect label="اختر الفستان" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId, size: openIssues.find((issue) => issue.id === issueId)?.size || deliveryForm.size })} placeholder="اختر الفستان" searchable />
                           <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
+                          <DesignSelect label="المقاس (اختياري)" value={deliveryForm.size} options={DRESS_SIZE_OPTIONS} onChange={(size) => setDeliveryForm({ ...deliveryForm, size })} placeholder="بدون مقاس" />
                           <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
                           <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
                           <TextInput label="تكلفة التطريز" type="number" value={deliveryForm.embroideryCost} onChange={(embroideryCost) => setDeliveryForm({ ...deliveryForm, embroideryCost })} />
