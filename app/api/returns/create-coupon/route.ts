@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { createSallaCoupon, generateCouponCode } from '@/app/lib/salla-coupons';
 import { log } from '@/app/lib/logger';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
+import { getSallaOrder } from '@/app/lib/salla-api';
+import { calculateExchangeCouponAmount } from '@/lib/returns/exchange-coupon-amount';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
@@ -53,19 +55,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const requestAmount =
-      returnRequest.totalRefundAmount !== null && returnRequest.totalRefundAmount !== undefined
-        ? Number(returnRequest.totalRefundAmount)
-        : undefined;
+    let liveOrderAmounts;
+    try {
+      const order = await getSallaOrder(returnRequest.merchantId, returnRequest.orderId);
+      liveOrderAmounts = order?.amounts;
+    } catch (error) {
+      log.warn('Could not refresh Salla shipping amount before creating exchange coupon', {
+        returnRequestId,
+        orderId: returnRequest.orderId,
+        error,
+      });
+    }
+
+    const currentCalculation = calculateExchangeCouponAmount(
+      returnRequest,
+      liveOrderAmounts,
+    );
+    const couponAmount = currentCalculation.fullAmount;
     const fallbackBodyAmount =
       amount !== undefined && amount !== null ? Number(amount) : undefined;
-    const couponAmount = requestAmount ?? fallbackBodyAmount;
 
     if (!couponAmount || !Number.isFinite(couponAmount) || couponAmount <= 0) {
       log.error('Invalid coupon amount detected', {
         returnRequestId,
         totalRefundAmount: returnRequest.totalRefundAmount,
         fallbackBodyAmount,
+        currentCalculation,
       });
       return NextResponse.json(
         { error: 'قيمة الاستبدال غير متاحة. يرجى مراجعة الطلب.' },
@@ -136,6 +151,9 @@ export async function POST(request: NextRequest) {
         couponCode: result.coupon.code,
         couponId: String(result.coupon.id),
         couponCreatedAt: new Date(),
+        totalRefundAmount: sanitizedAmount,
+        returnFee: currentCalculation.processingFee,
+        shippingAmount: currentCalculation.originalShipping,
       },
       include: { items: true },
     });
@@ -146,6 +164,8 @@ export async function POST(request: NextRequest) {
       couponId: result.coupon.id,
       amountBeforeDiscount: sanitizedAmount,
       amountSentToSalla: discountedAmount,
+      processingFee: currentCalculation.processingFee,
+      originalShipping: currentCalculation.originalShipping,
     });
 
     const notification = await notifyExchangeCoupon({

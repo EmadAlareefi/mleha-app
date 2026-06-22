@@ -477,6 +477,7 @@ export async function POST(request: NextRequest) {
 
         totalRefundAmount,
         returnFee,
+        shippingAmount: originalShipping,
 
         items: {
           create: body.items.map(item => ({
