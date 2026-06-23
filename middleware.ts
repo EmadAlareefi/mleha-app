@@ -15,6 +15,8 @@ const PUBLIC_PATHS = [
   '/api/auth',
   '/api/salla/sync-invoices',
   '/salla/webhook',
+  '/tailor-fabric-gate',
+  '/api/tailor-fabric-gate',
   '/logo.png',
   '/manifest.webmanifest',
   '/cv.pdf',

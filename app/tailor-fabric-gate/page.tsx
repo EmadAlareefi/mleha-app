@@ -38,6 +38,16 @@ type GateRequest = {
   fabric?: GateFabric | null;
 };
 
+type GateRepeatRequest = {
+  id: string;
+  sku: string;
+  stage: number;
+  modelCount: number;
+  totalCount: number;
+  repeatDate?: string | null;
+  sizes: { id: string; label: string; count: number }[];
+};
+
 type GateData = {
   tailor: {
     id: string;
@@ -46,7 +56,10 @@ type GateData = {
   };
   fabrics: GateFabric[];
   requests: GateRequest[];
+  repeatRequests: GateRepeatRequest[];
 };
+
+const REPEAT_STAGES = ['—', 'مطلوب', 'تم الطلب', 'تم الصنع', 'تم الشحن', 'متوفر'];
 
 const numberFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', { maximumFractionDigits: 2 });
 const dateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', { dateStyle: 'medium' });
@@ -179,6 +192,25 @@ export default function TailorFabricGatePage() {
       await loadGate(activeCode);
     } catch (purchaseError: any) {
       setError(purchaseError.message || 'فشل في إرسال شراء القماش');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMarkMade = async (repeatRequestId: string) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/tailor-fabric-gate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'repeat-mark-made', accessCode: activeCode, repeatRequestId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'فشل تحديث المرحلة');
+      await loadGate(activeCode);
+    } catch (markError: any) {
+      setError(markError.message || 'فشل تحديث المرحلة');
     } finally {
       setSaving(false);
     }
@@ -432,6 +464,62 @@ export default function TailorFabricGatePage() {
                 </TableBody>
               </Table>
             </div>
+
+            {data.repeatRequests.length > 0 && (
+              <Card className="rounded-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <PackagePlus className="size-4" />
+                    طلبات التكرار المسندة إليك
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-hidden rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>الموديل</TableHead>
+                          <TableHead>الكمية المطلوبة</TableHead>
+                          <TableHead>المرحلة</TableHead>
+                          <TableHead>الإجراء</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.repeatRequests.map((rr) => (
+                          <TableRow key={rr.id}>
+                            <TableCell className="font-medium">{rr.sku}</TableCell>
+                            <TableCell>
+                              {rr.totalCount}
+                              {rr.sizes.some((s) => s.count > 0) && (
+                                <span className="text-muted-foreground">
+                                  {' '}({rr.sizes.filter((s) => s.count > 0).map((s) => `${s.label}:${s.count}`).join('، ')})
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={rr.stage >= 3 ? 'default' : 'secondary'}>
+                                {REPEAT_STAGES[rr.stage] || '—'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {rr.stage === 2 ? (
+                                <Button size="sm" disabled={saving} onClick={() => void handleMarkMade(rr.id)}>
+                                  ⚙️ تم الصنع
+                                </Button>
+                              ) : rr.stage >= 3 ? (
+                                <span className="text-sm text-muted-foreground">✓ تم الصنع</span>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">بانتظار طلب المسؤول</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </div>

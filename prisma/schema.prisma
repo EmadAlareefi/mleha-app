@@ -1183,8 +1183,8 @@ model InventoryAuditLog {
   entityType String // 'fabric' | 'accessory' | 'model'
   entityId   String
   field      String
-  oldValue   String? @db.Text
-  newValue   String? @db.Text
+  oldValue   String?  @db.Text
+  newValue   String?  @db.Text
   changedBy  String
   createdAt  DateTime @default(now())
 
@@ -1205,8 +1205,9 @@ model Tailor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  issues   TailorFabricIssue[]
-  requests TailorFabricRequest[]
+  issues         TailorFabricIssue[]
+  requests       TailorFabricRequest[]
+  repeatRequests RepeatRequest[]
 
   @@index([name])
   @@index([accessCode])
@@ -1289,13 +1290,13 @@ model TailorFabricRequest {
 model DesignModel {
   id String @id @default(cuid())
 
-  sku         String  @unique
-  status      String  @default("active")
-  description String? @db.Text
+  sku         String   @unique
+  status      String   @default("active")
+  description String?  @db.Text
   size        String? // optional dress size
-  unit        String  @default("meter")
+  unit        String   @default("meter")
   colors      String[]
-  imageData   String? @db.Text // base64 data URL of the product image
+  imageData   String?  @db.Text // base64 data URL of the product image
 
   recipe      Json // [{ role, fabricId, consumption }] consumption stored in the model unit
   accessories Json // [{ name, cost }]
@@ -1310,11 +1311,83 @@ model DesignModel {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  issues TailorFabricIssue[]
+  issues        TailorFabricIssue[]
+  repeatRequest RepeatRequest?
 
   @@index([sku])
   @@index([status])
   @@index([isActive])
+}
+
+model RepeatRequest {
+  id String @id @default(cuid())
+
+  designModelId String      @unique
+  designModel   DesignModel @relation(fields: [designModelId], references: [id], onDelete: Cascade)
+
+  tailorId String?
+  tailor   Tailor? @relation(fields: [tailorId], references: [id], onDelete: SetNull)
+
+  stage       Int       @default(0) // 0..5: none, requested, ordered, made, shipped, available
+  modelCount  Int       @default(0) // "بدون مقاس" model-level counter
+  repeatDate  DateTime?
+  arrivalDate DateTime?
+  inStock     Boolean   @default(false)
+  pinned      Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sizes RepeatRequestSize[]
+  notes RepeatRequestNote[]
+  logs  RepeatRequestLog[]
+
+  @@index([stage])
+  @@index([tailorId])
+  @@index([updatedAt])
+}
+
+model RepeatRequestSize {
+  id String @id @default(cuid())
+
+  repeatRequestId String
+  repeatRequest   RepeatRequest @relation(fields: [repeatRequestId], references: [id], onDelete: Cascade)
+
+  label String
+  count Int    @default(0)
+
+  @@index([repeatRequestId])
+}
+
+model RepeatRequestNote {
+  id String @id @default(cuid())
+
+  repeatRequestId String
+  repeatRequest   RepeatRequest @relation(fields: [repeatRequestId], references: [id], onDelete: Cascade)
+
+  authorName String
+  message    String  @db.Text
+  edited     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([repeatRequestId])
+}
+
+model RepeatRequestLog {
+  id String @id @default(cuid())
+
+  repeatRequestId String
+  repeatRequest   RepeatRequest @relation(fields: [repeatRequestId], references: [id], onDelete: Cascade)
+
+  actor  String
+  action String
+  detail String?
+
+  createdAt DateTime @default(now())
+
+  @@index([repeatRequestId, createdAt])
 }
 
 model ShipmentAssignment {

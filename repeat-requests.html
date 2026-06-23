@@ -1,0 +1,1513 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+  صفحة: طلبات التكرار | مليحة (Repeat Orders Page)
+  ملف واحد مستقل (Standalone HTML) — لا يوجد framework، لا توجد build step.
+  HTML + CSS + Vanilla JS مدمجين في ملف واحد. RTL عربي.
+================================================================================
+
+  ## الغرض من الصفحة
+  تتبع طلبات إعادة إنتاج فساتين متجر "مليحة":
+   - كل فستان (SKU) لديه عدّاد للموديل + عدّادات لكل مقاس
+   - الموظفون يزيدون العدّاد عندما يُطلب منهم فستان معين من عميل
+   - المسؤول يطلب من الخياط، الخياط يصنع، ثم يُشحن ويصل المستودع
+   - كل خطوة لها مرحلة (stage) من 5 مراحل
+
+  ## بنية الكود
+  - <style>     : كل الـ CSS (متغيرات تصميم في :root، ثم المكونات)
+  - <body>      : الواجهة (banner تجريبي، إحصائيات، شريط أدوات، جدول، درج إدارة، درج تصدير، modal إعادة تهيئة)
+  - <script>    : كل المنطق (مصفوفة D[] للبيانات، renderTable، renderDrawer، الإجراءات)
+
+  ## نظام الأدوار (Roles)
+  متغير عام: ROLE = 'admin' | 'tailor' | 'employee'
+  حالياً (تجريبي) يُغيَّر عبر banner في أعلى الصفحة. في الإنتاج:
+    استبدِل الـ banner بقيمة من السيرفر (session/auth)، مثل:
+      <script>const ROLE = '{{ user.role }}'; const TAILOR_NAME = '{{ user.tailor_name }}';</script>
+    وأخفِ banner التجريبي.
+
+  ### صلاحيات الأدوار في الدرج (drawer):
+  ┌─────────────────┬───────────┬─────────────────────┬────────────────────────┐
+  │ القسم            │ المسؤول   │ الخياط               │ الموظف العادي           │
+  ├─────────────────┼───────────┼─────────────────────┼────────────────────────┤
+  │ مرحلة الطلب     │ 5 أزرار   │ زر "تم الصنع" فقط    │ زر "مطلوب" + عرض القراءة│
+  │                  │ تحكم كامل │ (مفعّل لو stage===2) │ للمرحلة الحالية         │
+  │ العدّادات        │ +/−/↺    │ قراءة فقط (أرقام)    │ +/−/↺                  │
+  │ التواريخ         │ حقول إدخال│ نص للقراءة فقط       │ مخفي                    │
+  │ التوفر بالمستودع│ ظاهر      │ مخفي                  │ مخفي                    │
+  │ إعادة تهيئة     │ ظاهر      │ مخفي                  │ مخفي                    │
+  │ الملاحظات (chat)│ قراءة/كتابة│ قراءة/كتابة          │ قراءة/كتابة            │
+  │ سجل التعديلات   │ قراءة      │ قراءة                 │ قراءة                  │
+  └─────────────────┴───────────┴─────────────────────┴────────────────────────┘
+
+  الخياط يرى فقط فساتينه (passes() يصفّي بـ d.tailor === TAILOR_NAME).
+
+  ## نظام المراحل (Stages) — تسلسل الحياة الطبيعي للفستان
+   0. (لا شيء)         — افتراضي
+   1. 📋 مطلوب          — عميل طلبه، الموظف ضغط "مطلوب"
+   2. 📝 تم الطلب       — المسؤول أرسل الطلب للخياط (يُحفظ repeatDate هنا)
+   3. ⚙️ تم الصنع       — الخياط أنهى الصناعة (الخياط يضغط هذا الزر)
+   4. 🚚 تم الشحن       — الفستان في الطريق للمستودع
+   5. 📦 متوفر          — وصل المستودع (يُحفظ arrivalDate + inStock=true)
+
+  لون نقطة الحالة (statusOf): gray (0) → orange (1-2) → blue (3-4) → green (5)
+
+  ## بنية البيانات (data structure)
+  مصفوفة عامة D[] فيها كائنات بالشكل التالي:
+  {
+    sku: 'DRS-001',          // معرّف الفستان (نص)
+    img: '',                  // رابط صورة (فارغ = placeholder 👗)
+    pinned: false,            // مثبّت أعلى القائمة؟
+    stage: 4,                 // المرحلة الحالية 0-5
+    tailor: 'خالد',          // اسم الخياط المسؤول
+    count: 2,                 // عدّاد الموديل (بدون مقاس)
+    sizes: [                  // عدّادات المقاسات
+      {l:'S',c:1}, {l:'M',c:0}, ...
+    ],
+    repeatDate: '2026-06-10', // تاريخ بدء الطلب من الخياط (YYYY-MM-DD)
+    arrivalDate: '2026-07-05',// تاريخ الوصول للمستودع
+    inStock: false,           // متوفر فعلياً؟
+    lastMod: '20/06/2026 14:22', // آخر تعديل
+    log: [                    // سجل العمليات (يُضاف تلقائياً عبر addLog)
+      {ts, user, action, detail}, ...
+    ],
+    chat: [                   // ملاحظات الفريق (chat-style)
+      {user, msg, ts, edited?}, ...
+    ]
+  }
+
+  ## الدوال الرئيسية
+  - renderTable()      : يبني جدول الفساتين (يستدعي passes/sortedList/statusOf)
+  - renderStats()      : يحدّث الإحصائيات الأربعة
+  - renderDrawer()     : يبني محتوى درج الإدارة (يعتمد على ROLE)
+  - openManage(idx)    : يفتح درج فستان معيّن (يحفظ activeIdx)
+  - setStage(idx,n)    : يغيّر مرحلة فستان + يسجّل في log + يحدّث lastMod
+  - chCount(idx,key,Δ) : يزيد/ينقص عدّاد (key='null' للموديل، أو رقم المقاس)
+  - sendChat(idx)      : يرسل ملاحظة جديدة + يسجّل في log
+  - editChat(di,ci)    : تعديل ملاحظة (فقط الملاحظات الخاصة بـ USER الحالي)
+  - confirmResetAll()  : ينفّذ إعادة تهيئة الأقسام المختارة من الـ modal
+  - passes(d)          : فلتر الصفوف (يشمل فلترة الخياط)
+  - addLog(d,action,detail) : يضيف سطراً للسجل (الواجهة تستدعيه من كل إجراء)
+
+  ## التصميم المتجاوب (Responsive Breakpoints)
+  - ≥ 901px : جدول كامل (7 أعمدة)
+  - 721-900 : إخفاء عمود "آخر تعديل" + تقليل padding
+  - ≤ 720px : كل صف يصير بطاقة (card)، شريط الأدوات على صفين (بحث + صف 3 أزرار)
+              الدرج يصير full-width
+  - ≤ 380px : تقليل أحجام الخطوط وأزرار المراحل
+
+  ## التكامل مع السيرفر (Backend integration TODO)
+  1. استبدِل ROLE/TAILOR_NAME/USER بقيم من السيرفر.
+  2. استبدِل مصفوفة D الافتراضية بـ fetch('/api/dresses') عند load.
+  3. كل دالة تعدّل البيانات يجب أن ترسل PATCH/POST للسيرفر:
+       setStage, chCount, saveDate, toggleAvail, sendChat, editChat, togglePin, confirmResetAll
+     حالياً تعديل محلي فقط (in-memory) — يضيع عند refresh.
+  4. السجل (log) يُولَّد محلياً عبر addLog؛ في الإنتاج يجب أن يولّده السيرفر
+     ويرسله مع البيانات (مع المستخدم الفعلي وtimestamp السيرفر).
+  5. أزل demo-banner من DOM في الإنتاج.
+
+  ## ملاحظات تطوير
+  - الكود يستخدم template literals بشكل مكثّف؛ احذر الـ apostrophes الإضافية.
+  - تعديل الـ ROLE يستدعي renderTable() + renderDrawer() تلقائياً (setRole).
+  - دالة esc() لتفادي XSS عند حقن أي محتوى نصي من المستخدم.
+  - الـ stages icons: ['','📋','📝','⚙️','🚚','📦'] — الفهرس صفر فارغ عمداً.
+  - STAGES[] : نفس الفكرة، الفهرس صفر فارغ.
+
+  آخر تحديث: 2026-06-22
+================================================================================
+-->
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>طلبات التكرار | مليحة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eee2d4;--fg:#2c2416;--card:#fff;--primary:#8b6f47;
+  --muted:#f5ebe0;--muted-fg:#6b5d4f;--border:#d4c4b0;--input:#d4c4b0;
+  --green:#3f7d4e;--green-s:#e8f1ea;
+  --orange:#d4681e;--orange-s:#fdebd8;
+  --blue:#3a6ea5;--blue-s:#e9f0f7;
+  --gray-dot:#8a9bb0;--gray-s:#eaecf0;
+  --red:#dc2626;--radius:.5rem;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Tajawal",Arial,sans-serif;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.6}
+.wrap{max-width:1060px;margin:0 auto;padding:22px 18px 80px}
+
+/* HEADER */
+.app-top{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+.app-top h1{font-size:22px;font-weight:800}
+.app-sub{color:var(--muted-fg);font-size:13px;margin-top:3px}
+
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.sc{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+.sc .k{font-size:12px;color:var(--muted-fg)}
+.sc .v{font-size:20px;font-weight:800;margin-top:2px}
+
+/* CARD */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 1px 3px rgba(44,36,22,.05);overflow:hidden}
+.card-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.card-head h2{font-size:15px;font-weight:700}
+.card-head .sub{font-size:12.5px;color:var(--muted-fg)}
+
+/* LEGEND */
+.legend{display:flex;gap:16px;flex-wrap:wrap;padding:10px 16px 4px}
+.li{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted-fg)}
+
+/* STATUS DOT */
+.dot{width:13px;height:13px;border-radius:50%;display:inline-block;flex-shrink:0}
+.dot.gray  {background:var(--gray-dot)}
+.dot.orange{background:var(--orange)}
+.dot.blue  {background:var(--blue)}
+.dot.green {background:var(--green)}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.t-sel{font-family:inherit;font-size:13px;border:1px solid var(--border);border-radius:7px;padding:7px 10px;background:var(--card);color:var(--fg);cursor:pointer}
+.t-sel:focus{outline:none;border-color:var(--primary)}
+.search-wrap{flex:1;min-width:140px;position:relative}
+.s-inp{width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 34px 7px 10px;font-family:inherit;font-size:13.5px;background:var(--card);color:var(--fg)}
+.s-inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(139,111,71,.12)}
+.s-ico{position:absolute;top:50%;inset-inline-end:10px;transform:translateY(-50%);color:var(--muted-fg);pointer-events:none;font-size:14px}
+.exp-btn{border:1px solid var(--border);border-radius:7px;padding:7px 13px;font-family:inherit;font-size:13px;cursor:pointer;background:transparent;color:var(--fg);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.exp-btn:hover{border-color:var(--primary);color:var(--primary)}
+
+/* TABLE */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+thead th{text-align:right;padding:9px 13px;font-weight:500;color:var(--muted-fg);font-size:12px;border-bottom:1px solid var(--border);white-space:nowrap}
+tbody tr{cursor:pointer;transition:background .1s}
+tbody tr:hover{background:var(--muted)}
+tbody td{padding:10px 13px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+.no-res{text-align:center;padding:30px;color:var(--muted-fg);font-size:14px}
+
+/* DRESS CELL */
+.dcell{display:flex;align-items:center;gap:9px}
+.pin-btn{background:transparent;border:none;cursor:pointer;font-size:15px;padding:0;opacity:.3;transition:opacity .12s;line-height:1;flex-shrink:0}
+.pin-btn:hover,.pin-btn.on{opacity:1}
+.d-thumb{width:40px;height:50px;border-radius:7px;background:var(--muted);border:1px solid var(--border);display:grid;place-items:center;font-size:20px;flex-shrink:0;overflow:hidden}
+.d-thumb img{width:100%;height:100%;object-fit:cover}
+.dtext .sku{font-size:14.5px;font-weight:800;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.dtext .meta{font-size:11.5px;color:var(--muted-fg);margin-top:1px}
+.req-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+.req-badge.has{background:var(--orange-s);color:var(--orange)}
+.req-badge.none{background:var(--gray-s);color:var(--gray-dot)}
+
+/* DATE / ARRIVAL CELL */
+.date-cell{font-size:13px}
+.days-badge{font-size:11px;margin-top:1px}
+.days-late{color:var(--red)}
+.days-soon{color:var(--orange)}
+.days-ok  {color:var(--muted-fg)}
+
+/* AVAILABILITY */
+.av-badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+.av-badge.yes{background:var(--green-s);color:var(--green)}
+.av-badge.no {background:var(--gray-s);color:var(--muted-fg)}
+
+/* MODIFIED */
+.mod-text{font-size:12px;color:var(--muted-fg)}
+
+/* ROW ARROW */
+.row-arr{color:var(--muted-fg);font-size:12px;opacity:.4}
+tbody tr:hover .row-arr{opacity:1;color:var(--primary)}
+
+/* ===== OVERLAY ===== */
+.overlay{position:fixed;inset:0;background:rgba(44,36,22,.38);z-index:900;display:none}
+.overlay.open{display:block}
+
+/* ===== DRAWER ===== */
+.drawer{position:fixed;top:0;bottom:0;left:0;width:420px;max-width:94vw;background:var(--card);
+        border-inline-end:1px solid var(--border);box-shadow:4px 0 28px rgba(44,36,22,.14);
+        z-index:901;display:flex;flex-direction:column;transform:translateX(-110%);transition:transform .27s ease}
+.drawer.open{transform:translateX(0)}
+.dh{display:flex;align-items:flex-start;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;gap:10px}
+.dh h3{font-size:15px;font-weight:800}
+.dh .dsub{font-size:12px;color:var(--muted-fg);margin-top:1px}
+.dclose{background:transparent;border:1px solid var(--border);border-radius:6px;width:30px;height:30px;cursor:pointer;font-size:18px;display:grid;place-items:center;flex-shrink:0;color:var(--fg)}
+
+/* DRAWER IMAGE (full width, outside padding) */
+.dr-img{width:calc(100% + 32px);margin:-16px -16px 16px;height:200px;background:var(--muted);
+        display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;border-bottom:1px solid var(--border)}
+.dr-img img{width:100%;height:100%;object-fit:cover}
+.dr-img-ph{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted-fg)}
+.dr-img-ph span{font-size:48px;opacity:.4}
+.dr-img-ph small{font-size:12px}
+
+.dbody{padding:16px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px}
+
+/* SECTIONS */
+.dsec-title{font-size:11.5px;font-weight:700;color:var(--muted-fg);text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px;display:flex;align-items:center;gap:5px}
+.dsec-box{background:var(--muted);border-radius:10px;overflow:hidden}
+
+/* STAGE BUTTONS */
+.stage-btns{display:flex;gap:5px;padding:13px 14px;flex-wrap:wrap}
+.stage-btn{
+  flex:1;min-width:0;padding:10px 4px 9px;border-radius:8px;
+  border:1.5px solid var(--border);background:var(--card);
+  color:var(--muted-fg);font-family:inherit;font-size:11.5px;font-weight:600;
+  cursor:pointer;text-align:center;transition:all .15s;
+  display:flex;flex-direction:column;align-items:center;gap:5px;line-height:1.2;
+}
+.stage-ico{font-size:20px;line-height:1;display:block}
+.stage-btn:hover{border-color:var(--primary);color:var(--primary);background:var(--muted)}
+.stage-btn.done{background:var(--muted);border-color:var(--primary);color:var(--primary)}
+.stage-btn.active{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(139,111,71,.28)}
+.stage-btn:disabled{opacity:.5;cursor:not-allowed;background:var(--card);color:var(--muted-fg);border-color:var(--border)}
+.stage-btn:disabled:hover{background:var(--card);color:var(--muted-fg);border-color:var(--border)}
+
+/* STAGE VIEW (read-only chips) */
+.stage-view{display:flex;gap:5px;padding:11px 14px;flex-wrap:wrap}
+.stage-chip{flex:1;min-width:0;padding:9px 4px;border-radius:8px;border:1.5px solid var(--border);background:var(--card);color:var(--muted-fg);font-size:11.5px;font-weight:600;text-align:center;display:flex;flex-direction:column;align-items:center;gap:5px;line-height:1.2;pointer-events:none}
+.stage-chip.done{background:var(--muted);border-color:var(--primary);color:var(--primary)}
+.stage-chip.active{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(139,111,71,.18)}
+.stage-view-lbl{font-size:11px;color:var(--muted-fg);font-weight:700;padding:4px 14px 0;letter-spacing:.03em}
+
+/* COUNTER VIEW (read-only for tailor) */
+.crv{display:flex;align-items:center;gap:7px;padding:10px 13px;border-bottom:1px solid var(--border)}
+.crv:last-child{border-bottom:none}
+.crv-lbl{flex:1;font-size:13.5px;font-weight:600}
+.crv-lbl.model{color:var(--primary)}
+.crv-lbl small{font-size:11px;font-weight:400;color:var(--muted-fg);margin-inline-start:4px}
+.crv-num{font-size:17px;font-weight:800;color:var(--muted-fg);min-width:24px;text-align:center}
+.crv-num.hot{color:var(--green)}
+
+/* DATE TEXT VIEW (read-only for tailor) */
+.date-txt{padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.date-txt-row{display:flex;justify-content:space-between;align-items:center}
+.date-txt-lbl{font-size:13px;color:var(--muted-fg)}
+.date-txt-val{font-size:13.5px;font-weight:700}
+
+/* COUNTER ROWS */
+.cr{display:flex;align-items:center;gap:7px;padding:10px 13px;border-bottom:1px solid var(--border)}
+.cr:last-child{border-bottom:none}
+.cr-lbl{flex:1;font-size:13.5px;font-weight:600}
+.cr-lbl.model{color:var(--primary)}
+.cr-lbl small{font-size:11px;font-weight:400;color:var(--muted-fg);margin-inline-start:4px}
+.cb{width:30px;height:30px;border-radius:7px;border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:20px;display:grid;place-items:center;font-family:inherit;line-height:1;color:var(--fg);transition:all .12s;flex-shrink:0}
+.cb.plus{background:var(--primary);color:#fff;border-color:var(--primary)}
+.cb.plus:hover{filter:brightness(1.09)}
+.cb.minus:hover{border-color:var(--red);color:var(--red)}
+.cb:disabled{opacity:.22;cursor:not-allowed;pointer-events:none}
+.cr-num{min-width:34px;text-align:center;font-size:16px;font-weight:800}
+.cr-num.hot{color:var(--green)}
+.cr-rst{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;font-size:13px;display:grid;place-items:center;color:var(--muted-fg);transition:all .12s;flex-shrink:0}
+.cr-rst:hover{border-color:var(--red);color:var(--red)}
+.cr-rst:disabled{opacity:.2;cursor:not-allowed;pointer-events:none}
+
+/* DATE FIELDS */
+.df-wrap{padding:13px 14px;display:flex;flex-direction:column;gap:11px}
+.dfield label{display:block;font-size:12.5px;font-weight:500;margin-bottom:4px;color:var(--muted-fg)}
+.date-inp{font-family:inherit;font-size:13.5px;color:var(--fg);background:var(--card);border:1px solid var(--border);border-radius:7px;padding:8px 11px;width:100%;cursor:pointer}
+.date-inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(139,111,71,.12)}
+
+/* AVAILABILITY */
+.avail-box{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;gap:10px}
+.avail-txt{font-size:14px;font-weight:700}
+.avail-txt.yes{color:var(--green)}
+.avail-txt.no{color:var(--muted-fg)}
+.avail-btn{padding:8px 18px;border-radius:7px;border:none;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.avail-btn.set{background:var(--green);color:#fff}
+.avail-btn.unset{background:var(--red);color:#fff}
+.avail-btn:hover{filter:brightness(1.08)}
+
+/* CHAT */
+.chat-msgs{display:flex;flex-direction:column;gap:9px;max-height:220px;overflow-y:auto;padding:12px 13px;border-bottom:1px solid var(--border)}
+.chat-empty{font-size:13px;color:var(--muted-fg);text-align:center;padding:16px 0}
+.chat-item{display:flex;flex-direction:column;gap:2px;position:relative}
+.chat-meta{display:flex;align-items:center;gap:6px}
+.chat-edit-btn{background:transparent;border:none;cursor:pointer;font-size:12px;color:var(--muted-fg);padding:1px 5px;border-radius:5px;opacity:0;transition:opacity .15s;margin-inline-start:auto}
+.chat-item:hover .chat-edit-btn{opacity:1}
+.chat-edit-btn:hover{background:var(--muted);color:var(--primary)}
+.chat-edit-wrap{display:flex;gap:6px;margin-top:4px}
+.chat-edit-inp{flex:1;border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-family:inherit;font-size:13.5px;background:var(--card);color:var(--fg)}
+.chat-edit-inp:focus{outline:none;border-color:var(--primary)}
+.chat-edit-save{background:var(--primary);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+.chat-edit-cancel{background:transparent;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-family:inherit;font-size:13px;cursor:pointer;color:var(--fg)}
+.chat-edited{font-size:10.5px;color:var(--muted-fg);margin-inline-start:4px}
+.chat-user{font-size:12px;font-weight:800;color:var(--primary)}
+.chat-ts{font-size:11px;color:var(--muted-fg)}
+.chat-bubble{background:var(--card);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:8px 12px;font-size:13.5px;line-height:1.5;max-width:95%;border-top-right-radius:10px}
+.chat-input{padding:11px 13px;display:flex;flex-direction:column;gap:7px}
+.chat-row{display:flex;gap:7px}
+.chat-name{width:90px;flex-shrink:0;border:1px solid var(--border);border-radius:7px;padding:7px 9px;font-family:inherit;font-size:13px;background:var(--card);color:var(--fg)}
+.chat-name:focus,.chat-text:focus{outline:none;border-color:var(--primary)}
+.chat-text{flex:1;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-family:inherit;font-size:13.5px;background:var(--card);color:var(--fg);resize:none}
+.chat-send{background:var(--primary);color:#fff;border:none;border-radius:7px;padding:7px 14px;font-family:inherit;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+.chat-send:hover{filter:brightness(1.08)}
+
+/* LOG */
+.log-filter{display:flex;align-items:center;gap:8px;padding:10px 13px 6px;border-bottom:1px solid var(--border)}
+.log-filter-sel{font-family:inherit;font-size:12.5px;border:1px solid var(--border);border-radius:7px;padding:5px 9px;background:var(--card);color:var(--fg);cursor:pointer}
+.log-filter-sel:focus{outline:none;border-color:var(--primary)}
+.log-count{font-size:12px;color:var(--muted-fg);margin-inline-start:auto}
+.log-list{display:flex;flex-direction:column;gap:5px;padding:11px 13px;max-height:210px;overflow-y:auto}
+.log-empty{font-size:13px;color:var(--muted-fg);text-align:center;padding:12px 0}
+.log-row{display:flex;align-items:center;gap:5px;font-size:12.5px;flex-wrap:wrap;padding:5px 8px;background:var(--card);border-radius:6px;border:1px solid var(--border)}
+.log-user{font-weight:700;color:var(--primary);white-space:nowrap}
+.log-sep{color:var(--border)}
+.log-action{flex:1;min-width:0}
+.log-time{color:var(--muted-fg);font-size:11.5px;white-space:nowrap}
+
+/* EXPORT DRAWER */
+.exp-opt{display:flex;flex-direction:column;gap:9px;padding:4px 0}
+.eo-btn{display:flex;align-items:center;gap:11px;padding:13px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-family:inherit;font-size:14px;font-weight:500;width:100%;transition:border-color .12s,background .12s;text-align:right}
+.eo-btn:hover{border-color:var(--primary);background:var(--muted)}
+.eo-ico{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;font-size:19px;flex-shrink:0}
+.eo-ico.csv{background:#e8f5e9;color:#2e7d32}
+.eo-ico.pdf{background:#fde8e8;color:#c62828}
+.eo-ico.prt{background:var(--muted);color:var(--muted-fg)}
+.eo-t{font-weight:700;font-size:13.5px;display:block}
+.eo-d{font-size:12px;color:var(--muted-fg);font-weight:400;display:block;margin-top:1px}
+
+/* RESET ALL */
+.reset-all-row{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;gap:10px}
+.reset-all-desc{font-size:13px;color:var(--muted-fg)}
+.reset-all-btn{padding:7px 16px;border-radius:7px;border:1.5px solid var(--red);background:transparent;color:var(--red);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;white-space:nowrap}
+.reset-all-btn:hover{background:var(--red);color:#fff}
+.reset-checks{display:flex;flex-direction:column;gap:6px;padding:12px 0 4px}
+.reset-check-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;background:var(--muted);cursor:pointer;transition:background .12s}
+.reset-check-item:hover{background:var(--border)}
+.reset-check-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--red);cursor:pointer;flex-shrink:0}
+.reset-check-lbl{font-size:13.5px;font-weight:700;display:block}
+.reset-check-sub{font-size:11.5px;color:var(--muted-fg);display:block;margin-top:1px}
+
+/* MODAL */
+.modal-ov{position:fixed;inset:0;background:rgba(44,36,22,.45);z-index:1000;display:none;align-items:center;justify-content:center;padding:18px}
+.modal-ov.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:12px;width:340px;max-width:100%;box-shadow:0 12px 40px rgba(44,36,22,.22)}
+.modal-h{display:flex;align-items:center;gap:10px;padding:17px 17px 6px}
+.m-ico{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;font-size:17px;flex-shrink:0}
+.modal-h h3{font-size:15px;font-weight:800}
+.modal-b{padding:7px 17px 4px;font-size:13.5px;color:var(--muted-fg);line-height:1.6}
+.modal-f{display:flex;gap:8px;padding:13px 17px 17px}
+.btn{border:none;border-radius:7px;padding:9px 20px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+.btn.danger{background:var(--red);color:#fff}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--border)}
+.btn.ghost:hover{border-color:var(--primary)}
+.btn:hover{filter:brightness(1.07)}
+
+/* TOAST */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);
+       background:#2c2416;color:#fff;padding:10px 22px;border-radius:8px;
+       font-size:13.5px;font-weight:500;opacity:0;transition:opacity .22s,transform .22s;
+       z-index:9999;white-space:nowrap;pointer-events:none;box-shadow:0 4px 20px rgba(44,36,22,.35)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* DEMO ROLE BANNER */
+.demo-banner{background:var(--fg);color:#fff;border-radius:var(--radius);padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;font-size:13px}
+.demo-tag{background:rgba(255,255,255,.15);border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.demo-lbl{opacity:.7;white-space:nowrap}
+.demo-sel{font-family:inherit;font-size:13px;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:5px 9px;cursor:pointer}
+.demo-sel option{background:#2c2416;color:#fff}
+.demo-tailor-row{display:none;align-items:center;gap:8px}
+.role-chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;margin-inline-start:auto}
+.role-chip.admin{background:var(--orange-s);color:var(--orange)}
+.role-chip.tailor{background:var(--blue-s);color:var(--blue)}
+.role-chip.employee{background:var(--gray-s);color:var(--gray-dot)}
+
+/* DEV DOCS PANEL */
+.dev-docs{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);margin-bottom:18px;overflow:hidden}
+.dev-docs > summary{list-style:none;cursor:pointer;padding:12px 16px;display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px;color:var(--fg);user-select:none}
+.dev-docs > summary::-webkit-details-marker{display:none}
+.dev-docs > summary:hover{background:var(--muted)}
+.dev-docs > summary .arrow{margin-inline-start:auto;font-size:13px;color:var(--muted-fg);transition:transform .2s}
+.dev-docs[open] > summary .arrow{transform:rotate(90deg)}
+.dev-docs > summary .dev-tag{background:var(--orange);color:#fff;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:5px;letter-spacing:.04em}
+.dev-docs > summary .dev-sub{font-weight:500;color:var(--muted-fg);font-size:12.5px}
+.docs-body{padding:0 16px 16px;border-top:1px solid var(--border);font-size:13.5px;line-height:1.75;color:var(--fg)}
+.docs-body h4{font-size:14px;font-weight:800;color:var(--primary);margin:16px 0 6px;display:flex;align-items:center;gap:6px}
+.docs-body h4:first-child{margin-top:14px}
+.docs-body p{margin:4px 0}
+.docs-body ul{margin:4px 0;padding-inline-start:18px}
+.docs-body li{margin:3px 0}
+.docs-body code{background:var(--muted);padding:1px 6px;border-radius:4px;font-family:'Consolas','Courier New',monospace;font-size:12.5px;color:var(--primary);direction:ltr;display:inline-block}
+.docs-body pre{background:var(--muted);padding:11px 13px;border-radius:8px;overflow-x:auto;font-family:'Consolas','Courier New',monospace;font-size:12px;line-height:1.55;direction:ltr;text-align:left;color:var(--fg);margin:6px 0}
+.docs-body .docs-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.5px;background:var(--muted);border-radius:8px;overflow:hidden}
+.docs-body .docs-table th{background:var(--primary);color:#fff;padding:7px 9px;font-weight:700;text-align:start;font-size:12px}
+.docs-body .docs-table td{padding:7px 9px;border-bottom:1px solid var(--border);vertical-align:top}
+.docs-body .docs-table tr:last-child td{border-bottom:none}
+.docs-body .stage-pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;margin-inline-end:4px}
+.docs-body .sp-0{background:var(--gray-s);color:var(--gray-dot)}
+.docs-body .sp-1,.docs-body .sp-2{background:var(--orange-s);color:var(--orange)}
+.docs-body .sp-3,.docs-body .sp-4{background:var(--blue-s);color:var(--blue)}
+.docs-body .sp-5{background:var(--green-s);color:var(--green)}
+.docs-body .note{background:var(--orange-s);color:var(--orange);padding:9px 12px;border-radius:8px;font-size:12.5px;font-weight:600;margin:8px 0;border-inline-start:3px solid var(--orange)}
+
+/* MOBILE PICKER (hidden on desktop) */
+.m-pick{display:none}
+
+/* PICKER BOTTOM SHEET */
+.pick-overlay{position:fixed;inset:0;background:rgba(44,36,22,.45);z-index:950;opacity:0;pointer-events:none;transition:opacity .22s}
+.pick-overlay.open{opacity:1;pointer-events:auto}
+.pick-sheet{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-radius:18px 18px 0 0;z-index:951;transform:translateY(110%);transition:transform .26s ease;box-shadow:0 -8px 30px rgba(44,36,22,.18);max-height:75vh;display:flex;flex-direction:column}
+.pick-sheet.open{transform:translateY(0)}
+.pick-sheet::before{content:"";display:block;width:42px;height:4px;background:var(--border);border-radius:99px;margin:9px auto 0}
+.pick-header{display:flex;align-items:center;justify-content:space-between;padding:8px 18px 12px;border-bottom:1px solid var(--border)}
+.pick-header h3{font-size:15px;font-weight:800;color:var(--fg)}
+.pick-close{background:transparent;border:1px solid var(--border);border-radius:7px;width:32px;height:32px;cursor:pointer;font-size:20px;display:grid;place-items:center;color:var(--fg)}
+.pick-opts{padding:8px 12px 24px;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+.pick-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 14px;background:var(--card);border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;color:var(--fg);cursor:pointer;text-align:start;transition:all .12s}
+.pick-opt:hover{background:var(--muted)}
+.pick-opt.active{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:0 2px 10px rgba(139,111,71,.28)}
+.pick-opt .chk{font-size:16px;font-weight:800}
+
+/* ===== RESPONSIVE — TABLET ===== */
+@media(max-width:900px){
+  thead th:nth-child(6),tbody td:nth-child(6){display:none} /* hide آخر تعديل */
+  thead th,tbody td{padding-inline:9px}
+}
+
+/* ===== RESPONSIVE — MOBILE: CARD LAYOUT ===== */
+@media(max-width:720px){
+  .wrap{padding:14px}
+  .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+  .sc{padding:11px 12px}
+  h1{font-size:20px}
+  .app-sub{font-size:12.5px}
+  .card-head{padding:13px 14px}
+  .legend{padding:9px 14px;gap:10px;flex-wrap:wrap}
+  .demo-banner{padding:9px 12px;font-size:12.5px;gap:8px}
+
+  /* Toolbar — search full row, then 3 buttons side-by-side */
+  .toolbar{flex-wrap:wrap;align-items:stretch;gap:8px;padding:11px 14px}
+  .search-wrap{order:-1;width:100%;flex:1 1 100%}
+  .s-inp{width:100%;box-sizing:border-box}
+  .t-sel-desktop{display:none}
+  .m-pick{
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    flex:1 1 0;min-width:0;
+    background:var(--card);border:1px solid var(--border);
+    border-radius:7px;padding:8px 8px;
+    font-family:inherit;font-size:12.5px;font-weight:600;color:var(--fg);
+    cursor:pointer;white-space:nowrap;
+  }
+  .m-pick:hover{border-color:var(--primary);color:var(--primary)}
+  .m-pick-arr{font-size:12px;color:var(--muted-fg);font-weight:700}
+  .exp-btn{flex:1 1 0;min-width:0;justify-content:center;padding-inline:8px;font-size:12.5px}
+
+  /* Table → card per row */
+  .tbl-wrap{overflow:visible;padding:10px 12px 14px}
+  table,thead,tbody,tr,td{display:block;width:100%}
+  thead{display:none}
+  tbody tr{
+    background:var(--card);
+    border:1.5px solid var(--border);
+    border-radius:12px;
+    margin-bottom:10px;
+    padding:12px 13px;
+    box-shadow:0 1px 3px rgba(44,36,22,.04);
+    cursor:pointer;
+  }
+  tbody tr:hover{background:var(--card)}
+  tbody tr:last-child{margin-bottom:0}
+  tbody td{
+    padding:8px 0;
+    border:none;
+    border-bottom:1px dashed var(--border);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    font-size:13px;
+    text-align:start;
+  }
+  /* dress cell — full-width header inside card */
+  tbody td:first-child{
+    display:block;
+    border-bottom:1.5px solid var(--border);
+    padding:0 0 10px;
+    margin-bottom:4px;
+  }
+  /* hide arrow column on mobile */
+  tbody td:last-child{display:none}
+  /* last data row — no separator */
+  tbody td:nth-last-child(2){border-bottom:none;padding-bottom:0}
+  /* labels via data-label */
+  tbody td[data-label]:before{
+    content:attr(data-label);
+    color:var(--muted-fg);
+    font-size:11.5px;
+    font-weight:500;
+    flex-shrink:0;
+  }
+  /* dress sub-row inside the header cell */
+  .dcell{gap:10px}
+  .d-thumb{width:44px;height:54px}
+  .dtext{flex:1;min-width:0}
+  .dtext .sku{font-size:14px}
+
+  /* compact date cells */
+  .date-cell{text-align:end}
+  .days-badge{margin-top:2px}
+
+  /* drawer full-screen on mobile */
+  .drawer{width:100%;max-width:100%}
+  .dr-img{height:170px}
+}
+
+/* ===== VERY SMALL ===== */
+@media(max-width:380px){
+  .stats{grid-template-columns:1fr 1fr;font-size:12px}
+  .legend{font-size:11px}
+  .stage-btn,.stage-chip{font-size:10.5px;padding:8px 2px}
+  .stage-ico{font-size:17px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="app-top">
+  <div>
+    <h1>طلبات التكرار</h1>
+    <p class="app-sub">تتبع طلبات إعادة إنتاج الفساتين — انقر على أي صف لفتح لوحة الإدارة</p>
+  </div>
+</div>
+
+<details class="dev-docs">
+  <summary>
+    <span class="dev-tag">DEV</span>
+    دليل المبرمج — كل ما تحتاجه عن هذه الصفحة
+    <span class="dev-sub">(انقر للتوسيع)</span>
+    <span class="arrow">›</span>
+  </summary>
+  <div class="docs-body">
+    <h4>📌 الغرض من الصفحة</h4>
+    <p>تتبع طلبات إعادة إنتاج فساتين متجر <strong>مليحة</strong>: كل فستان (SKU) لديه عدّاد للموديل وعدّادات للمقاسات. الموظفون يزيدون العدّاد عند طلب عميل، ثم المسؤول يطلب من الخياط، الخياط يصنع، ثم يُشحن ويصل المستودع. كل خطوة لها مرحلة (stage).</p>
+
+    <h4>🏗 بنية الكود</h4>
+    <p>ملف HTML مستقل واحد — لا framework، لا build step:</p>
+    <ul>
+      <li><code>&lt;style&gt;</code> — كل الـ CSS (متغيرات تصميم في <code>:root</code> ثم المكونات)</li>
+      <li><code>&lt;body&gt;</code> — الواجهة (banner تجريبي، إحصائيات، جدول، درج إدارة، درج تصدير، modal إعادة تهيئة)</li>
+      <li><code>&lt;script&gt;</code> — كل المنطق (مصفوفة <code>D[]</code>، renderTable، renderDrawer، الإجراءات)</li>
+    </ul>
+
+    <h4>👥 نظام الأدوار</h4>
+    <p>متغير عام: <code>ROLE = 'admin' | 'tailor' | 'employee'</code>. حالياً يُغيَّر عبر banner تجريبي. في الإنتاج استبدله بقيمة من السيرفر:</p>
+    <pre>&lt;script&gt;
+  const ROLE = '{{ user.role }}';
+  const TAILOR_NAME = '{{ user.tailor_name }}';
+  const USER = '{{ user.name }}';
+&lt;/script&gt;</pre>
+    <p>وأخفِ banner التجريبي. الخياط يرى فقط فساتينه (<code>passes()</code> يصفّي بـ <code>d.tailor === TAILOR_NAME</code>).</p>
+
+    <h4>🔐 صلاحيات الأدوار في الدرج</h4>
+    <table class="docs-table">
+      <thead><tr><th>القسم</th><th>المسؤول</th><th>الخياط</th><th>الموظف العادي</th></tr></thead>
+      <tbody>
+        <tr><td>مرحلة الطلب</td><td>5 أزرار تحكم كامل</td><td>زر "تم الصنع" فقط (مفعّل لو stage===2)</td><td>زر "مطلوب" + عرض القراءة للمرحلة الحالية</td></tr>
+        <tr><td>العدّادات</td><td>+/−/↺</td><td>قراءة فقط</td><td>+/−/↺</td></tr>
+        <tr><td>التواريخ</td><td>حقول إدخال</td><td>نص للقراءة فقط</td><td>مخفي</td></tr>
+        <tr><td>التوفر بالمستودع</td><td>ظاهر</td><td>مخفي</td><td>مخفي</td></tr>
+        <tr><td>إعادة تهيئة</td><td>ظاهر</td><td>مخفي</td><td>مخفي</td></tr>
+        <tr><td>الملاحظات (chat)</td><td>قراءة/كتابة</td><td>قراءة/كتابة</td><td>قراءة/كتابة</td></tr>
+        <tr><td>سجل التعديلات</td><td>قراءة</td><td>قراءة</td><td>قراءة</td></tr>
+      </tbody>
+    </table>
+
+    <h4>🎯 نظام المراحل الخمس</h4>
+    <p>تسلسل حياة الفستان الطبيعي من البداية للنهاية:</p>
+    <ul>
+      <li><span class="stage-pill sp-0">0</span> (لا شيء) — افتراضي</li>
+      <li><span class="stage-pill sp-1">1</span> 📋 مطلوب — العميل طلبه، الموظف ضغط "مطلوب"</li>
+      <li><span class="stage-pill sp-2">2</span> 📝 تم الطلب — المسؤول أرسل للخياط (يُحفظ <code>repeatDate</code>)</li>
+      <li><span class="stage-pill sp-3">3</span> ⚙️ تم الصنع — الخياط أنهى الصناعة (الخياط يضغطه)</li>
+      <li><span class="stage-pill sp-4">4</span> 🚚 تم الشحن — في الطريق للمستودع</li>
+      <li><span class="stage-pill sp-5">5</span> 📦 متوفر — وصل المستودع (يُحفظ <code>arrivalDate</code> + <code>inStock=true</code>)</li>
+    </ul>
+    <p>لون نقطة الحالة (<code>statusOf</code>): رمادي (0) → برتقالي (1-2) → أزرق (3-4) → أخضر (5).</p>
+
+    <h4>📦 بنية البيانات</h4>
+    <pre>{
+  sku: 'DRS-001',          // معرّف الفستان
+  img: '',                  // رابط صورة (فارغ = placeholder 👗)
+  pinned: false,            // مثبّت أعلى القائمة؟
+  stage: 4,                 // المرحلة الحالية 0-5
+  tailor: 'خالد',          // اسم الخياط
+  count: 2,                 // عدّاد الموديل (بدون مقاس)
+  sizes: [{l:'S',c:1}, ...],// عدّادات المقاسات
+  repeatDate: '2026-06-10', // YYYY-MM-DD
+  arrivalDate: '2026-07-05',
+  inStock: false,
+  lastMod: '20/06/2026 14:22',
+  log:  [{ts, user, action, detail}, ...],
+  chat: [{user, msg, ts, edited?}, ...]
+}</pre>
+
+    <h4>⚙ الدوال الرئيسية</h4>
+    <ul>
+      <li><code>renderTable()</code> — يبني جدول الفساتين</li>
+      <li><code>renderDrawer()</code> — يبني درج الإدارة (يعتمد على ROLE)</li>
+      <li><code>openManage(idx)</code> — يفتح درج فستان معيّن</li>
+      <li><code>setStage(idx, n)</code> — يغيّر المرحلة + يسجّل + يحدّث lastMod</li>
+      <li><code>chCount(idx, key, Δ)</code> — يزيد/ينقص عدّاد (<code>key='null'</code> للموديل)</li>
+      <li><code>sendChat(idx)</code> / <code>editChat(di,ci)</code> — ملاحظات (تعديل ملاحظات USER فقط)</li>
+      <li><code>passes(d)</code> — فلتر الصفوف (يشمل فلترة الخياط)</li>
+      <li><code>addLog(d, action, detail)</code> — يضيف سطراً للسجل</li>
+    </ul>
+
+    <h4>📱 التصميم المتجاوب</h4>
+    <table class="docs-table">
+      <thead><tr><th>الشاشة</th><th>السلوك</th></tr></thead>
+      <tbody>
+        <tr><td><code>≥ 901px</code></td><td>جدول كامل (7 أعمدة)</td></tr>
+        <tr><td><code>721-900</code></td><td>إخفاء "آخر تعديل" + تقليل padding</td></tr>
+        <tr><td><code>≤ 720px</code></td><td>كل صف بطاقة، شريط الأدوات على صفين (بحث ثم 3 أزرار)، الدرج full-width</td></tr>
+        <tr><td><code>≤ 380px</code></td><td>تقليل خطوط وأزرار المراحل</td></tr>
+      </tbody>
+    </table>
+
+    <h4>🔌 التكامل مع السيرفر — TODO</h4>
+    <ol>
+      <li>استبدل <code>ROLE</code> / <code>TAILOR_NAME</code> / <code>USER</code> بقيم من السيرفر.</li>
+      <li>استبدل مصفوفة <code>D</code> الافتراضية بـ <code>fetch('/api/dresses')</code> عند تحميل الصفحة.</li>
+      <li>كل دالة تعدّل البيانات يجب أن ترسل PATCH/POST: <code>setStage, chCount, saveDate, toggleAvail, sendChat, editChat, togglePin, confirmResetAll</code>.</li>
+      <li>السجل (log) يجب أن يُولَّد من السيرفر (مستخدم فعلي + timestamp السيرفر) بدلاً من <code>addLog</code> المحلي.</li>
+      <li>أزل <code>demo-banner</code> من DOM في الإنتاج، وأزل قسم التوثيق هذا أيضاً.</li>
+    </ol>
+
+    <div class="note">⚠ حالياً جميع التعديلات in-memory فقط — تضيع عند refresh. يجب ربط السيرفر قبل النشر.</div>
+
+    <h4>📝 ملاحظات تطوير</h4>
+    <ul>
+      <li>الكود يستخدم template literals بشكل مكثّف — احذر apostrophes الإضافية.</li>
+      <li>تعديل <code>ROLE</code> يستدعي <code>renderTable()</code> + <code>renderDrawer()</code> تلقائياً عبر <code>setRole()</code>.</li>
+      <li>دالة <code>esc()</code> لتفادي XSS عند حقن أي محتوى نصي من المستخدم.</li>
+      <li><code>STAGES[]</code> و <code>stageIcos[]</code> — الفهرس صفر فارغ عمداً (1-5 هي المراحل الفعلية).</li>
+    </ul>
+
+    <p style="text-align:end;color:var(--muted-fg);font-size:11.5px;margin-top:16px">آخر تحديث: 2026-06-22</p>
+  </div>
+</details>
+
+<div class="demo-banner">
+  <span class="demo-tag">🧪 تجريبي</span>
+  <span class="demo-lbl">الدور الحالي:</span>
+  <select class="demo-sel" onchange="setRole(this.value)">
+    <option value="admin">المسؤول</option>
+    <option value="tailor">الخياط</option>
+    <option value="employee">الموظف العادي</option>
+  </select>
+  <div class="demo-tailor-row" id="tailorRow">
+    <span class="demo-lbl">اسم الخياط:</span>
+    <select class="demo-sel" onchange="setTailor(this.value)">
+      <option>خالد</option>
+      <option>سارة</option>
+      <option>منى</option>
+    </select>
+  </div>
+  <span class="role-chip admin" id="roleChip">المسؤول</span>
+</div>
+
+<div class="stats">
+  <div class="sc"><div class="k">عدد الموديلات</div><div class="v" id="stM">0</div></div>
+  <div class="sc"><div class="k">إجمالي الطلبات</div><div class="v" id="stR">0</div></div>
+  <div class="sc"><div class="k">بانتظار الوصول</div><div class="v" id="stW">0</div></div>
+  <div class="sc"><div class="k">متوفر في المستودع</div><div class="v" id="stS">0</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>فساتين المتجر</h2>
+    <span class="sub">انقر على الصف لفتح لوحة الإدارة</span>
+  </div>
+  <div class="legend">
+    <span class="li"><span class="dot gray"></span>بدون طلبات</span>
+    <span class="li"><span class="dot orange"></span>عليه طلبات</span>
+    <span class="li"><span class="dot blue"></span>في الطريق</span>
+    <span class="li"><span class="dot green"></span>متوفر</span>
+  </div>
+  <div class="toolbar">
+    <select class="t-sel t-sel-desktop" onchange="setFilter(this.value)">
+      <option value="all">عرض: الكل</option>
+      <option value="has">لديه طلبات</option>
+      <option value="waiting">بانتظار الوصول</option>
+      <option value="stock">متوفر في المستودع</option>
+    </select>
+    <select class="t-sel t-sel-desktop" onchange="setSort(this.value)">
+      <option value="sku">ترتيب: رقم الصنف</option>
+      <option value="requests">الأكثر طلباً</option>
+      <option value="arrival">الأقرب وصولاً</option>
+      <option value="modified">آخر تعديل</option>
+      <option value="status">الحالة</option>
+    </select>
+    <button class="m-pick" onclick="openPick('filter')"><span>العرض</span><span class="m-pick-arr">⌄</span></button>
+    <button class="m-pick" onclick="openPick('sort')"><span>الترتيب</span><span class="m-pick-arr">⌄</span></button>
+    <div class="search-wrap">
+      <input class="s-inp" type="text" placeholder="بحث برقم الصنف…" id="sInp" oninput="renderTable()">
+      <span class="s-ico">🔍</span>
+    </div>
+    <button class="exp-btn" onclick="openDrawer('exportDr')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      تصدير
+    </button>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>الفستان</th>
+        <th>الخياط</th>
+        <th>تاريخ التكرار</th>
+        <th>تاريخ الوصول</th>
+        <th>التوفر</th>
+        <th>آخر تعديل</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<!-- OVERLAY -->
+<div class="overlay" id="overlay" onclick="closeAllDrawers()"></div>
+
+<!-- MOBILE PICKER SHEET -->
+<div class="pick-overlay" id="pickOverlay" onclick="closePick()"></div>
+<div class="pick-sheet" id="pickSheet">
+  <div class="pick-header">
+    <h3 id="pickTitle">اختر</h3>
+    <button class="pick-close" onclick="closePick()" aria-label="إغلاق">×</button>
+  </div>
+  <div class="pick-opts" id="pickOpts"></div>
+</div>
+
+<!-- MANAGE DRAWER -->
+<div class="drawer" id="manageDr">
+  <div class="dh">
+    <div><h3 id="drTitle">إدارة الطلب</h3><div class="dsub" id="drSub"></div></div>
+    <button class="dclose" onclick="closeDrawer('manageDr')">×</button>
+  </div>
+  <div class="dbody" id="drBody"></div>
+</div>
+
+<!-- EXPORT DRAWER -->
+<div class="drawer" id="exportDr">
+  <div class="dh">
+    <h3>تصدير البيانات</h3>
+    <button class="dclose" onclick="closeDrawer('exportDr')">×</button>
+  </div>
+  <div class="dbody">
+    <p style="font-size:13px;color:var(--muted-fg);margin-bottom:14px">اختر صيغة التصدير أو الطباعة المناسبة</p>
+    <div class="exp-opt">
+      <button class="eo-btn" onclick="doExport('csv')">
+        <div class="eo-ico csv">📊</div><div><span class="eo-t">تصدير CSV</span><span class="eo-d">جدول قابل للفتح في Excel</span></div>
+      </button>
+      <button class="eo-btn" onclick="doExport('pdf')">
+        <div class="eo-ico pdf">📄</div><div><span class="eo-t">تصدير PDF</span><span class="eo-d">ملف PDF جاهز للمشاركة</span></div>
+      </button>
+      <button class="eo-btn" onclick="doExport('print')">
+        <div class="eo-ico prt">🖨️</div><div><span class="eo-t">طباعة</span><span class="eo-d">فتح نافذة الطباعة مباشرة</span></div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- RESET MODAL -->
+<div class="modal-ov" id="resetModal">
+  <div class="modal">
+    <div class="modal-h">
+      <div class="m-ico" style="background:#fde8e8;color:var(--red)">↺</div>
+      <h3>تصفير العدّاد</h3>
+    </div>
+    <div class="modal-b" id="resetBody"></div>
+    <div class="modal-f">
+      <button class="btn danger" onclick="confirmReset()">تصفير</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESET ALL MODAL -->
+<div class="modal-ov" id="resetAllModal">
+  <div class="modal">
+    <div class="modal-h">
+      <div class="m-ico" style="background:#fde8e8;color:var(--red)">↺</div>
+      <div><h3>إعادة تهيئة</h3></div>
+    </div>
+    <div class="modal-b">
+      <p style="margin-bottom:4px">اختر الأقسام التي تريد إعادة تعيينها:</p>
+      <div class="reset-checks" id="resetAllChecks"></div>
+    </div>
+    <div class="modal-f">
+      <button class="btn danger" onclick="confirmResetAll()">تهيئة</button>
+      <button class="btn ghost" onclick="closeResetAll()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================ ROLES */
+let ROLE='admin', TAILOR_NAME='خالد';
+const ROLE_LABELS={admin:'المسؤول',tailor:'الخياط',employee:'الموظف العادي'};
+const ROLE_CLS={admin:'admin',tailor:'tailor',employee:'employee'};
+function setRole(v){
+  ROLE=v;
+  const tr=document.getElementById('tailorRow');
+  if(tr)tr.style.display=v==='tailor'?'flex':'none';
+  const chip=document.getElementById('roleChip');
+  if(chip){chip.textContent=ROLE_LABELS[v];chip.className='role-chip '+ROLE_CLS[v];}
+  renderTable();
+  if(activeIdx!==null)renderDrawer();
+}
+function setTailor(v){TAILOR_NAME=v;renderTable();}
+
+/* ============================================================ DATA */
+const USER = 'المسؤول';
+
+function nowTs(){
+  const n=new Date();
+  return [n.getDate(),n.getMonth()+1,n.getFullYear()].map(x=>String(x).padStart(2,'0')).join('/')+
+    ' '+[n.getHours(),n.getMinutes()].map(x=>String(x).padStart(2,'0')).join(':');
+}
+function fmtDate(s){if(!s)return'';const p=s.split('-');return p[2]+'/'+p[1];}
+
+function relTime(ts){
+  if(!ts)return'—';
+  try{
+    const[d,t]=ts.split(' ');const[day,mon,yr]=d.split('/').map(Number);
+    const[h,m]=(t||'00:00').split(':').map(Number);
+    const diff=Date.now()-new Date(yr,mon-1,day,h,m);
+    const mins=Math.floor(diff/60000);
+    if(mins<2)return'الآن';if(mins<60)return`منذ ${mins} دقيقة`;
+    const hrs=Math.floor(mins/60);
+    if(hrs<24)return`منذ ${hrs} ساعة`;
+    const days=Math.floor(hrs/24);
+    if(days===1)return'منذ يوم';if(days<30)return`منذ ${days} أيام`;
+    return`منذ ${Math.floor(days/30)} شهر`;
+  }catch{return ts;}
+}
+function daysLeft(s){
+  if(!s)return null;
+  const[yr,mo,d]=s.split('-').map(Number);
+  const t=new Date(yr,mo-1,d),n=new Date();n.setHours(0,0,0,0);
+  return Math.round((t-n)/86400000);
+}
+
+const D=[
+  {sku:'DRS-001',img:'',pinned:false,stage:4,tailor:'خالد',
+   count:2,sizes:[{l:'S',c:1},{l:'M',c:0},{l:'L',c:0},{l:'XL',c:1}],
+   repeatDate:'2026-06-10',arrivalDate:'2026-07-05',inStock:false,
+   lastMod:'20/06/2026 14:22',
+   log:[
+     {ts:'20/06/2026 14:22',user:USER,action:'زيادة',detail:'الموديل'},
+     {ts:'10/06/2026 09:20',user:USER,action:'تحديد تاريخ التكرار',detail:'10/06/2026'},
+     {ts:'09/06/2026 09:15',user:USER,action:'زيادة',detail:'مقاس S'},
+   ],
+   chat:[
+     {user:'سارة',msg:'انتبه للخامة في مقاس XL، أبلغتني المورد بتغيير في التوريد',ts:'19/06/2026 10:30'},
+     {user:'أحمد',msg:'تم التواصل مع المورد، التسليم بعد 3 أسابيع تقريباً',ts:'18/06/2026 15:00'},
+   ]},
+  {sku:'DRS-002',img:'',pinned:false,stage:5,tailor:'سارة',
+   count:0,sizes:[{l:'S',c:0},{l:'M',c:0},{l:'L',c:0}],
+   repeatDate:'',arrivalDate:'',inStock:true,lastMod:'01/06/2026 10:00',
+   log:[{ts:'01/06/2026 10:00',user:USER,action:'تفعيل التوفر',detail:'متوفر'}],
+   chat:[]},
+  {sku:'DRS-003',img:'',pinned:true,stage:4,tailor:'خالد',
+   count:3,sizes:[{l:'M',c:1},{l:'L',c:2}],
+   repeatDate:'2026-06-15',arrivalDate:'2026-07-20',inStock:false,
+   lastMod:'14/06/2026 10:00',
+   log:[
+     {ts:'14/06/2026 10:00',user:USER,action:'زيادة',detail:'الموديل'},
+     {ts:'13/06/2026 11:00',user:USER,action:'زيادة',detail:'مقاس L'},
+     {ts:'12/06/2026 08:05',user:USER,action:'تحديد تاريخ التكرار',detail:'15/06/2026'},
+   ],
+   chat:[
+     {user:'نورة',msg:'أولوية قبل موسم الخريف، يرجى المتابعة مع المورد أسبوعياً',ts:'15/06/2026 09:00'},
+   ]},
+  {sku:'DRS-004',img:'',pinned:false,stage:0,tailor:'منى',
+   count:0,sizes:[{l:'S',c:0},{l:'M',c:0},{l:'L',c:0}],
+   repeatDate:'',arrivalDate:'',inStock:false,lastMod:'10/05/2026 09:00',
+   log:[],chat:[]},
+  {sku:'DRS-005',img:'',pinned:false,stage:3,tailor:'سارة',
+   count:1,sizes:[{l:'XS',c:0},{l:'S',c:1},{l:'M',c:0},{l:'L',c:0}],
+   repeatDate:'2026-06-20',arrivalDate:'2026-07-15',inStock:false,
+   lastMod:'18/06/2026 13:30',
+   log:[
+     {ts:'18/06/2026 13:30',user:USER,action:'زيادة',detail:'مقاس S'},
+     {ts:'18/06/2026 13:15',user:USER,action:'تحديد تاريخ الوصول',detail:'15/07/2026'},
+   ],
+   chat:[]},
+  {sku:'DRS-006',img:'',pinned:false,stage:0,tailor:'منى',
+   count:0,sizes:[{l:'S',c:0},{l:'M',c:0},{l:'L',c:0}],
+   repeatDate:'',arrivalDate:'',inStock:false,lastMod:'15/05/2026 11:00',
+   log:[],chat:[]},
+  {sku:'DRS-007',img:'',pinned:false,stage:2,tailor:'خالد',
+   count:2,sizes:[{l:'M',c:1},{l:'L',c:1},{l:'XL',c:0}],
+   repeatDate:'2026-06-25',arrivalDate:'2026-08-01',inStock:false,
+   lastMod:'20/06/2026 10:00',
+   log:[
+     {ts:'20/06/2026 10:00',user:USER,action:'زيادة',detail:'مقاس L'},
+     {ts:'19/06/2026 09:10',user:USER,action:'تحديد تاريخ الوصول',detail:'01/08/2026'},
+   ],
+   chat:[
+     {user:'أحمد',msg:'تم التواصل مع المورد — يحتاج تأكيد الألوان قبل الإنتاج',ts:'20/06/2026 08:00'},
+   ]},
+];
+
+/* ============================================================ HELPERS */
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const totalC=d=>d.count+d.sizes.reduce((a,s)=>a+s.c,0);
+const STAGES=['','مطلوب','تم الطلب','تم الصنع','تم الشحن','متوفر'];
+function statusOf(d){
+  if(d.stage>=5)return'green';
+  if(d.stage>=3)return'blue';
+  if(d.stage>=1)return'orange';
+  return'gray';
+}
+
+/* ============================================================ TOAST */
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.classList.add('show');
+  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2400);
+}
+
+/* ============================================================ FILTER / SORT */
+let activeFilter='all',activeSort='sku',activeLogFilter='all',activeLogUser='all';
+function setFilter(v){activeFilter=v;renderTable();}
+function setSort(v){activeSort=v;renderTable();}
+
+/* MOBILE PICKER */
+const FILTER_OPTS=[
+  {v:'all',l:'الكل'},
+  {v:'has',l:'لديه طلبات'},
+  {v:'waiting',l:'بانتظار الوصول'},
+  {v:'stock',l:'متوفر في المستودع'}
+];
+const SORT_OPTS=[
+  {v:'sku',l:'رقم الصنف'},
+  {v:'requests',l:'الأكثر طلباً'},
+  {v:'arrival',l:'الأقرب وصولاً'},
+  {v:'modified',l:'آخر تعديل'},
+  {v:'status',l:'الحالة'}
+];
+let pickKind=null;
+function openPick(kind){
+  pickKind=kind;
+  const opts=kind==='filter'?FILTER_OPTS:SORT_OPTS;
+  const cur=kind==='filter'?activeFilter:activeSort;
+  document.getElementById('pickTitle').textContent=kind==='filter'?'اختر العرض':'اختر الترتيب';
+  document.getElementById('pickOpts').innerHTML=opts.map(o=>
+    `<button class="pick-opt${o.v===cur?' active':''}" onclick="pickChoose('${o.v}')">
+      <span>${esc(o.l)}</span>${o.v===cur?'<span class="chk">✓</span>':''}
+    </button>`
+  ).join('');
+  document.getElementById('pickOverlay').classList.add('open');
+  document.getElementById('pickSheet').classList.add('open');
+}
+function closePick(){
+  document.getElementById('pickOverlay').classList.remove('open');
+  document.getElementById('pickSheet').classList.remove('open');
+}
+function pickChoose(v){
+  if(pickKind==='filter'){activeFilter=v;document.querySelector('.t-sel-desktop[onchange*="setFilter"]').value=v;}
+  else{activeSort=v;document.querySelectorAll('.t-sel-desktop')[1].value=v;}
+  renderTable();
+  closePick();
+}
+function setLogFilter(v){activeLogFilter=v;renderDrawer();}
+function setLogUser(v){activeLogUser=v;renderDrawer();}
+function logPasses(l){
+  if(activeLogUser!=='all'&&l.user!==activeLogUser)return false;
+  if(activeLogFilter==='all')return true;
+  if(activeLogFilter==='counters')return['زيادة','تقليل','تصفير'].includes(l.action);
+  if(activeLogFilter==='dates')return l.action.includes('تاريخ');
+  if(activeLogFilter==='availability')return l.action.includes('توفر');
+  if(activeLogFilter==='notes')return l.action.includes('ملاحظة');
+  return true;
+}
+
+function passes(d){
+  if(ROLE==='tailor'&&d.tailor!==TAILOR_NAME)return false;
+  const q=(document.getElementById('sInp').value||'').toLowerCase().trim();
+  if(q&&!d.sku.toLowerCase().includes(q))return false;
+  if(activeFilter==='has')return totalC(d)>0;
+  if(activeFilter==='waiting')return totalC(d)>0&&!d.inStock;
+  if(activeFilter==='stock')return d.inStock;
+  return true;
+}
+function sortedList(list){
+  const statusOrder={green:0,blue:1,orange:2,gray:3};
+  return[...list].sort((a,b)=>{
+    if(a.pinned!==b.pinned)return a.pinned?-1:1;
+    switch(activeSort){
+      case'requests':return totalC(b)-totalC(a);
+      case'arrival':{
+        if(!a.arrivalDate&&!b.arrivalDate)return 0;
+        if(!a.arrivalDate)return 1;if(!b.arrivalDate)return-1;
+        return a.arrivalDate.localeCompare(b.arrivalDate);
+      }
+      case'modified':return b.lastMod.localeCompare(a.lastMod);
+      case'status':return statusOrder[statusOf(a)]-statusOrder[statusOf(b)];
+      default:return a.sku.localeCompare(b.sku);
+    }
+  });
+}
+
+/* ============================================================ TABLE */
+function renderTable(){
+  const tb=document.getElementById('tbody');
+  const list=sortedList(D.filter(passes));
+  if(!list.length){
+    tb.innerHTML=`<tr><td colspan="6" class="no-res">لا توجد نتائج مطابقة</td></tr>`;
+    renderStats();return;
+  }
+  tb.innerHTML=list.map(d=>{
+    const di=D.indexOf(d);
+    const st=statusOf(d);const tot=totalC(d);
+    const badge=tot>0?`<span class="req-badge has">${tot} طلب</span>`:`<span class="req-badge none">لا طلبات</span>`;
+    const thumb=d.img?`<img src="${esc(d.img)}" alt="">`:`<span>👗</span>`;
+    const pinIcon=d.pinned?'📌':'📍';
+
+    // repeat date
+    const rdHtml=d.repeatDate?`<span class="date-cell">${fmtDate(d.repeatDate)}</span>`:`<span style="color:var(--muted-fg)">—</span>`;
+
+    // arrival date + days
+    let arrHtml='<span style="color:var(--muted-fg)">—</span>';
+    if(d.arrivalDate&&!d.inStock){
+      const dl=daysLeft(d.arrivalDate);
+      let daysTxt='',daysCls='days-ok';
+      if(dl<0){daysTxt=`تأخر ${Math.abs(dl)} يوم`;daysCls='days-late';}
+      else if(dl===0){daysTxt='اليوم';daysCls='days-late';}
+      else if(dl<=7){daysTxt=`بعد ${dl} يوم`;daysCls='days-soon';}
+      else{daysTxt=`بعد ${dl} يوم`;}
+      arrHtml=`<div class="date-cell">${fmtDate(d.arrivalDate)}<div class="days-badge ${daysCls}">${daysTxt}</div></div>`;
+    }else if(d.arrivalDate){
+      arrHtml=`<span class="date-cell">${fmtDate(d.arrivalDate)}</span>`;
+    }
+
+    const avBadge=d.inStock?`<span class="av-badge yes">✓ متوفر</span>`:`<span class="av-badge no">—</span>`;
+
+    return`<tr onclick="openManage(${di})">
+      <td><div class="dcell">
+        <button class="pin-btn${d.pinned?' on':''}" onclick="togglePin(event,${di})" title="${d.pinned?'إلغاء التثبيت':'تثبيت'}">${pinIcon}</button>
+        <span class="dot ${st}"></span>
+        <div class="d-thumb">${thumb}</div>
+        <div class="dtext"><div class="sku">${esc(d.sku)}${badge}</div>
+          <div class="meta">${d.sizes.length} مقاسات${d.chat.length?` · ${d.chat.length} ملاحظة`:''}</div></div>
+      </div></td>
+      <td data-label="الخياط"><span style="font-size:13px">${esc(d.tailor||'—')}</span></td>
+      <td data-label="تاريخ التكرار">${rdHtml}</td>
+      <td data-label="تاريخ الوصول">${arrHtml}</td>
+      <td data-label="التوفر">${avBadge}</td>
+      <td data-label="آخر تعديل"><span class="mod-text">${relTime(d.lastMod)}</span></td>
+      <td><span class="row-arr">‹</span></td>
+    </tr>`;
+  }).join('');
+  renderStats();
+}
+
+function renderStats(){
+  let r=0,w=0,s=0;
+  D.forEach(d=>{r+=totalC(d);if(d.inStock)s++;if(totalC(d)>0&&!d.inStock)w++;});
+  document.getElementById('stM').textContent=D.length;
+  document.getElementById('stR').textContent=r;
+  document.getElementById('stW').textContent=w;
+  document.getElementById('stS').textContent=s;
+}
+
+/* ============================================================ PIN */
+function togglePin(e,di){
+  e.stopPropagation();
+  D[di].pinned=!D[di].pinned;
+  renderTable();
+  toast(D[di].pinned?'📌 تم تثبيت الفستان':'تم إلغاء التثبيت');
+}
+
+/* ============================================================ MANAGE DRAWER */
+let activeIdx=null;
+function openManage(di){
+  activeIdx=di;
+  document.getElementById('drTitle').textContent='إدارة الطلب';
+  document.getElementById('drSub').textContent=D[di].sku;
+  renderDrawer();
+  openDrawer('manageDr');
+}
+
+function renderDrawer(){
+  if(activeIdx===null)return;
+  const d=D[activeIdx],di=activeIdx;
+
+  /* progress — role-based */
+  const stageIcos=['','📋','📝','⚙️','🚚','📦'];
+  const stageViewChips=[1,2,3,4,5].map(n=>{
+    const cls=n<d.stage?'done':(n===d.stage?'active':'');
+    return`<div class="stage-chip ${cls}"><span class="stage-ico">${stageIcos[n]}</span>${STAGES[n]}</div>`;
+  }).join('');
+  let progHtml;
+  if(ROLE==='admin'){
+    const btns=[1,2,3,4,5].map(n=>{
+      const cls=n<d.stage?'done':(n===d.stage?'active':'');
+      return`<button class="stage-btn ${cls}" onclick="setStage(${di},${n})">
+        <span class="stage-ico">${stageIcos[n]}</span>${STAGES[n]}
+      </button>`;
+    }).join('');
+    progHtml=`<div class="stage-btns">${btns}</div>`;
+  }else if(ROLE==='tailor'){
+    const canMakeDone=d.stage===2;
+    const isDone=d.stage>=3;
+    const tCls=isDone?'done':(canMakeDone?'active':'');
+    const tDisabled=!canMakeDone&&!isDone;
+    progHtml=`<div class="stage-btns">
+      <button class="stage-btn ${tCls}" ${tDisabled?'disabled':''} onclick="${canMakeDone?`setStage(${di},3)`:''}">
+        <span class="stage-ico">${stageIcos[3]}</span>${STAGES[3]}
+      </button>
+    </div>
+    <div class="stage-view-lbl">المرحلة الحالية (من المسؤول)</div>
+    <div class="stage-view">${stageViewChips}</div>`;
+  }else{
+    const cls=d.stage===1?'active':'';
+    progHtml=`<div class="stage-btns">
+      <button class="stage-btn ${cls}" onclick="setStage(${di},1)">
+        <span class="stage-ico">${stageIcos[1]}</span>${STAGES[1]}
+      </button>
+    </div>
+    <div class="stage-view-lbl">المرحلة الحالية (من المسؤول)</div>
+    <div class="stage-view">${stageViewChips}</div>`;
+  }
+
+  /* counters */
+  function crRow(lbl,isModel,si){
+    const cnt=isModel?d.count:d.sizes[si].c;
+    const key=isModel?'null':si;
+    return`<div class="cr">
+      <span class="cr-lbl${isModel?' model':''}">${esc(lbl)}${isModel?'<small>بدون مقاس</small>':''}</span>
+      <button class="cb minus" ${cnt===0?'disabled':''} onclick="chCount(${di},${key},-1)">−</button>
+      <span class="cr-num${cnt>0?' hot':''}">${cnt}</span>
+      <button class="cb plus" onclick="chCount(${di},${key},1)">+</button>
+      <button class="cr-rst" ${cnt===0?'disabled':''} onclick="askReset(${di},${key})" title="تصفير">↺</button>
+    </div>`;
+  }
+  function crvRow(lbl,isModel,cnt){
+    return`<div class="crv">
+      <span class="crv-lbl${isModel?' model':''}">${esc(lbl)}${isModel?'<small>بدون مقاس</small>':''}</span>
+      <span class="crv-num${cnt>0?' hot':''}">${cnt}</span>
+    </div>`;
+  }
+  const counters=ROLE==='tailor'
+    ?[crvRow('الموديل',true,d.count),...d.sizes.map(s=>crvRow('مقاس '+s.l,false,s.c))].join('')
+    :[crRow('الموديل',true),...d.sizes.map((s,si)=>crRow('مقاس '+s.l,false,si))].join('');
+
+  /* availability */
+  const availHtml=d.inStock
+    ?`<span class="avail-txt yes">✓ متوفر في المستودع</span>
+      <button class="avail-btn unset" onclick="toggleAvail(${di})">إلغاء التوفر</button>`
+    :`<span class="avail-txt no">غير متوفر</span>
+      <button class="avail-btn set" onclick="toggleAvail(${di})">تعيين كـ متوفر</button>`;
+
+  /* chat */
+  const chatItems=d.chat.length
+    ?d.chat.map((c,ci)=>`<div class="chat-item">
+        <div class="chat-meta">
+          <span class="chat-user">${esc(c.user)}</span>
+          <span class="chat-ts">${esc(c.ts)}</span>
+          ${c.edited?`<span class="chat-edited">(تم التعديل)</span>`:''}
+          ${c.user===USER?`<button class="chat-edit-btn" onclick="editChat(${di},${ci})" title="تعديل">✏ تعديل</button>`:''}
+        </div>
+        <div class="chat-bubble" id="cb_${di}_${ci}">${esc(c.msg)}</div>
+      </div>`).join('')
+    :`<div class="chat-empty">لا توجد ملاحظات بعد</div>`;
+
+  /* log */
+  const filteredLog=d.log.filter(logPasses);
+  const logItems=filteredLog.length
+    ?filteredLog.map(l=>`<div class="log-row">
+        <span class="log-user">${esc(l.user)}</span>
+        <span class="log-sep">•</span>
+        <span class="log-action">${esc(l.action)}${l.detail?` (${esc(l.detail)})`:''}</span>
+        <span class="log-sep">•</span>
+        <span class="log-time">${esc(l.ts)}</span>
+      </div>`).join('')
+    :`<div class="log-empty">${d.log.length?'لا توجد نتائج للفلتر المحدد':'لا يوجد سجل بعد'}</div>`;
+  const logUsers=[...new Set(d.log.map(l=>l.user))];
+  const userOpts=logUsers.map(u=>`<option value="${esc(u)}"${activeLogUser===u?' selected':''}>${esc(u)}</option>`).join('');
+  const logFilterHtml=`<div class="log-filter">
+    <select class="log-filter-sel" onchange="setLogFilter(this.value)">
+      <option value="all"${activeLogFilter==='all'?' selected':''}>النوع: الكل</option>
+      <option value="counters"${activeLogFilter==='counters'?' selected':''}>عدادات</option>
+      <option value="dates"${activeLogFilter==='dates'?' selected':''}>تواريخ</option>
+      <option value="availability"${activeLogFilter==='availability'?' selected':''}>التوفر</option>
+      <option value="notes"${activeLogFilter==='notes'?' selected':''}>ملاحظات</option>
+    </select>
+    <select class="log-filter-sel" onchange="setLogUser(this.value)">
+      <option value="all"${activeLogUser==='all'?' selected':''}>الموظف: الكل</option>
+      ${userOpts}
+    </select>
+    <span class="log-count">${filteredLog.length} من ${d.log.length}</span>
+  </div>`;
+
+  /* image */
+  const imgHtml=d.img
+    ?`<img src="${esc(d.img)}" alt="${esc(d.sku)}">`
+    :`<div class="dr-img-ph"><span>👗</span><small>صورة الفستان</small></div>`;
+
+  document.getElementById('drBody').innerHTML=`
+    <!-- IMAGE -->
+    <div class="dr-img">${imgHtml}</div>
+
+    <!-- PROGRESS -->
+    <div class="dsec">
+      <div class="dsec-title">📍 مرحلة الطلب</div>
+      <div class="dsec-box" style="overflow:visible;background:transparent;border-radius:0">${progHtml}</div>
+    </div>
+
+    <!-- COUNTERS -->
+    <div class="dsec">
+      <div class="dsec-title">🔢 عدادات التكرار</div>
+      <div class="dsec-box">${counters}</div>
+    </div>
+
+    ${ROLE==='admin'?`
+    <!-- DATES (admin: editable) -->
+    <div class="dsec">
+      <div class="dsec-title">📅 التواريخ</div>
+      <div class="dsec-box"><div class="df-wrap">
+        <div class="dfield"><label>تاريخ التكرار</label>
+          <input type="date" class="date-inp" value="${d.repeatDate||''}"
+                 onchange="saveDate(${di},'repeatDate',this.value,'تحديد تاريخ التكرار')"></div>
+        <div class="dfield"><label>تاريخ وصول الفستان</label>
+          <input type="date" class="date-inp" value="${d.arrivalDate||''}"
+                 onchange="saveDate(${di},'arrivalDate',this.value,'تحديد تاريخ الوصول')"></div>
+      </div></div>
+    </div>
+
+    <!-- AVAILABILITY (admin only) -->
+    <div class="dsec">
+      <div class="dsec-title">📦 التوفر في المستودع</div>
+      <div class="dsec-box"><div class="avail-box">${availHtml}</div></div>
+    </div>`:''}
+
+    ${ROLE==='tailor'?`
+    <!-- DATES (tailor: read-only) -->
+    <div class="dsec">
+      <div class="dsec-title">📅 التواريخ</div>
+      <div class="dsec-box"><div class="date-txt">
+        <div class="date-txt-row">
+          <span class="date-txt-lbl">تاريخ التكرار</span>
+          <span class="date-txt-val">${d.repeatDate?d.repeatDate.split('-').reverse().join('/'):'—'}</span>
+        </div>
+        <div class="date-txt-row">
+          <span class="date-txt-lbl">تاريخ وصول الفستان</span>
+          <span class="date-txt-val">${d.arrivalDate?d.arrivalDate.split('-').reverse().join('/'):'—'}</span>
+        </div>
+      </div></div>
+    </div>`:''}
+
+    ${ROLE==='admin'?`
+    <!-- RESET ALL -->
+    <div class="dsec">
+      <div class="dsec-title">↺ إعادة تهيئة</div>
+      <div class="dsec-box">
+        <div class="reset-all-row">
+          <span class="reset-all-desc">إعادة تعيين أقسام محددة إلى الوضع الافتراضي</span>
+          <button class="reset-all-btn" onclick="openResetAll(${di})">إعادة تهيئة</button>
+        </div>
+      </div>
+    </div>`:''}
+
+    <!-- CHAT -->
+    <div class="dsec">
+      <div class="dsec-title">💬 ملاحظات الفريق</div>
+      <div class="dsec-box">
+        <div class="chat-msgs">${chatItems}</div>
+        <div class="chat-input">
+          <div class="chat-row">
+            <input class="chat-text" id="chatMsg${di}" placeholder="اكتب ملاحظة…" type="text"
+                   onkeydown="if(event.key==='Enter')sendChat(${di})">
+            <button class="chat-send" onclick="sendChat(${di})">إرسال</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="dsec">
+      <div class="dsec-title">📋 سجل التعديلات</div>
+      <div class="dsec-box">${logFilterHtml}<div class="log-list">${logItems}</div></div>
+    </div>`;
+}
+
+/* ============================================================ ACTIONS */
+function chCount(di,si,delta){
+  const d=D[di];
+  const isModel=si==='null'||si===null;
+  if(isModel){d.count=Math.max(0,d.count+delta);addLog(di,delta>0?'زيادة':'تقليل','الموديل');}
+  else{d.sizes[si].c=Math.max(0,d.sizes[si].c+delta);addLog(di,delta>0?'زيادة':'تقليل','مقاس '+d.sizes[si].l);}
+  renderDrawer();renderTable();
+  toast(delta>0?'✓ تم تسجيل الزيادة':'تم تسجيل التقليل');
+}
+
+let pendReset=null;
+function askReset(di,si){
+  pendReset={di,si};
+  const d=D[di];
+  const lbl=si==='null'||si===null?'الموديل':'مقاس '+d.sizes[si].l;
+  document.getElementById('resetBody').innerHTML=`سيتم إعادة عدّاد <strong>${esc(d.sku)} — ${esc(lbl)}</strong> إلى صفر.`;
+  document.getElementById('resetModal').classList.add('open');
+}
+function confirmReset(){
+  if(!pendReset)return;
+  const{di,si}=pendReset;const d=D[di];
+  const isModel=si==='null'||si===null;
+  if(isModel){d.count=0;addLog(di,'تصفير','الموديل');}
+  else{d.sizes[si].c=0;addLog(di,'تصفير','مقاس '+d.sizes[si].l);}
+  pendReset=null;closeModal();
+  renderDrawer();renderTable();
+  toast('↺ تم تصفير العدّاد');
+}
+function closeModal(){document.getElementById('resetModal').classList.remove('open');pendReset=null;}
+
+function saveDate(di,field,val,action){
+  D[di][field]=val;addLog(di,action,fmtDate(val)||'—');
+  renderDrawer();renderTable();
+  toast('✓ تم حفظ التاريخ');
+}
+function setStage(di,n){
+  D[di].stage=n;
+  D[di].inStock=(n===5);
+  addLog(di,'تغيير المرحلة',STAGES[n]);
+  renderDrawer();renderTable();
+  toast(`✓ المرحلة: ${STAGES[n]}`);
+}
+let resetAllIdx=null;
+const RESET_OPTS=[
+  {id:'r_stage',label:'مرحلة الطلب',sub:'إعادة المرحلة إلى "لا شيء"'},
+  {id:'r_count',label:'العداد',sub:'تصفير العدد الكلي وعدادات المقاسات'},
+  {id:'r_dates',label:'التواريخ',sub:'حذف تاريخ التكرار وتاريخ الوصول'},
+  {id:'r_chat', label:'الملاحظات',sub:'مسح جميع ملاحظات الفريق'},
+  {id:'r_log',  label:'السجل',sub:'مسح سجل التعديلات'},
+];
+function openResetAll(di){
+  resetAllIdx=di;
+  document.getElementById('resetAllChecks').innerHTML=RESET_OPTS.map(o=>
+    `<label class="reset-check-item">
+      <input type="checkbox" id="${o.id}">
+      <div><span class="reset-check-lbl">${o.label}</span><span class="reset-check-sub">${o.sub}</span></div>
+    </label>`
+  ).join('');
+  document.getElementById('resetAllModal').classList.add('open');
+}
+function confirmResetAll(){
+  if(resetAllIdx===null)return;
+  const di=resetAllIdx,d=D[di];
+  const sel=RESET_OPTS.map(o=>({key:o.id.replace('r_',''),checked:document.getElementById(o.id)?.checked,label:o.label}));
+  if(!sel.some(s=>s.checked)){toast('اختر قسماً واحداً على الأقل');return;}
+  const parts=[];
+  sel.forEach(s=>{
+    if(!s.checked)return;
+    parts.push(s.label);
+    if(s.key==='stage'){d.stage=0;d.inStock=false;}
+    if(s.key==='count'){d.count=0;d.sizes.forEach(sz=>sz.c=0);}
+    if(s.key==='dates'){d.repeatDate='';d.arrivalDate='';}
+    if(s.key==='chat') d.chat=[];
+    if(s.key==='log')  d.log=[];
+  });
+  if(!sel.find(s=>s.key==='log')?.checked) addLog(di,'إعادة تهيئة',parts.join('، '));
+  else d.lastMod=nowTs();
+  closeResetAll();renderDrawer();renderTable();
+  toast('✓ تمت إعادة التهيئة');
+}
+function closeResetAll(){
+  document.getElementById('resetAllModal').classList.remove('open');
+  resetAllIdx=null;
+}
+
+function toggleAvail(di){
+  D[di].inStock=!D[di].inStock;
+  addLog(di,D[di].inStock?'تفعيل التوفر':'إلغاء التوفر',D[di].inStock?'متوفر':'غير متوفر');
+  renderDrawer();renderTable();
+  toast(D[di].inStock?'✓ تم تعيين الفستان كـ متوفر':'تم إلغاء التوفر');
+}
+
+function sendChat(di){
+  const msgEl=document.getElementById('chatMsg'+di);
+  const msg=(msgEl?.value||'').trim();
+  const name=USER;
+  if(!msg)return;
+  D[di].chat.unshift({user:name,msg,ts:nowTs()});
+  msgEl.value='';
+  renderDrawer();
+  toast('💬 تم إرسال الملاحظة');
+}
+
+function editChat(di,ci){
+  const bubble=document.getElementById(`cb_${di}_${ci}`);
+  if(!bubble)return;
+  const cur=D[di].chat[ci].msg;
+  bubble.outerHTML=`<div id="cb_${di}_${ci}">
+    <div class="chat-edit-wrap">
+      <input class="chat-edit-inp" id="cei_${di}_${ci}" value="${esc(cur)}">
+      <button class="chat-edit-save" onclick="saveChat(${di},${ci})">حفظ</button>
+      <button class="chat-edit-cancel" onclick="renderDrawer()">إلغاء</button>
+    </div>
+  </div>`;
+  const inp=document.getElementById(`cei_${di}_${ci}`);
+  inp?.focus();
+  inp?.addEventListener('keydown',e=>{if(e.key==='Enter')saveChat(di,ci);if(e.key==='Escape')renderDrawer();});
+}
+function saveChat(di,ci){
+  const inp=document.getElementById(`cei_${di}_${ci}`);
+  const msg=(inp?.value||'').trim();
+  if(!msg)return;
+  D[di].chat[ci].msg=msg;
+  D[di].chat[ci].edited=true;
+  addLog(di,'تعديل ملاحظة',D[di].chat[ci].user);
+  renderDrawer();renderTable();
+  toast('✓ تم تعديل الملاحظة');
+}
+
+function addLog(di,action,detail){
+  D[di].lastMod=nowTs();
+  D[di].log.unshift({ts:nowTs(),user:USER,action,detail});
+}
+
+/* ============================================================ EXPORT */
+function doExport(type){
+  if(type==='print'){closeDrawer('exportDr');setTimeout(()=>window.print(),280);return;}
+  if(type==='csv'){
+    const rows=['رقم الصنف,المستوى,الطلبات,تاريخ التكرار,تاريخ الوصول,التوفر,آخر تعديل'];
+    D.forEach(d=>{
+      rows.push([d.sku,'الموديل',d.count,d.repeatDate,d.arrivalDate,d.inStock?'متوفر':'',d.lastMod].join(','));
+      d.sizes.forEach(s=>rows.push([d.sku,'مقاس '+s.l,s.c,'','','',''].join(',')));
+    });
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'}));
+    a.download='repeat-requests.csv';a.click();
+    toast('✓ تم تصدير الملف');return;
+  }
+  alert('تصدير PDF سيكون متاحاً بعد الرفع على السيرفر');
+}
+
+/* ============================================================ DRAWER HELPERS */
+function openDrawer(id){
+  closeAllDrawers(false);
+  document.getElementById(id).classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+}
+function closeDrawer(id){
+  document.getElementById(id).classList.remove('open');
+  const open=['manageDr','exportDr'].some(x=>document.getElementById(x).classList.contains('open'));
+  if(!open)document.getElementById('overlay').classList.remove('open');
+}
+function closeAllDrawers(ov=true){
+  ['manageDr','exportDr'].forEach(id=>document.getElementById(id).classList.remove('open'));
+  if(ov)document.getElementById('overlay').classList.remove('open');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeResetAll();closeAllDrawers();}});
+
+/* ============================================================ INIT */
+renderTable();
+</script>
+</body>
+</html>

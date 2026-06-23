@@ -708,6 +708,7 @@ export default function FabricManagementPage() {
                 </button>
                 <button type="button" className={`tab ${tab === 'production' ? 'active' : ''}`} onClick={() => setTab('production')}>دورة الإنتاج</button>
                 <button type="button" className={`tab ${tab === 'models' ? 'active' : ''}`} onClick={() => setTab('models')}>الموديلات</button>
+                <Link href="/fabric-management/repeat-requests" className="tab">طلبات التكرار ↗</Link>
               </div>
 
               {/* ═════ المخزون ═════ */}

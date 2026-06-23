@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'رمز الدخول غير صحيح أو غير مفعل' }, { status: 401 });
     }
 
-    const [fabrics, requests] = await Promise.all([
+    const [fabrics, requests, repeatRequests] = await Promise.all([
       prisma.fabric.findMany({
         where: { isActive: true },
         orderBy: [{ stockLength: 'desc' }, { name: 'asc' }],
@@ -91,6 +91,11 @@ export async function GET(request: NextRequest) {
         include: { fabric: true },
         orderBy: { createdAt: 'desc' },
         take: 20,
+      }),
+      prisma.repeatRequest.findMany({
+        where: { tailorId: tailor.id },
+        include: { designModel: true, sizes: { orderBy: { label: 'asc' } } },
+        orderBy: [{ stage: 'asc' }, { updatedAt: 'desc' }],
       }),
     ]);
 
@@ -102,6 +107,15 @@ export async function GET(request: NextRequest) {
       },
       fabrics: fabrics.map(serializeFabric),
       requests: requests.map(serializeRequest),
+      repeatRequests: repeatRequests.map((rr) => ({
+        id: rr.id,
+        sku: rr.designModel.sku,
+        stage: rr.stage,
+        modelCount: rr.modelCount,
+        totalCount: rr.modelCount + rr.sizes.reduce((sum, s) => sum + s.count, 0),
+        repeatDate: rr.repeatDate ? rr.repeatDate.toISOString() : null,
+        sizes: rr.sizes.map((s) => ({ id: s.id, label: s.label, count: s.count })),
+      })),
     });
   } catch (error) {
     console.error('Error fetching tailor gate data:', error);
@@ -114,6 +128,34 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const accessCode = String(body.accessCode || '').trim();
     const action = String(body.action || 'request-fabric');
+
+    // Tailor marks a tracked repeat order as made (stage 2 -> 3). Handled before
+    // the fabric-request validation below, which this action does not use.
+    if (action === 'repeat-mark-made') {
+      if (!accessCode) {
+        return NextResponse.json({ error: 'رمز الدخول مطلوب' }, { status: 400 });
+      }
+      const tailor = await findTailor(accessCode);
+      if (!tailor) {
+        return NextResponse.json({ error: 'رمز الدخول غير صحيح أو غير مفعل' }, { status: 401 });
+      }
+      const repeatRequestId = String(body.repeatRequestId || '').trim();
+      const rr = await prisma.repeatRequest.findUnique({ where: { id: repeatRequestId } });
+      if (!rr || rr.tailorId !== tailor.id) {
+        return NextResponse.json({ error: 'طلب التكرار غير موجود' }, { status: 404 });
+      }
+      if (rr.stage !== 2) {
+        return NextResponse.json({ error: 'يمكن تعليم "تم الصنع" فقط بعد طلب المسؤول' }, { status: 409 });
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.repeatRequest.update({ where: { id: rr.id }, data: { stage: 3 } });
+        await tx.repeatRequestLog.create({
+          data: { repeatRequestId: rr.id, actor: tailor.name, action: 'تغيير المرحلة', detail: 'تم الصنع' },
+        });
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     const requestedLength = lengthToMeters(body.requestedLength, body.lengthUnit);
 
     if (!accessCode || !Number.isFinite(requestedLength) || requestedLength <= 0) {
