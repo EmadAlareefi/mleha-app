@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 const YARD_TO_METER = 0.9144;
@@ -230,5 +232,40 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error creating tailor fabric request:', error);
     return NextResponse.json({ error: 'فشل في إنشاء طلب القماش' }, { status: 500 });
+  }
+}
+
+// Admin-only cleanup: delete a test row directly from the DB. The gate page is a
+// public path (no auth in middleware), so authorization is enforced here via the
+// NextAuth session — a logged-in admin's cookie is read by getServerSession.
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    const user = session?.user as { role?: string; roles?: string[] } | undefined;
+    const roles = user?.roles || (user?.role ? [user.role] : []);
+    if (!roles.includes('admin')) {
+      return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
+    const id = searchParams.get('id')?.trim();
+    if (!id) {
+      return NextResponse.json({ error: 'المعرف مطلوب' }, { status: 400 });
+    }
+
+    if (type === 'request') {
+      await prisma.tailorFabricRequest.delete({ where: { id } });
+    } else if (type === 'repeat') {
+      // RepeatRequestSize/Note/Log cascade via the schema relations.
+      await prisma.repeatRequest.delete({ where: { id } });
+    } else {
+      return NextResponse.json({ error: 'نوع غير معروف' }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting tailor gate record:', error);
+    return NextResponse.json({ error: 'فشل في الحذف' }, { status: 500 });
   }
 }

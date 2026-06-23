@@ -1,7 +1,8 @@
 'use client';
 
 import { FormEvent, useMemo, useState } from 'react';
-import { LockKeyhole, PackagePlus, RefreshCw, Send } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { LockKeyhole, PackagePlus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { PublicPageShell } from '@/components/dashboard/public-page-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,6 +77,10 @@ const formatCurrency = (value?: number | null) =>
   value === null || value === undefined || Number.isNaN(value) ? '-' : currencyFormatter.format(value);
 
 export default function TailorFabricGatePage() {
+  const { data: session } = useSession();
+  const sessionUser = session?.user as { role?: string; roles?: string[] } | undefined;
+  const isAdmin = (sessionUser?.roles || (sessionUser?.role ? [sessionUser.role] : [])).includes('admin');
+
   const [accessCode, setAccessCode] = useState('');
   const [activeCode, setActiveCode] = useState('');
   const [data, setData] = useState<GateData | null>(null);
@@ -211,6 +216,25 @@ export default function TailorFabricGatePage() {
       await loadGate(activeCode);
     } catch (markError: any) {
       setError(markError.message || 'فشل تحديث المرحلة');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAdminDelete = async (type: 'request' | 'repeat', id: string) => {
+    if (!window.confirm('حذف هذا السجل نهائياً من قاعدة البيانات؟')) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/tailor-fabric-gate?type=${type}&id=${encodeURIComponent(id)}`,
+        { method: 'DELETE' }
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'فشل في الحذف');
+      await loadGate(activeCode);
+    } catch (deleteError: any) {
+      setError(deleteError.message || 'فشل في الحذف');
     } finally {
       setSaving(false);
     }
@@ -433,6 +457,7 @@ export default function TailorFabricGatePage() {
                     <TableHead>التكلفة</TableHead>
                     <TableHead>الحالة</TableHead>
                     <TableHead>التاريخ</TableHead>
+                    {isAdmin && <TableHead className="w-12"></TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -452,11 +477,25 @@ export default function TailorFabricGatePage() {
                         <Badge variant={request.status === 'pending' ? 'secondary' : 'default'}>{request.status}</Badge>
                       </TableCell>
                       <TableCell>{formatDate(request.createdAt)}</TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-red-600 hover:text-red-700"
+                            disabled={saving}
+                            title="حذف من قاعدة البيانات"
+                            onClick={() => void handleAdminDelete('request', request.id)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {!data.requests.length && (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                      <TableCell colSpan={isAdmin ? 6 : 5} className="py-8 text-center text-muted-foreground">
                         لم يتم إرسال طلبات بعد
                       </TableCell>
                     </TableRow>
@@ -482,6 +521,7 @@ export default function TailorFabricGatePage() {
                           <TableHead>الكمية المطلوبة</TableHead>
                           <TableHead>المرحلة</TableHead>
                           <TableHead>الإجراء</TableHead>
+                          {isAdmin && <TableHead className="w-12"></TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -512,6 +552,20 @@ export default function TailorFabricGatePage() {
                                 <span className="text-sm text-muted-foreground">بانتظار طلب المسؤول</span>
                               )}
                             </TableCell>
+                            {isAdmin && (
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8 text-red-600 hover:text-red-700"
+                                  disabled={saving}
+                                  title="حذف من قاعدة البيانات"
+                                  onClick={() => void handleAdminDelete('repeat', rr.id)}
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
+                              </TableCell>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>
