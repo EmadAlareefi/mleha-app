@@ -1058,7 +1058,9 @@ export async function listSallaProducts(
   const query = new URLSearchParams({
     per_page: perPage.toString(),
     page: page.toString(),
-    sort_by: 'updated',
+    // Salla's products API rejects sort_by=updated/updated_at (422 alert.invalid_fields).
+    // Accepted values are created_at, price, sale_price — newest-first is the closest fit.
+    sort_by: 'created_at',
     sort: 'desc',
   });
 
