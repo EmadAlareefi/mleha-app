@@ -513,14 +513,18 @@ model SallaProductLocation {
 }
 
 model Supplier {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  isActive  Boolean  @default(true)
-  notes     String?  @db.Text
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  name          String   @unique
+  phone         String?
+  email         String?
+  contactPerson String?
+  address       String?  @db.Text
+  isActive      Boolean  @default(true)
+  notes         String?  @db.Text
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   products SallaProductSupplier[]
 
@@ -1210,6 +1214,54 @@ model Accessory {
   @@index([sku])
   @@index([isActive])
   @@index([stockQty])
+}
+
+model PurchaseInvoice {
+  id              String    @id @default(cuid())
+  invoiceNumber   String
+  documentType    String?
+  supplier        String?
+  purchaseDate    DateTime?
+  currency        String    @default("SAR")
+  subtotalExclVat Decimal   @default(0) @db.Decimal(14, 2)
+  vatAmount       Decimal   @default(0) @db.Decimal(14, 2)
+  totalInclVat    Decimal   @default(0) @db.Decimal(14, 2)
+  sourceFile      String?
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  items PurchaseInvoiceItem[]
+
+  // Dedup guard: same invoice number + supplier shouldn't be inserted twice.
+  @@unique([invoiceNumber, supplier])
+  @@index([purchaseDate])
+  @@index([supplier])
+}
+
+model PurchaseInvoiceItem {
+  id                   String          @id @default(cuid())
+  invoiceId            String
+  invoice              PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemType             String // 'fabric' | 'accessory'
+  fabricId             String? // set for fabric lines (link to the stock row created/updated)
+  accessoryId          String? // set for accessory lines
+  productName          String
+  productNumber        String?
+  unit                 String?
+  quantity             Decimal         @db.Decimal(14, 3)
+  unitCost             Decimal         @db.Decimal(12, 4)
+  vatRate              Decimal         @default(0.15) @db.Decimal(5, 4)
+  lineTotalExclVat     Decimal         @db.Decimal(14, 2)
+  vatAmount            Decimal         @db.Decimal(14, 2)
+  lineTotalInclVat     Decimal         @db.Decimal(14, 2)
+  extractionConfidence String?
+  notes                String?         @db.Text
+
+  @@index([invoiceId])
+  @@index([itemType])
+  @@index([fabricId])
+  @@index([accessoryId])
 }
 
 model InventoryAuditLog {

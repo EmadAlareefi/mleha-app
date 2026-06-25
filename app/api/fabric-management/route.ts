@@ -8,13 +8,6 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 const FABRIC_SERVICE = 'fabric-management';
 const YARD_TO_METER = 0.9144;
 const MAX_IMAGE_DATA_LENGTH = 3_000_000; // ~2.2MB base64 string
-const SUPPLIER_VALUES = [
-  'جملة بفاتورة',
-  'استيراد الصين',
-  'مخزون سابق',
-  'مكتب محلي',
-  'طلب خاص',
-] as const;
 
 class BadRequestError extends Error {
   status = 400;
@@ -51,12 +44,10 @@ function costToPerMeter(value: unknown, unit: unknown) {
 }
 
 function normalizeSupplier(value: unknown) {
+  // Suppliers are now managed in the Supplier table and chosen from the picker,
+  // so we store the supplier name as-is instead of validating against a fixed list.
   const supplier = typeof value === 'string' ? value.trim() : '';
-  if (!supplier) return null;
-  if (!(SUPPLIER_VALUES as readonly string[]).includes(supplier)) {
-    throw new BadRequestError(`المورد يجب أن يكون أحد الخيارات التالية: ${SUPPLIER_VALUES.join('، ')}`);
-  }
-  return supplier;
+  return supplier || null;
 }
 
 function cleanText(value: unknown) {
@@ -129,6 +120,53 @@ function serializeAccessory(accessory: any) {
     stockQty,
     minStock,
     isLowStock: stockQty <= minStock,
+  };
+}
+
+function serializeSupplier(supplier: any) {
+  return {
+    id: supplier.id,
+    name: supplier.name,
+    phone: supplier.phone,
+    email: supplier.email,
+    contactPerson: supplier.contactPerson,
+    address: supplier.address,
+    notes: supplier.notes,
+  };
+}
+
+function serializePurchaseInvoice(invoice: any) {
+  return {
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    documentType: invoice.documentType,
+    supplier: invoice.supplier,
+    purchaseDate: invoice.purchaseDate,
+    currency: invoice.currency,
+    subtotalExclVat: toNumber(invoice.subtotalExclVat),
+    vatAmount: toNumber(invoice.vatAmount),
+    totalInclVat: toNumber(invoice.totalInclVat),
+    sourceFile: invoice.sourceFile,
+    notes: invoice.notes,
+    items: Array.isArray(invoice.items)
+      ? invoice.items.map((item: any) => ({
+          id: item.id,
+          itemType: item.itemType,
+          fabricId: item.fabricId,
+          accessoryId: item.accessoryId,
+          productName: item.productName,
+          productNumber: item.productNumber,
+          unit: item.unit,
+          quantity: toNumber(item.quantity),
+          unitCost: toNumber(item.unitCost),
+          vatRate: toNumber(item.vatRate),
+          lineTotalExclVat: toNumber(item.lineTotalExclVat),
+          vatAmount: toNumber(item.vatAmount),
+          lineTotalInclVat: toNumber(item.lineTotalInclVat),
+          extractionConfidence: item.extractionConfidence,
+          notes: item.notes,
+        }))
+      : [],
   };
 }
 
@@ -372,6 +410,17 @@ export async function GET() {
       prisma.designModel.findMany({ orderBy: { createdAt: 'desc' }, take: 200 }),
     ]);
 
+    // Defensive: keep the inventory page working even if the Supplier table or its
+    // newer columns aren't migrated yet (run `prisma db push`). Falls back to empty.
+    const suppliers = await prisma.supplier
+      .findMany({ where: { isActive: true }, orderBy: { name: 'asc' } })
+      .catch(() => [] as Awaited<ReturnType<typeof prisma.supplier.findMany>>);
+
+    // Defensive: keep the page working even if PurchaseInvoice isn't migrated yet.
+    const purchaseInvoices = await prisma.purchaseInvoice
+      .findMany({ include: { items: true }, orderBy: { purchaseDate: 'desc' }, take: 200 })
+      .catch(() => [] as Awaited<ReturnType<typeof prisma.purchaseInvoice.findMany>>);
+
     const serializedIssues = issues.map(serializeIssue);
     const stockMeters = fabrics.reduce((sum, fabric) => sum + toNumber(fabric.stockLength), 0);
     const withTailorsMeters = serializedIssues
@@ -458,6 +507,8 @@ export async function GET() {
       issues: serializedIssues,
       requests: requests.map(serializeRequest),
       models: serializedModels,
+      suppliers: suppliers.map(serializeSupplier),
+      purchaseInvoices: purchaseInvoices.map(serializePurchaseInvoice),
       summary: {
         fabricsCount: fabrics.length,
         accessoriesCount: accessories.length,
@@ -466,6 +517,7 @@ export async function GET() {
         withTailorsMeters,
         pendingRequestsCount: requests.filter((request) => request.status === 'pending').length,
         modelsCount: models.length,
+        purchaseInvoicesCount: purchaseInvoices.length,
         lowStockFabricsCount: fabrics.filter((f) => toNumber(f.stockLength) <= toNumber(f.minStock)).length,
         lowStockAccessoriesCount: accessories.filter((a) => toNumber(a.stockQty) <= toNumber(a.minStock)).length,
       },
@@ -504,6 +556,50 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(serializeFabric(fabric), { status: 201 });
+    }
+
+    if (action === 'create-supplier') {
+      const name = cleanText(body.name);
+      if (!name) {
+        return NextResponse.json({ error: 'اسم المورّد مطلوب' }, { status: 400 });
+      }
+
+      const actor = getAuditUser(access.session);
+      const optionalFields = {
+        phone: cleanText(body.phone) || null,
+        email: cleanText(body.email) || null,
+        contactPerson: cleanText(body.contactPerson) || null,
+        address: cleanText(body.address) || null,
+        notes: cleanText(body.notes) || null,
+      };
+
+      // Create-or-return: a case-insensitive match prevents near-duplicate suppliers.
+      const existing = await prisma.supplier.findFirst({
+        where: { name: { equals: name, mode: 'insensitive' } },
+      });
+
+      if (existing) {
+        const supplier = await prisma.supplier.update({
+          where: { id: existing.id },
+          data: {
+            isActive: true,
+            updatedBy: actor,
+            // Only fill blanks so re-selecting an existing supplier doesn't wipe its data.
+            phone: existing.phone || optionalFields.phone,
+            email: existing.email || optionalFields.email,
+            contactPerson: existing.contactPerson || optionalFields.contactPerson,
+            address: existing.address || optionalFields.address,
+            notes: existing.notes || optionalFields.notes,
+          },
+        });
+        return NextResponse.json(serializeSupplier(supplier), { status: 200 });
+      }
+
+      const supplier = await prisma.supplier.create({
+        data: { name, ...optionalFields, createdBy: actor, updatedBy: actor },
+      });
+
+      return NextResponse.json(serializeSupplier(supplier), { status: 201 });
     }
 
     if (action === 'create-tailor') {

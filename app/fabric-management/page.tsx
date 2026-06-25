@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
@@ -49,6 +49,16 @@ type Accessory = {
   isLowStock: boolean;
 };
 
+type Supplier = {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  contactPerson?: string | null;
+  address?: string | null;
+  notes?: string | null;
+};
+
 type AuditLog = {
   id: string;
   field: string;
@@ -56,6 +66,39 @@ type AuditLog = {
   newValue: string | null;
   changedBy: string;
   createdAt: string;
+};
+
+type PurchaseInvoiceItem = {
+  id: string;
+  itemType: 'fabric' | 'accessory' | string;
+  fabricId?: string | null;
+  accessoryId?: string | null;
+  productName: string;
+  productNumber?: string | null;
+  unit?: string | null;
+  quantity: number;
+  unitCost: number;
+  vatRate: number;
+  lineTotalExclVat: number;
+  vatAmount: number;
+  lineTotalInclVat: number;
+  extractionConfidence?: string | null;
+  notes?: string | null;
+};
+
+type PurchaseInvoice = {
+  id: string;
+  invoiceNumber: string;
+  documentType?: string | null;
+  supplier?: string | null;
+  purchaseDate?: string | null;
+  currency: string;
+  subtotalExclVat: number;
+  vatAmount: number;
+  totalInclVat: number;
+  sourceFile?: string | null;
+  notes?: string | null;
+  items: PurchaseInvoiceItem[];
 };
 
 type Tailor = {
@@ -123,6 +166,8 @@ type FabricManagementData = {
   issues: TailorFabricIssue[];
   requests: TailorFabricRequest[];
   models: DesignModel[];
+  suppliers: Supplier[];
+  purchaseInvoices: PurchaseInvoice[];
   summary: {
     fabricsCount: number;
     accessoriesCount: number;
@@ -131,6 +176,7 @@ type FabricManagementData = {
     withTailorsMeters: number;
     pendingRequestsCount: number;
     modelsCount: number;
+    purchaseInvoicesCount: number;
     lowStockFabricsCount: number;
     lowStockAccessoriesCount: number;
   };
@@ -202,14 +248,6 @@ const FABRIC_COLOR_OPTIONS: SelectOption[] = [
   'متعدد الألوان',
 ].map((value) => ({ value, label: value }));
 
-const SUPPLIER_OPTIONS: SelectOption[] = [
-  'جملة بفاتورة',
-  'استيراد الصين',
-  'مخزون سابق',
-  'مكتب محلي',
-  'طلب خاص',
-].map((value) => ({ value, label: value }));
-
 const WORKSHOP_OPTIONS: SelectOption[] = [
   'ورشة داخلية',
   'ورشة خارجية',
@@ -275,6 +313,28 @@ const initialCreateFabricDialog: CreateFabricDialogState = {
   color: '',
 };
 
+type CreateSupplierDialogState = {
+  open: boolean;
+  target: 'fabric' | 'accessory' | null;
+  name: string;
+  phone: string;
+  email: string;
+  contactPerson: string;
+  address: string;
+  notes: string;
+};
+
+const initialCreateSupplierDialog: CreateSupplierDialogState = {
+  open: false,
+  target: null,
+  name: '',
+  phone: '',
+  email: '',
+  contactPerson: '',
+  address: '',
+  notes: '',
+};
+
 const looksLikeSku = (value: string) => /[0-9]/.test(value) || /^[A-Za-z0-9_-]+$/.test(value);
 
 const initialDeliveryForm = {
@@ -337,6 +397,7 @@ export default function FabricManagementPage() {
   const [purchaseBillForm, setPurchaseBillForm] = useState<PurchaseBillForm>(() => initialPurchaseBillForm());
   const [purchaseBillItems, setPurchaseBillItems] = useState<PurchaseBillItem[]>(() => [createPurchaseBillItem()]);
   const [createFabricDialog, setCreateFabricDialog] = useState<CreateFabricDialogState>(initialCreateFabricDialog);
+  const [createSupplierDialog, setCreateSupplierDialog] = useState<CreateSupplierDialogState>(initialCreateSupplierDialog);
   const [deliveryForm, setDeliveryForm] = useState(initialDeliveryForm);
   const [modelIssueForm, setModelIssueForm] = useState(initialModelIssueForm);
   const [accessoryBillForm, setAccessoryBillForm] = useState<PurchaseBillForm>(() => initialPurchaseBillForm());
@@ -380,7 +441,15 @@ export default function FabricManagementPage() {
     () => mergeOptions(FABRIC_COLOR_OPTIONS, data?.fabrics.map((fabric) => fabric.color) || [], true),
     [data?.fabrics]
   );
-  const supplierOptions = useMemo(() => SUPPLIER_OPTIONS, []);
+  const supplierOptions = useMemo<SelectOption[]>(
+    () =>
+      (data?.suppliers || []).map((supplier) => ({
+        value: supplier.name,
+        label: supplier.name,
+        description: [supplier.contactPerson, supplier.phone].filter(Boolean).join(' - ') || undefined,
+      })),
+    [data?.suppliers]
+  );
   const workshopOptions = useMemo(
     () => mergeOptions(WORKSHOP_OPTIONS, data?.tailors.map((tailor) => tailor.workshopName) || [], true),
     [data?.tailors]
@@ -535,6 +604,56 @@ export default function FabricManagementPage() {
     }
   };
 
+  const openCreateSupplierDialog = (target: 'fabric' | 'accessory', searchValue: string) => {
+    setCreateSupplierDialog({ ...initialCreateSupplierDialog, open: true, target, name: searchValue.trim() });
+  };
+
+  const closeCreateSupplierDialog = () => {
+    setCreateSupplierDialog(initialCreateSupplierDialog);
+  };
+
+  const handleCreateSupplierFromDialog = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = createSupplierDialog.name.trim();
+    if (!name) {
+      alert('اسم المورّد مطلوب');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch('/api/fabric-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create-supplier',
+          name,
+          phone: createSupplierDialog.phone,
+          email: createSupplierDialog.email,
+          contactPerson: createSupplierDialog.contactPerson,
+          address: createSupplierDialog.address,
+          notes: createSupplierDialog.notes,
+        }),
+      });
+      const createdSupplier = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(createdSupplier.error || 'فشل في إنشاء المورّد');
+
+      const supplierName = createdSupplier.name || name;
+      const target = createSupplierDialog.target;
+      await fetchData();
+      if (target === 'fabric') {
+        setPurchaseBillForm((current) => ({ ...current, supplier: supplierName }));
+      } else if (target === 'accessory') {
+        setAccessoryBillForm((current) => ({ ...current, supplier: supplierName }));
+      }
+      closeCreateSupplierDialog();
+    } catch (createError: any) {
+      alert(createError.message || 'فشل في إنشاء المورّد');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const addPurchaseBillItem = () => {
     setPurchaseBillItems((currentItems) => [...currentItems, createPurchaseBillItem()]);
   };
@@ -642,7 +761,7 @@ export default function FabricManagementPage() {
 
   const summary = data?.summary;
 
-  const [tab, setTab] = useState<'stock' | 'tailors' | 'production' | 'models'>('stock');
+  const [tab, setTab] = useState<'stock' | 'tailors' | 'production' | 'models' | 'invoices'>('stock');
   const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
   const [stockTableTab, setStockTableTab] = useState<'fabric' | 'accessory'>('fabric');
   const [tailorTab, setTailorTab] = useState<'list' | 'requests'>('list');
@@ -708,6 +827,7 @@ export default function FabricManagementPage() {
                 </button>
                 <button type="button" className={`tab ${tab === 'production' ? 'active' : ''}`} onClick={() => setTab('production')}>دورة الإنتاج</button>
                 <button type="button" className={`tab ${tab === 'models' ? 'active' : ''}`} onClick={() => setTab('models')}>الموديلات</button>
+                <button type="button" className={`tab ${tab === 'invoices' ? 'active' : ''}`} onClick={() => setTab('invoices')}>فواتير الشراء</button>
               </div>
 
               {/* ═════ المخزون ═════ */}
@@ -724,7 +844,7 @@ export default function FabricManagementPage() {
                         <div className="grid" style={{ marginBottom: 14 }}>
                           <TextInput label="رقم الفاتورة" value={purchaseBillForm.billNumber} onChange={(billNumber) => setPurchaseBillForm({ ...purchaseBillForm, billNumber })} required />
                           <TextInput label="تاريخ الشراء" type="date" value={purchaseBillForm.purchaseDate} onChange={(purchaseDate) => setPurchaseBillForm({ ...purchaseBillForm, purchaseDate })} required />
-                          <DesignSelect label="المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} allowCreate searchable />
+                          <DesignSelect label="اسم المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} onCreate={(name) => openCreateSupplierDialog('fabric', name)} searchable fallbackLabel={purchaseBillForm.supplier} />
                         </div>
                         <div className="section-label" style={{ marginBottom: 10 }}>الأقمشة في الفاتورة</div>
                         <div className="inv-head">
@@ -758,7 +878,7 @@ export default function FabricManagementPage() {
                         <div className="grid" style={{ marginBottom: 14 }}>
                           <TextInput label="رقم الفاتورة" value={accessoryBillForm.billNumber} onChange={(billNumber) => setAccessoryBillForm({ ...accessoryBillForm, billNumber })} required />
                           <TextInput label="تاريخ الشراء" type="date" value={accessoryBillForm.purchaseDate} onChange={(purchaseDate) => setAccessoryBillForm({ ...accessoryBillForm, purchaseDate })} required />
-                          <DesignSelect label="المورد" value={accessoryBillForm.supplier} options={supplierOptions} onChange={(supplier) => setAccessoryBillForm({ ...accessoryBillForm, supplier })} allowCreate searchable />
+                          <DesignSelect label="اسم المورد" value={accessoryBillForm.supplier} options={supplierOptions} onChange={(supplier) => setAccessoryBillForm({ ...accessoryBillForm, supplier })} onCreate={(name) => openCreateSupplierDialog('accessory', name)} searchable fallbackLabel={accessoryBillForm.supplier} />
                         </div>
                         <div className="section-label" style={{ marginBottom: 10 }}>المستلزمات في الفاتورة</div>
                         <div className="inv-head acc-inv-head">
@@ -902,6 +1022,10 @@ export default function FabricManagementPage() {
                 />
               )}
 
+              {tab === 'invoices' && (
+                <InvoicesTab invoices={data?.purchaseInvoices || []} />
+              )}
+
               <CreateFabricDrawer
                 state={createFabricDialog}
                 saving={saving}
@@ -909,6 +1033,13 @@ export default function FabricManagementPage() {
                 onClose={closeCreateFabricDialog}
                 onChange={(changes) => setCreateFabricDialog((current) => ({ ...current, ...changes }))}
                 onSubmit={handleCreateFabricFromDialog}
+              />
+              <CreateSupplierDrawer
+                state={createSupplierDialog}
+                saving={saving}
+                onClose={closeCreateSupplierDialog}
+                onChange={(changes) => setCreateSupplierDialog((current) => ({ ...current, ...changes }))}
+                onSubmit={handleCreateSupplierFromDialog}
               />
               <EditEntityDrawer
                 state={editDrawer}
@@ -952,6 +1083,112 @@ function StatCard({ title, value, icon }: { title: string; value: string; icon: 
           <p className="v">{value}</p>
         </div>
         <div className="stat-ico">{icon}</div>
+      </div>
+    </div>
+  );
+}
+
+function InvoicesTab({ invoices }: { invoices: PurchaseInvoice[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  if (!invoices.length) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>
+        لا توجد فواتير شراء مسجّلة بعد.
+      </div>
+    );
+  }
+
+  const totals = invoices.reduce(
+    (sum, inv) => ({
+      subtotal: sum.subtotal + inv.subtotalExclVat,
+      vat: sum.vat + inv.vatAmount,
+      total: sum.total + inv.totalInclVat,
+    }),
+    { subtotal: 0, vat: 0, total: 0 }
+  );
+
+  return (
+    <div>
+      <div className="stats-row" style={{ marginBottom: 16 }}>
+        <StatCard title="عدد الفواتير" value={formatNumber(invoices.length)} icon={<FileText />} />
+        <StatCard title="الإجمالي قبل الضريبة" value={formatCurrency(totals.subtotal)} icon={<FileText />} />
+        <StatCard title="إجمالي الضريبة" value={formatCurrency(totals.vat)} icon={<FileText />} />
+        <StatCard title="الإجمالي شامل الضريبة" value={formatCurrency(totals.total)} icon={<FileText />} />
+      </div>
+
+      <div className="card" style={{ overflowX: 'auto' }}>
+        <table className="cards-mobile">
+          <thead>
+            <tr>
+              <th>رقم الفاتورة</th>
+              <th>التاريخ</th>
+              <th>المورد</th>
+              <th>الأصناف</th>
+              <th>قبل الضريبة</th>
+              <th>الضريبة</th>
+              <th>الإجمالي</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map((invoice) => {
+              const isOpen = expanded === invoice.id;
+              return (
+                <Fragment key={invoice.id}>
+                  <tr
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setExpanded(isOpen ? null : invoice.id)}
+                  >
+                    <td data-label="رقم الفاتورة">
+                      {isOpen ? '▾ ' : '▸ '}
+                      {invoice.invoiceNumber}
+                    </td>
+                    <td data-label="التاريخ">{formatDate(invoice.purchaseDate)}</td>
+                    <td data-label="المورد">{invoice.supplier || '-'}</td>
+                    <td data-label="الأصناف">{formatNumber(invoice.items.length)}</td>
+                    <td data-label="قبل الضريبة">{formatCurrency(invoice.subtotalExclVat)}</td>
+                    <td data-label="الضريبة">{formatCurrency(invoice.vatAmount)}</td>
+                    <td data-label="الإجمالي">{formatCurrency(invoice.totalInclVat)}</td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={7} style={{ background: '#f8fafc', padding: 12 }}>
+                        <table className="log-table" style={{ width: '100%' }}>
+                          <thead>
+                            <tr>
+                              <th>الصنف</th>
+                              <th>النوع</th>
+                              <th>رقم المنتج</th>
+                              <th>الوحدة</th>
+                              <th>الكمية</th>
+                              <th>سعر الوحدة</th>
+                              <th>الإجمالي شامل الضريبة</th>
+                              <th>الثقة</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {invoice.items.map((item) => (
+                              <tr key={item.id}>
+                                <td>{item.productName}</td>
+                                <td>{item.itemType === 'accessory' ? 'مستلزم' : 'قماش'}</td>
+                                <td>{item.productNumber || '-'}</td>
+                                <td>{item.unit || '-'}</td>
+                                <td>{formatNumber(item.quantity)}</td>
+                                <td>{formatCurrency(item.unitCost)}</td>
+                                <td>{formatCurrency(item.lineTotalInclVat)}</td>
+                                <td>{item.extractionConfidence || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1638,6 +1875,46 @@ function CreateFabricDrawer({
           <TextInput label="اسم القماش" value={state.name} onChange={(name) => onChange({ name })} required />
           <TextInput label="رمز القماش" value={state.sku} onChange={(sku) => onChange({ sku })} />
           <DesignSelect label="اللون" value={state.color} options={colorOptions} onChange={(color) => onChange({ color })} allowCreate searchable className="full" />
+        </div>
+      </form>
+    </Drawer>
+  );
+}
+
+function CreateSupplierDrawer({
+  state,
+  saving,
+  onClose,
+  onChange,
+  onSubmit,
+}: {
+  state: CreateSupplierDialogState;
+  saving: boolean;
+  onClose: () => void;
+  onChange: (changes: Partial<CreateSupplierDialogState>) => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <Drawer
+      open={state.open}
+      title="إنشاء مورد جديد"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" type="submit" form="create-supplier-form" disabled={saving}>حفظ واختيار المورد</button>
+          <button className="btn ghost" type="button" onClick={onClose} disabled={saving}>إلغاء</button>
+        </>
+      }
+    >
+      <p className="muted-note" style={{ marginBottom: 12 }}>الاسم فقط مطلوب، وبقية الحقول اختيارية. سيتم اختيار المورد تلقائياً في الفاتورة بعد الحفظ.</p>
+      <form id="create-supplier-form" onSubmit={onSubmit}>
+        <div className="grid">
+          <TextInput label="اسم المورد" value={state.name} onChange={(name) => onChange({ name })} required />
+          <TextInput label="رقم الجوال (اختياري)" value={state.phone} onChange={(phone) => onChange({ phone })} />
+          <TextInput label="الشخص المسؤول (اختياري)" value={state.contactPerson} onChange={(contactPerson) => onChange({ contactPerson })} />
+          <TextInput label="البريد الإلكتروني (اختياري)" type="email" value={state.email} onChange={(email) => onChange({ email })} />
+          <TextAreaField label="العنوان (اختياري)" value={state.address} onChange={(address) => onChange({ address })} className="full" />
+          <TextAreaField label="ملاحظات (اختياري)" value={state.notes} onChange={(notes) => onChange({ notes })} className="full" />
         </div>
       </form>
     </Drawer>
