@@ -152,6 +152,13 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     ],
   ],
   ['expenses', [/^\/expenses(\/.*)?$/]],
+  [
+    'fabric-repeat-requests',
+    [
+      /^\/fabric-management\/repeat-requests(\/.*)?$/,
+      /^\/api\/fabric-management\/repeat-requests(\/.*)?$/,
+    ],
+  ],
 ]);
 
 const serviceHomeByKey = new Map<ServiceKey, string>(

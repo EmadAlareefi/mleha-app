@@ -457,6 +457,16 @@ const serviceDefinitionsData = [
     defaultRoles: ['admin', 'store_manager', 'warehouse', 'accountant'],
     grantsRoles: ['store_manager', 'warehouse', 'accountant'],
   },
+  {
+    key: 'fabric-repeat-requests',
+    title: 'طلبات التكرار',
+    description: 'متابعة طلبات تكرار تصنيع الفساتين ومراحلها مع الخياطين',
+    icon: '🔁',
+    href: '/fabric-management/repeat-requests',
+    color: 'from-cyan-500 to-teal-600',
+    defaultRoles: ['admin', 'store_manager', 'warehouse', 'accountant'],
+    grantsRoles: [],
+  },
 ] as const satisfies ReadonlyArray<ServiceDefinitionSeed>;
 
 export type ServiceKey = (typeof serviceDefinitionsData)[number]['key'];

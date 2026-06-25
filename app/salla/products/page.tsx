@@ -28,6 +28,11 @@ const STATUS_OPTIONS = [
   { value: 'out', label: 'نافد' },
 ];
 
+type SupplierOption = {
+  id: string;
+  name: string;
+};
+
 type ProductOptionSnapshot = {
   id: string | number | null;
   name: string;
@@ -109,6 +114,8 @@ export default function SallaProductsPage() {
   const [productRequests, setProductRequests] = useState<Record<number, QuantityRequestRecord[]>>({});
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [productSuppliers, setProductSuppliers] = useState<Record<number, string>>({});
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [variationsMap, setVariationsMap] = useState<Record<number, SallaProductVariation[]>>({});
@@ -216,11 +223,122 @@ export default function SallaProductsPage() {
     }
   }, []);
 
+  const fetchSuppliers = useCallback(async () => {
+    try {
+      const response = await fetch('/api/suppliers', { cache: 'no-store' });
+      const data = await response.json();
+      if (response.ok && data.success && Array.isArray(data.suppliers)) {
+        setSuppliers(
+          data.suppliers.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name }))
+        );
+      }
+    } catch {
+      // Best-effort; ignore failures.
+    }
+  }, []);
+
+  const handleCreateSupplier = useCallback(async (name: string): Promise<SupplierOption> => {
+    const response = await fetch('/api/suppliers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data?.error || 'تعذر إضافة المورّد');
+    }
+    const created: SupplierOption = { id: data.supplier.id, name: data.supplier.name };
+    setSuppliers((prev) =>
+      prev.some((s) => s.id === created.id)
+        ? prev
+        : [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
+    );
+    return created;
+  }, []);
+
+  const fetchProductSuppliers = useCallback(async (productIds: number[]) => {
+    if (!productIds || productIds.length === 0) {
+      setProductSuppliers({});
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams();
+      productIds.forEach((id) => params.append('productId', id.toString()));
+      const response = await fetch(`/api/product-suppliers?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setProductSuppliers({});
+        return;
+      }
+
+      const map: Record<number, string> = {};
+      if (Array.isArray(data.productSuppliers)) {
+        data.productSuppliers.forEach((record: { productId: string; supplierId: string }) => {
+          const id = Number.parseInt(record.productId, 10);
+          if (Number.isFinite(id)) {
+            map[id] = record.supplierId;
+          }
+        });
+      }
+      setProductSuppliers(map);
+    } catch {
+      setProductSuppliers({});
+    }
+  }, []);
+
+  const handleSaveSupplier = useCallback(
+    async (product: SallaProductSummary, supplierId: string) => {
+      if (supplierId) {
+        const response = await fetch('/api/product-suppliers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productId: product.id.toString(),
+            supplierId,
+            sku: product.sku ?? undefined,
+            productName: product.name ?? undefined,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر حفظ مورّد المنتج');
+        }
+        setProductSuppliers((prev) => ({ ...prev, [product.id]: supplierId }));
+      } else {
+        const response = await fetch('/api/product-suppliers', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId: product.id.toString() }),
+        });
+        if (!response.ok && response.status !== 404) {
+          const data = await response.json().catch(() => null);
+          throw new Error(data?.error || 'تعذر حذف مورّد المنتج');
+        }
+        setProductSuppliers((prev) => {
+          const next = { ...prev };
+          delete next[product.id];
+          return next;
+        });
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     if (status === 'authenticated') {
       fetchProducts(currentPage, searchSku, statusFilter);
     }
   }, [status, currentPage, searchSku, statusFilter, fetchProducts]);
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      fetchSuppliers();
+    }
+  }, [status, fetchSuppliers]);
 
   useEffect(() => {
     if (status !== 'authenticated') {
@@ -271,11 +389,13 @@ export default function SallaProductsPage() {
     }
     if (products.length === 0) {
       setProductRequests({});
+      setProductSuppliers({});
       return;
     }
     const ids = products.map((product) => product.id);
     fetchProductRequests(ids);
-  }, [status, products, fetchProductRequests]);
+    fetchProductSuppliers(ids);
+  }, [status, products, fetchProductRequests, fetchProductSuppliers]);
 
   const handleRefresh = () => {
     fetchProducts(currentPage, searchSku, statusFilter);
@@ -551,20 +671,21 @@ export default function SallaProductsPage() {
                       <TableHead className="text-slate-600">السعر</TableHead>
                       <TableHead className="text-slate-600">المتوفر</TableHead>
                       <TableHead className="text-slate-600">الحالة</TableHead>
+                      <TableHead className="w-56 text-slate-600">المورّد</TableHead>
                       <TableHead className="w-[320px] text-slate-600">طلب كمية</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading && (
                       <TableRow>
-                        <TableCell colSpan={6} className="py-10 text-center">
+                        <TableCell colSpan={7} className="py-10 text-center">
                           <LoadingState label="جاري تحميل المنتجات من سلة..." />
                         </TableCell>
                       </TableRow>
                     )}
                     {!loading && products.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="py-10 text-center text-slate-500">
+                        <TableCell colSpan={7} className="py-10 text-center text-slate-500">
                           <EmptyState title="لا توجد منتجات مطابقة لبحثك حالياً" />
                         </TableCell>
                       </TableRow>
@@ -585,6 +706,10 @@ export default function SallaProductsPage() {
                           rowVariationsLoading={!!rowVariationsLoading[product.id]}
                           variationError={productVariationErrors[product.id]}
                           onRefreshVariations={() => refreshVariationsForProduct(product.id)}
+                          supplierId={productSuppliers[product.id] ?? ''}
+                          suppliers={suppliers}
+                          onSaveSupplier={(value) => handleSaveSupplier(product, value)}
+                          onCreateSupplier={handleCreateSupplier}
                         />
                       ))}
                   </TableBody>
@@ -607,6 +732,10 @@ type ProductRowProps = {
   rowVariationsLoading: boolean;
   variationError?: string | null;
   onRefreshVariations: () => void;
+  supplierId: string;
+  suppliers: SupplierOption[];
+  onSaveSupplier: (supplierId: string) => Promise<void>;
+  onCreateSupplier: (name: string) => Promise<SupplierOption>;
 };
 
 function ProductRow({
@@ -619,12 +748,20 @@ function ProductRow({
   rowVariationsLoading,
   variationError,
   onRefreshVariations,
+  supplierId,
+  suppliers,
+  onSaveSupplier,
+  onCreateSupplier,
 }: ProductRowProps) {
   const [variationAdjustments, setVariationAdjustments] = useState<
     Record<string, { quantity: string; mode: 'increment' | 'decrement' }>
   >({});
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateFeedback, setUpdateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [supplierSaving, setSupplierSaving] = useState(false);
+  const [supplierFeedback, setSupplierFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [addingSupplier, setAddingSupplier] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState('');
   const variationList = variations ?? [];
   const variationMessage = variationError;
   const rowLoading = rowVariationsLoading;
@@ -644,6 +781,138 @@ function ProductRow({
     setVariationAdjustments({});
     setUpdateFeedback(null);
   }, [product.id]);
+
+  useEffect(() => {
+    setSupplierFeedback(null);
+    setAddingSupplier(false);
+    setNewSupplierName('');
+  }, [supplierId, product.id]);
+
+  const ADD_NEW_VALUE = '__add_new__';
+
+  const persistSupplier = async (value: string, successMessage: string) => {
+    setSupplierSaving(true);
+    setSupplierFeedback(null);
+    try {
+      await onSaveSupplier(value);
+      setSupplierFeedback({ type: 'success', message: successMessage });
+    } catch (error) {
+      setSupplierFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'تعذر حفظ المورّد.',
+      });
+    } finally {
+      setSupplierSaving(false);
+    }
+  };
+
+  const handleSupplierSelectChange = (value: string) => {
+    if (value === ADD_NEW_VALUE) {
+      setAddingSupplier(true);
+      setNewSupplierName('');
+      setSupplierFeedback(null);
+      return;
+    }
+    if (value === supplierId) {
+      return;
+    }
+    persistSupplier(value, value ? 'تم حفظ المورّد.' : 'تم حذف المورّد.');
+  };
+
+  const handleCreateAndAssign = async () => {
+    const name = newSupplierName.trim();
+    if (!name) {
+      setSupplierFeedback({ type: 'error', message: 'اسم المورّد مطلوب.' });
+      return;
+    }
+    setSupplierSaving(true);
+    setSupplierFeedback(null);
+    try {
+      const created = await onCreateSupplier(name);
+      await onSaveSupplier(created.id);
+      setAddingSupplier(false);
+      setNewSupplierName('');
+      setSupplierFeedback({ type: 'success', message: 'تم إضافة المورّد وربطه.' });
+    } catch (error) {
+      setSupplierFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'تعذر إضافة المورّد.',
+      });
+    } finally {
+      setSupplierSaving(false);
+    }
+  };
+
+  const renderSupplierEditor = (idSuffix: string) => (
+    <div className="space-y-1.5">
+      {addingSupplier ? (
+        <div className="flex items-center gap-2">
+          <Input
+            value={newSupplierName}
+            onChange={(event) => setNewSupplierName(event.target.value)}
+            placeholder="اسم المورّد الجديد"
+            className="h-9 text-sm"
+            aria-label={`مورّد جديد - ${product.name}`}
+            id={`new-supplier-${idSuffix}-${product.id}`}
+            disabled={supplierSaving}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                handleCreateAndAssign();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            className="shrink-0"
+            onClick={handleCreateAndAssign}
+            disabled={supplierSaving || !newSupplierName.trim()}
+          >
+            {supplierSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'إضافة'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="shrink-0"
+            onClick={() => {
+              setAddingSupplier(false);
+              setNewSupplierName('');
+            }}
+            disabled={supplierSaving}
+          >
+            إلغاء
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <NativeSelect
+            value={supplierId}
+            onChange={(event) => handleSupplierSelectChange(event.target.value)}
+            disabled={supplierSaving}
+            aria-label={`المورّد - ${product.name}`}
+            id={`supplier-${idSuffix}-${product.id}`}
+            className="text-sm"
+          >
+            <NativeSelectOption value="">— بدون مورّد —</NativeSelectOption>
+            {suppliers.map((option) => (
+              <NativeSelectOption key={option.id} value={option.id}>
+                {option.name}
+              </NativeSelectOption>
+            ))}
+            <NativeSelectOption value={ADD_NEW_VALUE}>➕ إضافة مورّد جديد…</NativeSelectOption>
+          </NativeSelect>
+          {supplierSaving && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+        </div>
+      )}
+      {supplierFeedback && (
+        <p className={`text-xs ${supplierFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+          {supplierFeedback.message}
+        </p>
+      )}
+    </div>
+  );
 
   const handleAdjustmentQuantityChange = (variationKey: string, value: string) => {
     setVariationAdjustments((prev) => ({
@@ -930,13 +1199,14 @@ function ProductRow({
             {product.status || 'غير محدد'}
           </Badge>
         </TableCell>
+        <TableCell>{renderSupplierEditor('desktop')}</TableCell>
         <TableCell>{renderQuantityRequestSection()}</TableCell>
       </TableRow>
       <TableRow className="hidden bg-slate-50/60 lg:table-row">
-        <TableCell colSpan={6}>{renderVariationSection()}</TableCell>
+        <TableCell colSpan={7}>{renderVariationSection()}</TableCell>
       </TableRow>
       <TableRow className="lg:hidden">
-        <TableCell colSpan={6} className="border-0 p-0 align-top">
+        <TableCell colSpan={7} className="border-0 p-0 align-top">
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center gap-3">
               {product.imageUrl ? (
@@ -980,6 +1250,10 @@ function ProductRow({
                 <p className="text-xs text-slate-500">الحالة</p>
                 <p className="font-medium text-slate-900">{product.status || 'غير محدد'}</p>
               </div>
+            </div>
+            <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+              <p className="mb-2 text-xs text-slate-500">المورّد</p>
+              {renderSupplierEditor('mobile')}
             </div>
             {renderQuantityRequestSection()}
             {renderVariationSection()}

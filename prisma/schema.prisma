@@ -512,6 +512,41 @@ model SallaProductLocation {
   @@index([updatedAt])
 }
 
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  notes     String?  @db.Text
+  createdBy String?
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products SallaProductSupplier[]
+
+  @@index([isActive])
+  @@index([name])
+}
+
+model SallaProductSupplier {
+  id          String   @id @default(cuid())
+  productId   String   @unique // Salla product ID (string form)
+  sku         String?
+  productName String?
+  merchantId  String?
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  notes       String?  @db.Text
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([supplierId])
+  @@index([merchantId])
+  @@index([updatedAt])
+}
+
 model SallaProductQuantityRequest {
   id                    String    @id @default(cuid())
   merchantId            String?

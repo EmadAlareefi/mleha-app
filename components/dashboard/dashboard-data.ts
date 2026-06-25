@@ -35,6 +35,7 @@ import {
   Scale,
   Satellite,
   Scissors,
+  Repeat,
 } from 'lucide-react';
 import {
   serviceDefinitions,
@@ -129,6 +130,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   settlements: 'finance',
   expenses: 'finance',
   'fabric-management': 'warehouse',
+  'fabric-repeat-requests': 'warehouse',
   'salla-products': 'store',
   'salla-notify': 'store',
   'salla-requests': 'store',
@@ -186,6 +188,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'salla-requests': ClipboardList,
   expenses: Wallet,
   'fabric-management': Scissors,
+  'fabric-repeat-requests': Repeat,
 };
 
 const categoryAccentMap: Record<DashboardCategoryId, string> = {
@@ -209,6 +212,7 @@ const priorityMap: Partial<Record<ServiceKey, number>> = {
   'admin-order-prep': 76,
   'cod-tracker': 72,
   'fabric-management': 70,
+  'fabric-repeat-requests': 69,
 };
 
 export function getRoleLabel(role?: string | null) {
