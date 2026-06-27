@@ -191,18 +191,36 @@ export default function OrderInvoiceSearchPage() {
     return saudiVariants.some((variant) => normalized === variant);
   };
 
+  // Normalize Saudi mobile numbers to the 966XXXXXXXXX format.
+  // e.g. 0501466365 / 501466365 / +966501466365 -> 966501466365
+  const normalizeSearchQuery = (raw: string): string => {
+    const trimmed = raw.trim();
+    // Only touch values that look like phone numbers (optional leading +, then digits/spaces).
+    if (!/^\+?[\d\s]+$/.test(trimmed)) return trimmed;
+
+    const digits = trimmed.replace(/\D/g, '');
+
+    if (digits.startsWith('966') && digits.length === 12) return digits;
+    if (digits.startsWith('05') && digits.length === 10) return `966${digits.slice(1)}`;
+    if (digits.startsWith('5') && digits.length === 9) return `966${digits}`;
+
+    return trimmed;
+  };
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       setError('يرجى إدخال رقم الطلب، الرقم المرجعي، أو رقم العميل');
       return;
     }
 
+    const normalizedQuery = normalizeSearchQuery(searchQuery);
+
     setSearching(true);
     setError(null);
     setOrder(null);
 
     try {
-      const response = await fetch(`/api/order-assignments/search?query=${encodeURIComponent(searchQuery.trim())}`);
+      const response = await fetch(`/api/order-assignments/search?query=${encodeURIComponent(normalizedQuery)}`);
       const data = await response.json();
 
       if (!response.ok || !data.success) {
