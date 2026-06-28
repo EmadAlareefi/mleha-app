@@ -392,15 +392,27 @@ function AddProductDialog({ onCreated }: AddProductDialogProps) {
 
   const search = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (loading) {
+      return;
+    }
+    const sku = skuInput.trim();
+    if (!sku) {
+      setError('أدخل اسم المنتج أو SKU للبحث.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
     try {
-      const params = new URLSearchParams({ page: '1', perPage: '50' });
-      const sku = skuInput.trim();
-      if (sku) {
-        params.set('sku', sku);
-      }
-      const response = await fetch(`/api/salla/products?${params.toString()}`, { cache: 'no-store' });
+      const params = new URLSearchParams({ page: '1', perPage: '50', sku });
+      const response = await fetch(`/api/salla/products?${params.toString()}`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data?.error || 'تعذر تحميل منتجات سلة');
@@ -408,9 +420,14 @@ function AddProductDialog({ onCreated }: AddProductDialogProps) {
       setProducts(Array.isArray(data.products) ? data.products : []);
       setMerchantId(typeof data.merchantId === 'string' ? data.merchantId : null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر تحميل المنتجات');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('استغرق البحث وقتاً طويلاً، حاول مجدداً.');
+      } else {
+        setError(err instanceof Error ? err.message : 'تعذر تحميل المنتجات');
+      }
       setProducts([]);
     } finally {
+      clearTimeout(timeout);
       setLoading(false);
     }
   };
@@ -470,6 +487,10 @@ function AddProductDialog({ onCreated }: AddProductDialogProps) {
             بحث
           </Button>
         </form>
+
+        <p className="text-[11px] text-muted-foreground">
+          قد يستغرق البحث برمز SKU بضع ثوانٍ.
+        </p>
 
         {error && (
           <Alert variant="destructive">

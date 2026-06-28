@@ -15,6 +15,8 @@ const SALLA_CA_BUNDLE_PATH =
 
 type SallaRequestOptions = UndiciRequestInit & { dispatcher?: Dispatcher };
 
+const SALLA_REQUEST_TIMEOUT_MS = 15000;
+
 interface SallaTokenResponse {
   access_token: string;
   refresh_token: string;
@@ -335,12 +337,19 @@ export async function sallaMakeRequest<T>(
     const url = endpoint.startsWith('/') ? `${baseUrl}${endpoint}` : `${baseUrl}/${endpoint}`;
 
     const requestOptions: SallaRequestOptions = options ?? {};
-    const { dispatcher: requestDispatcher, ...restOptions } = requestOptions;
+    const { dispatcher: requestDispatcher, signal: callerSignal, ...restOptions } = requestOptions;
     const dispatcher = requestDispatcher ?? getSallaDispatcher() ?? undefined;
+
+    // Cap each request so a single slow upstream call can't stall the whole flow.
+    const timeoutSignal = AbortSignal.timeout(SALLA_REQUEST_TIMEOUT_MS);
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal as AbortSignal, timeoutSignal])
+      : timeoutSignal;
 
     const response = await undiciFetch(url, {
       ...restOptions,
       dispatcher,
+      signal,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',

@@ -1265,7 +1265,7 @@ export function rankProductsBySku(
   return ranked.map((entry) => entry.product);
 }
 
-const DEFAULT_SKU_SEARCH_MAX_PAGES = 10;
+const DEFAULT_SKU_SEARCH_MAX_PAGES = 5;
 const DEFAULT_SKU_MATCH_LIMIT = 100;
 
 export async function searchSallaProductsBySku(
@@ -1291,14 +1291,7 @@ export async function searchSallaProductsBySku(
   const matches: Array<{ product: SallaProductSummary; score: number }> = [];
   const seenIds = new Set<number>();
 
-  for (let page = 1; page <= maxPages; page += 1) {
-    const { products, pagination } = await listSallaProducts(merchantId, {
-      page,
-      perPage,
-      sku: trimmedQuery,
-      status: options?.status,
-    });
-
+  const collect = (products: SallaProductSummary[]) => {
     for (const product of products) {
       if (seenIds.has(product.id)) {
         continue;
@@ -1309,10 +1302,39 @@ export async function searchSallaProductsBySku(
         matches.push({ product, score });
       }
     }
+  };
 
-    const totalPages = pagination?.totalPages ?? page;
-    if (matches.length >= maxResults || page >= totalPages) {
-      break;
+  // Fetch the first page sequentially so we learn the real total page count.
+  const firstPage = await listSallaProducts(merchantId, {
+    page: 1,
+    perPage,
+    sku: trimmedQuery,
+    status: options?.status,
+  });
+  collect(firstPage.products);
+
+  const totalPages = firstPage.pagination?.totalPages ?? 1;
+  const lastPage = Math.min(totalPages, maxPages);
+
+  // Fetch any remaining pages in parallel instead of one-by-one to keep search snappy.
+  if (matches.length < maxResults && lastPage > 1) {
+    const pagePromises = [];
+    for (let page = 2; page <= lastPage; page += 1) {
+      pagePromises.push(
+        listSallaProducts(merchantId, {
+          page,
+          perPage,
+          sku: trimmedQuery,
+          status: options?.status,
+        })
+      );
+    }
+
+    const settled = await Promise.allSettled(pagePromises);
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        collect(result.value.products);
+      }
     }
   }
 
