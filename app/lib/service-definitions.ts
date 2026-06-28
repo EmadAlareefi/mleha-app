@@ -174,6 +174,16 @@ const serviceDefinitionsData = [
     grantsRoles: [],
   },
   {
+    key: 'salla-product-search',
+    title: 'البحث عن منتجات',
+    description: 'البحث في منتجات سلة مع تواريخ الطلبات وطلبات الشراء المرتبطة',
+    icon: '🔎',
+    href: '/salla/product-search',
+    color: 'from-sky-500 to-cyan-600',
+    defaultRoles: ['admin', 'orders', 'store_manager'],
+    grantsRoles: [],
+  },
+  {
     key: 'cod-tracker',
     title: 'متابعة التحصيل (COD)',
     description: 'تتبع وإدارة مبالغ الدفع عند الاستلام',

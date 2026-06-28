@@ -14,6 +14,7 @@ import {
   Home,
   IdCard,
   LogOut,
+  PackageSearch,
   Printer,
   Search,
   Sparkles,
@@ -40,6 +41,7 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
   const isAdmin = userRole === 'admin' || userRoles.includes('admin');
   const assignedServiceKeys = ((session?.user as any)?.serviceKeys || []) as ServiceKey[];
   const hasOrderInvoiceAccess = isAdmin || assignedServiceKeys.includes('order-invoice-search');
+  const hasProductSearchAccess = isAdmin || assignedServiceKeys.includes('salla-product-search');
 
   type Role =
     | 'admin'
@@ -99,6 +101,17 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
             label: 'بحث الطلبات',
             href: '/order-invoice-search',
             icon: Search,
+            iconOnly: true,
+          },
+        ]
+      : []),
+    ...(hasProductSearchAccess
+      ? [
+          {
+            key: 'product-search',
+            label: 'بحث المنتجات',
+            href: '/salla/product-search',
+            icon: PackageSearch,
             iconOnly: true,
           },
         ]
