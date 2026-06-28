@@ -28,7 +28,7 @@ import type { SallaProductSummary, SallaProductVariation } from '@/app/lib/salla
 
 type PurchaseRequestsBoardProps = {
   initialRequests: PurchaseRequestRecord[];
-  initialManufacturerProducts: ManufacturerLinkedProductStats[] | null;
+  loadManufacturerProducts: boolean;
   canManage: boolean;
 };
 
@@ -98,15 +98,56 @@ function getVariantOptions(value: PurchaseRequestRecord['variantOptions']): stri
     : [];
 }
 
+type GroupedPurchaseRequest = {
+  key: string;
+  primary: PurchaseRequestRecord;
+  requests: PurchaseRequestRecord[];
+  quantity: number;
+  notes: Array<{ id: string; text: string; requestedBy: string; requestedAt: string | Date }>;
+};
+
+function groupPurchaseRequests(requests: PurchaseRequestRecord[]): GroupedPurchaseRequest[] {
+  const groups = new Map<string, PurchaseRequestRecord[]>();
+
+  requests.forEach((request) => {
+    const key = `${request.status}:${request.productId}`;
+    groups.set(key, [...(groups.get(key) ?? []), request]);
+  });
+
+  return Array.from(groups.entries())
+    .map(([key, groupRequests]) => {
+      const sorted = [...groupRequests].sort(
+        (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
+      );
+      return {
+        key,
+        primary: sorted[0],
+        requests: sorted,
+        quantity: sorted.reduce((sum, request) => sum + request.quantity, 0),
+        notes: sorted
+          .filter((request) => request.notes && request.notes.trim().length > 0)
+          .map((request) => ({
+            id: request.id,
+            text: request.notes as string,
+            requestedBy: request.requestedBy,
+            requestedAt: request.requestedAt,
+          })),
+      };
+    })
+    .sort((a, b) => new Date(b.primary.requestedAt).getTime() - new Date(a.primary.requestedAt).getTime());
+}
+
 export function PurchaseRequestsBoard({
   initialRequests,
-  initialManufacturerProducts,
+  loadManufacturerProducts,
   canManage,
 }: PurchaseRequestsBoardProps) {
   const [requests, setRequests] = useState<PurchaseRequestRecord[]>(initialRequests);
   const [manufacturerProducts, setManufacturerProducts] = useState<ManufacturerLinkedProductStats[] | null>(
-    initialManufacturerProducts
+    null
   );
+  const [manufacturerLoading, setManufacturerLoading] = useState(loadManufacturerProducts);
+  const [manufacturerError, setManufacturerError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PurchaseRequestsTab>('requested');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -115,9 +156,46 @@ export function PurchaseRequestsBoard({
     setRequests(initialRequests);
   }, [initialRequests]);
 
+  // The manufacturer "منتجاتي" sales stats are intentionally loaded client-side:
+  // computing them scans the full orders table, so blocking the server render on
+  // it makes the page hang for manufacturer users. Fetch it asynchronously instead.
   useEffect(() => {
-    setManufacturerProducts(initialManufacturerProducts);
-  }, [initialManufacturerProducts]);
+    if (!loadManufacturerProducts) {
+      return;
+    }
+    let cancelled = false;
+    setManufacturerLoading(true);
+    setManufacturerError(null);
+    (async () => {
+      try {
+        const response = await fetch('/api/salla/purchase-requests', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر تحميل منتجاتي');
+        }
+        if (cancelled) {
+          return;
+        }
+        if (Array.isArray(data.manufacturerProducts) || data.manufacturerProducts === null) {
+          setManufacturerProducts(data.manufacturerProducts);
+        }
+        if (Array.isArray(data.requests)) {
+          setRequests(data.requests);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setManufacturerError(error instanceof Error ? error.message : 'تعذر تحميل منتجاتي');
+        }
+      } finally {
+        if (!cancelled) {
+          setManufacturerLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadManufacturerProducts]);
 
   const requested = useMemo(
     () => requests.filter((request) => request.status === 'requested'),
@@ -127,6 +205,8 @@ export function PurchaseRequestsBoard({
     () => requests.filter((request) => request.status === 'on_the_way'),
     [requests]
   );
+  const groupedRequested = useMemo(() => groupPurchaseRequests(requested), [requested]);
+  const groupedOnTheWay = useMemo(() => groupPurchaseRequests(onTheWay), [onTheWay]);
   const addProductTargetStatus = activeTab === 'on_the_way' ? 'on_the_way' : 'requested';
 
   const handleRefresh = useCallback(async () => {
@@ -159,8 +239,9 @@ export function PurchaseRequestsBoard({
     });
   }, []);
 
-  const removeRequest = useCallback((id: string) => {
-    setRequests((prev) => prev.filter((request) => request.id !== id));
+  const removeRequests = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    setRequests((prev) => prev.filter((request) => !idSet.has(request.id)));
   }, []);
 
   return (
@@ -169,13 +250,13 @@ export function PurchaseRequestsBoard({
         <Card>
           <CardContent className="p-6">
             <p className="text-sm text-muted-foreground">المطلوب شراؤها</p>
-            <p className="text-3xl font-semibold text-amber-600">{formatNumber(requested.length)}</p>
+            <p className="text-3xl font-semibold text-amber-600">{formatNumber(groupedRequested.length)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <p className="text-sm text-muted-foreground">قيد الشراء</p>
-            <p className="text-3xl font-semibold text-emerald-600">{formatNumber(onTheWay.length)}</p>
+            <p className="text-3xl font-semibold text-emerald-600">{formatNumber(groupedOnTheWay.length)}</p>
           </CardContent>
         </Card>
       </section>
@@ -202,38 +283,57 @@ export function PurchaseRequestsBoard({
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
         <TabsList>
-          <TabsTrigger value="requested">المطلوب شراؤها ({formatNumber(requested.length)})</TabsTrigger>
-          <TabsTrigger value="on_the_way">قيد الشراء ({formatNumber(onTheWay.length)})</TabsTrigger>
-          {manufacturerProducts && (
-            <TabsTrigger value="manufacturer_products">
-              منتجاتي ({formatNumber(manufacturerProducts.length)})
+          <TabsTrigger value="requested">المطلوب شراؤها ({formatNumber(groupedRequested.length)})</TabsTrigger>
+          <TabsTrigger value="on_the_way">قيد الشراء ({formatNumber(groupedOnTheWay.length)})</TabsTrigger>
+          {loadManufacturerProducts && (
+            <TabsTrigger value="manufacturer_products" className="flex items-center gap-1">
+              منتجاتي
+              {manufacturerProducts ? (
+                ` (${formatNumber(manufacturerProducts.length)})`
+              ) : manufacturerLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
             </TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value="requested">
           <RequestGrid
-            requests={requested}
+            groups={groupedRequested}
             emptyTitle="لا توجد طلبات شراء حالياً"
             canManage={canManage}
             onUpdated={upsertRequest}
-            onRemoved={removeRequest}
+            onRemoved={removeRequests}
           />
         </TabsContent>
 
         <TabsContent value="on_the_way">
           <RequestGrid
-            requests={onTheWay}
+            groups={groupedOnTheWay}
             emptyTitle="لا توجد منتجات قيد الشراء حالياً"
             canManage={canManage}
             onUpdated={upsertRequest}
-            onRemoved={removeRequest}
+            onRemoved={removeRequests}
           />
         </TabsContent>
 
-        {manufacturerProducts && (
+        {loadManufacturerProducts && (
           <TabsContent value="manufacturer_products">
-            <ManufacturerProductsTab products={manufacturerProducts} requests={requests} />
+            {!manufacturerProducts && manufacturerLoading ? (
+              <Card>
+                <CardContent className="p-6">
+                  <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> جاري تحميل منتجاتي...
+                  </p>
+                </CardContent>
+              </Card>
+            ) : !manufacturerProducts && manufacturerError ? (
+              <Alert variant="destructive">
+                <AlertDescription>{manufacturerError}</AlertDescription>
+              </Alert>
+            ) : (
+              <ManufacturerProductsTab products={manufacturerProducts ?? []} requests={requests} />
+            )}
           </TabsContent>
         )}
       </Tabs>
@@ -343,15 +443,15 @@ function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTab
 }
 
 type RequestGridProps = {
-  requests: PurchaseRequestRecord[];
+  groups: GroupedPurchaseRequest[];
   emptyTitle: string;
   canManage: boolean;
   onUpdated: (request: PurchaseRequestRecord) => void;
-  onRemoved: (id: string) => void;
+  onRemoved: (ids: string[]) => void;
 };
 
-function RequestGrid({ requests, emptyTitle, canManage, onUpdated, onRemoved }: RequestGridProps) {
-  if (requests.length === 0) {
+function RequestGrid({ groups, emptyTitle, canManage, onUpdated, onRemoved }: RequestGridProps) {
+  if (groups.length === 0) {
     return (
       <Card>
         <CardContent className="p-6">
@@ -363,10 +463,10 @@ function RequestGrid({ requests, emptyTitle, canManage, onUpdated, onRemoved }: 
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      {requests.map((request) => (
+      {groups.map((group) => (
         <RequestCard
-          key={request.id}
-          request={request}
+          key={group.key}
+          group={group}
           canManage={canManage}
           onUpdated={onUpdated}
           onRemoved={onRemoved}
@@ -377,18 +477,20 @@ function RequestGrid({ requests, emptyTitle, canManage, onUpdated, onRemoved }: 
 }
 
 type RequestCardProps = {
-  request: PurchaseRequestRecord;
+  group: GroupedPurchaseRequest;
   canManage: boolean;
   onUpdated: (request: PurchaseRequestRecord) => void;
-  onRemoved: (id: string) => void;
+  onRemoved: (ids: string[]) => void;
 };
 
-function RequestCard({ request, canManage, onUpdated, onRemoved }: RequestCardProps) {
+function RequestCard({ group, canManage, onUpdated, onRemoved }: RequestCardProps) {
   const [increaseOpen, setIncreaseOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const request = group.primary;
   const variantOptions = getVariantOptions(request.variantOptions);
+  const hasMultipleRows = group.requests.length > 1;
 
   const patch = async (body: Record<string, unknown>) => {
     setBusy(true);
@@ -423,15 +525,19 @@ function RequestCard({ request, canManage, onUpdated, onRemoved }: RequestCardPr
   const handleRemove = async () => {
     setBusy(true);
     setError(null);
+    const removedIds: string[] = [];
     try {
-      const response = await fetch(`/api/salla/purchase-requests/${request.id}`, {
-        method: 'DELETE',
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data?.error || 'تعذر إزالة الطلب');
+      for (const groupedRequest of group.requests) {
+        const response = await fetch(`/api/salla/purchase-requests/${groupedRequest.id}`, {
+          method: 'DELETE',
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر إزالة الطلب');
+        }
+        removedIds.push(groupedRequest.id);
       }
-      onRemoved(request.id);
+      onRemoved(removedIds);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر إزالة الطلب');
     } finally {
@@ -469,7 +575,7 @@ function RequestCard({ request, canManage, onUpdated, onRemoved }: RequestCardPr
             )}
             <p className="text-xs text-muted-foreground">#{request.productId}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              طلب بواسطة {request.requestedBy} · {formatDate(request.requestedAt)}
+              آخر طلب بواسطة {request.requestedBy} · {formatDate(request.requestedAt)}
             </p>
             {request.status === 'on_the_way' && (
               <p className="mt-1 text-xs font-medium text-emerald-700">
@@ -485,13 +591,40 @@ function RequestCard({ request, canManage, onUpdated, onRemoved }: RequestCardPr
           </div>
         )}
 
-        {request.notes && (
-          <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">{request.notes}</p>
+        {hasMultipleRows && (
+          <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+            <p className="text-xs font-medium text-slate-700">
+              تم تجميع {formatNumber(group.requests.length)} طلب لنفس المنتج
+            </p>
+            <div className="space-y-1">
+              {group.requests.map((groupedRequest) => (
+                <div key={groupedRequest.id} className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  <Badge variant="outline">{formatNumber(groupedRequest.quantity)}</Badge>
+                  <span>{groupedRequest.variantName || 'المنتج الأساسي'}</span>
+                  {groupedRequest.variantSku && <span>SKU: {groupedRequest.variantSku}</span>}
+                  <span className="text-slate-400">·</span>
+                  <span>{groupedRequest.requestedBy}</span>
+                  <span>{formatDate(groupedRequest.requestedAt)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {group.notes.length > 0 && (
+          <div className="space-y-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <p className="font-medium text-slate-700">الملاحظات</p>
+            {group.notes.map((note) => (
+              <p key={note.id}>
+                <span className="font-medium">{note.requestedBy}:</span> {note.text}
+              </p>
+            ))}
+          </div>
         )}
 
         <div className="flex items-center justify-between gap-3">
           <Badge variant="secondary" className="text-sm">
-            الكمية المطلوبة: <span className="ms-1 font-bold">{formatNumber(request.quantity)}</span>
+            الكمية المطلوبة: <span className="ms-1 font-bold">{formatNumber(group.quantity)}</span>
           </Badge>
           <Button
             type="button"
@@ -543,8 +676,8 @@ function RequestCard({ request, canManage, onUpdated, onRemoved }: RequestCardPr
       <ConfirmationDialog
         open={increaseOpen}
         title="تأكيد زيادة الكمية"
-        message={`سيتم زيادة الكمية المطلوبة من ${formatNumber(request.quantity)} إلى ${formatNumber(
-          request.quantity + 1
+        message={`سيتم زيادة الكمية المطلوبة من ${formatNumber(group.quantity)} إلى ${formatNumber(
+          group.quantity + 1
         )} لمنتج «${request.productName}».`}
         confirmLabel="زيادة"
         confirmDisabled={busy}

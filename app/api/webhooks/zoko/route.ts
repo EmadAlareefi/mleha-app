@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/app/lib/env";
 import { processZokoWebhookPayload } from "@/app/lib/zoko-webhook";
 import { log } from "@/app/lib/logger";
+import { isZokoWebhookProcessingEnabled } from "@/app/lib/settings";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,18 @@ export async function POST(request: NextRequest) {
       log.warn("Rejected Zoko webhook due to invalid secret");
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+  }
+
+  const processingEnabled = await isZokoWebhookProcessingEnabled();
+  if (!processingEnabled) {
+    log.info("Skipped Zoko webhook payload because processing is disabled");
+    return NextResponse.json({
+      success: true,
+      disabled: true,
+      processed: 0,
+      skipped: 0,
+      total: 0,
+    });
   }
 
   let payload: unknown;

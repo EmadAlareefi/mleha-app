@@ -10,7 +10,8 @@ import { log as logger } from './logger';
 export type SettingKey =
   | 'erp_auto_sync_enabled'
   | 'erp_auto_sync_on_status'
-  | 'erp_sync_delay_seconds';
+  | 'erp_sync_delay_seconds'
+  | 'zoko_webhook_processing_enabled';
 
 interface SettingDefinition {
   key: SettingKey;
@@ -33,6 +34,11 @@ const SETTING_DEFINITIONS: SettingDefinition[] = [
     key: 'erp_sync_delay_seconds',
     defaultValue: '0',
     description: 'Delay in seconds before syncing to ERP (useful for batch processing)',
+  },
+  {
+    key: 'zoko_webhook_processing_enabled',
+    defaultValue: 'true',
+    description: 'Process incoming Zoko webhook messages and chat events',
   },
 ];
 
@@ -195,4 +201,11 @@ export async function shouldAutoSyncForStatus(
 
   const statuses = await getERPAutoSyncStatuses();
   return statuses.includes(status);
+}
+
+/**
+ * Check if incoming Zoko webhook payloads should be processed
+ */
+export async function isZokoWebhookProcessingEnabled(): Promise<boolean> {
+  return await getSettingBoolean('zoko_webhook_processing_enabled');
 }
