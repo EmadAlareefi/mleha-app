@@ -106,6 +106,22 @@ type GroupedPurchaseRequest = {
   notes: Array<{ id: string; text: string; requestedBy: string; requestedAt: string | Date }>;
 };
 
+function aggregateRequestsBySize(
+  requests: PurchaseRequestRecord[]
+): Array<{ key: string; variantName: string | null; quantity: number }> {
+  const map = new Map<string, { key: string; variantName: string | null; quantity: number }>();
+  requests.forEach((request) => {
+    const key = String(request.variantSku || request.variantName || 'base');
+    const existing = map.get(key);
+    if (existing) {
+      existing.quantity += request.quantity;
+    } else {
+      map.set(key, { key, variantName: request.variantName ?? null, quantity: request.quantity });
+    }
+  });
+  return Array.from(map.values());
+}
+
 function groupPurchaseRequests(requests: PurchaseRequestRecord[]): GroupedPurchaseRequest[] {
   const groups = new Map<string, PurchaseRequestRecord[]>();
 
@@ -596,22 +612,12 @@ function RequestCard({ group, canManage, onUpdated, onRemoved }: RequestCardProp
         )}
 
         {hasMultipleRows && (
-          <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-            <p className="text-xs font-medium text-slate-700">
-              تم تجميع {formatNumber(group.requests.length)} طلب لنفس المنتج
-            </p>
-            <div className="space-y-1">
-              {group.requests.map((groupedRequest) => (
-                <div key={groupedRequest.id} className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  <Badge variant="outline">{formatNumber(groupedRequest.quantity)}</Badge>
-                  <span>{groupedRequest.variantName || 'المنتج الأساسي'}</span>
-                  {groupedRequest.variantSku && <span>SKU: {groupedRequest.variantSku}</span>}
-                  <span className="text-slate-400">·</span>
-                  <span>{groupedRequest.requestedBy}</span>
-                  <span>{formatDate(groupedRequest.requestedAt)}</span>
-                </div>
-              ))}
-            </div>
+          <div className="space-y-1 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+            {aggregateRequestsBySize(group.requests).map((row) => (
+              <div key={row.key} className="text-xs text-slate-600">
+                {row.variantName || 'المنتج الأساسي'} - الكمية: {formatNumber(row.quantity)}
+              </div>
+            ))}
           </div>
         )}
 

@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  CalendarDays,
+  CalendarCheck,
   ExternalLink,
   Loader2,
   PackageSearch,
@@ -26,37 +26,13 @@ import { Textarea } from '@/components/ui/textarea';
 import type { SallaProductSummary, SallaProductVariation } from '@/app/lib/salla-api';
 import type { PurchaseRequestRecord } from '@/app/lib/salla-purchase-requests';
 
-type ProductOrderEntry = {
-  orderRecordId: string;
-  orderId: string;
-  orderNumber?: string | null;
-  referenceId?: string | null;
-  orderedAt?: string | null;
-  statusSlug?: string | null;
-  statusName?: string | null;
-  customerName?: string | null;
-  customerMobile?: string | null;
-  itemName?: string | null;
-  itemSku?: string | null;
-  variantName?: string | null;
-  quantity: number;
-  totalAmount: number;
-  currency?: string | null;
-  orderTotalAmount?: number | null;
-};
-
 type ProductSearchResult = {
   product: SallaProductSummary & { variations?: SallaProductVariation[] };
   stats: {
-    orderCount: number;
-    soldQuantity: number;
-    soldAmount: number;
     requestedQuantity: number;
     onTheWayQuantity: number;
     activePurchaseRequests: number;
-    lastOrderedAt?: string | null;
   };
-  orders: ProductOrderEntry[];
   purchaseRequests: PurchaseRequestRecord[];
 };
 
@@ -66,7 +42,6 @@ type ProductSearchResponse = {
   query: string;
   products: ProductSearchResult[];
   variationErrors?: Array<{ productId: number; message: string }>;
-  scannedOrders?: number;
   error?: string;
 };
 
@@ -152,7 +127,6 @@ export default function SallaProductSearchPage() {
   const [merchantId, setMerchantId] = useState<string | null>(null);
   const [results, setResults] = useState<ProductSearchResult[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [scannedOrders, setScannedOrders] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -194,7 +168,6 @@ export default function SallaProductSearchPage() {
       const productResults = Array.isArray(data.products) ? data.products : [];
       setResults(productResults);
       setMerchantId(data.merchantId ?? null);
-      setScannedOrders(typeof data.scannedOrders === 'number' ? data.scannedOrders : null);
       setSelectedProductId(productResults[0]?.product.id ?? null);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -204,7 +177,6 @@ export default function SallaProductSearchPage() {
       }
       setResults([]);
       setSelectedProductId(null);
-      setScannedOrders(null);
     } finally {
       clearTimeout(timeout);
       setLoading(false);
@@ -308,7 +280,6 @@ export default function SallaProductSearchPage() {
           <ProductResultsList
             results={results}
             selectedProductId={selectedResult?.product.id ?? null}
-            scannedOrders={scannedOrders}
             onSelect={setSelectedProductId}
           />
 
@@ -346,11 +317,10 @@ export default function SallaProductSearchPage() {
 type ProductResultsListProps = {
   results: ProductSearchResult[];
   selectedProductId: number | null;
-  scannedOrders: number | null;
   onSelect: (productId: number) => void;
 };
 
-function ProductResultsList({ results, selectedProductId, scannedOrders, onSelect }: ProductResultsListProps) {
+function ProductResultsList({ results, selectedProductId, onSelect }: ProductResultsListProps) {
   return (
     <Card>
       <CardHeader>
@@ -358,11 +328,6 @@ function ProductResultsList({ results, selectedProductId, scannedOrders, onSelec
           <span>المنتجات</span>
           <Badge variant="secondary">{formatNumber(results.length)}</Badge>
         </CardTitle>
-        {scannedOrders != null && (
-          <p className="text-xs text-muted-foreground">
-            تم فحص آخر {formatNumber(scannedOrders)} طلب محفوظ لربط تواريخ الطلبات.
-          </p>
-        )}
       </CardHeader>
       <CardContent className="space-y-2">
         {results.map((entry) => {
@@ -392,7 +357,6 @@ function ProductResultsList({ results, selectedProductId, scannedOrders, onSelec
                 <p className="truncate text-sm font-semibold text-foreground">{entry.product.name}</p>
                 <p className="text-xs text-muted-foreground">SKU: {entry.product.sku || '—'}</p>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  <Badge variant="outline">{formatNumber(entry.stats.orderCount)} طلب</Badge>
                   <Badge variant="secondary">{formatNumber(entry.stats.activePurchaseRequests)} طلب شراء</Badge>
                 </div>
               </div>
@@ -412,11 +376,9 @@ type ProductDetailsPanelProps = {
 
 function ProductDetailsPanel({ result, merchantId, onCreated }: ProductDetailsPanelProps) {
   const product = result.product;
-  const currency = product.currency || result.orders[0]?.currency || 'SAR';
+  const currency = product.currency || 'SAR';
   const quickStats = [
     { label: 'الكمية المتاحة', value: formatNumber(product.availableQuantity) },
-    { label: 'عدد الطلبات', value: formatNumber(result.stats.orderCount) },
-    { label: 'الكمية المطلوبة', value: formatNumber(result.stats.soldQuantity) },
     { label: 'طلبات الشراء النشطة', value: formatNumber(result.stats.activePurchaseRequests) },
     { label: 'مطلوب شراؤه', value: formatNumber(result.stats.requestedQuantity) },
     { label: 'قيد الشراء', value: formatNumber(result.stats.onTheWayQuantity) },
@@ -449,7 +411,6 @@ function ProductDetailsPanel({ result, merchantId, onCreated }: ProductDetailsPa
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary">{formatCurrency(product.priceAmount, currency)}</Badge>
                 <Badge variant="outline">الحالة: {product.status || 'غير محدد'}</Badge>
-                <Badge variant="outline">آخر طلب: {formatDay(result.stats.lastOrderedAt)}</Badge>
               </div>
             </div>
           </div>
@@ -466,7 +427,6 @@ function ProductDetailsPanel({ result, merchantId, onCreated }: ProductDetailsPa
       </Card>
 
       <PurchaseRequestForm product={product} merchantId={merchantId} onCreated={onCreated} />
-      <ProductOrdersTable orders={result.orders} />
       <ProductPurchaseRequestsTable requests={result.purchaseRequests} />
       <ProductVariationsTable variations={product.variations ?? []} currency={currency} />
     </div>
@@ -596,79 +556,43 @@ function PurchaseRequestForm({ product, merchantId, onCreated }: PurchaseRequest
   );
 }
 
-function ProductOrdersTable({ orders }: { orders: ProductOrderEntry[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <CalendarDays className="h-4 w-4" />
-          تواريخ طلب المنتج
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        {orders.length === 0 ? (
-          <div className="p-6">
-            <EmptyState title="لا توجد طلبات محفوظة لهذا المنتج" />
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>رقم الطلب</TableHead>
-                <TableHead>التاريخ</TableHead>
-                <TableHead>الحالة</TableHead>
-                <TableHead>العميل</TableHead>
-                <TableHead>SKU / المتغير</TableHead>
-                <TableHead>الكمية</TableHead>
-                <TableHead>إجمالي المنتج</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {orders.map((order) => (
-                <TableRow key={`${order.orderRecordId}-${order.itemSku || order.itemName || order.quantity}`}>
-                  <TableCell>
-                    <div className="min-w-28">
-                      <p className="font-medium">{order.orderNumber || order.referenceId || order.orderId}</p>
-                      <p className="text-xs text-muted-foreground">#{order.orderId}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>{formatDate(order.orderedAt)}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{order.statusName || order.statusSlug || '—'}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="min-w-36">
-                      <p className="text-sm">{order.customerName || '—'}</p>
-                      <p className="text-xs text-muted-foreground">{order.customerMobile || '—'}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="min-w-40">
-                      <p className="text-sm">{order.itemSku || '—'}</p>
-                      {order.variantName && (
-                        <p className="text-xs text-muted-foreground">{order.variantName}</p>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>{formatNumber(order.quantity)}</TableCell>
-                  <TableCell>{formatCurrency(order.totalAmount, order.currency)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  );
+function getSoonestArrival(requests: PurchaseRequestRecord[]): Date | null {
+  let soonest: Date | null = null;
+  for (const request of requests) {
+    if (!request.expectedArrivalAt) {
+      continue;
+    }
+    const date = new Date(request.expectedArrivalAt);
+    if (Number.isNaN(date.getTime())) {
+      continue;
+    }
+    if (!soonest || date.getTime() < soonest.getTime()) {
+      soonest = date;
+    }
+  }
+  return soonest;
 }
 
 function ProductPurchaseRequestsTable({ requests }: { requests: PurchaseRequestRecord[] }) {
+  const soonestArrival = getSoonestArrival(requests);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">طلبات الشراء لهذا المنتج</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
+        {soonestArrival && (
+          <div className="flex flex-col items-center gap-2 border-b bg-gradient-to-b from-emerald-50 to-transparent px-6 py-8 text-center">
+            <div className="flex items-center gap-2 text-sm font-medium text-emerald-700">
+              <CalendarCheck className="h-4 w-4 animate-pulse" />
+              تاريخ الوصول المتوقع
+            </div>
+            <p className="animate-pulse bg-gradient-to-l from-emerald-600 to-teal-500 bg-clip-text text-4xl font-extrabold tracking-tight text-transparent md:text-5xl">
+              {formatDay(soonestArrival)}
+            </p>
+          </div>
+        )}
         {requests.length === 0 ? (
           <div className="p-6">
             <EmptyState title="لا توجد طلبات شراء نشطة لهذا المنتج" />
