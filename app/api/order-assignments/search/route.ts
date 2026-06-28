@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { Prisma } from '@prisma/client';
 import type { OrderGiftFlag, SallaOrder as PrismaSallaOrder } from '@prisma/client';
-import { getSallaOrder, getSallaOrderByReference } from '@/app/lib/salla-api';
+import { findOrdersByCustomerContact, getSallaOrder, getSallaOrderByReference } from '@/app/lib/salla-api';
 import type { SallaOrder as RemoteSallaOrder } from '@/app/lib/salla-api';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
 import { extractDates } from '@/app/lib/salla-orders';
@@ -16,6 +16,11 @@ import type { SmsaLiveStatus } from '@/types/smsa';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const DEBUG_SEARCH_LOGS = process.env.ORDER_SEARCH_DEBUG === 'true';
+const SALLA_PHONE_ORDER_BY = [
+  { placedAt: 'desc' as const },
+  { updatedAtRemote: 'desc' as const },
+  { updatedAt: 'desc' as const },
+];
 
 const logSallaOrderPayload = (assignment: any) => {
   if (!DEBUG_SEARCH_LOGS || !assignment?.orderData) {
@@ -227,12 +232,28 @@ export async function GET(request: NextRequest) {
     const phoneVariants = new Set<string>();
     if (digitsOnlyQuery) {
       phoneVariants.add(digitsOnlyQuery);
-      const withoutCountryCode = digitsOnlyQuery.startsWith('966') ? digitsOnlyQuery.slice(3) : digitsOnlyQuery;
-      phoneVariants.add(withoutCountryCode);
-      if (!withoutCountryCode.startsWith('0')) {
-        phoneVariants.add(`0${withoutCountryCode}`);
+
+      const internationalDigits = digitsOnlyQuery.startsWith('00966')
+        ? `966${digitsOnlyQuery.slice(5)}`
+        : digitsOnlyQuery;
+      phoneVariants.add(internationalDigits);
+
+      const localMobileDigits = internationalDigits.startsWith('9665') && internationalDigits.length === 12
+        ? internationalDigits.slice(3)
+        : internationalDigits.startsWith('05') && internationalDigits.length === 10
+          ? internationalDigits.slice(1)
+          : internationalDigits.startsWith('5') && internationalDigits.length === 9
+            ? internationalDigits
+            : null;
+
+      if (localMobileDigits) {
+        phoneVariants.add(localMobileDigits);
+        phoneVariants.add(`0${localMobileDigits}`);
+        phoneVariants.add(`966${localMobileDigits}`);
+        phoneVariants.add(`+966${localMobileDigits}`);
       }
-      phoneVariants.add(`+${digitsOnlyQuery}`);
+
+      phoneVariants.add(`+${internationalDigits}`);
     }
     phoneVariants.add(searchQuery);
 
@@ -287,7 +308,9 @@ export async function GET(request: NextRequest) {
               merchantId: MERCHANT_ID,
               OR: exactSallaFilters,
             },
-            orderBy: { updatedAtRemote: 'desc' },
+            orderBy: isLikelySaudiMobileSearch(digitsOnlyQuery)
+              ? SALLA_PHONE_ORDER_BY
+              : { updatedAtRemote: 'desc' },
           })
         : Promise.resolve(null),
     ]);
@@ -306,6 +329,26 @@ export async function GET(request: NextRequest) {
         orderNumber: exactHistoryEntry.orderNumber,
       });
       return respondWithPayloadAndShipment(buildResponsePayload(exactHistoryEntry, 'history'));
+    }
+
+    if (isLikelySaudiMobileSearch(digitsOnlyQuery)) {
+      const syncedPhoneOrder = await syncOrderFromSallaByPhone(phoneVariants);
+      if (syncedPhoneOrder?.persisted) {
+        const payload = buildSallaAssignmentFromRecord(syncedPhoneOrder.persisted);
+        logSearchDebug('Found via Salla phone lookup', {
+          orderId: payload.orderId,
+          orderNumber: payload.orderNumber,
+        });
+        return respondWithPayloadAndShipment(payload);
+      }
+      if (syncedPhoneOrder?.remote) {
+        const payload = buildAssignmentFromRemoteOrder(syncedPhoneOrder.remote);
+        logSearchDebug('Found via Salla phone lookup without persisted record', {
+          orderId: payload.orderId,
+          orderNumber: payload.orderNumber,
+        });
+        return respondWithPayloadAndShipment(payload);
+      }
     }
 
     if (exactSallaOrder) {
@@ -509,9 +552,9 @@ export async function GET(request: NextRequest) {
           merchantId: MERCHANT_ID,
           OR: sallaFilters,
         },
-        orderBy: {
-          updatedAtRemote: 'desc',
-        },
+        orderBy: isLikelySaudiMobileSearch(digitsOnlyQuery)
+          ? SALLA_PHONE_ORDER_BY
+          : { updatedAtRemote: 'desc' },
       });
 
       if (sallaOrder) {
@@ -1048,6 +1091,110 @@ async function syncOrderFromSalla(
   }
 
   return { persisted, remote: orderWithMerchant };
+}
+
+function isLikelySaudiMobileSearch(digitsOnlyQuery: string): boolean {
+  return (
+    /^05\d{8}$/.test(digitsOnlyQuery) ||
+    /^5\d{8}$/.test(digitsOnlyQuery) ||
+    /^9665\d{8}$/.test(digitsOnlyQuery) ||
+    /^009665\d{8}$/.test(digitsOnlyQuery)
+  );
+}
+
+async function syncOrderFromSallaByPhone(phoneVariants: Set<string>): Promise<SyncedOrderResult | null> {
+  const contactVariants = Array.from(phoneVariants)
+    .map((variant) => variant.trim())
+    .filter(Boolean);
+  const searchedPhoneKeys = buildPhoneMatchKeys(contactVariants);
+
+  for (const contact of contactVariants) {
+    const orders = await findOrdersByCustomerContact(MERCHANT_ID, contact);
+    const latestOrder = orders.find((order) => orderMatchesPhone(order, searchedPhoneKeys));
+    if (!latestOrder?.id) {
+      continue;
+    }
+
+    const fullOrder = await getSallaOrder(MERCHANT_ID, String(latestOrder.id));
+    const remoteOrder = fullOrder || latestOrder;
+    const orderWithMerchant: RemoteSallaOrder & Record<string, any> = {
+      ...remoteOrder,
+      merchant_id: (remoteOrder as any).merchant_id ?? MERCHANT_ID,
+      merchantId: (remoteOrder as any).merchantId ?? MERCHANT_ID,
+      store: (remoteOrder as any).store ?? { id: MERCHANT_ID },
+      store_id: (remoteOrder as any).store_id ?? MERCHANT_ID,
+      storeId: (remoteOrder as any).storeId ?? MERCHANT_ID,
+    };
+
+    await upsertSallaOrderFromPayload({
+      merchantId: MERCHANT_ID,
+      merchant_id: MERCHANT_ID,
+      order: orderWithMerchant,
+    });
+
+    const persisted = await prisma.sallaOrder.findUnique({
+      where: {
+        merchantId_orderId: {
+          merchantId: MERCHANT_ID,
+          orderId: String(latestOrder.id),
+        },
+      },
+    });
+
+    return { persisted, remote: orderWithMerchant };
+  }
+
+  return null;
+}
+
+function buildPhoneMatchKeys(values: unknown[]): Set<string> {
+  const keys = new Set<string>();
+
+  values.forEach((value) => {
+    const digits = stringFromValue(value)?.replace(/\D/g, '') || '';
+    if (!digits) {
+      return;
+    }
+
+    keys.add(digits);
+
+    const internationalDigits = digits.startsWith('00966') ? `966${digits.slice(5)}` : digits;
+    keys.add(internationalDigits);
+
+    const localMobileDigits = internationalDigits.startsWith('9665') && internationalDigits.length === 12
+      ? internationalDigits.slice(3)
+      : internationalDigits.startsWith('05') && internationalDigits.length === 10
+        ? internationalDigits.slice(1)
+        : internationalDigits.startsWith('5') && internationalDigits.length === 9
+          ? internationalDigits
+          : null;
+
+    if (localMobileDigits) {
+      keys.add(localMobileDigits);
+      keys.add(`0${localMobileDigits}`);
+      keys.add(`966${localMobileDigits}`);
+    }
+  });
+
+  return keys;
+}
+
+function orderMatchesPhone(order: RemoteSallaOrder, searchedPhoneKeys: Set<string>): boolean {
+  const customer = (order as any)?.customer || {};
+  const mobile = customer.mobile ?? customer.phone ?? (order as any)?.customer_mobile ?? (order as any)?.customer_phone;
+  const mobileCode = customer.mobile_code ?? customer.phone_code ?? customer.country_code;
+  const candidateKeys = buildPhoneMatchKeys([
+    mobile,
+    mobileCode && mobile ? `${mobileCode}${mobile}` : null,
+  ]);
+
+  for (const key of candidateKeys) {
+    if (searchedPhoneKeys.has(key)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function fetchRemoteOrderFromSalla(

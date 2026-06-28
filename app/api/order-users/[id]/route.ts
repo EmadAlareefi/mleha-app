@@ -65,6 +65,10 @@ function isWarehouseSchemaMissing(error: unknown) {
   );
 }
 
+function isOrderUserUserTypeColumnMissing(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022';
+}
+
 async function isWarehouseSchemaReady() {
   try {
     await prisma.warehouse.count();
@@ -395,6 +399,15 @@ export async function PUT(
       },
     });
   } catch (error) {
+    if (isOrderUserUserTypeColumnMissing(error)) {
+      return NextResponse.json(
+        {
+          error: 'يجب تحديث قاعدة البيانات لإضافة نوع المستخدم. شغّل `prisma migrate deploy` ثم أعد المحاولة.',
+          missingUserTypeColumn: true,
+        },
+        { status: 503 }
+      );
+    }
     log.error('Error updating order user', { error });
     return NextResponse.json(
       { error: 'حدث خطأ أثناء تحديث المستخدم' },

@@ -119,6 +119,7 @@ export default function SallaProductsPage() {
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [productManufacturers, setProductManufacturers] = useState<Record<number, string>>({});
   const [manufacturers, setManufacturers] = useState<ManufacturerUserOption[]>([]);
+  const [manufacturersError, setManufacturersError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [variationsMap, setVariationsMap] = useState<Record<number, SallaProductVariation[]>>({});
@@ -227,6 +228,7 @@ export default function SallaProductsPage() {
   }, []);
 
   const fetchManufacturers = useCallback(async () => {
+    setManufacturersError(null);
     try {
       const response = await fetch('/api/product-suppliers?mode=factories', { cache: 'no-store' });
       const data = await response.json();
@@ -240,9 +242,14 @@ export default function SallaProductsPage() {
             phone: user.phone ?? null,
           }))
         );
+        return;
       }
-    } catch {
-      // Best-effort; ignore failures.
+      throw new Error(data?.error || 'تعذر تحميل قائمة المصانع');
+    } catch (error) {
+      setManufacturers([]);
+      setManufacturersError(
+        error instanceof Error ? error.message : 'تعذر تحميل قائمة المصانع'
+      );
     }
   }, []);
 
@@ -698,6 +705,7 @@ export default function SallaProductsPage() {
                           onRefreshVariations={() => refreshVariationsForProduct(product.id)}
                           manufacturerId={productManufacturers[product.id] ?? ''}
                           manufacturers={manufacturers}
+                          manufacturersError={manufacturersError}
                           onSaveManufacturer={(value) => handleSaveManufacturer(product, value)}
                         />
                       ))}
@@ -723,6 +731,7 @@ type ProductRowProps = {
   onRefreshVariations: () => void;
   manufacturerId: string;
   manufacturers: ManufacturerUserOption[];
+  manufacturersError: string | null;
   onSaveManufacturer: (userId: string) => Promise<void>;
 };
 
@@ -738,6 +747,7 @@ function ProductRow({
   onRefreshVariations,
   manufacturerId,
   manufacturers,
+  manufacturersError,
   onSaveManufacturer,
 }: ProductRowProps) {
   const [variationAdjustments, setVariationAdjustments] = useState<
@@ -814,7 +824,9 @@ function ProductRow({
         </NativeSelect>
         {manufacturerSaving && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
       </div>
-      {!manufacturers.length && (
+      {manufacturersError ? (
+        <p className="text-xs text-red-600">{manufacturersError}</p>
+      ) : !manufacturers.length && (
         <p className="text-xs text-slate-500">
           أضف أو عدّل مستخدماً بنوع مصنع من صفحة إدارة المستخدمين.
         </p>

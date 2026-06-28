@@ -19,19 +19,41 @@ import {
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PurchaseRequestRecord } from '@/app/lib/salla-purchase-requests';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import type {
+  ManufacturerLinkedProductStats,
+  PurchaseRequestRecord,
+} from '@/app/lib/salla-purchase-requests';
 import type { SallaProductSummary, SallaProductVariation } from '@/app/lib/salla-api';
 
 type PurchaseRequestsBoardProps = {
   initialRequests: PurchaseRequestRecord[];
+  initialManufacturerProducts: ManufacturerLinkedProductStats[] | null;
   canManage: boolean;
 };
+
+type PurchaseRequestsTab = 'requested' | 'on_the_way' | 'manufacturer_products';
 
 function formatNumber(value: number | null | undefined) {
   if (value == null || Number.isNaN(value)) {
     return '—';
   }
   return new Intl.NumberFormat('en-US').format(value);
+}
+
+function formatCurrency(value: number | null | undefined, currency?: string | null) {
+  if (value == null || Number.isNaN(value)) {
+    return '—';
+  }
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency || 'SAR',
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${value.toFixed(2)} ${currency || ''}`.trim();
+  }
 }
 
 function formatDate(value?: string | Date | null) {
@@ -76,15 +98,26 @@ function getVariantOptions(value: PurchaseRequestRecord['variantOptions']): stri
     : [];
 }
 
-export function PurchaseRequestsBoard({ initialRequests, canManage }: PurchaseRequestsBoardProps) {
+export function PurchaseRequestsBoard({
+  initialRequests,
+  initialManufacturerProducts,
+  canManage,
+}: PurchaseRequestsBoardProps) {
   const [requests, setRequests] = useState<PurchaseRequestRecord[]>(initialRequests);
-  const [activeTab, setActiveTab] = useState<'requested' | 'on_the_way'>('requested');
+  const [manufacturerProducts, setManufacturerProducts] = useState<ManufacturerLinkedProductStats[] | null>(
+    initialManufacturerProducts
+  );
+  const [activeTab, setActiveTab] = useState<PurchaseRequestsTab>('requested');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   useEffect(() => {
     setRequests(initialRequests);
   }, [initialRequests]);
+
+  useEffect(() => {
+    setManufacturerProducts(initialManufacturerProducts);
+  }, [initialManufacturerProducts]);
 
   const requested = useMemo(
     () => requests.filter((request) => request.status === 'requested'),
@@ -94,6 +127,7 @@ export function PurchaseRequestsBoard({ initialRequests, canManage }: PurchaseRe
     () => requests.filter((request) => request.status === 'on_the_way'),
     [requests]
   );
+  const addProductTargetStatus = activeTab === 'on_the_way' ? 'on_the_way' : 'requested';
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -105,6 +139,9 @@ export function PurchaseRequestsBoard({ initialRequests, canManage }: PurchaseRe
         throw new Error(data?.error || 'تعذر تحديث قائمة الطلبات');
       }
       setRequests(Array.isArray(data.requests) ? data.requests : []);
+      if (Array.isArray(data.manufacturerProducts) || data.manufacturerProducts === null) {
+        setManufacturerProducts(data.manufacturerProducts);
+      }
     } catch (error) {
       setRefreshError(error instanceof Error ? error.message : 'تعذر تحديث قائمة الطلبات');
     } finally {
@@ -144,7 +181,7 @@ export function PurchaseRequestsBoard({ initialRequests, canManage }: PurchaseRe
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <AddProductDialog targetStatus={activeTab} onCreated={upsertRequest} />
+        <AddProductDialog targetStatus={addProductTargetStatus} onCreated={upsertRequest} />
         <Button
           type="button"
           variant="outline"
@@ -167,6 +204,11 @@ export function PurchaseRequestsBoard({ initialRequests, canManage }: PurchaseRe
         <TabsList>
           <TabsTrigger value="requested">المطلوب شراؤها ({formatNumber(requested.length)})</TabsTrigger>
           <TabsTrigger value="on_the_way">قيد الشراء ({formatNumber(onTheWay.length)})</TabsTrigger>
+          {manufacturerProducts && (
+            <TabsTrigger value="manufacturer_products">
+              منتجاتي ({formatNumber(manufacturerProducts.length)})
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="requested">
@@ -188,8 +230,115 @@ export function PurchaseRequestsBoard({ initialRequests, canManage }: PurchaseRe
             onRemoved={removeRequest}
           />
         </TabsContent>
+
+        {manufacturerProducts && (
+          <TabsContent value="manufacturer_products">
+            <ManufacturerProductsTab products={manufacturerProducts} requests={requests} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
+  );
+}
+
+type ManufacturerProductsTabProps = {
+  products: ManufacturerLinkedProductStats[];
+  requests: PurchaseRequestRecord[];
+};
+
+function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTabProps) {
+  const requestQuantities = useMemo(() => {
+    const map = new Map<number, { requestedQuantity: number; onTheWayQuantity: number }>();
+    requests.forEach((request) => {
+      if (request.status !== 'requested' && request.status !== 'on_the_way') {
+        return;
+      }
+      const entry = map.get(request.productId) ?? { requestedQuantity: 0, onTheWayQuantity: 0 };
+      if (request.status === 'requested') {
+        entry.requestedQuantity += request.quantity;
+      } else {
+        entry.onTheWayQuantity += request.quantity;
+      }
+      map.set(request.productId, entry);
+    });
+    return map;
+  }, [requests]);
+
+  const rows = useMemo(
+    () =>
+      products
+        .map((product) => {
+          const quantities = requestQuantities.get(product.productId);
+          const requestedQuantity = quantities?.requestedQuantity ?? product.requestedQuantity;
+          const onTheWayQuantity = quantities?.onTheWayQuantity ?? product.onTheWayQuantity;
+          return {
+            ...product,
+            requestedQuantity,
+            onTheWayQuantity,
+            totalPurchaseQuantity: requestedQuantity + onTheWayQuantity,
+          };
+        })
+        .sort((a, b) => {
+          if (b.soldQuantity !== a.soldQuantity) {
+            return b.soldQuantity - a.soldQuantity;
+          }
+          return b.soldAmount - a.soldAmount;
+        }),
+    [products, requestQuantities]
+  );
+
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <EmptyState title="لا توجد منتجات مرتبطة بهذا المصنع" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>المنتج</TableHead>
+              <TableHead>SKU</TableHead>
+              <TableHead>مطلوب</TableHead>
+              <TableHead>قيد الشراء</TableHead>
+              <TableHead>الإجمالي</TableHead>
+              <TableHead>الكمية المباعة</TableHead>
+              <TableHead>إجمالي المبيعات</TableHead>
+              <TableHead>آخر بيع</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((product) => (
+              <TableRow key={product.productId}>
+                <TableCell>
+                  <div className="min-w-48">
+                    <p className="font-medium text-slate-900">
+                      {product.productName || `#${product.productId}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">#{product.productId}</p>
+                  </div>
+                </TableCell>
+                <TableCell>{product.productSku || '—'}</TableCell>
+                <TableCell>{formatNumber(product.requestedQuantity)}</TableCell>
+                <TableCell>{formatNumber(product.onTheWayQuantity)}</TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{formatNumber(product.totalPurchaseQuantity)}</Badge>
+                </TableCell>
+                <TableCell className="font-semibold">{formatNumber(product.soldQuantity)}</TableCell>
+                <TableCell>{formatCurrency(product.soldAmount, product.currency)}</TableCell>
+                <TableCell>{product.lastSoldAt ? formatDay(product.lastSoldAt) : '—'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 

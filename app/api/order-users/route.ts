@@ -65,6 +65,10 @@ function isWarehouseSchemaMissing(error: unknown) {
   );
 }
 
+function isOrderUserUserTypeColumnMissing(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022';
+}
+
 async function isWarehouseSchemaReady() {
   try {
     await prisma.warehouse.count();
@@ -182,16 +186,33 @@ export async function GET() {
       };
     }
 
-    const users = await prisma.orderUser.findMany({
-      select,
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    let users: any[];
+    let userTypeSupported = true;
+    try {
+      users = await prisma.orderUser.findMany({
+        select,
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+    } catch (error) {
+      if (!isOrderUserUserTypeColumnMissing(error)) {
+        throw error;
+      }
+      userTypeSupported = false;
+      delete select.userType;
+      users = await prisma.orderUser.findMany({
+        select,
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,
       warehousesSupported: warehousesAvailable,
+      userTypeSupported,
       users: users.map((user: any) => {
         const { warehouseAssignments, assignments, servicePermissions, printerLink, ...rest } = user;
 
@@ -202,6 +223,7 @@ export async function GET() {
 
         return {
           ...rest,
+          userType: rest.userType || 'employee',
           roles: derivedRoles,
           serviceKeys: resolvedServiceKeys,
           _count: {
@@ -464,6 +486,15 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (isOrderUserUserTypeColumnMissing(error)) {
+      return NextResponse.json(
+        {
+          error: 'يجب تحديث قاعدة البيانات لإضافة نوع المستخدم. شغّل `prisma migrate deploy` ثم أعد المحاولة.',
+          missingUserTypeColumn: true,
+        },
+        { status: 503 }
+      );
+    }
     log.error('Error creating order user', { error });
     return NextResponse.json(
       { error: 'حدث خطأ أثناء إنشاء المستخدم' },

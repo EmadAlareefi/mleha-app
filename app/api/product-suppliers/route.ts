@@ -78,10 +78,10 @@ const MANUFACTURER_USER_TYPE = 'manufacturer';
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
 
-  if (!session || !hasProductSupplierAccess(session)) {
+  if (!session) {
     return NextResponse.json(
       { error: 'غير مصرح لك بالوصول إلى مصانع المنتجات' },
-      { status: 403 }
+      { status: 401 }
     );
   }
 

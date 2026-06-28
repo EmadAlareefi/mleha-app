@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import {
   createPurchaseRequest,
+  getManufacturerUserId,
+  listManufacturerLinkedProductStats,
   listPurchaseRequests,
   type PurchaseRequestRecord,
   type PurchaseRequestStatus,
@@ -43,9 +45,13 @@ export async function GET(request: NextRequest) {
       ? statusParam
       : undefined;
 
-  const requests = await listPurchaseRequests({ status: allowedStatus });
+  const manufacturerUserId = await getManufacturerUserId((session.user as any)?.id);
+  const [requests, manufacturerProducts] = await Promise.all([
+    listPurchaseRequests({ status: allowedStatus }),
+    manufacturerUserId ? listManufacturerLinkedProductStats(manufacturerUserId) : Promise.resolve(null),
+  ]);
 
-  return NextResponse.json({ success: true, requests });
+  return NextResponse.json({ success: true, requests, manufacturerProducts });
 }
 
 export async function POST(request: NextRequest) {
