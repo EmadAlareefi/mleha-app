@@ -578,6 +578,35 @@ model SallaProductQuantityRequest {
   @@index([requestedAt])
 }
 
+model SallaPurchaseRequest {
+  id              String  @id @default(cuid())
+  merchantId      String?
+  productId       Int
+  productName     String
+  productSku      String?
+  productImageUrl String?
+  quantity        Int     @default(1)
+  status          String  @default("requested") // requested | on_the_way | purchased
+  notes           String? @db.Text
+
+  // requester
+  requestedBy     String
+  requestedByUser String?
+  requestedAt     DateTime @default(now())
+
+  // responsible user transitions
+  movedToWayBy String?
+  movedToWayAt DateTime?
+  removedBy    String?
+  removedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId, status])
+  @@index([status, requestedAt])
+}
+
 model SallaProductAvailabilityRequest {
   id                String    @id @default(cuid())
   merchantId        String?
