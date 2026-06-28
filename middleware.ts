@@ -111,7 +111,12 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['returns-gifts', [/^\/returns-gifts(\/.*)?$/]],
   [
     'salla-products',
-    [/^\/salla\/products(\/.*)?$/, /^\/api\/salla\/products(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/],
+    [
+      /^\/salla\/products(\/.*)?$/,
+      /^\/api\/salla\/products(\/.*)?$/,
+      /^\/api\/salla\/requests(\/.*)?$/,
+      /^\/api\/product-suppliers(\/.*)?$/,
+    ],
   ],
   [
     'salla-notify',

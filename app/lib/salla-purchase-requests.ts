@@ -1,5 +1,7 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
+import { getSallaProductLiveStats } from '@/app/lib/salla-api';
 
 const purchaseRequestSelect = {
   id: true,
@@ -39,6 +41,7 @@ export type ManufacturerLinkedProductStats = {
   productName: string | null;
   productSku: string | null;
   merchantId: string | null;
+  remainingQuantity: number | null;
   requestedQuantity: number;
   onTheWayQuantity: number;
   totalPurchaseQuantity: number;
@@ -103,34 +106,6 @@ function normalizePositiveInt(value: unknown): number | null {
   return Math.floor(parsed);
 }
 
-function getRawOrderItems(rawOrder: unknown): unknown[] {
-  if (!rawOrder || typeof rawOrder !== 'object') {
-    return [];
-  }
-  const order = rawOrder as Record<string, any>;
-  if (Array.isArray(order.items)) {
-    return order.items;
-  }
-  if (order.order && typeof order.order === 'object' && Array.isArray(order.order.items)) {
-    return order.order.items;
-  }
-  return [];
-}
-
-function getRawItemProductId(item: unknown): number | null {
-  if (!item || typeof item !== 'object') {
-    return null;
-  }
-  const record = item as Record<string, any>;
-  return normalizePositiveInt(
-    record.product_id ??
-      record.productId ??
-      record.product?.id ??
-      record.product?.product_id ??
-      record.product?.productId
-  );
-}
-
 function getRawItemQuantity(item: unknown): number {
   if (!item || typeof item !== 'object') {
     return 1;
@@ -178,50 +153,6 @@ function getRawItemCurrency(item: unknown): string | null {
   );
 }
 
-function getOrderTimestamp(order: { placedAt: Date | null; rawOrder: unknown }): Date | null {
-  if (order.placedAt) {
-    return order.placedAt;
-  }
-  const rawOrder = order.rawOrder as Record<string, any> | null;
-  if (!rawOrder || typeof rawOrder !== 'object') {
-    return null;
-  }
-  const candidates = [
-    rawOrder.date?.created,
-    rawOrder.created_at,
-    rawOrder.createdAt,
-    rawOrder.date?.updated,
-    rawOrder.updated_at,
-    rawOrder.updatedAt,
-  ];
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue;
-    }
-    const date = new Date(candidate);
-    if (!Number.isNaN(date.getTime())) {
-      return date;
-    }
-  }
-  return null;
-}
-
-function shouldCountOrderAsSold(order: { statusSlug: string | null; rawOrder: unknown }): boolean {
-  const rawOrder = order.rawOrder as Record<string, any> | null;
-  const status = normalizeText(
-    order.statusSlug ??
-      rawOrder?.status?.slug ??
-      rawOrder?.status_slug ??
-      rawOrder?.statusSlug
-  )?.toLowerCase();
-
-  if (!status) {
-    return true;
-  }
-
-  return !['canceled', 'cancelled', 'refunded', 'restored', 'deleted'].includes(status);
-}
-
 export async function listPurchaseRequests(
   params: ListPurchaseRequestsInput = {}
 ): Promise<PurchaseRequestRecord[]> {
@@ -252,6 +183,34 @@ export async function getManufacturerUserId(userId: string | null | undefined): 
   });
 
   return user?.id ?? null;
+}
+
+const ORDER_STATUS_EXCLUDED = ['canceled', 'cancelled', 'refunded', 'restored', 'deleted'];
+const LIVE_STATS_CONCURRENCY = 6;
+
+type LinkedOrderItemRow = {
+  order_record_id: string;
+  placed_at: Date | null;
+  order_currency: string | null;
+  product_id: string | null;
+  item: unknown;
+};
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export async function listManufacturerLinkedProductStats(
@@ -287,37 +246,17 @@ export async function listManufacturerLinkedProductStats(
   }
 
   const productIds = linkedProducts.map((link) => link.productId);
-  const linkedProductIdSet = new Set(productIds);
-  const merchantIds = Array.from(
-    new Set(linkedProducts.map((link) => link.merchantId).filter((value): value is string => Boolean(value)))
-  );
 
-  const [purchaseRequests, orders] = await Promise.all([
-    prisma.sallaPurchaseRequest.groupBy({
-      by: ['productId', 'status'],
-      where: {
-        productId: { in: productIds },
-        status: { in: ['requested', 'on_the_way'] },
-      },
-      _sum: { quantity: true },
-    }),
-    prisma.sallaOrder.findMany({
-      where: merchantIds.length > 0 ? { merchantId: { in: merchantIds } } : undefined,
-      orderBy: [{ placedAt: 'desc' }, { createdAt: 'desc' }],
-      select: {
-        merchantId: true,
-        statusSlug: true,
-        currency: true,
-        placedAt: true,
-        rawOrder: true,
-      },
-    }),
-  ]);
+  // Salla API calls (and the orders scan) target the store's resolved merchant, not the
+  // supplier link's merchantId — those links are frequently null.
+  const resolvedMerchant = await resolveSallaMerchantId();
+  const merchantId = resolvedMerchant.merchantId;
 
   const stats = new Map<number, ManufacturerLinkedProductStats>();
   linkedProducts.forEach((link) => {
     stats.set(link.productId, {
       ...link,
+      remainingQuantity: null,
       requestedQuantity: 0,
       onTheWayQuantity: 0,
       totalPurchaseQuantity: 0,
@@ -327,6 +266,16 @@ export async function listManufacturerLinkedProductStats(
       orderCount: 0,
       lastSoldAt: null,
     });
+  });
+
+  // 1) Pending purchase demand — cheap indexed aggregation.
+  const purchaseRequests = await prisma.sallaPurchaseRequest.groupBy({
+    by: ['productId', 'status'],
+    where: {
+      productId: { in: productIds },
+      status: { in: ['requested', 'on_the_way'] },
+    },
+    _sum: { quantity: true },
   });
 
   purchaseRequests.forEach((row) => {
@@ -344,45 +293,89 @@ export async function listManufacturerLinkedProductStats(
     stat.totalPurchaseQuantity += quantity;
   });
 
-  orders.forEach((order) => {
-    if (!shouldCountOrderAsSold(order)) {
-      return;
-    }
+  // 2) Sales — aggregate inside Postgres so we only transfer the line items that match the
+  // linked products, instead of pulling every order's full rawOrder JSON into Node.
+  if (merchantId) {
+    const productIdStrings = productIds.map(String);
+    const rows = await prisma.$queryRaw<LinkedOrderItemRow[]>(Prisma.sql`
+      SELECT
+        o.id AS order_record_id,
+        o."placedAt" AS placed_at,
+        o.currency AS order_currency,
+        COALESCE(
+          item->>'product_id', item->>'productId',
+          item#>>'{product,id}', item#>>'{product,product_id}', item#>>'{product,productId}'
+        ) AS product_id,
+        item AS item
+      FROM "SallaOrder" o
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE
+          WHEN jsonb_typeof(o."rawOrder"->'items') = 'array' THEN o."rawOrder"->'items'
+          WHEN jsonb_typeof(o."rawOrder"#>'{order,items}') = 'array' THEN o."rawOrder"#>'{order,items}'
+          ELSE '[]'::jsonb
+        END
+      ) AS item
+      WHERE o."merchantId" = ${merchantId}
+        AND (o."statusSlug" IS NULL OR lower(o."statusSlug") NOT IN (${Prisma.join(ORDER_STATUS_EXCLUDED)}))
+        AND COALESCE(
+          item->>'product_id', item->>'productId',
+          item#>>'{product,id}', item#>>'{product,product_id}', item#>>'{product,productId}'
+        ) IN (${Prisma.join(productIdStrings)})
+    `);
 
-    const orderProductIds = new Set<number>();
-    const orderDate = getOrderTimestamp(order);
-
-    getRawOrderItems(order.rawOrder).forEach((item) => {
-      const productId = getRawItemProductId(item);
-      if (!productId || !linkedProductIdSet.has(productId)) {
-        return;
+    const ordersByProduct = new Map<number, Set<string>>();
+    for (const row of rows) {
+      const productId = normalizePositiveInt(row.product_id);
+      if (!productId) {
+        continue;
       }
       const stat = stats.get(productId);
       if (!stat) {
-        return;
+        continue;
       }
-
-      const quantity = getRawItemQuantity(item);
+      const quantity = getRawItemQuantity(row.item);
       stat.soldQuantity += quantity;
-      stat.soldAmount += getRawItemTotal(item, quantity);
-      stat.currency = stat.currency ?? getRawItemCurrency(item) ?? order.currency ?? null;
-      orderProductIds.add(productId);
+      stat.soldAmount += getRawItemTotal(row.item, quantity);
+      stat.currency = stat.currency ?? getRawItemCurrency(row.item) ?? row.order_currency ?? null;
 
-      if (orderDate) {
-        const current = stat.lastSoldAt ? new Date(stat.lastSoldAt) : null;
-        if (!current || orderDate.getTime() > current.getTime()) {
-          stat.lastSoldAt = orderDate.toISOString();
+      const seen = ordersByProduct.get(productId) ?? new Set<string>();
+      seen.add(row.order_record_id);
+      ordersByProduct.set(productId, seen);
+
+      if (row.placed_at) {
+        const placed = row.placed_at instanceof Date ? row.placed_at : new Date(row.placed_at);
+        if (!Number.isNaN(placed.getTime())) {
+          const current = stat.lastSoldAt ? new Date(stat.lastSoldAt) : null;
+          if (!current || placed.getTime() > current.getTime()) {
+            stat.lastSoldAt = placed.toISOString();
+          }
         }
       }
-    });
+    }
 
-    orderProductIds.forEach((productId) => {
+    ordersByProduct.forEach((orderSet, productId) => {
       const stat = stats.get(productId);
       if (stat) {
-        stat.orderCount += 1;
+        stat.orderCount = orderSet.size;
       }
     });
-  });
+  }
+
+  // 3) Remaining stock — fetched live from Salla per product (bounded concurrency).
+  if (merchantId) {
+    const liveStats = await mapWithConcurrency(linkedProducts, LIVE_STATS_CONCURRENCY, (link) =>
+      getSallaProductLiveStats(merchantId, link.productId).catch(() => null)
+    );
+    liveStats.forEach((live, index) => {
+      if (!live) {
+        return;
+      }
+      const stat = stats.get(linkedProducts[index].productId);
+      if (stat) {
+        stat.remainingQuantity = live.remainingQuantity;
+      }
+    });
+  }
 
   return Array.from(stats.values()).sort((a, b) => {
     if (b.soldQuantity !== a.soldQuantity) {

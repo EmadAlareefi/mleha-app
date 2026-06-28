@@ -405,6 +405,7 @@ function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTab
             <TableRow>
               <TableHead>المنتج</TableHead>
               <TableHead>SKU</TableHead>
+              <TableHead>المتبقي</TableHead>
               <TableHead>مطلوب</TableHead>
               <TableHead>قيد الشراء</TableHead>
               <TableHead>الإجمالي</TableHead>
@@ -425,6 +426,9 @@ function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTab
                   </div>
                 </TableCell>
                 <TableCell>{product.productSku || '—'}</TableCell>
+                <TableCell className="font-semibold text-slate-900">
+                  {product.remainingQuantity == null ? '—' : formatNumber(product.remainingQuantity)}
+                </TableCell>
                 <TableCell>{formatNumber(product.requestedQuantity)}</TableCell>
                 <TableCell>{formatNumber(product.onTheWayQuantity)}</TableCell>
                 <TableCell>

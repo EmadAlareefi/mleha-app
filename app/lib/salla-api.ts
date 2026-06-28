@@ -646,6 +646,58 @@ export async function getSallaProduct(
   }
 }
 
+export type SallaProductLiveStats = {
+  productId: number;
+  found: boolean;
+  remainingQuantity: number | null;
+  soldQuantity: number | null;
+};
+
+/**
+ * Fetch a single product's live stats from Salla: current stock (remaining) and, when the
+ * payload exposes it, an all-time sold counter. For variable products the product-level
+ * quantity is often null, so we fall back to summing variant stock.
+ */
+export async function getSallaProductLiveStats(
+  merchantId: string,
+  productId: string | number
+): Promise<SallaProductLiveStats> {
+  const numericId = typeof productId === 'number' ? productId : safeNumber(productId) ?? 0;
+
+  const response = await sallaMakeRequest<{ success?: boolean; data?: Record<string, any> }>(
+    merchantId,
+    `/products/${productId}`
+  );
+
+  const data = response?.data;
+  if (!data) {
+    return { productId: numericId, found: false, remainingQuantity: null, soldQuantity: null };
+  }
+
+  const product = normalizeProduct(data);
+  let remainingQuantity = product.availableQuantity ?? null;
+
+  // Variable products usually carry no product-level quantity — sum the variants instead.
+  if (remainingQuantity == null) {
+    try {
+      const variations = await getSallaProductVariations(merchantId, productId);
+      const known = variations.filter((variation) => typeof variation.availableQuantity === 'number');
+      if (known.length > 0) {
+        remainingQuantity = known.reduce((sum, variation) => sum + (variation.availableQuantity ?? 0), 0);
+      }
+    } catch (error) {
+      log.warn('Could not load variants for live stock fallback', { merchantId, productId, error });
+    }
+  }
+
+  return {
+    productId: product.id || numericId,
+    found: true,
+    remainingQuantity,
+    soldQuantity: product.soldQuantity ?? null,
+  };
+}
+
 export async function getSallaProductVariations(
   merchantId: string,
   productId: string | number
@@ -708,6 +760,7 @@ export interface SallaProductSummary {
   priceAmount?: number | null;
   currency?: string;
   availableQuantity?: number | null;
+  soldQuantity?: number | null;
   status?: string;
   imageUrl?: string | null;
   lastUpdatedAt?: string | null;
@@ -1003,6 +1056,17 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
     product?.quantities?.available
   );
 
+  // Salla may expose an all-time sold counter on the product payload. The field name
+  // varies across API versions, so probe the known candidates (null when absent).
+  const soldQuantity = safeNumber(
+    product?.sold_quantity ??
+    product?.sold_count ??
+    product?.sales_count ??
+    product?.sales?.count ??
+    product?.statistics?.sold_quantity ??
+    product?.stats?.sold_quantity
+  );
+
   const status = typeof product?.status === 'string'
     ? product.status
     : typeof product?.status?.name === 'string'
@@ -1043,6 +1107,7 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
     priceAmount,
     currency,
     availableQuantity,
+    soldQuantity,
     status,
     imageUrl: mainImage || null,
     lastUpdatedAt,

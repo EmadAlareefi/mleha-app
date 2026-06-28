@@ -104,6 +104,22 @@ function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
+async function readJsonResponse(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    if (response.redirected || response.url.includes('/login')) {
+      throw new Error('انتهت الجلسة أو لا تملك صلاحية الوصول. يرجى تسجيل الدخول مجدداً.');
+    }
+    throw new Error(fallbackMessage);
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+}
+
 export default function SallaProductsPage() {
   const router = useRouter();
   const { status } = useSession();
@@ -231,7 +247,7 @@ export default function SallaProductsPage() {
     setManufacturersError(null);
     try {
       const response = await fetch('/api/product-suppliers?mode=factories', { cache: 'no-store' });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'تعذر تحميل قائمة المصانع');
       if (response.ok && data.success && Array.isArray(data.users)) {
         setManufacturers(
           data.users.map((user: ManufacturerUserOption) => ({
@@ -265,7 +281,7 @@ export default function SallaProductsPage() {
       const response = await fetch(`/api/product-suppliers?${params.toString()}`, {
         cache: 'no-store',
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, 'تعذر تحميل مصانع المنتجات');
 
       if (!response.ok || !data.success) {
         setProductManufacturers({});
@@ -300,7 +316,7 @@ export default function SallaProductsPage() {
             productName: product.name ?? undefined,
           }),
         });
-        const data = await response.json();
+        const data = await readJsonResponse(response, 'تعذر حفظ مصنع المنتج');
         if (!response.ok || !data.success) {
           throw new Error(data?.error || 'تعذر حفظ مصنع المنتج');
         }
@@ -312,7 +328,7 @@ export default function SallaProductsPage() {
           body: JSON.stringify({ productId: product.id.toString() }),
         });
         if (!response.ok && response.status !== 404) {
-          const data = await response.json().catch(() => null);
+          const data = await readJsonResponse(response, 'تعذر حذف مصنع المنتج').catch(() => null);
           throw new Error(data?.error || 'تعذر حذف مصنع المنتج');
         }
         setProductManufacturers((prev) => {
