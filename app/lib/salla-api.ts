@@ -741,6 +741,7 @@ export interface SallaProductsQueryOptions {
   page?: number;
   perPage?: number;
   sku?: string;
+  keyword?: string;
   status?: string;
 }
 
@@ -1068,6 +1069,12 @@ export async function listSallaProducts(
   if (trimmedSku) {
     query.set('sku', trimmedSku);
   }
+  // Salla's `keyword` param searches across product name and SKU and actually filters
+  // (the `sku` param is ignored by the store and returns the full catalog).
+  const trimmedKeyword = options?.keyword?.trim();
+  if (trimmedKeyword) {
+    query.set('keyword', trimmedKeyword);
+  }
   if (options?.status) {
     query.set('status', options.status);
   }
@@ -1308,7 +1315,7 @@ export async function searchSallaProductsBySku(
   const firstPage = await listSallaProducts(merchantId, {
     page: 1,
     perPage,
-    sku: trimmedQuery,
+    keyword: trimmedQuery,
     status: options?.status,
   });
   collect(firstPage.products);
@@ -1324,7 +1331,7 @@ export async function searchSallaProductsBySku(
         listSallaProducts(merchantId, {
           page,
           perPage,
-          sku: trimmedQuery,
+          keyword: trimmedQuery,
           status: options?.status,
         })
       );
