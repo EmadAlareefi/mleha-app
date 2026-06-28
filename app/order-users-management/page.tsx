@@ -63,6 +63,7 @@ interface OrderUser {
   employmentEndDate?: string | null;
   salaryAmount?: string | null;
   salaryCurrency?: string | null;
+  userType?: string | null;
   isActive: boolean;
   autoAssign: boolean;
   createdAt: string;
@@ -207,6 +208,7 @@ export default function OrderUsersManagementPage() {
     employmentEndDate: '',
     salaryAmount: '',
     salaryCurrency: 'SAR',
+    userType: 'employee',
     isActive: true,
     autoAssign: true,
     warehouseIds: [] as string[],
@@ -562,6 +564,7 @@ export default function OrderUsersManagementPage() {
         employmentEndDate: formData.employmentEndDate || null,
         salaryAmount: formData.salaryAmount || null,
         salaryCurrency: formData.salaryCurrency || null,
+        userType: formData.userType,
         isActive: formData.isActive,
         serviceKeys: formData.serviceKeys,
         autoAssign: hasOrdersAccess ? formData.autoAssign : false,
@@ -616,6 +619,7 @@ export default function OrderUsersManagementPage() {
       employmentEndDate: formatDateForInput(user.employmentEndDate),
       salaryAmount: user.salaryAmount || '',
       salaryCurrency: user.salaryCurrency || 'SAR',
+      userType: user.userType === 'manufacturer' ? 'manufacturer' : 'employee',
       isActive: user.isActive,
       autoAssign: user.autoAssign,
       warehouseIds: user.warehouses?.map((w) => w.id) || [],
@@ -693,6 +697,7 @@ export default function OrderUsersManagementPage() {
       employmentEndDate: '',
       salaryAmount: '',
       salaryCurrency: 'SAR',
+      userType: 'employee',
       isActive: true,
       autoAssign: true,
       warehouseIds: [],
@@ -1085,6 +1090,18 @@ export default function OrderUsersManagementPage() {
                       />
                       <span>نشط</span>
                     </label>
+                    <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
+                      <Checkbox
+                        checked={formData.userType === 'manufacturer'}
+                        onCheckedChange={(checked) =>
+                          setFormData({
+                            ...formData,
+                            userType: checked === true ? 'manufacturer' : 'employee',
+                          })
+                        }
+                      />
+                      <span>مصنع</span>
+                    </label>
                     {hasOrdersAccess && (
                       <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
                         <Checkbox
@@ -1179,6 +1196,9 @@ export default function OrderUsersManagementPage() {
                                   <Badge variant={user.isActive ? 'default' : 'secondary'}>
                                     {user.isActive ? 'نشط' : 'متوقف'}
                                   </Badge>
+                                  {user.userType === 'manufacturer' && (
+                                    <Badge variant="outline">مصنع</Badge>
+                                  )}
                                 </div>
                                 <p className="truncate text-xs text-muted-foreground">@{user.username}</p>
                                 <p className="truncate text-xs text-muted-foreground">

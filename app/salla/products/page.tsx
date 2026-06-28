@@ -28,9 +28,12 @@ const STATUS_OPTIONS = [
   { value: 'out', label: 'نافد' },
 ];
 
-type SupplierOption = {
+type ManufacturerUserOption = {
   id: string;
   name: string;
+  username: string;
+  email?: string | null;
+  phone?: string | null;
 };
 
 type ProductOptionSnapshot = {
@@ -114,8 +117,8 @@ export default function SallaProductsPage() {
   const [productRequests, setProductRequests] = useState<Record<number, QuantityRequestRecord[]>>({});
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState<string | null>(null);
-  const [productSuppliers, setProductSuppliers] = useState<Record<number, string>>({});
-  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [productManufacturers, setProductManufacturers] = useState<Record<number, string>>({});
+  const [manufacturers, setManufacturers] = useState<ManufacturerUserOption[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [variationsMap, setVariationsMap] = useState<Record<number, SallaProductVariation[]>>({});
@@ -223,13 +226,19 @@ export default function SallaProductsPage() {
     }
   }, []);
 
-  const fetchSuppliers = useCallback(async () => {
+  const fetchManufacturers = useCallback(async () => {
     try {
-      const response = await fetch('/api/suppliers', { cache: 'no-store' });
+      const response = await fetch('/api/product-suppliers?mode=factories', { cache: 'no-store' });
       const data = await response.json();
-      if (response.ok && data.success && Array.isArray(data.suppliers)) {
-        setSuppliers(
-          data.suppliers.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name }))
+      if (response.ok && data.success && Array.isArray(data.users)) {
+        setManufacturers(
+          data.users.map((user: ManufacturerUserOption) => ({
+            id: user.id,
+            name: user.name,
+            username: user.username,
+            email: user.email ?? null,
+            phone: user.phone ?? null,
+          }))
         );
       }
     } catch {
@@ -237,28 +246,9 @@ export default function SallaProductsPage() {
     }
   }, []);
 
-  const handleCreateSupplier = useCallback(async (name: string): Promise<SupplierOption> => {
-    const response = await fetch('/api/suppliers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data?.error || 'تعذر إضافة المورّد');
-    }
-    const created: SupplierOption = { id: data.supplier.id, name: data.supplier.name };
-    setSuppliers((prev) =>
-      prev.some((s) => s.id === created.id)
-        ? prev
-        : [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
-    );
-    return created;
-  }, []);
-
-  const fetchProductSuppliers = useCallback(async (productIds: number[]) => {
+  const fetchProductManufacturers = useCallback(async (productIds: number[]) => {
     if (!productIds || productIds.length === 0) {
-      setProductSuppliers({});
+      setProductManufacturers({});
       return;
     }
 
@@ -271,43 +261,43 @@ export default function SallaProductsPage() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        setProductSuppliers({});
+        setProductManufacturers({});
         return;
       }
 
       const map: Record<number, string> = {};
       if (Array.isArray(data.productSuppliers)) {
-        data.productSuppliers.forEach((record: { productId: string; supplierId: string }) => {
+        data.productSuppliers.forEach((record: { productId: string; userId: string }) => {
           const id = Number.parseInt(record.productId, 10);
           if (Number.isFinite(id)) {
-            map[id] = record.supplierId;
+            map[id] = record.userId;
           }
         });
       }
-      setProductSuppliers(map);
+      setProductManufacturers(map);
     } catch {
-      setProductSuppliers({});
+      setProductManufacturers({});
     }
   }, []);
 
-  const handleSaveSupplier = useCallback(
-    async (product: SallaProductSummary, supplierId: string) => {
-      if (supplierId) {
+  const handleSaveManufacturer = useCallback(
+    async (product: SallaProductSummary, userId: string) => {
+      if (userId) {
         const response = await fetch('/api/product-suppliers', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             productId: product.id.toString(),
-            supplierId,
+            userId,
             sku: product.sku ?? undefined,
             productName: product.name ?? undefined,
           }),
         });
         const data = await response.json();
         if (!response.ok || !data.success) {
-          throw new Error(data?.error || 'تعذر حفظ مورّد المنتج');
+          throw new Error(data?.error || 'تعذر حفظ مصنع المنتج');
         }
-        setProductSuppliers((prev) => ({ ...prev, [product.id]: supplierId }));
+        setProductManufacturers((prev) => ({ ...prev, [product.id]: userId }));
       } else {
         const response = await fetch('/api/product-suppliers', {
           method: 'DELETE',
@@ -316,9 +306,9 @@ export default function SallaProductsPage() {
         });
         if (!response.ok && response.status !== 404) {
           const data = await response.json().catch(() => null);
-          throw new Error(data?.error || 'تعذر حذف مورّد المنتج');
+          throw new Error(data?.error || 'تعذر حذف مصنع المنتج');
         }
-        setProductSuppliers((prev) => {
+        setProductManufacturers((prev) => {
           const next = { ...prev };
           delete next[product.id];
           return next;
@@ -336,9 +326,9 @@ export default function SallaProductsPage() {
 
   useEffect(() => {
     if (status === 'authenticated') {
-      fetchSuppliers();
+      fetchManufacturers();
     }
-  }, [status, fetchSuppliers]);
+  }, [status, fetchManufacturers]);
 
   useEffect(() => {
     if (status !== 'authenticated') {
@@ -389,13 +379,13 @@ export default function SallaProductsPage() {
     }
     if (products.length === 0) {
       setProductRequests({});
-      setProductSuppliers({});
+      setProductManufacturers({});
       return;
     }
     const ids = products.map((product) => product.id);
     fetchProductRequests(ids);
-    fetchProductSuppliers(ids);
-  }, [status, products, fetchProductRequests, fetchProductSuppliers]);
+    fetchProductManufacturers(ids);
+  }, [status, products, fetchProductRequests, fetchProductManufacturers]);
 
   const handleRefresh = () => {
     fetchProducts(currentPage, searchSku, statusFilter);
@@ -671,7 +661,7 @@ export default function SallaProductsPage() {
                       <TableHead className="text-slate-600">السعر</TableHead>
                       <TableHead className="text-slate-600">المتوفر</TableHead>
                       <TableHead className="text-slate-600">الحالة</TableHead>
-                      <TableHead className="w-56 text-slate-600">المورّد</TableHead>
+                      <TableHead className="w-56 text-slate-600">المصنع</TableHead>
                       <TableHead className="w-[320px] text-slate-600">طلب كمية</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -706,10 +696,9 @@ export default function SallaProductsPage() {
                           rowVariationsLoading={!!rowVariationsLoading[product.id]}
                           variationError={productVariationErrors[product.id]}
                           onRefreshVariations={() => refreshVariationsForProduct(product.id)}
-                          supplierId={productSuppliers[product.id] ?? ''}
-                          suppliers={suppliers}
-                          onSaveSupplier={(value) => handleSaveSupplier(product, value)}
-                          onCreateSupplier={handleCreateSupplier}
+                          manufacturerId={productManufacturers[product.id] ?? ''}
+                          manufacturers={manufacturers}
+                          onSaveManufacturer={(value) => handleSaveManufacturer(product, value)}
                         />
                       ))}
                   </TableBody>
@@ -732,10 +721,9 @@ type ProductRowProps = {
   rowVariationsLoading: boolean;
   variationError?: string | null;
   onRefreshVariations: () => void;
-  supplierId: string;
-  suppliers: SupplierOption[];
-  onSaveSupplier: (supplierId: string) => Promise<void>;
-  onCreateSupplier: (name: string) => Promise<SupplierOption>;
+  manufacturerId: string;
+  manufacturers: ManufacturerUserOption[];
+  onSaveManufacturer: (userId: string) => Promise<void>;
 };
 
 function ProductRow({
@@ -748,20 +736,17 @@ function ProductRow({
   rowVariationsLoading,
   variationError,
   onRefreshVariations,
-  supplierId,
-  suppliers,
-  onSaveSupplier,
-  onCreateSupplier,
+  manufacturerId,
+  manufacturers,
+  onSaveManufacturer,
 }: ProductRowProps) {
   const [variationAdjustments, setVariationAdjustments] = useState<
     Record<string, { quantity: string; mode: 'increment' | 'decrement' }>
   >({});
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateFeedback, setUpdateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [supplierSaving, setSupplierSaving] = useState(false);
-  const [supplierFeedback, setSupplierFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [addingSupplier, setAddingSupplier] = useState(false);
-  const [newSupplierName, setNewSupplierName] = useState('');
+  const [manufacturerSaving, setManufacturerSaving] = useState(false);
+  const [manufacturerFeedback, setManufacturerFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const variationList = variations ?? [];
   const variationMessage = variationError;
   const rowLoading = rowVariationsLoading;
@@ -783,132 +768,60 @@ function ProductRow({
   }, [product.id]);
 
   useEffect(() => {
-    setSupplierFeedback(null);
-    setAddingSupplier(false);
-    setNewSupplierName('');
-  }, [supplierId, product.id]);
+    setManufacturerFeedback(null);
+  }, [manufacturerId, product.id]);
 
-  const ADD_NEW_VALUE = '__add_new__';
-
-  const persistSupplier = async (value: string, successMessage: string) => {
-    setSupplierSaving(true);
-    setSupplierFeedback(null);
+  const persistManufacturer = async (value: string, successMessage: string) => {
+    setManufacturerSaving(true);
+    setManufacturerFeedback(null);
     try {
-      await onSaveSupplier(value);
-      setSupplierFeedback({ type: 'success', message: successMessage });
+      await onSaveManufacturer(value);
+      setManufacturerFeedback({ type: 'success', message: successMessage });
     } catch (error) {
-      setSupplierFeedback({
+      setManufacturerFeedback({
         type: 'error',
-        message: error instanceof Error ? error.message : 'تعذر حفظ المورّد.',
+        message: error instanceof Error ? error.message : 'تعذر حفظ المصنع.',
       });
     } finally {
-      setSupplierSaving(false);
+      setManufacturerSaving(false);
     }
   };
 
-  const handleSupplierSelectChange = (value: string) => {
-    if (value === ADD_NEW_VALUE) {
-      setAddingSupplier(true);
-      setNewSupplierName('');
-      setSupplierFeedback(null);
+  const handleManufacturerSelectChange = (value: string) => {
+    if (value === manufacturerId) {
       return;
     }
-    if (value === supplierId) {
-      return;
-    }
-    persistSupplier(value, value ? 'تم حفظ المورّد.' : 'تم حذف المورّد.');
+    persistManufacturer(value, value ? 'تم حفظ المصنع.' : 'تم حذف المصنع.');
   };
 
-  const handleCreateAndAssign = async () => {
-    const name = newSupplierName.trim();
-    if (!name) {
-      setSupplierFeedback({ type: 'error', message: 'اسم المورّد مطلوب.' });
-      return;
-    }
-    setSupplierSaving(true);
-    setSupplierFeedback(null);
-    try {
-      const created = await onCreateSupplier(name);
-      await onSaveSupplier(created.id);
-      setAddingSupplier(false);
-      setNewSupplierName('');
-      setSupplierFeedback({ type: 'success', message: 'تم إضافة المورّد وربطه.' });
-    } catch (error) {
-      setSupplierFeedback({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'تعذر إضافة المورّد.',
-      });
-    } finally {
-      setSupplierSaving(false);
-    }
-  };
-
-  const renderSupplierEditor = (idSuffix: string) => (
+  const renderManufacturerEditor = (idSuffix: string) => (
     <div className="space-y-1.5">
-      {addingSupplier ? (
-        <div className="flex items-center gap-2">
-          <Input
-            value={newSupplierName}
-            onChange={(event) => setNewSupplierName(event.target.value)}
-            placeholder="اسم المورّد الجديد"
-            className="h-9 text-sm"
-            aria-label={`مورّد جديد - ${product.name}`}
-            id={`new-supplier-${idSuffix}-${product.id}`}
-            disabled={supplierSaving}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                handleCreateAndAssign();
-              }
-            }}
-          />
-          <Button
-            type="button"
-            size="sm"
-            className="shrink-0"
-            onClick={handleCreateAndAssign}
-            disabled={supplierSaving || !newSupplierName.trim()}
-          >
-            {supplierSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'إضافة'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="shrink-0"
-            onClick={() => {
-              setAddingSupplier(false);
-              setNewSupplierName('');
-            }}
-            disabled={supplierSaving}
-          >
-            إلغاء
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <NativeSelect
-            value={supplierId}
-            onChange={(event) => handleSupplierSelectChange(event.target.value)}
-            disabled={supplierSaving}
-            aria-label={`المورّد - ${product.name}`}
-            id={`supplier-${idSuffix}-${product.id}`}
-            className="text-sm"
-          >
-            <NativeSelectOption value="">— بدون مورّد —</NativeSelectOption>
-            {suppliers.map((option) => (
-              <NativeSelectOption key={option.id} value={option.id}>
-                {option.name}
-              </NativeSelectOption>
-            ))}
-            <NativeSelectOption value={ADD_NEW_VALUE}>➕ إضافة مورّد جديد…</NativeSelectOption>
-          </NativeSelect>
-          {supplierSaving && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
-        </div>
+      <div className="flex items-center gap-2">
+        <NativeSelect
+          value={manufacturerId}
+          onChange={(event) => handleManufacturerSelectChange(event.target.value)}
+          disabled={manufacturerSaving}
+          aria-label={`المصنع - ${product.name}`}
+          id={`manufacturer-${idSuffix}-${product.id}`}
+          className="text-sm"
+        >
+          <NativeSelectOption value="">— بدون مصنع —</NativeSelectOption>
+          {manufacturers.map((option) => (
+            <NativeSelectOption key={option.id} value={option.id}>
+              {option.name} (@{option.username})
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+        {manufacturerSaving && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+      </div>
+      {!manufacturers.length && (
+        <p className="text-xs text-slate-500">
+          أضف أو عدّل مستخدماً بنوع مصنع من صفحة إدارة المستخدمين.
+        </p>
       )}
-      {supplierFeedback && (
-        <p className={`text-xs ${supplierFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
-          {supplierFeedback.message}
+      {manufacturerFeedback && (
+        <p className={`text-xs ${manufacturerFeedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+          {manufacturerFeedback.message}
         </p>
       )}
     </div>
@@ -1199,7 +1112,7 @@ function ProductRow({
             {product.status || 'غير محدد'}
           </Badge>
         </TableCell>
-        <TableCell>{renderSupplierEditor('desktop')}</TableCell>
+        <TableCell>{renderManufacturerEditor('desktop')}</TableCell>
         <TableCell>{renderQuantityRequestSection()}</TableCell>
       </TableRow>
       <TableRow className="hidden bg-slate-50/60 lg:table-row">
@@ -1252,8 +1165,8 @@ function ProductRow({
               </div>
             </div>
             <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-              <p className="mb-2 text-xs text-slate-500">المورّد</p>
-              {renderSupplierEditor('mobile')}
+              <p className="mb-2 text-xs text-slate-500">المصنع</p>
+              {renderManufacturerEditor('mobile')}
             </div>
             {renderQuantityRequestSection()}
             {renderVariationSection()}

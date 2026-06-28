@@ -13,7 +13,7 @@ function hasProductSupplierAccess(session: any | null) {
 }
 
 function productSupplierTableMissing(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021';
+  return error instanceof Prisma.PrismaClientKnownRequestError && ['P2021', 'P2022'].includes(error.code);
 }
 
 async function isProductSupplierSchemaReady() {
@@ -69,16 +69,18 @@ function parseProductIds(searchParams: URLSearchParams): string[] {
 }
 
 const SCHEMA_NOT_READY = {
-  error: 'يرجى تشغيل `prisma db push` لإنشاء جدول موردي المنتجات.',
+  error: 'يرجى تشغيل `prisma db push` لتحديث ربط مصانع المنتجات.',
   missingProductSupplierTable: true,
 };
+
+const MANUFACTURER_USER_TYPE = 'manufacturer';
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
 
   if (!session || !hasProductSupplierAccess(session)) {
     return NextResponse.json(
-      { error: 'غير مصرح لك بالوصول إلى موردي المنتجات' },
+      { error: 'غير مصرح لك بالوصول إلى مصانع المنتجات' },
       { status: 403 }
     );
   }
@@ -90,18 +92,35 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = request.nextUrl;
+    if (searchParams.get('mode') === 'factories') {
+      const users = await prisma.orderUser.findMany({
+        where: { isActive: true, userType: MANUFACTURER_USER_TYPE },
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          email: true,
+          phone: true,
+        },
+      });
+
+      return NextResponse.json({ success: true, users });
+    }
+
     const productIds = parseProductIds(searchParams);
 
     const rows = await prisma.sallaProductSupplier.findMany({
       where: productIds.length > 0 ? { productId: { in: productIds } } : undefined,
       orderBy: { updatedAt: 'desc' },
       take: productIds.length > 0 ? undefined : 500,
-      include: { supplier: { select: { id: true, name: true } } },
+      include: { user: { select: { id: true, name: true, username: true } } },
     });
 
     const productSuppliers = rows.map((row) => ({
       ...row,
-      supplierName: row.supplier?.name ?? null,
+      userName: row.user?.name ?? null,
+      username: row.user?.username ?? null,
     }));
 
     return NextResponse.json({ success: true, productSuppliers });
@@ -112,7 +131,7 @@ export async function GET(request: NextRequest) {
 
     log.error('Failed to load product suppliers', { error });
     return NextResponse.json(
-      { error: 'تعذر تحميل موردي المنتجات' },
+      { error: 'تعذر تحميل مصانع المنتجات' },
       { status: 500 }
     );
   }
@@ -123,7 +142,7 @@ export async function POST(request: NextRequest) {
 
   if (!session || !hasProductSupplierAccess(session)) {
     return NextResponse.json(
-      { error: 'غير مصرح لك بتحديث موردي المنتجات' },
+      { error: 'غير مصرح لك بتحديث مصانع المنتجات' },
       { status: 403 }
     );
   }
@@ -136,7 +155,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const productId = typeof body?.productId === 'string' ? body.productId.trim() : '';
-    const supplierId = typeof body?.supplierId === 'string' ? body.supplierId.trim() : '';
+    const userId = typeof body?.userId === 'string' ? body.userId.trim() : '';
     const sku = typeof body?.sku === 'string' ? body.sku.trim() : undefined;
     const productName = typeof body?.productName === 'string' ? body.productName.trim() : undefined;
     const merchantId = typeof body?.merchantId === 'string' ? body.merchantId.trim() : undefined;
@@ -146,13 +165,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'معرّف المنتج مطلوب' }, { status: 400 });
     }
 
-    if (!supplierId) {
-      return NextResponse.json({ error: 'المورّد مطلوب' }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: 'المصنع مطلوب' }, { status: 400 });
     }
 
-    const supplierExists = await prisma.supplier.findUnique({ where: { id: supplierId } });
-    if (!supplierExists) {
-      return NextResponse.json({ error: 'المورّد المحدد غير موجود' }, { status: 400 });
+    const manufacturerUser = await prisma.orderUser.findFirst({
+      where: { id: userId, userType: MANUFACTURER_USER_TYPE, isActive: true },
+    });
+    if (!manufacturerUser) {
+      return NextResponse.json({ error: 'المصنع المحدد غير موجود' }, { status: 400 });
     }
 
     const actor = userIdentifier(session);
@@ -162,7 +183,7 @@ export async function POST(request: NextRequest) {
     });
 
     const updateData: Prisma.SallaProductSupplierUpdateInput = {
-      supplier: { connect: { id: supplierId } },
+      user: { connect: { id: userId } },
       updatedBy: actor,
     };
 
@@ -183,7 +204,7 @@ export async function POST(request: NextRequest) {
       where: { productId },
       create: {
         productId,
-        supplier: { connect: { id: supplierId } },
+        user: { connect: { id: userId } },
         sku: sku || null,
         productName: productName || null,
         merchantId: merchantId || null,
@@ -192,12 +213,12 @@ export async function POST(request: NextRequest) {
         updatedBy: actor,
       },
       update: updateData,
-      include: { supplier: { select: { id: true, name: true } } },
+      include: { user: { select: { id: true, name: true, username: true } } },
     });
 
     log.info('Product supplier saved', {
       productId,
-      supplierId,
+      userId,
       actor,
       action: existingRecord ? 'update' : 'create',
     });
@@ -214,7 +235,7 @@ export async function POST(request: NextRequest) {
 
     log.error('Failed to save product supplier', { error });
     return NextResponse.json(
-      { error: 'تعذر حفظ مورّد المنتج' },
+      { error: 'تعذر حفظ مصنع المنتج' },
       { status: 500 }
     );
   }
@@ -225,7 +246,7 @@ export async function DELETE(request: NextRequest) {
 
   if (!session || (!hasProductSupplierAccess(session) && !isAdmin(session))) {
     return NextResponse.json(
-      { error: 'غير مصرح لك بحذف موردي المنتجات' },
+      { error: 'غير مصرح لك بحذف مصانع المنتجات' },
       { status: 403 }
     );
   }
@@ -257,7 +278,7 @@ export async function DELETE(request: NextRequest) {
     }
     log.error('Failed to delete product supplier', { error });
     return NextResponse.json(
-      { error: 'تعذر حذف مورّد المنتج' },
+      { error: 'تعذر حذف مصنع المنتج' },
       { status: 500 }
     );
   }

@@ -450,7 +450,7 @@ const serviceDefinitionsData = [
   {
     key: 'salla-purchase-requests-manage',
     title: 'إدارة طلبات الشراء',
-    description: 'نقل طلبات الشراء إلى قيد الشراء وإزالتها بعد الشراء',
+    description: 'إضافة منتجات قيد الشراء وحذف طلبات الشراء أو إزالتها بعد الشراء',
     icon: '✅',
     href: '/salla/purchase-requests',
     color: 'from-teal-600 to-emerald-700',

@@ -4,9 +4,11 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import {
   archivePurchaseRequest,
+  deletePurchaseRequest,
   incrementPurchaseRequestQuantity,
   movePurchaseRequestOnTheWay,
 } from '@/app/lib/salla-purchase-requests';
+import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 
@@ -79,8 +81,22 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   }
 
   try {
+    const existing = await prisma.sallaPurchaseRequest.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: 'لم يتم العثور على طلب الشراء' }, { status: 404 });
+    }
+
+    if (existing.status === 'requested') {
+      const deleted = await deletePurchaseRequest(id);
+      return NextResponse.json({ success: true, request: deleted, deleted: true });
+    }
+
     const updated = await archivePurchaseRequest(id, actorName(session));
-    return NextResponse.json({ success: true, request: updated });
+    return NextResponse.json({ success: true, request: updated, deleted: false });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'تعذر إزالة الطلب' },

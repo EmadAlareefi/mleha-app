@@ -8,9 +8,15 @@ const purchaseRequestSelect = {
   productName: true,
   productSku: true,
   productImageUrl: true,
+  variantId: true,
+  variantName: true,
+  variantSku: true,
+  variantBarcode: true,
+  variantOptions: true,
   quantity: true,
   status: true,
   notes: true,
+  expectedArrivalAt: true,
   requestedBy: true,
   requestedByUser: true,
   requestedAt: true,
@@ -33,8 +39,15 @@ export type CreatePurchaseRequestInput = {
   productName: string;
   productSku?: string | null;
   productImageUrl?: string | null;
+  variantId?: string | null;
+  variantName?: string | null;
+  variantSku?: string | null;
+  variantBarcode?: string | null;
+  variantOptions?: Prisma.InputJsonValue | null;
   merchantId?: string | null;
   quantity: number;
+  status?: Extract<PurchaseRequestStatus, 'requested' | 'on_the_way'>;
+  expectedArrivalAt?: Date | null;
   notes?: string | null;
   requestedBy: string;
   requestedByUser?: string | null;
@@ -72,12 +85,20 @@ export async function createPurchaseRequest(
       productName: input.productName,
       productSku: input.productSku ?? null,
       productImageUrl: input.productImageUrl ?? null,
+      variantId: input.variantId ?? null,
+      variantName: input.variantName ?? null,
+      variantSku: input.variantSku ?? null,
+      variantBarcode: input.variantBarcode ?? null,
+      variantOptions: input.variantOptions ?? undefined,
       merchantId: input.merchantId ?? null,
       quantity: input.quantity,
       notes: input.notes ?? null,
       requestedBy: input.requestedBy,
       requestedByUser: input.requestedByUser ?? null,
-      status: 'requested',
+      status: input.status ?? 'requested',
+      expectedArrivalAt: input.expectedArrivalAt ?? null,
+      movedToWayBy: input.status === 'on_the_way' ? input.requestedBy : null,
+      movedToWayAt: input.status === 'on_the_way' ? new Date() : null,
     },
     select: purchaseRequestSelect,
   });
@@ -120,6 +141,13 @@ export async function archivePurchaseRequest(
       removedBy,
       removedAt: new Date(),
     },
+    select: purchaseRequestSelect,
+  });
+}
+
+export async function deletePurchaseRequest(id: string): Promise<PurchaseRequestRecord> {
+  return prisma.sallaPurchaseRequest.delete({
+    where: { id },
     select: purchaseRequestSelect,
   });
 }

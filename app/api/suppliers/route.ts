@@ -210,16 +210,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'معرّف المورّد مطلوب للحذف' }, { status: 400 });
     }
 
-    const linkedCount = await prisma.sallaProductSupplier.count({ where: { supplierId: id } });
-    if (linkedCount > 0) {
-      // Don't break product links; deactivate instead so it drops out of the picker.
-      const supplier = await prisma.supplier.update({
-        where: { id },
-        data: { isActive: false, updatedBy: userIdentifier(session) },
-      });
-      return NextResponse.json({ success: true, action: 'deactivated', linkedCount, supplier });
-    }
-
     await prisma.supplier.delete({ where: { id } });
     log.info('Supplier deleted', { id, actor: userIdentifier(session) });
     return NextResponse.json({ success: true, action: 'deleted' });

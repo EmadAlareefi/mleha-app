@@ -526,8 +526,6 @@ model Supplier {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  products SallaProductSupplier[]
-
   @@index([isActive])
   @@index([name])
 }
@@ -538,15 +536,15 @@ model SallaProductSupplier {
   sku         String?
   productName String?
   merchantId  String?
-  supplierId  String
-  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  userId      String
+  user        OrderUser @relation(fields: [userId], references: [id], onDelete: Restrict)
   notes       String?  @db.Text
   createdBy   String?
   updatedBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([supplierId])
+  @@index([userId])
   @@index([merchantId])
   @@index([updatedAt])
 }
@@ -585,9 +583,15 @@ model SallaPurchaseRequest {
   productName     String
   productSku      String?
   productImageUrl String?
-  quantity        Int     @default(1)
-  status          String  @default("requested") // requested | on_the_way | purchased
-  notes           String? @db.Text
+  variantId       String?
+  variantName     String?
+  variantSku      String?
+  variantBarcode  String?
+  variantOptions  Json?
+  quantity          Int       @default(1)
+  status            String    @default("requested") // requested | on_the_way | purchased
+  notes             String?   @db.Text
+  expectedArrivalAt DateTime?
 
   // requester
   requestedBy     String
@@ -810,6 +814,7 @@ model OrderUser {
   salaryAmount        Decimal?      @db.Decimal(12, 2)
   salaryCurrency      String?
   role                OrderUserRole @default(ORDERS)
+  userType            String        @default("employee") // "employee" | "manufacturer"
 
   // Affiliate info
   affiliateName       String?  @unique
@@ -841,9 +846,11 @@ model OrderUser {
   affiliatePayouts          AffiliatePayout[]                @relation("AffiliatePayoutAffiliate")
   affiliatePayoutsRecorded  AffiliatePayout[]                @relation("AffiliatePayoutRecorder")
   affiliateCampaignRequests AffiliateCampaignRequest[]       @relation("AffiliateCampaignRequestAffiliate")
+  sallaProductSuppliers     SallaProductSupplier[]
 
   @@index([username])
   @@index([isActive])
+  @@index([userType])
 }
 
 enum AffiliatePayoutStatus {

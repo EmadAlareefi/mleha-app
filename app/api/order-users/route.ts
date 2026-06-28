@@ -106,6 +106,13 @@ function parseSalaryInput(value: unknown): SalaryParseResult {
   }
 }
 
+const USER_TYPES = ['employee', 'manufacturer'] as const;
+type UserType = (typeof USER_TYPES)[number];
+
+function parseUserType(value: unknown): UserType {
+  return USER_TYPES.includes(value as UserType) ? (value as UserType) : 'employee';
+}
+
 /**
  * GET /api/order-users
  * Get all order users
@@ -132,6 +139,7 @@ export async function GET() {
       salaryAmount: true,
       salaryCurrency: true,
       role: true,
+      userType: true,
       affiliateName: true,
       affiliateCommission: true,
       orderType: true,
@@ -253,6 +261,7 @@ export async function POST(request: NextRequest) {
       employmentEndDate,
       salaryAmount,
       salaryCurrency,
+      userType,
     } = body;
 
     // Validation
@@ -394,6 +403,7 @@ export async function POST(request: NextRequest) {
         salaryAmount: parsedSalaryAmount,
         salaryCurrency: normalizedSalaryCurrency,
         role: primaryRole,
+        userType: parseUserType(userType),
         affiliateName: sanitizedAffiliateName,
         affiliateCommission: parsedCommission,
         orderType: 'all',
@@ -445,6 +455,7 @@ export async function POST(request: NextRequest) {
         employmentEndDate: user.employmentEndDate,
         salaryAmount: user.salaryAmount ? user.salaryAmount.toString() : null,
         salaryCurrency: user.salaryCurrency,
+        userType: user.userType,
         roles: derivedRoles,
         isActive: user.isActive,
         autoAssign: user.autoAssign,

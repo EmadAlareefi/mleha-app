@@ -106,6 +106,13 @@ function parseSalaryInput(value: unknown): SalaryParseResult {
   }
 }
 
+const USER_TYPES = ['employee', 'manufacturer'] as const;
+type UserType = (typeof USER_TYPES)[number];
+
+function parseUserType(value: unknown): UserType {
+  return USER_TYPES.includes(value as UserType) ? (value as UserType) : 'employee';
+}
+
 /**
  * PUT /api/order-users/[id]
  * Update an order user
@@ -142,6 +149,7 @@ export async function PUT(
       employmentEndDate,
       salaryAmount,
       salaryCurrency,
+      userType,
     } = body;
 
     const userRecord = await prisma.orderUser.findUnique({
@@ -291,6 +299,7 @@ export async function PUT(
       employmentEndDate: parsedEndDate,
       salaryAmount: parsedSalaryAmount,
       salaryCurrency: normalizedSalaryCurrency,
+      userType: parseUserType(userType),
       orderType: 'all',
       specificStatus: null,
       autoAssign: shouldAutoAssign,
@@ -377,6 +386,7 @@ export async function PUT(
         employmentEndDate: user.employmentEndDate,
         salaryAmount: user.salaryAmount ? user.salaryAmount.toString() : null,
         salaryCurrency: user.salaryCurrency,
+        userType: user.userType,
         roles: derivedRoles,
         isActive: user.isActive,
         autoAssign: user.autoAssign,

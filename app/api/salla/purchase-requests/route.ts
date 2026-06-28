@@ -4,10 +4,31 @@ import { authOptions } from '@/app/lib/auth';
 import {
   createPurchaseRequest,
   listPurchaseRequests,
+  type PurchaseRequestRecord,
   type PurchaseRequestStatus,
 } from '@/app/lib/salla-purchase-requests';
 
 export const runtime = 'nodejs';
+
+function cleanString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function parseOptionalDate(value: unknown, label: string): Date | undefined {
+  const text = cleanString(value);
+  if (!text) {
+    return undefined;
+  }
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`${label} غير صحيح`);
+  }
+  return date;
+}
+
+function serializeRequest(request: PurchaseRequestRecord) {
+  return request;
+}
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -41,7 +62,10 @@ export async function POST(request: NextRequest) {
 
     const productId = Number.parseInt(body.productId, 10);
     const quantity = Number.parseInt(body.quantity, 10);
-    const productName = typeof body.productName === 'string' ? body.productName.trim() : '';
+    const productName = cleanString(body.productName) || '';
+    const status: Extract<PurchaseRequestStatus, 'requested' | 'on_the_way'> =
+      body.status === 'on_the_way' ? 'on_the_way' : 'requested';
+    const expectedArrivalAt = parseOptionalDate(body.expectedArrivalAt, 'تاريخ الوصول المتوقع');
 
     if (!Number.isFinite(productId) || productId <= 0) {
       throw new Error('رقم المنتج غير صحيح');
@@ -52,23 +76,39 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new Error('الكمية يجب أن تكون أكبر من صفر');
     }
+    if (status === 'on_the_way' && !expectedArrivalAt) {
+      throw new Error('تاريخ الوصول المتوقع مطلوب لمنتجات قيد الشراء');
+    }
+
+    const rawVariantOptions = Array.isArray(body.variantOptions)
+      ? body.variantOptions
+          .map((option: unknown) => (typeof option === 'string' ? option.trim() : null))
+          .filter((option: string | null): option is string => Boolean(option))
+      : undefined;
 
     const record = await createPurchaseRequest({
       productId,
       productName,
-      productSku: typeof body.productSku === 'string' ? body.productSku : undefined,
+      productSku: cleanString(body.productSku),
       productImageUrl:
         typeof body.productImageUrl === 'string' && body.productImageUrl.trim().length > 0
-          ? body.productImageUrl
+          ? body.productImageUrl.trim()
           : undefined,
-      merchantId: typeof body.merchantId === 'string' ? body.merchantId : undefined,
+      variantId: cleanString(body.variantId),
+      variantName: cleanString(body.variantName),
+      variantSku: cleanString(body.variantSku),
+      variantBarcode: cleanString(body.variantBarcode),
+      variantOptions: rawVariantOptions && rawVariantOptions.length > 0 ? rawVariantOptions : undefined,
+      merchantId: cleanString(body.merchantId),
       quantity,
-      notes: typeof body.notes === 'string' && body.notes.trim().length > 0 ? body.notes.trim() : undefined,
+      status,
+      expectedArrivalAt,
+      notes: cleanString(body.notes),
       requestedBy: (session.user as any)?.name || session.user?.email || 'مستخدم',
       requestedByUser: (session.user as any)?.id || session.user?.email || null,
     });
 
-    return NextResponse.json({ success: true, request: record });
+    return NextResponse.json({ success: true, request: serializeRequest(record) });
   } catch (error) {
     return NextResponse.json(
       {
