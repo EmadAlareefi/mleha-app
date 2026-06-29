@@ -246,6 +246,21 @@ export default function SallaManufacturerLinksPage() {
           if (!response.ok || !data.success) {
             throw new Error(data?.error || 'تعذر حفظ مصنع المنتج');
           }
+          // Optimistically upsert into the single source of truth — avoids a
+          // full refetch that would flash the whole grid into a loading state.
+          const manufacturer = manufacturers.find((option) => option.id === userId);
+          setLinkedRecords((prev) => [
+            {
+              productId: item.productId.toString(),
+              sku: item.sku ?? null,
+              productName: item.name ?? null,
+              imageUrl: item.imageUrl ?? null,
+              userId,
+              userName: manufacturer?.name ?? null,
+              username: manufacturer?.username ?? null,
+            },
+            ...prev.filter((record) => record.productId !== item.productId.toString()),
+          ]);
         } else {
           const response = await fetch('/api/product-suppliers', {
             method: 'DELETE',
@@ -256,9 +271,10 @@ export default function SallaManufacturerLinksPage() {
             const data = await readJsonResponse(response, 'تعذر حذف مصنع المنتج').catch(() => null);
             throw new Error(data?.error || 'تعذر حذف مصنع المنتج');
           }
+          setLinkedRecords((prev) =>
+            prev.filter((record) => record.productId !== item.productId.toString())
+          );
         }
-        // Refresh the single source of truth so both views stay consistent.
-        await fetchLinkedRecords();
       } catch (err) {
         setSaveErrors((prev) => ({
           ...prev,
@@ -272,7 +288,7 @@ export default function SallaManufacturerLinksPage() {
         });
       }
     },
-    [fetchLinkedRecords]
+    [manufacturers]
   );
 
   const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
