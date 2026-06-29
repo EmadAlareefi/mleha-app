@@ -9,7 +9,7 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 export const runtime = 'nodejs';
 
 function hasProductSupplierAccess(session: any | null) {
-  return hasServiceAccess(session, ['salla-products']);
+  return hasServiceAccess(session, ['salla-products', 'salla-manufacturer-links']);
 }
 
 function productSupplierTableMissing(error: unknown) {
@@ -158,6 +158,7 @@ export async function POST(request: NextRequest) {
     const userId = typeof body?.userId === 'string' ? body.userId.trim() : '';
     const sku = typeof body?.sku === 'string' ? body.sku.trim() : undefined;
     const productName = typeof body?.productName === 'string' ? body.productName.trim() : undefined;
+    const imageUrl = typeof body?.imageUrl === 'string' ? body.imageUrl.trim() : undefined;
     const merchantId = typeof body?.merchantId === 'string' ? body.merchantId.trim() : undefined;
     const notes = typeof body?.notes === 'string' ? body.notes.trim() : undefined;
 
@@ -193,6 +194,9 @@ export async function POST(request: NextRequest) {
     if (productName !== undefined) {
       updateData.productName = productName || null;
     }
+    if (imageUrl !== undefined) {
+      updateData.imageUrl = imageUrl || null;
+    }
     if (merchantId !== undefined) {
       updateData.merchantId = merchantId || null;
     }
@@ -207,6 +211,7 @@ export async function POST(request: NextRequest) {
         user: { connect: { id: userId } },
         sku: sku || null,
         productName: productName || null,
+        imageUrl: imageUrl || null,
         merchantId: merchantId || null,
         notes: notes || null,
         createdBy: actor,

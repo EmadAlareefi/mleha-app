@@ -535,6 +535,7 @@ model SallaProductSupplier {
   productId   String   @unique // Salla product ID (string form)
   sku         String?
   productName String?
+  imageUrl    String?
   merchantId  String?
   userId      String
   user        OrderUser @relation(fields: [userId], references: [id], onDelete: Restrict)

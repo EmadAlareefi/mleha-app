@@ -418,6 +418,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
+    key: 'salla-manufacturer-links',
+    title: 'ربط المنتجات بالمصانع',
+    description: 'ربط منتجات سلة بالمصانع مع صور أوضح وفلترة المنتجات المرتبطة',
+    icon: '🏭',
+    href: '/salla/manufacturer-links',
+    color: 'from-amber-500 to-orange-600',
+    defaultRoles: ['admin', 'store_manager'],
+    grantsRoles: ['store_manager'],
+  },
+  {
     key: 'salla-quantity-request',
     title: 'طلب الكميات',
     description: 'إنشاء طلبات كميات لمنتجات سلة مع حفظ خيارات المنتج داخل الطلب',

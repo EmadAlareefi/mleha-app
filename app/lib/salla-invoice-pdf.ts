@@ -2,41 +2,45 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import fontkit from '@pdf-lib/fontkit';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
 import type { PDFFont, PDFImage, PDFPage } from 'pdf-lib';
 import { ArabicShaper } from 'arabic-persian-reshaper';
 
 import type { SallaOrder, SallaOrderItem } from './salla-api';
-import { encodeQr } from './qr';
+import { encodeCode128 } from './barcode-code128';
 
 // ---------------------------------------------------------------------------
-// Page / theme constants (A4, RTL Arabic tax invoice modelled on the Salla
-// "فاتورة ضريبية" template).
+// Page / theme constants. The layout mirrors the Salla "فاتورة" tax-invoice
+// template: a clean, grayscale A4 document (no colour accents) with a centred
+// logo + title, divided info blocks, a products table, total rows and a
+// second page carrying the contact details and return-policy declaration.
 // ---------------------------------------------------------------------------
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
-const MARGIN = 36;
+const MARGIN = 49;
 const CONTENT_LEFT = MARGIN;
 const CONTENT_RIGHT = PAGE_WIDTH - MARGIN;
 const CONTENT_WIDTH = CONTENT_RIGHT - CONTENT_LEFT;
+const CENTER_X = PAGE_WIDTH / 2;
+const COLUMN_GAP = 15;
 
-const COLOR_TEXT = rgb(0.13, 0.15, 0.2);
-const COLOR_MUTED = rgb(0.46, 0.48, 0.55);
-const COLOR_ACCENT = rgb(0.18, 0.45, 0.4); // Salla-ish teal/green
-const COLOR_BORDER = rgb(0.85, 0.87, 0.9);
-const COLOR_HEADER_BG = rgb(0.95, 0.97, 0.96);
-const COLOR_TABLE_HEAD = rgb(0.18, 0.45, 0.4);
-const COLOR_ZEBRA = rgb(0.97, 0.98, 0.98);
+const COLOR_TEXT = rgb(0.12, 0.12, 0.12);
+const COLOR_MUTED = rgb(0.42, 0.42, 0.42);
+const COLOR_LINE = rgb(0.85, 0.85, 0.85);
+const COLOR_BAND = rgb(0.949, 0.949, 0.949);
+const COLOR_ZEBRA = rgb(0.965, 0.965, 0.965);
 const WHITE = rgb(1, 1, 1);
+const BLACK = rgb(0, 0, 0);
 
-const ARABIC_FONT_FILENAME = 'NotoNaskhArabic-Regular.ttf';
-const ARABIC_FONT_CANDIDATES = [
-  process.env.LOCAL_SHIPPING_ARABIC_FONT_PATH,
-  path.join(process.cwd(), 'public', 'fonts', 'local-shipping', ARABIC_FONT_FILENAME),
-  path.join(process.cwd(), 'app', 'lib', 'local-shipping', 'fonts', ARABIC_FONT_FILENAME),
-].filter((c): c is string => Boolean(c));
+const FONT_DIR = path.join(process.cwd(), 'public', 'fonts', 'invoice');
+const FONT_FILES = {
+  arReg: 'Tajawal-Regular.ttf',
+  arBold: 'Tajawal-Bold.ttf',
+  latReg: 'Tajawal-Latin-Regular.ttf',
+  latBold: 'Tajawal-Latin-Bold.ttf',
+} as const;
 
-let cachedArabicFont: Promise<Uint8Array> | null = null;
+let cachedFonts: Promise<Record<keyof typeof FONT_FILES, Uint8Array>> | null = null;
 let cachedLogo: Promise<Uint8Array | null> | null = null;
 
 // ---------------------------------------------------------------------------
@@ -45,9 +49,10 @@ let cachedLogo: Promise<Uint8Array | null> | null = null;
 // ---------------------------------------------------------------------------
 export interface SellerInfo {
   nameAr: string;
-  nameEn: string;
   vatNumber: string;
   crNumber: string;
+  country: string;
+  city: string;
   addressAr: string;
   phone: string;
   email: string;
@@ -55,13 +60,14 @@ export interface SellerInfo {
 
 export function getSellerInfo(): SellerInfo {
   return {
-    nameAr: process.env.INVOICE_SELLER_NAME_AR || 'شركة مليحة التجارية',
-    nameEn: process.env.INVOICE_SELLER_NAME_EN || 'Maliha Trading Company',
+    nameAr: process.env.INVOICE_SELLER_NAME_AR || 'المتجر الإلكتروني مليحة',
     vatNumber: process.env.INVOICE_SELLER_VAT || '311273037100003',
     crNumber: process.env.INVOICE_SELLER_CR || '268287708',
+    country: process.env.INVOICE_SELLER_COUNTRY || 'السعودية',
+    city: process.env.INVOICE_SELLER_CITY || 'جدة',
     addressAr:
       process.env.INVOICE_SELLER_ADDRESS_AR ||
-      'حلب، البغدادية الغربية، جدة 22234، المملكة العربية السعودية',
+      'المدن، البغدادية الغربية 7714 Halab, Al Baghdadiyah Al Gharbiyah District, 4443 Halab, 4443, جدة, MQ, SA, العنوان المختصر JABA4130',
     phone: process.env.INVOICE_SELLER_PHONE || '+966531349631',
     email: process.env.INVOICE_SELLER_EMAIL || 'info@mleha.com',
   };
@@ -73,6 +79,9 @@ export function getSellerInfo(): SellerInfo {
 export interface InvoiceLineItem {
   name: string;
   sku: string;
+  description?: string;
+  imageUrl?: string;
+  options: Array<{ name: string; value: string }>;
   quantity: number;
   unitPrice: number; // price excluding VAT, per the whole line
   taxPercent: number;
@@ -80,26 +89,46 @@ export interface InvoiceLineItem {
   total: number; // line total including VAT
 }
 
+export interface InvoiceOrderOption {
+  name: string;
+  content: string;
+  price: number;
+}
+
 export interface InvoiceData {
   invoiceNumber: string;
   invoiceType: string; // e.g. "فاتورة ضريبية"
-  date: string; // formatted YYYY-MM-DD
+  dateIso: string; // YYYY-MM-DD (for QR/ZATCA-style payloads if needed)
+  dateLabel: string; // e.g. "Thursday 25 June 2026"
+  timeLabel: string; // e.g. "02:16 AM"
   orderNumber: string;
   orderId: string;
   paymentMethod: string;
   currency: string;
+  // Buyer ("مصدرة إلى")
   buyerName: string;
+  buyerCountry: string;
+  buyerCity: string;
+  buyerAddress: string;
   buyerPhone: string;
   buyerEmail: string;
-  buyerAddress: string;
+  // Shipping ("تفاصيل الشحن")
+  shippingCourier: string;
+  shippingExpected: string;
+  totalWeight: number; // kg
+  weightLabel: string;
   items: InvoiceLineItem[];
+  // Totals
   subtotal: number;
+  couponLabel: string; // e.g. "كوبون خصم ml ( كوبون عادي )" — empty to hide row
+  couponAmount: number;
   shipping: number;
+  shippingFree: boolean;
   codFee: number;
-  discount: number;
   taxPercent: number;
   taxAmount: number;
   total: number;
+  orderOptions: InvoiceOrderOption[];
 }
 
 // ---------------------------------------------------------------------------
@@ -130,23 +159,80 @@ function str(value: unknown): string {
 }
 
 function formatMoney(value: number): string {
-  return (Math.round(value * 100) / 100).toFixed(2);
+  const r = Math.round(value * 100) / 100;
+  return Number.isInteger(r) ? String(r) : r.toFixed(2);
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** Splits a Salla date string into the "Thursday 25 June 2026" / "02:16 AM" parts. */
+function formatDateParts(raw: string): { dateIso: string; dateLabel: string; timeLabel: string } {
+  const m = raw.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  let Y: number, Mo: number, D: number, H: number, Mi: number;
+  if (m) {
+    Y = +m[1]; Mo = +m[2]; D = +m[3]; H = +m[4]; Mi = +m[5];
+  } else {
+    const now = new Date();
+    Y = now.getUTCFullYear(); Mo = now.getUTCMonth() + 1; D = now.getUTCDate();
+    H = now.getUTCHours(); Mi = now.getUTCMinutes();
+  }
+  // Use UTC accessors so the printed time matches the stored (store-local) value.
+  const dow = new Date(Date.UTC(Y, Mo - 1, D)).getUTCDay();
+  const dateLabel = `${WEEKDAYS[dow]} ${D} ${MONTHS[Mo - 1]} ${Y}`;
+  const ampm = H >= 12 ? 'PM' : 'AM';
+  const h12 = H % 12 === 0 ? 12 : H % 12;
+  const timeLabel = `${String(h12).padStart(2, '0')}:${String(Mi).padStart(2, '0')} ${ampm}`;
+  const dateIso = `${Y}-${String(Mo).padStart(2, '0')}-${String(D).padStart(2, '0')}`;
+  return { dateIso, dateLabel, timeLabel };
+}
+
+function pickImageUrl(item: SallaOrderItem): string {
+  const anyItem = item as unknown as AnyRecord;
+  const images = (anyItem.images as AnyRecord[] | undefined) || [];
+  for (const img of images) {
+    const u = str(img?.image) || str(img?.url) || str((img?.original as AnyRecord)?.url);
+    if (u) return u;
+  }
+  const thumb = str((item.product as AnyRecord | undefined)?.thumbnail);
+  return thumb;
+}
+
+function pickOptions(item: SallaOrderItem): Array<{ name: string; value: string }> {
+  const opts = (item.options as AnyRecord[] | undefined) || [];
+  const out: Array<{ name: string; value: string }> = [];
+  for (const opt of opts) {
+    const name = str(opt?.name);
+    const rawVal = opt?.value;
+    let value = '';
+    if (typeof rawVal === 'string' || typeof rawVal === 'number') value = str(rawVal);
+    else if (rawVal && typeof rawVal === 'object') value = str((rawVal as AnyRecord).name) || str((rawVal as AnyRecord).value);
+    if (Array.isArray(rawVal)) value = rawVal.map((v) => str((v as AnyRecord)?.name) || str(v)).filter(Boolean).join('، ');
+    if (name && value) out.push({ name, value });
+  }
+  return out;
 }
 
 /**
  * Builds the normalised invoice model from a Salla order plus (optionally) its
  * tax-invoice record. The order supplies line items and customer details; the
- * invoice supplies the official number, date and tax totals. When no invoice
- * record exists we fall back to deriving totals from the order items.
+ * invoice supplies the official number, date and tax totals.
  */
 export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): InvoiceData {
   const orderAny = order as unknown as AnyRecord;
   const items: InvoiceLineItem[] = (order.items || []).map((item: SallaOrderItem) => {
     const a = (item.amounts || {}) as AnyRecord;
     const taxNode = (a.tax || {}) as AnyRecord;
+    const anyItem = item as unknown as AnyRecord;
     return {
       name: item.name || str((item.product as AnyRecord | undefined)?.name) || '—',
       sku: item.sku || str((item.product as AnyRecord | undefined)?.sku),
+      description: str(anyItem.description) || str((item.product as AnyRecord | undefined)?.description),
+      imageUrl: pickImageUrl(item),
+      options: pickOptions(item),
       quantity: Number(item.quantity) || 1,
       unitPrice: amountOf(a.price_without_tax),
       taxPercent: Number(str(taxNode.percent)) || 0,
@@ -162,22 +248,40 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
     [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim() ||
     'عميل';
 
-  // Resolve a human shipping address from whatever the order carries.
+  // Resolve the receiver / shipping address.
   const ship =
     (orderAny.ship_to as AnyRecord | undefined) ||
-    (orderAny.shipping as AnyRecord | undefined)?.['address'] ||
+    ((orderAny.shipping as AnyRecord | undefined)?.['address'] as AnyRecord | undefined) ||
     (orderAny.shipping as AnyRecord | undefined) ||
     {};
   const shipAny = ship as AnyRecord;
+  const buyerCountry = str(shipAny.country) || str((customer as AnyRecord).country) || 'السعودية';
+  const buyerCity = str(shipAny.city) || str(customer.city) || '';
   const addressParts = [
     str(shipAny.address_line) || str(shipAny.shipping_address) || str(shipAny.street_address),
     str(shipAny.block) && `حي ${str(shipAny.block)}`,
     str(shipAny.district),
-    str(shipAny.city) || str(customer.city),
     str(shipAny.postal_code) || str(shipAny.postcode),
-    str(shipAny.country),
   ].filter((p): p is string => Boolean(p && p.trim()));
-  const buyerAddress = addressParts.join('، ') || str(customer.city) || '—';
+  const buyerAddress = addressParts.join('، ');
+
+  // Shipping company + expectations.
+  const shippingNode = (orderAny.shipping as AnyRecord | undefined) || {};
+  const shippingCourier =
+    str(shippingNode.courier) ||
+    str(shippingNode.company) ||
+    str((shippingNode.shipping_company as AnyRecord | undefined)?.name) ||
+    '';
+  const shippingExpected =
+    str(shippingNode.expected_delivery_at) ||
+    str((shippingNode.option as AnyRecord | undefined)?.name) ||
+    str(shippingNode.duration) ||
+    '';
+  const totalWeight = (order.items || []).reduce(
+    (s, it) => s + (Number(it.weight) || 0) * (Number(it.quantity) || 1),
+    0,
+  );
+  const weightLabel = str((order.items || [])[0]?.weight_label) || 'كجم';
 
   // Invoice-level figures (prefer the official invoice record).
   const inv = invoice || {};
@@ -194,35 +298,70 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
   const taxPercent = Number(str(taxNode.percent)) || items[0]?.taxPercent || 15;
   const total = invoice ? amountOf(inv.total) : itemsTotal;
 
+  // Coupon row (shown when the order carries a coupon).
+  const coupon = (orderAny.coupon as AnyRecord | undefined) || (inv.coupon as AnyRecord | undefined);
+  let couponLabel = '';
+  if (coupon) {
+    const code = str(coupon.code) || str(coupon.name);
+    const typeLabel = str((coupon.type as unknown) === 'fixed' ? 'كوبون عادي' : coupon.type) || 'كوبون عادي';
+    couponLabel = code ? `كوبون خصم ${code} ( ${typeLabel} )` : '';
+  }
+
   const dateRaw = str(inv.date) || str((order.date as AnyRecord | undefined)?.created);
-  const date = dateRaw ? dateRaw.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const { dateIso, dateLabel, timeLabel } = formatDateParts(dateRaw);
+
+  // Order-level options (e.g. gift wrapping).
+  const rawOrderOptions =
+    (orderAny.order_options as AnyRecord[] | undefined) ||
+    (orderAny.options as AnyRecord[] | undefined) ||
+    [];
+  const orderOptions: InvoiceOrderOption[] = rawOrderOptions
+    .map((o) => ({
+      name: str(o?.name),
+      content: str(o?.value) || str((o?.value as AnyRecord)?.name) || '-',
+      price: amountOf(o?.price),
+    }))
+    .filter((o) => o.name);
 
   return {
     invoiceNumber: str(inv.invoice_number) || str(inv.id) || str(order.reference_id) || str(order.id),
     invoiceType: str(inv.type) || 'فاتورة ضريبية',
-    date,
+    dateIso,
+    dateLabel,
+    timeLabel,
     orderNumber: str(order.reference_id) || str(order.order_number) || str(order.id),
     orderId: str(order.id),
     paymentMethod: translatePaymentMethod(str(inv.payment_method) || str(orderAny.payment_method)),
     currency: items[0] ? str((order.items[0].amounts.total as AnyRecord).currency) || 'SAR' : 'SAR',
     buyerName,
+    buyerCountry,
+    buyerCity,
+    buyerAddress,
     buyerPhone: str(customer.mobile),
     buyerEmail: str(customer.email),
-    buyerAddress,
+    shippingCourier,
+    shippingExpected,
+    totalWeight,
+    weightLabel,
     items,
     subtotal,
+    couponLabel,
+    couponAmount: discount,
     shipping,
+    shippingFree: shipping <= 0,
     codFee,
-    discount,
     taxPercent,
     taxAmount,
     total,
+    orderOptions,
   };
 }
 
 function translatePaymentMethod(method: string): string {
   const m = method.toLowerCase();
   if (m === 'cod' || m.includes('cash')) return 'الدفع عند الاستلام';
+  if (m.includes('tamara')) return 'تمارا';
+  if (m.includes('tabby')) return 'تابي';
   if (m.includes('credit') || m.includes('card') || m === 'mada') return 'بطاقة';
   if (m.includes('apple')) return 'Apple Pay';
   if (m.includes('bank')) return 'تحويل بنكي';
@@ -230,44 +369,21 @@ function translatePaymentMethod(method: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// ZATCA Phase-1 QR (Base64 TLV).
-// ---------------------------------------------------------------------------
-function buildZatcaQrPayload(seller: SellerInfo, data: InvoiceData): string {
-  const enc = new TextEncoder();
-  const tlv = (tag: number, value: string): number[] => {
-    const bytes = Array.from(enc.encode(value));
-    return [tag, bytes.length, ...bytes];
-  };
-  const timestamp = `${data.date}T00:00:00Z`;
-  const bytes = [
-    ...tlv(1, seller.nameAr),
-    ...tlv(2, seller.vatNumber),
-    ...tlv(3, timestamp),
-    ...tlv(4, formatMoney(data.total)),
-    ...tlv(5, formatMoney(data.taxAmount)),
-  ];
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return Buffer.from(binary, 'binary').toString('base64');
-}
-
-// ---------------------------------------------------------------------------
 // Asset loading.
 // ---------------------------------------------------------------------------
-async function loadArabicFont(): Promise<Uint8Array> {
-  if (!cachedArabicFont) {
-    cachedArabicFont = (async () => {
-      for (const candidate of ARABIC_FONT_CANDIDATES) {
-        try {
-          return await fs.readFile(candidate);
-        } catch {
-          // try next
-        }
-      }
-      throw new Error(`Arabic font not found. Tried: ${ARABIC_FONT_CANDIDATES.join(', ')}`);
+async function loadFonts(): Promise<Record<keyof typeof FONT_FILES, Uint8Array>> {
+  if (!cachedFonts) {
+    cachedFonts = (async () => {
+      const entries = await Promise.all(
+        (Object.keys(FONT_FILES) as Array<keyof typeof FONT_FILES>).map(async (key) => {
+          const data = new Uint8Array(await fs.readFile(path.join(FONT_DIR, FONT_FILES[key])));
+          return [key, data] as const;
+        }),
+      );
+      return Object.fromEntries(entries) as Record<keyof typeof FONT_FILES, Uint8Array>;
     })();
   }
-  return cachedArabicFont;
+  return cachedFonts;
 }
 
 async function loadLogo(): Promise<Uint8Array | null> {
@@ -283,23 +399,49 @@ async function loadLogo(): Promise<Uint8Array | null> {
   return cachedLogo;
 }
 
+async function fetchImage(pdf: PDFDocument, url: string): Promise<PDFImage | null> {
+  if (!url || !/^https?:\/\//.test(url)) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    // Detect PNG (\x89PNG) vs JPEG (\xFF\xD8).
+    if (buf[0] === 0x89 && buf[1] === 0x50) return await pdf.embedPng(buf);
+    if (buf[0] === 0xff && buf[1] === 0xd8) return await pdf.embedJpg(buf);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Renderer.
 // ---------------------------------------------------------------------------
+interface RenderCtx {
+  pdf: PDFDocument;
+  arReg: PDFFont;
+  arBold: PDFFont;
+  latReg: PDFFont;
+  latBold: PDFFont;
+  logo: PDFImage | null;
+  page: PDFPage;
+}
+
 export async function generateSallaInvoicePdf(
   data: InvoiceData,
   seller: SellerInfo = getSellerInfo(),
 ): Promise<Buffer> {
-  const arabicFontData = await loadArabicFont();
+  const fonts = await loadFonts();
   const logoData = await loadLogo();
 
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
 
-  const [arabicFont, latinFont, latinBold] = await Promise.all([
-    pdf.embedFont(arabicFontData, { subset: true }),
-    pdf.embedFont(StandardFonts.Helvetica),
-    pdf.embedFont(StandardFonts.HelveticaBold),
+  const [arReg, arBold, latReg, latBold] = await Promise.all([
+    pdf.embedFont(fonts.arReg, { subset: true }),
+    pdf.embedFont(fonts.arBold, { subset: true }),
+    pdf.embedFont(fonts.latReg, { subset: true }),
+    pdf.embedFont(fonts.latBold, { subset: true }),
   ]);
   let logo: PDFImage | null = null;
   if (logoData) {
@@ -310,400 +452,440 @@ export async function generateSallaInvoicePdf(
     }
   }
 
+  const productImages = await Promise.all(
+    data.items.map((it) => (it.imageUrl ? fetchImage(pdf, it.imageUrl) : Promise.resolve(null))),
+  );
+
   const ctx: RenderCtx = {
     pdf,
-    arabicFont,
-    latinFont,
-    latinBold,
+    arReg,
+    arBold,
+    latReg,
+    latBold,
     logo,
     page: pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]),
   };
 
-  drawHeader(ctx, seller, data);
-  let cursorY = PAGE_HEIGHT - 150;
-  cursorY = drawParties(ctx, seller, data, cursorY);
-  cursorY = drawItemsTable(ctx, data, cursorY);
-  cursorY = drawTotals(ctx, data, cursorY);
-  drawQrAndFooter(ctx, seller, data, cursorY);
+  drawHeader(ctx, data);
+  drawOrderDetails(ctx, seller, data);
+  drawParties(ctx, seller, data);
+  drawPaymentShipping(ctx, data);
+  drawItemsTable(ctx, data, productImages[0] ?? null);
+  drawTotals(ctx, data);
+  drawOrderOptions(ctx, data);
 
-  drawTermsPage(ctx, seller);
+  drawSecondPage(ctx, seller);
 
   const bytes = await pdf.save();
   return Buffer.from(bytes);
 }
 
-interface RenderCtx {
-  pdf: PDFDocument;
-  arabicFont: PDFFont;
-  latinFont: PDFFont;
-  latinBold: PDFFont;
-  logo: PDFImage | null;
-  page: PDFPage;
-}
+const ARABIC_CHAR_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 
-const ARABIC_RE = /[؀-ۿ]/;
-
-function isArabic(value: string): boolean {
-  return ARABIC_RE.test(value);
-}
+// The reshaper emits Farsi-yeh presentation forms (U+FBFC–FBFF) for ى/ي. Map
+// them to the Arabic alef-maksura / yeh forms that the Tajawal subset carries.
+const YEH_REMAP: Record<string, string> = {
+  'ﯼ': 'ﻯ', // isolated -> alef maksura isolated
+  'ﯽ': 'ﻰ', // final    -> alef maksura final
+  'ﯾ': 'ﻳ', // initial  -> yeh initial
+  'ﯿ': 'ﻴ', // medial   -> yeh medial
+};
 
 function shape(value: string): string {
-  return isArabic(value) ? ArabicShaper.convertArabic(value) : value;
+  if (!ARABIC_CHAR_RE.test(value)) return value;
+  const shaped = ArabicShaper.convertArabic(value);
+  return shaped.replace(/[ﯼ-ﯿ]/g, (c) => YEH_REMAP[c] ?? c);
+}
+
+interface DrawOpts {
+  size?: number;
+  color?: ReturnType<typeof rgb>;
+  align?: 'left' | 'right' | 'center';
+  bold?: boolean;
+}
+
+interface ScriptRun {
+  isAr: boolean;
+  text: string;
+}
+
+const MIRROR: Record<string, string> = { '(': ')', ')': '(', '[': ']', ']': '[', '{': '}', '}': '{', '<': '>', '>': '<' };
+const OPEN_BRACKETS = '([{<';
+const CLOSE_BRACKETS = ')]}>';
+
+/** True when a bracket at index `i` wraps Arabic text (its inner neighbour is Arabic). */
+function bracketWrapsArabic(chars: string[], i: number): boolean {
+  const ch = chars[i];
+  if (OPEN_BRACKETS.includes(ch)) {
+    for (let j = i + 1; j < chars.length; j++) if (!/\s/.test(chars[j])) return ARABIC_CHAR_RE.test(chars[j]);
+  } else if (CLOSE_BRACKETS.includes(ch)) {
+    for (let j = i - 1; j >= 0; j--) if (!/\s/.test(chars[j])) return ARABIC_CHAR_RE.test(chars[j]);
+  }
+  return false;
 }
 
 /**
- * Draws a string. `align` controls horizontal anchoring at `x`. Arabic text is
- * shaped and rendered with the Arabic font; everything else uses Helvetica.
+ * Splits logical text into Arabic / non-Arabic runs. Whitespace inherits the
+ * surrounding strong script (so Arabic phrases stay intact); ASCII punctuation
+ * stays with the Latin side so it renders from the Latin font (the Arabic
+ * subset has no ASCII glyphs). Brackets that wrap an Arabic phrase are split
+ * into their own (mirrored) runs so they reorder correctly; brackets inside a
+ * Latin/number island (e.g. "(15%)") stay put.
  */
-function draw(
-  ctx: RenderCtx,
-  text: string,
-  x: number,
-  y: number,
-  opts: {
-    size?: number;
-    color?: ReturnType<typeof rgb>;
-    align?: 'left' | 'right' | 'center';
-    bold?: boolean;
-    font?: 'auto' | 'latin';
-  } = {},
-): void {
-  const size = opts.size ?? 9;
+function classifyRuns(text: string): ScriptRun[] {
+  const chars = [...text];
+  const isWrapBracket = chars.map((ch, i) => MIRROR[ch] && bracketWrapsArabic(chars, i));
+  const scripts: Array<'ar' | 'lat' | null> = chars.map((ch, i) => {
+    if (ARABIC_CHAR_RE.test(ch)) return 'ar';
+    if (isWrapBracket[i]) return 'lat';
+    if (/\s/.test(ch)) return null; // neutral whitespace
+    return 'lat'; // Latin letters, digits and ASCII punctuation
+  });
+  let prev: 'ar' | 'lat' = 'ar';
+  for (let i = 0; i < scripts.length; i++) {
+    if (scripts[i]) {
+      prev = scripts[i] as 'ar' | 'lat';
+    } else {
+      let next: 'ar' | 'lat' | null = null;
+      for (let j = i + 1; j < scripts.length; j++) {
+        if (scripts[j]) { next = scripts[j]; break; }
+      }
+      scripts[i] = i === 0 && next ? next : prev;
+    }
+  }
+  const runs: ScriptRun[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    const isAr = scripts[i] === 'ar';
+    const ch = isWrapBracket[i] ? MIRROR[chars[i]] : chars[i];
+    // Wrap-brackets always start (and end) their own run so they reorder cleanly.
+    const breakRun = isWrapBracket[i] || (i > 0 && isWrapBracket[i - 1]);
+    if (!breakRun && runs.length && runs[runs.length - 1].isAr === isAr) runs[runs.length - 1].text += ch;
+    else runs.push({ isAr, text: ch });
+  }
+  return runs;
+}
+
+function runWidth(ctx: RenderCtx, run: ScriptRun, size: number, bold: boolean): { font: PDFFont; text: string; width: number } {
+  const font = run.isAr ? (bold ? ctx.arBold : ctx.arReg) : bold ? ctx.latBold : ctx.latReg;
+  const text = run.isAr ? shape(run.text) : run.text;
+  return { font, text, width: font.widthOfTextAtSize(text, size) };
+}
+
+function measure(ctx: RenderCtx, text: string, size: number, bold = false): number {
+  return classifyRuns(text).reduce((s, run) => s + runWidth(ctx, run, size, bold).width, 0);
+}
+
+function draw(ctx: RenderCtx, text: string, x: number, y: number, opts: DrawOpts = {}): number {
+  const size = opts.size ?? 9.5;
   const color = opts.color ?? COLOR_TEXT;
   const align = opts.align ?? 'left';
-  const useArabic = opts.font !== 'latin' && isArabic(text);
-  const font = useArabic ? ctx.arabicFont : opts.bold ? ctx.latinBold : ctx.latinFont;
-  const shaped = useArabic ? shape(text) : text;
-  const width = font.widthOfTextAtSize(shaped, size);
-  let drawX = x;
-  if (align === 'right') drawX = x - width;
-  else if (align === 'center') drawX = x - width / 2;
-  ctx.page.drawText(shaped, { x: drawX, y, font, size, color });
+  const bold = opts.bold ?? false;
+
+  const rendered = classifyRuns(text).map((run) => runWidth(ctx, run, size, bold));
+  const totalWidth = rendered.reduce((s, r) => s + r.width, 0);
+
+  let startX = x;
+  if (align === 'right') startX = x - totalWidth;
+  else if (align === 'center') startX = x - totalWidth / 2;
+
+  // RTL base: lay runs out in reverse logical order (first logical run sits
+  // visually right-most). Each Arabic run is already display-ordered.
+  let cursor = startX;
+  for (let i = rendered.length - 1; i >= 0; i--) {
+    ctx.page.drawText(rendered[i].text, { x: cursor, y, font: rendered[i].font, size, color });
+    cursor += rendered[i].width;
+  }
+  return totalWidth;
 }
 
-function drawHeader(ctx: RenderCtx, seller: SellerInfo, data: InvoiceData): void {
-  const { page } = ctx;
-  const top = PAGE_HEIGHT - MARGIN;
-  const bandHeight = 96;
-
-  page.drawRectangle({
-    x: CONTENT_LEFT,
-    y: top - bandHeight,
-    width: CONTENT_WIDTH,
-    height: bandHeight,
-    color: COLOR_HEADER_BG,
-    borderColor: COLOR_BORDER,
-    borderWidth: 1,
+function hline(ctx: RenderCtx, y: number, color = COLOR_LINE, thickness = 0.8): void {
+  ctx.page.drawLine({
+    start: { x: CONTENT_LEFT, y },
+    end: { x: CONTENT_RIGHT, y },
+    color,
+    thickness,
   });
+}
 
-  // Logo (left) — scaled to fit.
+/** Heading with an underline, right-aligned at `rightX`. */
+function heading(ctx: RenderCtx, text: string, rightX: number, y: number, size = 10.5): void {
+  const w = draw(ctx, text, rightX, y, { size, align: 'right', bold: true });
+  ctx.page.drawLine({
+    start: { x: rightX, y: y - 3 },
+    end: { x: rightX - w, y: y - 3 },
+    color: COLOR_TEXT,
+    thickness: 0.6,
+  });
+}
+
+function drawBarcode(
+  ctx: RenderCtx,
+  value: string,
+  centerX: number,
+  baselineY: number,
+  height: number,
+  targetWidth: number,
+): void {
+  const { runs, modules } = encodeCode128(value);
+  const mw = targetWidth / modules;
+  let x = centerX - targetWidth / 2;
+  let bar = true; // first run is a bar
+  for (const run of runs) {
+    const w = run * mw;
+    if (bar) {
+      ctx.page.drawRectangle({ x, y: baselineY, width: w, height, color: BLACK });
+    }
+    x += w;
+    bar = !bar;
+  }
+  draw(ctx, value, centerX, baselineY - 10, { size: 8, align: 'center', color: COLOR_TEXT });
+}
+
+// Template-derived baselines (top-origin → PDF bottom-origin).
+const T = (oy: number) => PAGE_HEIGHT - oy;
+const RIGHT = CONTENT_RIGHT; // right-column / page right edge
+const LEFT_COL_RIGHT = 290; // left-column right edge (from template)
+
+function drawHeader(ctx: RenderCtx, data: InvoiceData): void {
   if (ctx.logo) {
-    const maxH = 48;
+    const maxH = 24;
     const scale = maxH / ctx.logo.height;
     const w = ctx.logo.width * scale;
-    page.drawImage(ctx.logo, {
-      x: CONTENT_LEFT + 16,
-      y: top - 16 - maxH,
-      width: w,
-      height: maxH,
-    });
+    ctx.page.drawImage(ctx.logo, { x: CENTER_X - w / 2, y: T(48), width: w, height: maxH });
   }
-
-  // Seller block (right, Arabic).
-  const rightX = CONTENT_RIGHT - 16;
-  draw(ctx, seller.nameAr, rightX, top - 28, { size: 14, align: 'right', color: COLOR_ACCENT });
-  draw(ctx, seller.nameEn, rightX, top - 44, { size: 9, align: 'right', color: COLOR_MUTED, font: 'latin' });
-  draw(ctx, `الرقم الضريبي: ${seller.vatNumber}`, rightX, top - 60, { size: 9, align: 'right' });
-  draw(ctx, `السجل التجاري: ${seller.crNumber}`, rightX, top - 74, { size: 9, align: 'right' });
-  draw(ctx, seller.phone, rightX, top - 88, { size: 9, align: 'right', color: COLOR_MUTED, font: 'latin' });
-
-  // Invoice title bar.
-  const titleY = top - bandHeight - 26;
-  page.drawRectangle({
-    x: CONTENT_LEFT,
-    y: titleY - 6,
-    width: CONTENT_WIDTH,
-    height: 26,
-    color: COLOR_ACCENT,
+  draw(ctx, data.invoiceType.includes('ضريبية') ? 'فاتورة' : data.invoiceType, CENTER_X, T(73.5), {
+    size: 17,
+    align: 'center',
+    bold: true,
   });
-  draw(ctx, data.invoiceType, CONTENT_RIGHT - 12, titleY + 2, { size: 13, align: 'right', color: WHITE });
-  draw(ctx, 'TAX INVOICE', CONTENT_LEFT + 12, titleY + 2, { size: 11, align: 'left', color: WHITE, font: 'latin' });
 }
 
-function drawParties(ctx: RenderCtx, seller: SellerInfo, data: InvoiceData, startY: number): number {
-  const { page } = ctx;
-  const gap = 12;
-  const colWidth = (CONTENT_WIDTH - gap) / 2;
-  const blockHeight = 96;
-  const blockTop = startY;
-  const blockBottom = blockTop - blockHeight;
-
-  // Right column: invoice meta. Left column: buyer.
-  const rightX = CONTENT_RIGHT;
-  const leftColRight = CONTENT_LEFT + colWidth;
-
-  // Boxes.
-  page.drawRectangle({
-    x: CONTENT_RIGHT - colWidth,
-    y: blockBottom,
-    width: colWidth,
-    height: blockHeight,
-    borderColor: COLOR_BORDER,
-    borderWidth: 1,
-    color: COLOR_ZEBRA,
-  });
-  page.drawRectangle({
-    x: CONTENT_LEFT,
-    y: blockBottom,
-    width: colWidth,
-    height: blockHeight,
-    borderColor: COLOR_BORDER,
-    borderWidth: 1,
-  });
-
-  // Invoice meta (right).
-  let y = blockTop - 18;
-  draw(ctx, 'بيانات الفاتورة', rightX - 10, y, { size: 10, align: 'right', color: COLOR_ACCENT });
-  y -= 16;
-  const metaRows: Array<[string, string]> = [
-    ['رقم الفاتورة', data.invoiceNumber],
-    ['التاريخ', data.date],
-    ['رقم الطلب', data.orderNumber],
-    ['طريقة الدفع', data.paymentMethod],
-  ];
-  for (const [label, value] of metaRows) {
-    draw(ctx, `${label}:`, rightX - 10, y, { size: 9, align: 'right', color: COLOR_MUTED });
-    draw(ctx, value, rightX - 100, y, { size: 9, align: 'right' });
-    y -= 15;
-  }
-
-  // Buyer (left column, but content right-aligned within it for Arabic).
-  let by = blockTop - 18;
-  draw(ctx, 'بيانات العميل', leftColRight - 10, by, { size: 10, align: 'right', color: COLOR_ACCENT });
-  by -= 16;
-  const buyerRows: Array<[string, string]> = [
-    ['الاسم', data.buyerName],
-    ['الجوال', data.buyerPhone || '—'],
-    ['البريد', data.buyerEmail || '—'],
-  ];
-  for (const [label, value] of buyerRows) {
-    draw(ctx, `${label}:`, leftColRight - 10, by, { size: 9, align: 'right', color: COLOR_MUTED });
-    draw(ctx, value, leftColRight - 70, by, { size: 9, align: 'right' });
-    by -= 15;
-  }
-  // Address wrapped.
-  const addrLines = wrap(data.buyerAddress, 42).slice(0, 2);
-  draw(ctx, 'العنوان:', leftColRight - 10, by, { size: 9, align: 'right', color: COLOR_MUTED });
-  by -= 13;
-  for (const line of addrLines) {
-    draw(ctx, line, leftColRight - 10, by, { size: 8.5, align: 'right' });
-    by -= 12;
-  }
-
-  return blockBottom - 18;
+/** Draws "label : value" right-anchored, value to the left of the label. */
+function metaRow(ctx: RenderCtx, label: string, value: string, rightX: number, y: number, size = 9.8, bold = true): void {
+  const w = draw(ctx, `${label} :`, rightX, y, { size, align: 'right', bold });
+  draw(ctx, value, rightX - w - 5, y, { size, align: 'right' });
 }
 
-function drawItemsTable(ctx: RenderCtx, data: InvoiceData, startY: number): number {
-  const { page } = ctx;
-  // Column layout (right -> left): Product | Qty | Unit | VAT | Total
-  // Define right edges of each column as fractions of content width.
+function drawOrderDetails(ctx: RenderCtx, seller: SellerInfo, data: InvoiceData): void {
+  // Right column: order details.
+  draw(ctx, 'تفاصيل الطلب', RIGHT, T(111.8), { size: 9.8, align: 'right', bold: true });
+  metaRow(ctx, 'رقم الطلب', data.orderNumber, RIGHT, T(126.8));
+  metaRow(ctx, 'الرقم الضريبي', seller.vatNumber, RIGHT, T(141.8));
+
+  // Left column: date label + barcode.
+  const leftRight = 205;
+  const dateLabelW = draw(ctx, 'تاريخ الطلب: |', leftRight, T(110.2), { size: 8.3, align: 'right' });
+  draw(ctx, data.dateLabel, leftRight - dateLabelW - 4, T(110.2), { size: 8.3, align: 'right' });
+  draw(ctx, data.timeLabel, leftRight, T(123), { size: 8.3, align: 'right' });
+  drawBarcode(ctx, data.orderNumber, 130, T(152), 20, 150);
+
+  hline(ctx, T(165));
+}
+
+interface Line {
+  text: string;
+  size?: number;
+}
+
+/** Draws a labelled info column: heading, then a stack of (wrapped) lines. */
+function drawInfoColumn(ctx: RenderCtx, headingText: string, lines: Line[], rightX: number, leftX: number): void {
+  heading(ctx, headingText, rightX, T(173.2), 9.8);
+  let y = T(189);
+  for (const line of lines) {
+    if (!line.text) continue;
+    const size = line.size ?? 9;
+    for (const w of wrapToWidth(ctx, line.text, rightX - leftX, size, false)) {
+      draw(ctx, w, rightX, y, { size, align: 'right' });
+      y -= 16.5;
+    }
+  }
+}
+
+function drawParties(ctx: RenderCtx, seller: SellerInfo, data: InvoiceData): void {
+  const sellerLines: Line[] = [
+    { text: seller.nameAr },
+    { text: seller.country },
+    { text: seller.city },
+    { text: seller.addressAr },
+    { text: seller.email },
+    { text: seller.phone },
+  ];
+  const buyerLines: Line[] = [
+    { text: data.buyerName },
+    { text: data.buyerCountry },
+    { text: data.buyerCity },
+    { text: data.buyerAddress },
+    { text: data.buyerPhone },
+    { text: data.buyerEmail },
+  ];
+  drawInfoColumn(ctx, 'مصدرة من :', sellerLines, RIGHT, CENTER_X + COLUMN_GAP / 2);
+  drawInfoColumn(ctx, 'مصدرة إلى :', buyerLines, LEFT_COL_RIGHT, CONTENT_LEFT);
+  hline(ctx, T(317));
+}
+
+/** A single label:value line — bold label right-anchored, value to its left. */
+function labelValueRow(ctx: RenderCtx, label: string, value: string, rightX: number, y: number): void {
+  const w = draw(ctx, `${label}:`, rightX, y, { size: 9, align: 'right', bold: true });
+  draw(ctx, value, rightX - w - 6, y, { size: 9, align: 'right' });
+}
+
+function drawPaymentShipping(ctx: RenderCtx, data: InvoiceData): void {
+  // Right column: payment.
+  heading(ctx, 'تفاصيل الدفع :', RIGHT, T(328.5), 9.8);
+  labelValueRow(ctx, 'المبلغ', `${data.currency} ${formatMoney(data.total)}`, RIGHT, T(344.2));
+  labelValueRow(ctx, 'طريقة الدفع', data.paymentMethod, RIGHT, T(360.8));
+
+  // Left column: shipping.
+  heading(ctx, 'تفاصيل الشحن :', LEFT_COL_RIGHT, T(328.5), 9.8);
+  const shipY = [T(344.2), T(360.8), T(377.2)];
+  let si = 0;
+  if (data.shippingCourier) labelValueRow(ctx, 'بواسطة', data.shippingCourier, LEFT_COL_RIGHT, shipY[si++]);
+  if (data.shippingExpected) labelValueRow(ctx, 'عدد الأيام المتوقعة للشحن', data.shippingExpected, LEFT_COL_RIGHT, shipY[si++]);
+  labelValueRow(
+    ctx,
+    'اجمالي الوزن',
+    `${toArabicDigits(data.totalWeight.toFixed(1)).replace('.', '٫')} ${data.weightLabel}`,
+    LEFT_COL_RIGHT,
+    shipY[Math.min(si, 2)],
+  );
+
+  hline(ctx, T(392));
+}
+
+function drawItemsTable(ctx: RenderCtx, data: InvoiceData, image: PDFImage | null): void {
   const x0 = CONTENT_LEFT;
-  const x1 = CONTENT_RIGHT;
-  const colTotalW = 70;
-  const colVatW = 70;
-  const colUnitW = 70;
-  const colQtyW = 40;
-  // Product takes the remaining width on the right.
-  const productRight = x1;
-  const productLeft = x1 - (CONTENT_WIDTH - colTotalW - colVatW - colUnitW - colQtyW);
-  const qtyRight = productLeft;
-  const unitRight = qtyRight - colQtyW;
-  const vatRight = unitRight - colUnitW;
-  const totalRight = vatRight - colVatW;
-
-  const headH = 22;
-  const rowH = 26;
-  const headTop = startY;
+  const productRight = RIGHT;
+  const qtyRight = 272;
+  const priceRight = 230;
+  const totalRight = 103;
 
   // Header band.
-  page.drawRectangle({
-    x: x0,
-    y: headTop - headH,
-    width: CONTENT_WIDTH,
-    height: headH,
-    color: COLOR_TABLE_HEAD,
-  });
-  const headTextY = headTop - 15;
-  draw(ctx, 'المنتج', productRight - 8, headTextY, { size: 9.5, align: 'right', color: WHITE });
-  draw(ctx, 'الكمية', qtyRight - 6, headTextY, { size: 9, align: 'right', color: WHITE });
-  draw(ctx, 'السعر', unitRight - 6, headTextY, { size: 9, align: 'right', color: WHITE });
-  draw(ctx, 'الضريبة', vatRight - 6, headTextY, { size: 9, align: 'right', color: WHITE });
-  draw(ctx, 'الإجمالي', totalRight - 6, headTextY, { size: 9, align: 'right', color: WHITE });
+  ctx.page.drawRectangle({ x: x0, y: T(424), width: CONTENT_WIDTH, height: 23, color: COLOR_BAND });
+  const headY = T(413.2);
+  draw(ctx, 'المنتج', productRight, headY, { size: 9.8, align: 'right', bold: true });
+  draw(ctx, 'الكمية', qtyRight, headY, { size: 9.8, align: 'right', bold: true });
+  draw(ctx, 'السعر', priceRight, headY, { size: 9.8, align: 'right', bold: true });
+  draw(ctx, 'المجموع', totalRight, headY, { size: 9.8, align: 'right', bold: true });
 
-  let y = headTop - headH;
-  data.items.forEach((item, idx) => {
-    const rowBottom = y - rowH;
-    if (idx % 2 === 1) {
-      page.drawRectangle({ x: x0, y: rowBottom, width: CONTENT_WIDTH, height: rowH, color: COLOR_ZEBRA });
+  // Single product row (the template carries one line item).
+  const item = data.items[0];
+  if (item) {
+    let nameRight = productRight;
+    if (image) {
+      const imgSize = 58;
+      const scale = imgSize / Math.max(image.width, image.height);
+      const w = image.width * scale;
+      const h = image.height * scale;
+      ctx.page.drawImage(image, { x: productRight - w, y: T(436.5) - h + 4, width: w, height: h });
+      nameRight = productRight - imgSize - 8;
     }
-    const nameY = y - 12;
-    const productName = truncate(item.name, 34);
-    draw(ctx, productName, productRight - 8, nameY, { size: 9, align: 'right' });
-    if (item.sku) {
-      draw(ctx, `SKU: ${item.sku}`, productRight - 8, y - 22, { size: 7.5, align: 'right', color: COLOR_MUTED, font: 'latin' });
+    draw(ctx, item.name, nameRight, T(436.5), { size: 9, align: 'right' });
+    if (item.sku) draw(ctx, `SKU ${item.sku}`, nameRight, T(450), { size: 9, align: 'right', bold: true });
+    if (item.description) {
+      draw(ctx, `${truncate(item.description, 42)}...`, nameRight, T(465), { size: 9, align: 'right', color: COLOR_MUTED });
     }
-    const midY = y - 16;
-    draw(ctx, String(item.quantity), qtyRight - 6, midY, { size: 9, align: 'right', font: 'latin' });
-    draw(ctx, formatMoney(item.unitPrice), unitRight - 6, midY, { size: 8.5, align: 'right', font: 'latin' });
-    draw(ctx, formatMoney(item.taxAmount), vatRight - 6, midY, { size: 8.5, align: 'right', font: 'latin' });
-    draw(ctx, formatMoney(item.total), totalRight - 6, midY, { size: 8.5, align: 'right', font: 'latin' });
 
-    page.drawLine({
-      start: { x: x0, y: rowBottom },
-      end: { x: x1, y: rowBottom },
-      color: COLOR_BORDER,
-      thickness: 0.5,
-    });
-    y = rowBottom;
-  });
+    draw(ctx, String(item.quantity), qtyRight - 4, T(436.5), { size: 9, align: 'right' });
+    draw(ctx, `${data.currency} ${formatMoney(item.unitPrice)}`, priceRight, T(436.5), { size: 9, align: 'right' });
+    draw(ctx, `${data.currency} ${formatMoney(item.unitPrice)}`, totalRight, T(436.5), { size: 9, align: 'right' });
+    draw(ctx, `الضريبة (${data.taxPercent}%) : ${data.currency} ${formatMoney(item.taxAmount)}`, priceRight, T(451.5), { size: 9, align: 'right', color: COLOR_MUTED });
+    draw(ctx, `السعر شامل الضريبة : ${data.currency} ${formatMoney(item.total)}`, priceRight, T(466.5), { size: 9, align: 'right', color: COLOR_MUTED });
 
-  // Outer border for the table.
-  page.drawRectangle({
-    x: x0,
-    y,
-    width: CONTENT_WIDTH,
-    height: headTop - y,
-    borderColor: COLOR_BORDER,
-    borderWidth: 1,
-  });
+    if (item.sku) drawBarcode(ctx, item.sku, 130, T(505), 22, 150);
 
-  return y - 18;
-}
-
-function drawTotals(ctx: RenderCtx, data: InvoiceData, startY: number): number {
-  const boxWidth = 240;
-  const boxLeft = CONTENT_RIGHT - boxWidth;
-  const labelX = CONTENT_RIGHT - 10;
-  const valueX = boxLeft + 10;
-
-  const rows: Array<[string, number, boolean]> = [
-    ['المجموع الفرعي (غير شامل الضريبة)', data.subtotal, false],
-  ];
-  if (data.shipping) rows.push(['الشحن', data.shipping, false]);
-  if (data.codFee) rows.push(['رسوم الدفع عند الاستلام', data.codFee, false]);
-  if (data.discount) rows.push(['الخصم', -data.discount, false]);
-  rows.push([`ضريبة القيمة المضافة (${data.taxPercent}%)`, data.taxAmount, false]);
-
-  const rowH = 16;
-  let y = startY - 4;
-  for (const [label, value] of rows) {
-    draw(ctx, label, labelX, y, { size: 8.5, align: 'right', color: COLOR_MUTED });
-    draw(ctx, `${formatMoney(value)} ${data.currency}`, valueX, y, { size: 8.5, align: 'left', font: 'latin' });
-    y -= rowH;
-  }
-
-  // Grand total bar.
-  const barTop = y - 2;
-  ctx.page.drawRectangle({
-    x: boxLeft,
-    y: barTop - 22,
-    width: boxWidth,
-    height: 24,
-    color: COLOR_ACCENT,
-  });
-  draw(ctx, 'الإجمالي شامل الضريبة', labelX, barTop - 16, { size: 10, align: 'right', color: WHITE });
-  draw(ctx, `${formatMoney(data.total)} ${data.currency}`, valueX, barTop - 16, { size: 10, align: 'left', color: WHITE, font: 'latin' });
-
-  return barTop - 30;
-}
-
-function drawQrAndFooter(ctx: RenderCtx, seller: SellerInfo, data: InvoiceData, startY: number): void {
-  // QR (ZATCA) bottom-left.
-  const payload = buildZatcaQrPayload(seller, data);
-  const matrix = encodeQr(payload, 'MEDIUM');
-  const qrSize = 96;
-  const module = qrSize / matrix.length;
-  const qrX = CONTENT_LEFT;
-  const qrY = Math.min(startY - qrSize, 150);
-
-  for (let r = 0; r < matrix.length; r++) {
-    for (let c = 0; c < matrix.length; c++) {
-      if (matrix[r][c]) {
-        ctx.page.drawRectangle({
-          x: qrX + c * module,
-          // matrix row 0 is the top; PDF y grows upward.
-          y: qrY + (matrix.length - 1 - r) * module,
-          width: module,
-          height: module,
-          color: rgb(0, 0, 0),
-        });
+    if (item.options.length) {
+      heading(ctx, 'خيارات المنتج', productRight, T(525), 9.8);
+      let oy = T(540.8);
+      for (const opt of item.options) {
+        draw(ctx, opt.name, productRight, oy, { size: 9, align: 'right', bold: true });
+        draw(ctx, opt.value, 372, oy, { size: 9, align: 'left' });
+        oy -= 16;
       }
     }
   }
-  draw(ctx, 'رمز الاستجابة السريعة (ZATCA)', qrX, qrY - 12, { size: 7.5, align: 'left', color: COLOR_MUTED });
 
-  // Footer line.
-  const footerY = 40;
-  ctx.page.drawLine({
-    start: { x: CONTENT_LEFT, y: footerY + 12 },
-    end: { x: CONTENT_RIGHT, y: footerY + 12 },
-    color: COLOR_BORDER,
-    thickness: 0.8,
-  });
-  draw(ctx, seller.addressAr, CONTENT_RIGHT, footerY, { size: 8, align: 'right', color: COLOR_MUTED });
-  draw(ctx, `${seller.email}  |  ${seller.phone}`, CONTENT_LEFT, footerY, { size: 8, align: 'left', color: COLOR_MUTED, font: 'latin' });
-  draw(ctx, 'شكراً لتسوقكم معنا', PAGE_WIDTH / 2, footerY - 14, { size: 8.5, align: 'center', color: COLOR_ACCENT });
+  hline(ctx, T(553));
 }
 
-function drawTermsPage(ctx: RenderCtx, seller: SellerInfo): void {
+function drawTotals(ctx: RenderCtx, data: InvoiceData): void {
+  const rows: Array<[string, string]> = [];
+  rows.push(['الإجمالي الفرعي (غير شامل الضريبة)', `${data.currency} ${formatMoney(data.subtotal)}`]);
+  if (data.couponLabel) rows.push([data.couponLabel, `${data.currency} ${formatMoney(data.couponAmount)}`]);
+  if (data.codFee) rows.push(['رسوم الدفع عند الاستلام', `${data.currency} ${formatMoney(data.codFee)}`]);
+  rows.push(['تكلفة الشحن', data.shippingFree ? 'مجانًا' : `${data.currency} ${formatMoney(data.shipping)}`]);
+  rows.push([`الضريبة (${data.taxPercent}%)`, `${data.currency} ${formatMoney(data.taxAmount)} +`]);
+  rows.push(['إجمالي الطلب', `${data.currency} ${formatMoney(data.total)}`]);
+
+  const rowH = 25.5;
+  let top = T(556); // band top of first row
+  rows.forEach(([label, value], idx) => {
+    if (idx % 2 === 0) {
+      ctx.page.drawRectangle({ x: CONTENT_LEFT, y: top - rowH, width: CONTENT_WIDTH, height: rowH, color: COLOR_ZEBRA });
+    }
+    const ty = top - 17;
+    draw(ctx, label, CONTENT_RIGHT - 1, ty, { size: 9, align: 'right', bold: true });
+    draw(ctx, value, CONTENT_LEFT + 2, ty, { size: 10.5, align: 'left', bold: true });
+    top -= rowH;
+  });
+}
+
+function drawOrderOptions(ctx: RenderCtx, data: InvoiceData): void {
+  if (!data.orderOptions.length) return;
+  const x0 = CONTENT_LEFT;
+  const optRight = CONTENT_RIGHT;
+  const contentCenter = 320;
+  const priceLeft = CONTENT_LEFT;
+
+  ctx.page.drawRectangle({ x: x0, y: T(720), width: CONTENT_WIDTH, height: 22, color: COLOR_BAND });
+  const hy = T(709.5);
+  draw(ctx, 'خيارات الطلب', optRight, hy, { size: 9, align: 'right', bold: true });
+  draw(ctx, 'المحتوى', contentCenter, hy, { size: 9, align: 'center', bold: true });
+  draw(ctx, 'السعر (شامل الضريبة)', priceLeft, hy, { size: 9, align: 'left', bold: true });
+
+  const rowY = [T(732.8), T(755.2)];
+  data.orderOptions.slice(0, 2).forEach((opt, i) => {
+    draw(ctx, opt.name, optRight, rowY[i], { size: 9, align: 'right' });
+    draw(ctx, opt.content || '-', contentCenter, rowY[i], { size: 9, align: 'center' });
+    draw(ctx, `${data.currency} ${formatMoney(opt.price)}`, priceLeft, rowY[i], { size: 9, align: 'left' });
+  });
+  hline(ctx, T(777));
+}
+
+function drawSecondPage(ctx: RenderCtx, seller: SellerInfo): void {
   const page = ctx.pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   ctx.page = page;
-  const top = PAGE_HEIGHT - MARGIN;
 
-  page.drawRectangle({
-    x: CONTENT_LEFT,
-    y: top - 30,
-    width: CONTENT_WIDTH,
-    height: 30,
-    color: COLOR_ACCENT,
+  // Contact details — bold block, right-aligned near the top-left (x≈196).
+  const blockRight = 196;
+  let y = PAGE_HEIGHT - 24;
+  draw(ctx, 'بيانات التواصل', blockRight, y, { size: 11, align: 'right', bold: true });
+  y -= 18;
+  for (const line of [seller.nameAr, seller.phone, seller.email]) {
+    draw(ctx, line, blockRight, y, { size: 10, align: 'right', bold: true });
+    y -= 17;
+  }
+
+  // Declaration — right side.
+  draw(ctx, 'الإقرار', CONTENT_RIGHT, PAGE_HEIGHT - 97, { size: 11, align: 'right', bold: true });
+  draw(
+    ctx,
+    'أقر بأني قرأت وأوافق على سياسة الاستبدال والاسترجاع و سياسة الشحن والتوصيل',
+    CONTENT_RIGHT,
+    PAGE_HEIGHT - 116,
+    { size: 10, align: 'right', bold: true },
+  );
+
+  // Thank-you line — centred.
+  draw(ctx, 'شكراً لشرائك من المتجر . نتمنى لك يوماً رائعاً !', CENTER_X, PAGE_HEIGHT - 168, {
+    size: 11,
+    align: 'center',
   });
-  draw(ctx, 'الشروط والأحكام وسياسة الاسترجاع', CONTENT_RIGHT - 12, top - 20, { size: 13, align: 'right', color: WHITE });
-
-  const terms = [
-    'يحق للعميل طلب استرجاع أو استبدال المنتج خلال المدة النظامية من تاريخ الاستلام.',
-    'يجب أن يكون المنتج بحالته الأصلية وغير مستخدم وبكامل تغليفه وملحقاته.',
-    'لا يمكن استرجاع المنتجات المخصصة أو المصممة حسب الطلب إلا في حال وجود عيب مصنعي.',
-    'تتم إعادة المبلغ بنفس وسيلة الدفع المستخدمة عند الشراء بعد فحص المنتج المرتجع.',
-    'تشمل جميع الأسعار ضريبة القيمة المضافة بنسبة 15% ما لم يُذكر خلاف ذلك.',
-    'هذه فاتورة ضريبية صادرة إلكترونياً ولا تحتاج إلى توقيع أو ختم.',
-  ];
-
-  let y = top - 56;
-  terms.forEach((term, i) => {
-    const lines = wrap(term, 70);
-    draw(ctx, `${toArabicDigits(i + 1)}.`, CONTENT_RIGHT, y, { size: 10, align: 'right', color: COLOR_ACCENT });
-    lines.forEach((line, li) => {
-      draw(ctx, line, CONTENT_RIGHT - 20, y - li * 14, { size: 9.5, align: 'right' });
-    });
-    y -= lines.length * 14 + 10;
-  });
-
-  // Footer.
-  const footerY = 40;
-  page.drawLine({
-    start: { x: CONTENT_LEFT, y: footerY + 12 },
-    end: { x: CONTENT_RIGHT, y: footerY + 12 },
-    color: COLOR_BORDER,
-    thickness: 0.8,
-  });
-  draw(ctx, seller.nameAr, CONTENT_RIGHT, footerY, { size: 8.5, align: 'right', color: COLOR_MUTED });
-  draw(ctx, `الرقم الضريبي: ${seller.vatNumber}`, CONTENT_LEFT, footerY, { size: 8.5, align: 'left', color: COLOR_MUTED });
 }
 
 // ---------------------------------------------------------------------------
 // Text utilities.
 // ---------------------------------------------------------------------------
-function wrap(value: string, maxChars: number): string[] {
+function wrapToWidth(ctx: RenderCtx, value: string, maxWidth: number, size: number, bold: boolean): string[] {
   const cleaned = (value || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return [];
   const words = cleaned.split(' ');
@@ -711,7 +893,7 @@ function wrap(value: string, maxChars: number): string[] {
   let current = '';
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length > maxChars && current) {
+    if (measure(ctx, candidate, size, bold) > maxWidth && current) {
       lines.push(current);
       current = word;
     } else {
@@ -727,10 +909,7 @@ function truncate(value: string, maxChars: number): string {
   return v.length > maxChars ? `${v.slice(0, maxChars - 1)}…` : v;
 }
 
-function toArabicDigits(n: number): string {
+function toArabicDigits(s: string): string {
   const map = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-  return String(n)
-    .split('')
-    .map((d) => map[Number(d)] ?? d)
-    .join('');
+  return s.replace(/\d/g, (d) => map[Number(d)]);
 }
