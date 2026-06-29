@@ -23,10 +23,16 @@ const PUBLIC_PATHS = [
   '/trademark.pdf',
 ];
 
+// Public paths matched by pattern rather than exact prefix. Used for routes
+// that live under an otherwise-protected segment (e.g. the customer-facing
+// invoice PDF under /invoices/{orderId}/pdf, while the /invoices admin pages
+// stay gated behind the `invoices` service).
+const PUBLIC_PATTERNS = [/^\/invoices\/[^/]+\/pdf\/?$/];
+
 const isPublicPath = (pathname: string) =>
   PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
+  ) || PUBLIC_PATTERNS.some((pattern) => pattern.test(pathname));
 
 const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['order-prep', [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/]],

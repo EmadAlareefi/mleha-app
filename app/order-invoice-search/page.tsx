@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
-import { Search, Printer, AlertCircle } from 'lucide-react';
+import { Search, Printer, AlertCircle, FileText } from 'lucide-react';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
@@ -264,6 +264,16 @@ export default function OrderInvoiceSearchPage() {
       console.error('Print error:', error);
       alert('حدث خطأ أثناء محاولة الطباعة، جرّب مرة أخرى.');
     }
+  };
+
+  const handleBrowseOrderInvoice = () => {
+    if (!order) {
+      alert('يرجى البحث عن طلب قبل عرض الفاتورة.');
+      return;
+    }
+    // The PDF route accepts either the Salla order id or the reference number.
+    const identifier = order.orderId || order.orderNumber;
+    window.open(`/invoices/${encodeURIComponent(identifier)}/pdf`, '_blank', 'noopener,noreferrer');
   };
 
   const handleReprintShipmentLabel = async (printerId?: number) => {
@@ -1092,6 +1102,15 @@ export default function OrderInvoiceSearchPage() {
                     </p>
                   </div>
                   <div className="flex flex-col gap-3 w-full md:w-auto">
+                    <Button
+                      onClick={handleBrowseOrderInvoice}
+                      disabled={!order}
+                      variant="secondary"
+                      className="px-8 py-6 text-lg"
+                    >
+                      <FileText className="h-5 w-5 ml-2" />
+                      تصفح فاتورة الطلب
+                    </Button>
                     <Button
                       onClick={handlePrintCommercialInvoice}
                       disabled={!canPrintCommercialInvoice}
