@@ -16,11 +16,14 @@ import { extractGeneratedReturnTrackingNumbers } from '@/app/lib/returns/salla-r
 export const runtime = 'nodejs';
 
 const ALLOWED_ROLES = ['admin', 'warehouse'];
+const MAX_DAMAGE_IMAGE_DATA_LENGTH = 2_500_000;
+const DAMAGE_IMAGE_DATA_URL_PATTERN = /^data:image\/(jpeg|jpg|png|webp);base64,[a-z0-9+/=\s]+$/i;
 
 type InspectItemPayload = {
   itemId: string;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
+  damageImageData?: string | null;
 };
 
 type ReturnRequestWithItems = Prisma.ReturnRequestGetPayload<{
@@ -453,6 +456,33 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const damageImageData = typeof item.damageImageData === 'string'
+      ? item.damageImageData.trim()
+      : null;
+
+    if (item.conditionStatus === 'damaged' && !damageImageData) {
+      return NextResponse.json(
+        { error: 'يجب رفع صورة عند اختيار حالة تالف' },
+        { status: 400 }
+      );
+    }
+
+    if (damageImageData) {
+      if (!DAMAGE_IMAGE_DATA_URL_PATTERN.test(damageImageData)) {
+        return NextResponse.json(
+          { error: 'صيغة صورة التلف غير مدعومة' },
+          { status: 400 }
+        );
+      }
+
+      if (damageImageData.length > MAX_DAMAGE_IMAGE_DATA_LENGTH) {
+        return NextResponse.json(
+          { error: 'حجم صورة التلف كبير جداً' },
+          { status: 400 }
+        );
+      }
+    }
   }
 
   const inspector =
@@ -471,6 +501,9 @@ export async function POST(request: NextRequest) {
           conditionStatus: item.conditionStatus ?? null,
           conditionNotes: item.conditionNotes?.trim()
             ? item.conditionNotes.trim().slice(0, 1000)
+            : null,
+          damageImageData: item.conditionStatus === 'damaged' && item.damageImageData?.trim()
+            ? item.damageImageData.trim()
             : null,
           inspectedBy: item.conditionStatus ? inspector : null,
           inspectedAt: item.conditionStatus ? now : null,

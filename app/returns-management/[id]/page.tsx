@@ -451,6 +451,21 @@ export default async function ReturnOrderDetailsPage({
                     {item.conditionNotes && (
                       <p className="text-xs text-gray-500 mt-1">{item.conditionNotes}</p>
                     )}
+                    {item.damageImageData && (
+                      <div className="mt-3">
+                        <p className="mb-1 text-xs font-medium text-red-700">صورة التلف</p>
+                        <div className="relative h-48 w-36 overflow-hidden rounded-lg border border-red-200 bg-red-50">
+                          <Image
+                            src={item.damageImageData}
+                            alt="صورة تلف المنتج"
+                            width={288}
+                            height={384}
+                            className="h-full w-full object-cover"
+                            unoptimized
+                          />
+                        </div>
+                      </div>
+                    )}
                     {item.preInspectionNotes && (
                       <p className="text-xs text-amber-700 mt-1">
                         ملاحظة للمفتش: {item.preInspectionNotes}

@@ -112,7 +112,26 @@ export async function GET(request: NextRequest) {
     const returnRequests = await prisma.returnRequest.findMany({
       where,
       include: {
-        items: true,
+        items: {
+          select: {
+            id: true,
+            returnRequestId: true,
+            productId: true,
+            productName: true,
+            productSku: true,
+            variantId: true,
+            variantName: true,
+            quantity: true,
+            price: true,
+            conditionStatus: true,
+            conditionNotes: true,
+            damageImageData: true,
+            preInspectionNotes: true,
+            inspectedBy: true,
+            inspectedAt: true,
+            createdAt: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',

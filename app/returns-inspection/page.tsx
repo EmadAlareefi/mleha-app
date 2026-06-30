@@ -37,6 +37,9 @@ type BarcodeDetectorConstructor = new (options?: {
 }) => BarcodeDetectorInstance;
 
 const SCANNER_DETECTION_INTERVAL_MS = 150;
+const DAMAGE_IMAGE_MAX_SIDE = 1280;
+const DAMAGE_IMAGE_QUALITY = 0.78;
+const MAX_DAMAGE_IMAGE_DATA_LENGTH = 2_500_000;
 
 interface ReturnRequestItem {
   id: string;
@@ -49,6 +52,7 @@ interface ReturnRequestItem {
   price: string | number;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
+  damageImageData?: string | null;
   preInspectionNotes?: string | null;
   inspectedBy?: string | null;
   inspectedAt?: string | null;
@@ -162,11 +166,62 @@ const normalizeInspectableItems = (
     ...item,
     conditionStatus: item.conditionStatus ?? null,
     conditionNotes: item.conditionNotes ?? '',
+    damageImageData: item.damageImageData ?? null,
     preInspectionNotes: item.preInspectionNotes ?? null,
     imageUrl:
       resolveReturnItemImage(item, order?.items) ??
       (previousImageMap ? previousImageMap.get(item.id) ?? null : null),
   }));
+};
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('invalid_image'));
+      }
+    };
+    reader.onerror = () => reject(new Error('invalid_image'));
+    reader.readAsDataURL(file);
+  });
+
+const resizeDamageImage = async (file: File) => {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('يرجى رفع صورة فقط');
+  }
+
+  const originalDataUrl = await readFileAsDataUrl(file);
+  const imageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('تعذر قراءة الصورة'));
+    image.src = originalDataUrl;
+  });
+
+  const largestSide = Math.max(imageElement.naturalWidth, imageElement.naturalHeight);
+  const scale = largestSide > DAMAGE_IMAGE_MAX_SIDE ? DAMAGE_IMAGE_MAX_SIDE / largestSide : 1;
+  const width = Math.max(1, Math.round(imageElement.naturalWidth * scale));
+  const height = Math.max(1, Math.round(imageElement.naturalHeight * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('تعذر تجهيز الصورة');
+  }
+
+  context.drawImage(imageElement, 0, 0, width, height);
+  const resizedDataUrl = canvas.toDataURL('image/jpeg', DAMAGE_IMAGE_QUALITY);
+
+  if (resizedDataUrl.length > MAX_DAMAGE_IMAGE_DATA_LENGTH) {
+    throw new Error('حجم الصورة كبير جداً، يرجى اختيار صورة أصغر');
+  }
+
+  return resizedDataUrl;
 };
 
 export default function ReturnInspectionPage() {
@@ -340,6 +395,7 @@ export default function ReturnInspectionPage() {
           ? {
               ...item,
               conditionStatus: status,
+              damageImageData: status === 'damaged' ? item.damageImageData ?? null : null,
             }
           : item
       )
@@ -359,11 +415,45 @@ export default function ReturnInspectionPage() {
     );
   };
 
+  const updateItemDamageImage = (itemId: string, damageImageData: string | null) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              damageImageData,
+            }
+          : item
+      )
+    );
+  };
+
+  const handleDamageImageChange = async (
+    itemId: string,
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setError(null);
+
+    try {
+      const damageImageData = await resizeDamageImage(file);
+      updateItemDamageImage(itemId, damageImageData);
+    } catch (err) {
+      event.target.value = '';
+      setError(err instanceof Error ? err.message : 'تعذر رفع الصورة');
+    }
+  };
+
   const markAll = (status: ReturnItemCondition) => {
     setItems((prev) =>
       prev.map((item) => ({
         ...item,
         conditionStatus: status,
+        damageImageData: status === 'damaged' ? item.damageImageData ?? null : null,
       }))
     );
   };
@@ -374,6 +464,7 @@ export default function ReturnInspectionPage() {
         ...item,
         conditionStatus: null,
         conditionNotes: '',
+        damageImageData: null,
       }))
     );
   };
@@ -381,6 +472,14 @@ export default function ReturnInspectionPage() {
   const handleSave = async () => {
     if (!returnRequest) {
       setError('يرجى البحث عن شحنة إرجاع أولاً');
+      return;
+    }
+
+    const damagedItemWithoutImage = items.find(
+      (item) => item.conditionStatus === 'damaged' && !item.damageImageData
+    );
+    if (damagedItemWithoutImage) {
+      setError(`يرجى رفع صورة للمنتج التالف: ${damagedItemWithoutImage.productName}`);
       return;
     }
 
@@ -399,6 +498,9 @@ export default function ReturnInspectionPage() {
             conditionStatus: item.conditionStatus ?? null,
             conditionNotes: item.conditionNotes?.trim()
               ? item.conditionNotes.trim()
+              : null,
+            damageImageData: item.conditionStatus === 'damaged'
+              ? item.damageImageData ?? null
               : null,
           })),
         }),
@@ -671,6 +773,59 @@ export default function ReturnInspectionPage() {
                         </Button>
                       )}
                     </div>
+
+                    {item.conditionStatus === 'damaged' && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-red-900">
+                              صورة التلف مطلوبة
+                            </p>
+                            <p className="text-xs text-red-700">
+                              استخدم كاميرا الجوال أو ارفع صورة توضّح سبب تصنيف المنتج كتالف.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button asChild variant="outline" size="sm">
+                              <label htmlFor={`damage-image-${item.id}`} className="cursor-pointer">
+                                {item.damageImageData ? 'تغيير الصورة' : 'رفع صورة'}
+                              </label>
+                            </Button>
+                            {item.damageImageData && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-700"
+                                onClick={() => updateItemDamageImage(item.id, null)}
+                              >
+                                حذف الصورة
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <input
+                          id={`damage-image-${item.id}`}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="sr-only"
+                          onChange={(event) => handleDamageImageChange(item.id, event)}
+                        />
+                        {item.damageImageData && (
+                          <div className="mt-3 h-40 w-32 overflow-hidden rounded-lg border border-red-200 bg-white">
+                            <Image
+                              src={item.damageImageData}
+                              alt="صورة تلف المنتج"
+                              width={256}
+                              height={320}
+                              className="h-full w-full object-cover"
+                              unoptimized
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-xs font-medium text-gray-500 mb-1">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import Image from 'next/image';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -43,6 +44,7 @@ interface ReturnItem {
   price: number | string;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
+  damageImageData?: string | null;
   preInspectionNotes?: string | null;
   inspectedBy?: string | null;
   inspectedAt?: string | null;
@@ -877,8 +879,20 @@ export default function ReturnsManagementPage() {
                         <h4 className="font-medium mb-2">المنتجات:</h4>
                         <div className="space-y-1 text-sm">
                           {request.items.map((item) => (
-                            <div key={item.id} className="flex justify-between">
+                            <div key={item.id} className="flex items-center justify-between gap-3">
                               <span>{item.productName} {item.variantName ? `(${item.variantName})` : ''}</span>
+                              {item.damageImageData && (
+                                <div className="relative h-14 w-11 shrink-0 overflow-hidden rounded border border-red-200 bg-red-50">
+                                  <Image
+                                    src={item.damageImageData}
+                                    alt="صورة تلف المنتج"
+                                    width={88}
+                                    height={112}
+                                    className="h-full w-full object-cover"
+                                    unoptimized
+                                  />
+                                </div>
+                              )}
                               <span className="text-gray-600">x{item.quantity}</span>
                             </div>
                           ))}
@@ -1104,6 +1118,21 @@ export default function ReturnsManagementPage() {
                       )}
                       {item.conditionNotes && (
                         <p className="text-xs text-gray-500 mt-1">{item.conditionNotes}</p>
+                      )}
+                      {item.damageImageData && (
+                        <div className="mt-3">
+                          <p className="mb-1 text-xs font-medium text-red-700">صورة التلف</p>
+                          <div className="relative h-40 w-32 overflow-hidden rounded-lg border border-red-200 bg-red-50">
+                            <Image
+                              src={item.damageImageData}
+                              alt="صورة تلف المنتج"
+                              width={256}
+                              height={320}
+                              className="h-full w-full object-cover"
+                              unoptimized
+                            />
+                          </div>
+                        </div>
                       )}
                       {item.preInspectionNotes && (
                         <p className="text-xs text-amber-700 mt-1">
