@@ -107,10 +107,18 @@ export default function SallaManufacturerLinksPage() {
   const [linkedRecords, setLinkedRecords] = useState<LinkedRecord[]>([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
 
+  // Full catalog, loaded only for the "unlinked" view so we can subtract the
+  // linked products and paginate the remainder locally.
+  const [allProducts, setAllProducts] = useState<SallaProductSummary[]>([]);
+  const [allProductsLoading, setAllProductsLoading] = useState(false);
+
   const [savingMap, setSavingMap] = useState<Record<number, boolean>>({});
   const [saveErrors, setSaveErrors] = useState<Record<number, string>>({});
 
   const isLinkedMode = filter === FILTER_LINKED || filter.startsWith(FACTORY_PREFIX);
+  // "Unlinked" needs the whole catalog; an active SKU search instead narrows the
+  // browse list, so only treat it as unlinked-mode when not searching.
+  const isUnlinkedMode = filter === FILTER_UNLINKED && !searchSku;
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -140,8 +148,8 @@ export default function SallaManufacturerLinksPage() {
     }
   }, []);
 
-  // Loads every linked product (up to 500). Powers both the linked/by-factory
-  // view and the "already linked" overlay shown while browsing.
+  // Loads every linked product. Powers both the linked/by-factory view and the
+  // "already linked" overlay shown while browsing.
   const fetchLinkedRecords = useCallback(async () => {
     setLinkedLoading(true);
     try {
@@ -196,6 +204,24 @@ export default function SallaManufacturerLinksPage() {
     }
   }, []);
 
+  const fetchAllProducts = useCallback(async () => {
+    setAllProductsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/salla/products?all=1', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data?.error || 'تعذر تحميل منتجات سلة');
+      }
+      setAllProducts(Array.isArray(data.products) ? data.products : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء تحميل المنتجات');
+      setAllProducts([]);
+    } finally {
+      setAllProductsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (status === 'authenticated') {
       fetchManufacturers();
@@ -203,12 +229,20 @@ export default function SallaManufacturerLinksPage() {
     }
   }, [status, fetchManufacturers, fetchLinkedRecords]);
 
-  // Browse-mode products are only needed when not in a linked-only view.
+  // Browse-mode products are paged server-side; skip it for linked/unlinked
+  // views, which work off fully-loaded lists instead.
   useEffect(() => {
-    if (status === 'authenticated' && !isLinkedMode) {
+    if (status === 'authenticated' && !isLinkedMode && !isUnlinkedMode) {
       fetchProducts(currentPage, searchSku);
     }
-  }, [status, isLinkedMode, currentPage, searchSku, fetchProducts]);
+  }, [status, isLinkedMode, isUnlinkedMode, currentPage, searchSku, fetchProducts]);
+
+  // Load the whole catalog once when entering the unlinked view.
+  useEffect(() => {
+    if (status === 'authenticated' && isUnlinkedMode && allProducts.length === 0 && !allProductsLoading) {
+      fetchAllProducts();
+    }
+  }, [status, isUnlinkedMode, allProducts.length, allProductsLoading, fetchAllProducts]);
 
   const linkedByProductId = useMemo(() => {
     const map = new Map<number, LinkedRecord>();
@@ -304,54 +338,62 @@ export default function SallaManufacturerLinksPage() {
 
   const handleRefresh = () => {
     fetchLinkedRecords();
-    if (!isLinkedMode) {
+    if (isUnlinkedMode) {
+      fetchAllProducts();
+    } else if (!isLinkedMode) {
       fetchProducts(currentPage, searchSku);
     }
   };
 
-  const handlePageChange = (direction: 'prev' | 'next') => {
-    setCurrentPage((prev) => {
-      const totalPages = pagination?.totalPages ?? 1;
-      if (direction === 'prev') {
-        return Math.max(prev - 1, 1);
-      }
-      return Math.min(prev + 1, totalPages);
-    });
-  };
-
-  // Build the list of cards to render for the active filter.
+  // Build the full list of cards for the active filter (before local paging).
   const cardItems = useMemo<ProductCardItem[]>(() => {
-    const items: ProductCardItem[] = isLinkedMode
-      ? (() => {
-          const factoryId = filter.startsWith(FACTORY_PREFIX)
-            ? filter.slice(FACTORY_PREFIX.length)
-            : null;
-          return linkedRecords
-            .filter((record) => (factoryId ? record.userId === factoryId : true))
-            .map((record) => ({
-              productId: Number.parseInt(record.productId, 10),
-              name: record.productName || record.sku || `#${record.productId}`,
-              sku: record.sku,
-              imageUrl: record.imageUrl,
-              manufacturerId: record.userId,
-            }))
-            .filter((item) => Number.isFinite(item.productId));
-        })()
-      : products
-          .map((product) => {
-            const linked = linkedByProductId.get(product.id);
-            return {
-              productId: product.id,
-              name: product.name,
-              sku: product.sku ?? null,
-              imageUrl: product.imageUrl ?? null,
-              priceAmount: product.priceAmount,
-              currency: product.currency,
-              availableQuantity: product.availableQuantity,
-              manufacturerId: linked?.userId ?? '',
-            };
-          })
-          .filter((item) => (filter === FILTER_UNLINKED ? !item.manufacturerId : true));
+    let items: ProductCardItem[];
+
+    if (isLinkedMode) {
+      const factoryId = filter.startsWith(FACTORY_PREFIX)
+        ? filter.slice(FACTORY_PREFIX.length)
+        : null;
+      items = linkedRecords
+        .filter((record) => (factoryId ? record.userId === factoryId : true))
+        .map((record) => ({
+          productId: Number.parseInt(record.productId, 10),
+          name: record.productName || record.sku || `#${record.productId}`,
+          sku: record.sku,
+          imageUrl: record.imageUrl,
+          manufacturerId: record.userId,
+        }))
+        .filter((item) => Number.isFinite(item.productId));
+    } else if (isUnlinkedMode) {
+      // Whole catalog minus anything already linked.
+      items = allProducts
+        .filter((product) => !linkedByProductId.has(product.id))
+        .map((product) => ({
+          productId: product.id,
+          name: product.name,
+          sku: product.sku ?? null,
+          imageUrl: product.imageUrl ?? null,
+          priceAmount: product.priceAmount,
+          currency: product.currency,
+          availableQuantity: product.availableQuantity,
+          manufacturerId: '',
+        }));
+    } else {
+      items = products
+        .map((product) => {
+          const linked = linkedByProductId.get(product.id);
+          return {
+            productId: product.id,
+            name: product.name,
+            sku: product.sku ?? null,
+            imageUrl: product.imageUrl ?? null,
+            priceAmount: product.priceAmount,
+            currency: product.currency,
+            availableQuantity: product.availableQuantity,
+            manufacturerId: linked?.userId ?? '',
+          };
+        })
+        .filter((item) => (filter === FILTER_UNLINKED ? !item.manufacturerId : true));
+    }
 
     // Salla's products endpoint can return the same product more than once, so
     // collapse by productId to keep one card per product (and stable React keys).
@@ -363,7 +405,31 @@ export default function SallaManufacturerLinksPage() {
       seen.add(item.productId);
       return true;
     });
-  }, [isLinkedMode, filter, linkedRecords, products, linkedByProductId]);
+  }, [isLinkedMode, isUnlinkedMode, filter, linkedRecords, products, allProducts, linkedByProductId]);
+
+  // The unlinked view paginates the full filtered list client-side; other
+  // browse views are already paged by the server.
+  const unlinkedTotalPages = Math.max(1, Math.ceil(cardItems.length / PAGE_SIZE));
+  const effectiveTotalPages = isUnlinkedMode ? unlinkedTotalPages : pagination?.totalPages ?? 1;
+  const visibleCardItems = isUnlinkedMode
+    ? cardItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+    : cardItems;
+
+  const handlePageChange = (direction: 'prev' | 'next') => {
+    setCurrentPage((prev) => {
+      if (direction === 'prev') {
+        return Math.max(prev - 1, 1);
+      }
+      return Math.min(prev + 1, effectiveTotalPages);
+    });
+  };
+
+  // Linking a product shrinks the unlinked list, so keep the page in range.
+  useEffect(() => {
+    if (currentPage > effectiveTotalPages) {
+      setCurrentPage(effectiveTotalPages);
+    }
+  }, [currentPage, effectiveTotalPages]);
 
   if (status === 'loading') {
     return (
@@ -377,13 +443,24 @@ export default function SallaManufacturerLinksPage() {
     return null;
   }
 
-  const totalPages = pagination?.totalPages ?? 1;
-  const showGridLoading = isLinkedMode ? linkedLoading : loading;
+  const totalPages = effectiveTotalPages;
+  const showGridLoading = isLinkedMode
+    ? linkedLoading
+    : isUnlinkedMode
+      ? allProductsLoading
+      : loading;
   const linkedCount = linkedRecords.length;
   // `pagination.total` is the store-wide catalog size only while browsing the
   // full list; during an SKU search it holds the match count, so ignore it then.
   const storeTotal = searchSku ? null : pagination?.total ?? null;
-  const remainingCount = storeTotal != null ? Math.max(storeTotal - linkedCount, 0) : null;
+  // In the unlinked view the full filtered list is in memory, so report its exact
+  // size; otherwise estimate from the catalog total minus what's linked.
+  const remainingCount =
+    isUnlinkedMode && allProducts.length > 0
+      ? cardItems.length
+      : storeTotal != null
+        ? Math.max(storeTotal - linkedCount, 0)
+        : null;
 
   return (
     <AppPageShell
@@ -411,7 +488,7 @@ export default function SallaManufacturerLinksPage() {
                   </p>
                 </div>
               </div>
-              <Button onClick={handleRefresh} disabled={loading || linkedLoading}>
+              <Button onClick={handleRefresh} disabled={loading || linkedLoading || allProductsLoading}>
                 <RefreshCcw className="h-4 w-4" />
                 تحديث
               </Button>
@@ -477,13 +554,13 @@ export default function SallaManufacturerLinksPage() {
                   <Button
                     variant="outline"
                     onClick={() => handlePageChange('prev')}
-                    disabled={loading || currentPage === 1}
+                    disabled={showGridLoading || currentPage === 1}
                   >
                     السابقة
                   </Button>
                   <Button
                     onClick={() => handlePageChange('next')}
-                    disabled={loading || currentPage >= totalPages}
+                    disabled={showGridLoading || currentPage >= totalPages}
                   >
                     التالية
                   </Button>
@@ -500,7 +577,7 @@ export default function SallaManufacturerLinksPage() {
             <EmptyState title="لا توجد منتجات مطابقة لهذا الفلتر حالياً" />
           ) : (
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-              {cardItems.map((item) => (
+              {visibleCardItems.map((item) => (
                 <ProductLinkCard
                   key={item.productId}
                   item={item}

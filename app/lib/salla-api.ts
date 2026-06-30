@@ -1189,6 +1189,56 @@ export async function listSallaProducts(
   };
 }
 
+// Walks the entire catalog (first page sequentially to learn the page count,
+// the rest in parallel) and dedups by id, since Salla can repeat a product
+// across pages. Used by the manufacturer-links "unlinked" view, which has to
+// subtract linked products from the full list and paginate the remainder.
+export async function listAllSallaProducts(
+  merchantId: string,
+  options?: { status?: string; maxPages?: number }
+): Promise<{ products: SallaProductSummary[]; total: number }> {
+  const perPage = 100;
+  const maxPages = Math.max(options?.maxPages ?? 200, 1);
+
+  const firstPage = await listSallaProducts(merchantId, {
+    page: 1,
+    perPage,
+    status: options?.status,
+  });
+
+  const byId = new Map<number, SallaProductSummary>();
+  for (const product of firstPage.products) {
+    byId.set(product.id, product);
+  }
+
+  const totalPages = Math.min(firstPage.pagination?.totalPages ?? 1, maxPages);
+
+  if (totalPages > 1) {
+    const pagePromises = [];
+    for (let page = 2; page <= totalPages; page += 1) {
+      pagePromises.push(
+        listSallaProducts(merchantId, { page, perPage, status: options?.status })
+      );
+    }
+
+    const settled = await Promise.allSettled(pagePromises);
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        for (const product of result.value.products) {
+          byId.set(product.id, product);
+        }
+      } else {
+        log.error('Failed to load a Salla products page during full listing', {
+          merchantId,
+          reason: result.reason,
+        });
+      }
+    }
+  }
+
+  return { products: Array.from(byId.values()), total: byId.size };
+}
+
 export async function getSallaProductBySku(
   merchantId: string,
   sku: string

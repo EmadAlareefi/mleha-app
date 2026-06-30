@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import {
   getSallaProductBySku,
+  listAllSallaProducts,
   listSallaProducts,
   rankProductsBySku,
   searchSallaProductsBySku,
@@ -49,6 +50,23 @@ export async function GET(request: NextRequest) {
     const requestedStatus = searchParams.get('status') || undefined;
     const allowedStatuses = new Set(['hidden', 'sale', 'out']);
     const status = requestedStatus && allowedStatuses.has(requestedStatus) ? requestedStatus : undefined;
+    const fetchAll = searchParams.get('all') === '1' || searchParams.get('all') === 'true';
+
+    if (!sku && fetchAll) {
+      const { products, total } = await listAllSallaProducts(resolved.merchantId, { status });
+      return NextResponse.json({
+        success: true,
+        products,
+        pagination: {
+          count: products.length,
+          total,
+          perPage: products.length,
+          currentPage: 1,
+          totalPages: 1,
+        },
+        merchantId: resolved.merchantId,
+      });
+    }
 
     if (sku) {
       const product = await getSallaProductBySku(resolved.merchantId, sku).catch(() => null);
