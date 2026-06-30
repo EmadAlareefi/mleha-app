@@ -321,37 +321,48 @@ export default function SallaManufacturerLinksPage() {
 
   // Build the list of cards to render for the active filter.
   const cardItems = useMemo<ProductCardItem[]>(() => {
-    if (isLinkedMode) {
-      const factoryId = filter.startsWith(FACTORY_PREFIX)
-        ? filter.slice(FACTORY_PREFIX.length)
-        : null;
-      return linkedRecords
-        .filter((record) => (factoryId ? record.userId === factoryId : true))
-        .map((record) => ({
-          productId: Number.parseInt(record.productId, 10),
-          name: record.productName || record.sku || `#${record.productId}`,
-          sku: record.sku,
-          imageUrl: record.imageUrl,
-          manufacturerId: record.userId,
-        }))
-        .filter((item) => Number.isFinite(item.productId));
-    }
+    const items: ProductCardItem[] = isLinkedMode
+      ? (() => {
+          const factoryId = filter.startsWith(FACTORY_PREFIX)
+            ? filter.slice(FACTORY_PREFIX.length)
+            : null;
+          return linkedRecords
+            .filter((record) => (factoryId ? record.userId === factoryId : true))
+            .map((record) => ({
+              productId: Number.parseInt(record.productId, 10),
+              name: record.productName || record.sku || `#${record.productId}`,
+              sku: record.sku,
+              imageUrl: record.imageUrl,
+              manufacturerId: record.userId,
+            }))
+            .filter((item) => Number.isFinite(item.productId));
+        })()
+      : products
+          .map((product) => {
+            const linked = linkedByProductId.get(product.id);
+            return {
+              productId: product.id,
+              name: product.name,
+              sku: product.sku ?? null,
+              imageUrl: product.imageUrl ?? null,
+              priceAmount: product.priceAmount,
+              currency: product.currency,
+              availableQuantity: product.availableQuantity,
+              manufacturerId: linked?.userId ?? '',
+            };
+          })
+          .filter((item) => (filter === FILTER_UNLINKED ? !item.manufacturerId : true));
 
-    return products
-      .map((product) => {
-        const linked = linkedByProductId.get(product.id);
-        return {
-          productId: product.id,
-          name: product.name,
-          sku: product.sku ?? null,
-          imageUrl: product.imageUrl ?? null,
-          priceAmount: product.priceAmount,
-          currency: product.currency,
-          availableQuantity: product.availableQuantity,
-          manufacturerId: linked?.userId ?? '',
-        };
-      })
-      .filter((item) => (filter === FILTER_UNLINKED ? !item.manufacturerId : true));
+    // Salla's products endpoint can return the same product more than once, so
+    // collapse by productId to keep one card per product (and stable React keys).
+    const seen = new Set<number>();
+    return items.filter((item) => {
+      if (seen.has(item.productId)) {
+        return false;
+      }
+      seen.add(item.productId);
+      return true;
+    });
   }, [isLinkedMode, filter, linkedRecords, products, linkedByProductId]);
 
   if (status === 'loading') {
@@ -369,6 +380,10 @@ export default function SallaManufacturerLinksPage() {
   const totalPages = pagination?.totalPages ?? 1;
   const showGridLoading = isLinkedMode ? linkedLoading : loading;
   const linkedCount = linkedRecords.length;
+  // `pagination.total` is the store-wide catalog size only while browsing the
+  // full list; during an SKU search it holds the match count, so ignore it then.
+  const storeTotal = searchSku ? null : pagination?.total ?? null;
+  const remainingCount = storeTotal != null ? Math.max(storeTotal - linkedCount, 0) : null;
 
   return (
     <AppPageShell
@@ -386,7 +401,13 @@ export default function SallaManufacturerLinksPage() {
                 <div>
                   <p className="font-semibold text-foreground">ربط المنتجات بالمصانع</p>
                   <p className="text-sm text-muted-foreground">
-                    عدد المنتجات المرتبطة حالياً: {formatNumber(linkedCount)}
+                    المرتبطة: {formatNumber(linkedCount)}
+                    {storeTotal != null && (
+                      <>
+                        {' · '}إجمالي المنتجات: {formatNumber(storeTotal)}
+                        {' · '}المتبقية: {formatNumber(remainingCount)}
+                      </>
+                    )}
                   </p>
                 </div>
               </div>

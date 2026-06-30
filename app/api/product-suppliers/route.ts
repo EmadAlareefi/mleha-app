@@ -75,6 +75,12 @@ const SCHEMA_NOT_READY = {
 
 const MANUFACTURER_USER_TYPE = 'manufacturer';
 
+// The manufacturer-links page loads every linked product into memory to power
+// its counter, the "linked only" view and the per-factory filters. The old
+// cap of 500 silently hid records once the catalog grew past it, so keep this
+// generously above the real link count.
+const LINKED_RECORDS_LIMIT = 10000;
+
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
 
@@ -113,7 +119,7 @@ export async function GET(request: NextRequest) {
     const rows = await prisma.sallaProductSupplier.findMany({
       where: productIds.length > 0 ? { productId: { in: productIds } } : undefined,
       orderBy: { updatedAt: 'desc' },
-      take: productIds.length > 0 ? undefined : 500,
+      take: productIds.length > 0 ? undefined : LINKED_RECORDS_LIMIT,
       include: { user: { select: { id: true, name: true, username: true } } },
     });
 
