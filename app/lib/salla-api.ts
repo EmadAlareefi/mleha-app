@@ -1222,7 +1222,12 @@ async function fetchSallaProductsPageWithRetry(
 export async function listAllSallaProducts(
   merchantId: string,
   options?: { status?: string; maxPages?: number }
-): Promise<{ products: SallaProductSummary[]; total: number; complete: boolean }> {
+): Promise<{
+  products: SallaProductSummary[];
+  total: number;
+  complete: boolean;
+  debug: { reportedTotal: number; reportedTotalPages: number; pagesOk: number; pagesFailed: number; rawCount: number; distinctCount: number; perPage: number };
+}> {
   const perPage = 100;
   const maxPages = Math.max(options?.maxPages ?? 200, 1);
   const CONCURRENCY = 3;
@@ -1239,8 +1244,12 @@ export async function listAllSallaProducts(
   }
 
   const reportedTotal = firstPage.pagination?.total ?? byId.size;
-  const totalPages = Math.min(firstPage.pagination?.totalPages ?? 1, maxPages);
-  let complete = (firstPage.pagination?.totalPages ?? 1) <= maxPages;
+  const reportedTotalPages = firstPage.pagination?.totalPages ?? 1;
+  const totalPages = Math.min(reportedTotalPages, maxPages);
+  let complete = reportedTotalPages <= maxPages;
+  let pagesOk = 1;
+  let pagesFailed = 0;
+  let rawCount = firstPage.products.length;
 
   for (let start = 2; start <= totalPages; start += CONCURRENCY) {
     const pages: number[] = [];
@@ -1256,11 +1265,14 @@ export async function listAllSallaProducts(
 
     settled.forEach((result, index) => {
       if (result.status === 'fulfilled') {
+        pagesOk += 1;
+        rawCount += result.value.length;
         for (const product of result.value) {
           byId.set(product.id, product);
         }
       } else {
         complete = false;
+        pagesFailed += 1;
         log.error('Failed to load a Salla products page during full listing', {
           merchantId,
           page: pages[index],
@@ -1270,7 +1282,20 @@ export async function listAllSallaProducts(
     });
   }
 
-  return { products: Array.from(byId.values()), total: reportedTotal, complete };
+  return {
+    products: Array.from(byId.values()),
+    total: reportedTotal,
+    complete,
+    debug: {
+      reportedTotal,
+      reportedTotalPages,
+      pagesOk,
+      pagesFailed,
+      rawCount,
+      distinctCount: byId.size,
+      perPage,
+    },
+  };
 }
 
 export async function getSallaProductBySku(

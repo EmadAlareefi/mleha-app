@@ -458,15 +458,21 @@ export default function SallaManufacturerLinksPage() {
   const linkedCount = linkedRecords.length;
   // `pagination.total` is the store-wide catalog size only while browsing the
   // full list; during an SKU search it holds the match count, so ignore it then.
-  const storeTotal = searchSku
-    ? null
-    : isUnlinkedMode
-      ? catalogTotal ?? pagination?.total ?? null
-      : pagination?.total ?? null;
-  // Remaining = catalog total minus what's linked. Derive it from the trustworthy
-  // counts (a real catalog total and our DB link count) rather than the length of
-  // the fetched list, which can be short if the catalog enumeration was partial.
-  const remainingCount = storeTotal != null ? Math.max(storeTotal - linkedCount, 0) : null;
+  const storeTotal = searchSku ? null : pagination?.total ?? null;
+  // In the unlinked view the displayed list is exactly what we managed to load,
+  // so report counts from that list to stay consistent with the pager. Show the
+  // gap against Salla's reported catalog size when enumeration came up short.
+  const unlinkedListCount = cardItems.length;
+  const remainingCount =
+    isUnlinkedMode && allProducts.length > 0
+      ? unlinkedListCount
+      : storeTotal != null
+        ? Math.max(storeTotal - linkedCount, 0)
+        : null;
+  const catalogShortfall =
+    isUnlinkedMode && catalogTotal != null
+      ? Math.max(catalogTotal - allProducts.length, 0)
+      : 0;
 
   return (
     <AppPageShell
@@ -556,6 +562,16 @@ export default function SallaManufacturerLinksPage() {
                 <AlertDescription>
                   تعذر تحميل بعض صفحات المنتجات من سلة، لذلك قد تكون قائمة المنتجات غير المرتبطة غير
                   مكتملة. اضغط «تحديث» لإعادة المحاولة.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isUnlinkedMode && !allProductsLoading && allProductsComplete && catalogShortfall > 0 && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  أبلغت سلة عن {formatNumber(catalogTotal)} منتج، لكن واجهتها أعادت{' '}
+                  {formatNumber(allProducts.length)} منتجاً مميّزاً فقط عبر التصفّح، لذلك تعذّر عرض{' '}
+                  {formatNumber(catalogShortfall)} منتج. هذا قيد في ترقيم صفحات سلة وليس في بياناتك.
                 </AlertDescription>
               </Alert>
             )}
