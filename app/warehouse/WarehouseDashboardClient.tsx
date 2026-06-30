@@ -12,6 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { ErrorDialog } from '@/components/ui/error-dialog';
 import AppNavbar from '@/components/AppNavbar';
 import { ChevronRight, ChevronLeft, Loader2, RefreshCcw, Search, X, Scan, CheckCircle2 } from 'lucide-react';
 import { ShipmentDetailsDialog } from '@/components/warehouse/shipment-details-dialog';
@@ -37,6 +38,13 @@ interface WarehouseDashboardClientProps {
   initialStats?: Stats;
   initialDateIso: string;
   initialWarehouseError?: string | null;
+}
+
+interface DoNotShipDialogState {
+  message: string;
+  orderNumber?: string | null;
+  notes?: string | null;
+  markedBy?: string | null;
 }
 
 const EMPTY_STATS: Stats = {
@@ -85,6 +93,7 @@ export default function WarehouseDashboardClient({
   const [scannerTab, setScannerTab] = useState<'primary' | 'handover'>('primary');
   const [isMobile, setIsMobile] = useState(false);
   const [companyFilter, setCompanyFilter] = useState('all');
+  const [doNotShipDialog, setDoNotShipDialog] = useState<DoNotShipDialogState | null>(null);
 
   const sessionWarehouseList = useMemo(
     () => (Array.isArray(sessionWarehouses) ? sessionWarehouses : []),
@@ -479,6 +488,15 @@ export default function WarehouseDashboardClient({
 
     if (!response.ok) {
       const error = await response.json().catch(() => null);
+      if (error?.code === 'DO_NOT_SHIP') {
+        const flag = error.doNotShipFlag || {};
+        setDoNotShipDialog({
+          message: error.error || 'هذه الشحنة لا يفترض شحنها.',
+          orderNumber: flag.orderNumber || null,
+          notes: flag.notes || null,
+          markedBy: flag.createdByName || flag.createdByUsername || null,
+        });
+      }
       throw new Error(error?.error || 'فشل في تسجيل الشحنة');
     }
 
@@ -563,6 +581,18 @@ export default function WarehouseDashboardClient({
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <ErrorDialog
+        open={Boolean(doNotShipDialog)}
+        onClose={() => setDoNotShipDialog(null)}
+        title="إيقاف الشحنة"
+        message={doNotShipDialog?.message || 'هذه الشحنة لا يفترض شحنها.'}
+        description={[
+          doNotShipDialog?.orderNumber ? `رقم الطلب: ${doNotShipDialog.orderNumber}` : null,
+          doNotShipDialog?.markedBy ? `تم وضع العلامة بواسطة: ${doNotShipDialog.markedBy}` : null,
+          doNotShipDialog?.notes ? `ملاحظة خدمة العملاء: ${doNotShipDialog.notes}` : null,
+        ].filter(Boolean).join(' | ')}
+        variant="error"
+      />
       <AppNavbar
         title="لوحة المستودع"
         subtitle={

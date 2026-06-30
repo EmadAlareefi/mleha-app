@@ -23,6 +23,9 @@ interface AutoMarkAssignmentResult {
   };
 }
 
+const DO_NOT_SHIP_ERROR_MESSAGE =
+  'هذه الشحنة لا يفترض شحنها لأن عليها مشكلة، وقد تم وضع علامة إيقاف الشحن من فريق خدمة العملاء.';
+
 const DEFAULT_SHIPMENTS_LIMIT = 300;
 const MAX_SHIPMENTS_LIMIT = 1000;
 
@@ -106,6 +109,103 @@ async function autoMarkAssignmentPickedUp(trackingNumber: string): Promise<AutoM
       trackingNumber: localShipment.trackingNumber,
     },
   };
+}
+
+async function findDoNotShipFlagForTracking(trackingNumber: string) {
+  if (!trackingNumber) {
+    return null;
+  }
+
+  const directFlag = await prisma.orderDoNotShipFlag.findFirst({
+    where: {
+      trackingNumber: {
+        equals: trackingNumber,
+        mode: 'insensitive',
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (directFlag) {
+    return directFlag;
+  }
+
+  const [localShipment, sallaShipment, sallaOrder] = await Promise.all([
+    prisma.localShipment.findUnique({
+      where: { trackingNumber },
+      select: {
+        merchantId: true,
+        orderId: true,
+        orderNumber: true,
+        trackingNumber: true,
+      },
+    }),
+    prisma.sallaShipment.findFirst({
+      where: {
+        OR: [
+          { trackingNumber: { equals: trackingNumber, mode: 'insensitive' } },
+          { awbNumber: { equals: trackingNumber, mode: 'insensitive' } },
+          { sawb: { equals: trackingNumber, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        merchantId: true,
+        orderId: true,
+        orderNumber: true,
+        trackingNumber: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.sallaOrder.findFirst({
+      where: {
+        trackingNumber: {
+          equals: trackingNumber,
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        merchantId: true,
+        orderId: true,
+        orderNumber: true,
+        trackingNumber: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+  ]);
+
+  const matchedOrder = localShipment || sallaShipment || sallaOrder;
+  if (!matchedOrder?.merchantId || !matchedOrder.orderId) {
+    return null;
+  }
+
+  return prisma.orderDoNotShipFlag.findUnique({
+    where: {
+      merchantId_orderId: {
+        merchantId: matchedOrder.merchantId,
+        orderId: matchedOrder.orderId,
+      },
+    },
+  });
+}
+
+function buildDoNotShipResponse(flag: any) {
+  return NextResponse.json(
+    {
+      code: 'DO_NOT_SHIP',
+      error: DO_NOT_SHIP_ERROR_MESSAGE,
+      doNotShipFlag: {
+        id: flag.id,
+        orderId: flag.orderId,
+        orderNumber: flag.orderNumber || null,
+        trackingNumber: flag.trackingNumber || null,
+        notes: flag.notes || null,
+        createdByName: flag.createdByName || null,
+        createdByUsername: flag.createdByUsername || null,
+        createdAt: flag.createdAt.toISOString(),
+      },
+    },
+    { status: 409 },
+  );
 }
 
 async function runPostCreateShipmentSideEffects({
@@ -414,6 +514,19 @@ export async function POST(request: NextRequest) {
         { error: 'المستودع المحدد غير موجود أو غير نشط' },
         { status: 400 }
       );
+    }
+
+    if (shipmentType === 'outgoing') {
+      const doNotShipFlag = await findDoNotShipFlagForTracking(normalizedTrackingNumber);
+      if (doNotShipFlag) {
+        log.warn('Blocked outgoing warehouse scan for do-not-ship order', {
+          trackingNumber: normalizedTrackingNumber,
+          warehouseId,
+          orderId: doNotShipFlag.orderId,
+          orderNumber: doNotShipFlag.orderNumber,
+        });
+        return buildDoNotShipResponse(doNotShipFlag);
+      }
     }
 
     // Check if tracking number already exists

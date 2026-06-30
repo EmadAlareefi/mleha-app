@@ -10,6 +10,7 @@ import {
   extractAppliedCouponCodes,
   linkExchangeOrderFromWebhook,
 } from "@/app/lib/returns/exchange-order";
+import { maybeNotifyReturnLabelCreated } from "@/app/lib/returns/return-label-notification";
 
 type AnyObj = Record<string, any>;
 
@@ -317,6 +318,26 @@ async function maybePrintShipmentLabelFromStatus(
       storedShipment.labelPrinted ||
       (storedShipment.printCount ?? 0) > 0 ||
       Boolean((storedShipment.shipmentData as any)?.labelPrinted);
+
+    const returnLabelNotification = await maybeNotifyReturnLabelCreated({
+      merchantId,
+      orderId: resolvedOrderId,
+      orderNumber: referenceId || resolvedOrderId,
+      labelUrl: shipmentUrl,
+      trackingNumber: trackingNumberValue,
+      shipmentData: data,
+      source: "salla-order-updated-webhook",
+    });
+
+    if (returnLabelNotification.status !== "skipped") {
+      log.info("Return label notification result from order.updated webhook", {
+        merchantId,
+        orderId: resolvedOrderId,
+        result: returnLabelNotification.status,
+        reason: returnLabelNotification.reason,
+        returnRequestId: returnLabelNotification.returnRequestId,
+      });
+    }
   } catch (error) {
     log.error("Failed to upsert shipment from order.updated webhook", {
       error,
@@ -464,7 +485,7 @@ export async function processSallaWebhook(payload: AnyObj, meta?: WebhookMeta) {
     case "customer.login":
       return process_customer_login(data);
     case "order.shipment.created":
-      return process_salla_shipment_created(data);
+      return process_salla_shipment_created(data, meta);
     case "abandoned.cart":
       return process_abandoned_cart(data);
     case "abandoned.cart.purchased":
@@ -631,7 +652,7 @@ export async function process_customer_login(data: AnyObj) {
   return { success: true, message: "sent", zoko: resp };
 }
 
-export async function process_salla_shipment_created(data: AnyObj) {
+export async function process_salla_shipment_created(data: AnyObj, meta?: WebhookMeta) {
   const order: AnyObj = data?.order ?? data ?? {};
   const orderId = String(order?.id ?? order?.order_id ?? "");
   const customer = order?.customer ?? order?.customer_info ?? {};
@@ -641,6 +662,37 @@ export async function process_salla_shipment_created(data: AnyObj) {
   const { carrier, trackingNumber, trackingLink } = getShipmentDetails(order, data);
 
   await upsertSallaOrderFromPayload(data);
+
+  const merchantId =
+    meta?.merchantId ||
+    data?.merchant?.toString?.() ||
+    data?.store?.id?.toString?.() ||
+    order?.merchant_id?.toString?.() ||
+    null;
+
+  const returnLabelNotification = await maybeNotifyReturnLabelCreated({
+    merchantId,
+    orderId,
+    orderNumber,
+    labelUrl:
+      data?.shipping?.shipment?.label?.url ||
+      data?.shipping?.shipment?.label_url ||
+      data?.shipping?.shipment?.labelUrl ||
+      (typeof data?.shipping?.shipment?.label === "string" ? data.shipping.shipment.label : null),
+    trackingNumber,
+    shipmentData: data,
+    source: "salla-shipment-created-generic-webhook",
+  });
+
+  if (returnLabelNotification.status !== "skipped") {
+    log.info("Return label notification result from generic shipment webhook", {
+      merchantId,
+      orderId,
+      result: returnLabelNotification.status,
+      reason: returnLabelNotification.reason,
+      returnRequestId: returnLabelNotification.returnRequestId,
+    });
+  }
 
   const resp = await sendTpl(phone, TPL.ORDER_SHIPPED, [
     customerName,

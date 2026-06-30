@@ -10,6 +10,7 @@ import {
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
+import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-notification';
 
 export const runtime = 'nodejs';
 
@@ -202,6 +203,26 @@ export async function POST(request: NextRequest) {
         trackingNumber: trackingNumberValue,
         hasLabelUrl: !!shipmentUrl,
       });
+
+      const returnLabelNotification = await maybeNotifyReturnLabelCreated({
+        merchantId,
+        orderId: resolvedOrderId,
+        orderNumber: referenceId || resolvedOrderId,
+        labelUrl: shipmentUrl,
+        trackingNumber: trackingNumberValue,
+        shipmentData: data,
+        source: 'salla-shipment-created-webhook',
+      });
+
+      if (returnLabelNotification.status !== 'skipped') {
+        log.info('Return label notification result from shipment webhook', {
+          referenceId,
+          orderId: resolvedOrderId,
+          result: returnLabelNotification.status,
+          reason: returnLabelNotification.reason,
+          returnRequestId: returnLabelNotification.returnRequestId,
+        });
+      }
     } catch (dbError) {
       log.error('Failed to store shipment in database', {
         referenceId,

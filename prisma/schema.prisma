@@ -661,6 +661,10 @@ model ReturnRequest {
   smsaResponse            Json? // Raw SMSA API response
   smsaLiveStatus          Json?
   smsaLiveStatusUpdatedAt DateTime?
+  returnLabelUrl          String?   @db.Text
+  returnLabelNotificationSentAt DateTime?
+  returnLabelNotificationError String? @db.Text
+  returnLabelNotificationResponse Json?
 
   // Financial details
   totalRefundAmount Decimal? @db.Decimal(10, 2)
@@ -1098,6 +1102,25 @@ model OrderGiftFlag {
   @@unique([merchantId, orderId])
   @@index([merchantId])
   @@index([orderId])
+}
+
+model OrderDoNotShipFlag {
+  id                String   @id @default(cuid())
+  merchantId        String
+  orderId           String
+  orderNumber       String?
+  trackingNumber    String?
+  notes             String?  @db.Text
+  createdById       String?
+  createdByName     String?
+  createdByUsername String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([merchantId])
+  @@index([orderId])
+  @@index([trackingNumber])
 }
 
 model Warehouse {

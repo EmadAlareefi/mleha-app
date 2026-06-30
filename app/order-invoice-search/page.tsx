@@ -11,8 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { CommercialInvoice } from '@/components/CommercialInvoice';
-import { Search, Printer, AlertCircle, FileText } from 'lucide-react';
+import { Search, Printer, AlertCircle, FileText, Ban } from 'lucide-react';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
@@ -61,6 +62,20 @@ interface OrderAssignment {
   source?: 'assignment' | 'history' | 'salla';
   merchantId?: string;
   shipment?: ShipmentInfo | null;
+  doNotShipFlag?: DoNotShipFlag | null;
+}
+
+interface DoNotShipFlag {
+  id: string;
+  merchantId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  trackingNumber?: string | null;
+  notes?: string | null;
+  createdByName?: string | null;
+  createdByUsername?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 function buildTrackingUrl(
@@ -143,6 +158,9 @@ export default function OrderInvoiceSearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [printingShipmentPrinter, setPrintingShipmentPrinter] = useState<number | null>(null);
   const [printingInvoiceViaPrintNode, setPrintingInvoiceViaPrintNode] = useState(false);
+  const [doNotShipNotes, setDoNotShipNotes] = useState('');
+  const [doNotShipUpdating, setDoNotShipUpdating] = useState(false);
+  const [doNotShipMessage, setDoNotShipMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const commercialInvoiceRef = useRef<HTMLDivElement>(null);
 
   const getStringValue = (value: unknown): string => {
@@ -229,6 +247,8 @@ export default function OrderInvoiceSearchPage() {
       }
 
       setOrder(data.assignment);
+      setDoNotShipNotes(data.assignment?.doNotShipFlag?.notes || '');
+      setDoNotShipMessage(null);
     } catch (err) {
       console.error('Search error:', err);
       setError('حدث خطأ أثناء البحث عن الطلب');
@@ -367,6 +387,83 @@ export default function OrderInvoiceSearchPage() {
       alert('حدث خطأ أثناء إرسال الفاتورة للطابعة');
     } finally {
       setPrintingInvoiceViaPrintNode(false);
+    }
+  };
+
+  const getOrderTrackingNumber = (orderValue: OrderAssignment | null) => {
+    if (!orderValue) return '';
+    return getStringValue(
+      orderValue.shipment?.trackingNumber ||
+      orderValue.orderData?.delivery?.tracking_number ||
+      orderValue.orderData?.delivery?.tracking ||
+      orderValue.orderData?.delivery?.trackingNumber ||
+      orderValue.orderData?.delivery?.tracking_no ||
+      orderValue.orderData?.delivery?.awb_number ||
+      orderValue.orderData?.delivery?.awbNumber
+    );
+  };
+
+  const handleMarkDoNotShip = async () => {
+    if (!order) return;
+
+    setDoNotShipUpdating(true);
+    setDoNotShipMessage(null);
+    try {
+      const response = await fetch('/api/do-not-ship-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.orderId,
+          orderNumber: order.orderNumber,
+          trackingNumber: getOrderTrackingNumber(order) || null,
+          notes: doNotShipNotes.trim() || null,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'تعذر وضع علامة إيقاف الشحن');
+      }
+
+      setOrder((prev) => prev ? { ...prev, doNotShipFlag: data.doNotShipFlag } : prev);
+      setDoNotShipNotes(data.doNotShipFlag?.notes || '');
+      setDoNotShipMessage({ type: 'success', text: 'تم وضع علامة إيقاف الشحن لهذا الطلب' });
+    } catch (markError) {
+      setDoNotShipMessage({
+        type: 'error',
+        text: markError instanceof Error ? markError.message : 'تعذر وضع علامة إيقاف الشحن',
+      });
+    } finally {
+      setDoNotShipUpdating(false);
+    }
+  };
+
+  const handleUnmarkDoNotShip = async () => {
+    if (!order) return;
+
+    setDoNotShipUpdating(true);
+    setDoNotShipMessage(null);
+    try {
+      const params = new URLSearchParams({ orderId: order.orderId });
+      const response = await fetch(`/api/do-not-ship-orders?${params.toString()}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'تعذر إزالة علامة إيقاف الشحن');
+      }
+
+      setOrder((prev) => prev ? { ...prev, doNotShipFlag: null } : prev);
+      setDoNotShipNotes('');
+      setDoNotShipMessage({ type: 'success', text: 'تمت إزالة علامة إيقاف الشحن' });
+    } catch (unmarkError) {
+      setDoNotShipMessage({
+        type: 'error',
+        text: unmarkError instanceof Error ? unmarkError.message : 'تعذر إزالة علامة إيقاف الشحن',
+      });
+    } finally {
+      setDoNotShipUpdating(false);
     }
   };
 
@@ -547,7 +644,9 @@ export default function OrderInvoiceSearchPage() {
     resolvedShipmentStatus ||
     resolvedDeliveryStatus
   );
-  const hasPrintableShipmentLabel = Boolean(shipmentInfo && shipmentLabelUrl);
+  const doNotShipFlag = order?.doNotShipFlag || null;
+  const isDoNotShipMarked = Boolean(doNotShipFlag);
+  const hasPrintableShipmentLabel = Boolean(shipmentInfo && shipmentLabelUrl && !isDoNotShipMarked);
   const isPrintingShipmentLabel = printingShipmentPrinter !== null;
   const shippingTracking = buildTrackingUrl(resolvedTrackingNumber, resolvedCourierName, shipmentLabelUrl);
 
@@ -706,6 +805,22 @@ export default function OrderInvoiceSearchPage() {
                     </AlertDescription>
                   </Alert>
                 )}
+                {isDoNotShipMarked && (
+                  <Alert variant="destructive">
+                    <Ban className="h-5 w-5" />
+                    <AlertDescription>
+                      <span className="block font-semibold">هذا الطلب محدد بعدم الشحن</span>
+                      <span className="mt-1 block">
+                        تم وضع علامة إيقاف الشحن بواسطة{' '}
+                        {doNotShipFlag?.createdByName || doNotShipFlag?.createdByUsername || 'فريق خدمة العملاء'}
+                        {doNotShipFlag?.createdAt ? ` في ${formatDate(doNotShipFlag.createdAt)}` : ''}.
+                      </span>
+                      {doNotShipFlag?.notes && (
+                        <span className="mt-1 block">الملاحظة: {doNotShipFlag.notes}</span>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
                     <h2 className="text-2xl font-bold">طلب #{order.orderNumber}</h2>
@@ -726,6 +841,64 @@ export default function OrderInvoiceSearchPage() {
                     {shippingCountry && (
                       <p className="text-xs text-gray-500">الدولة: {shippingCountry}</p>
                     )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="flex-1 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Ban className="h-5 w-5 text-red-700" />
+                        <h3 className="font-semibold text-red-950">إيقاف شحن الطلب</h3>
+                        <Badge variant={isDoNotShipMarked ? 'destructive' : 'outline'}>
+                          {isDoNotShipMarked ? 'موقوف' : 'غير موقوف'}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-red-800">
+                        عند تفعيل العلامة، سيتم منع تسجيل الشحنة كصادرة في صفحة المستودع قبل خروجها.
+                      </p>
+                      <Textarea
+                        value={doNotShipNotes}
+                        onChange={(event) => setDoNotShipNotes(event.target.value)}
+                        placeholder="ملاحظة اختيارية لفريق خدمة العملاء"
+                        className="min-h-20 bg-white"
+                        disabled={doNotShipUpdating}
+                      />
+                      {doNotShipMessage && (
+                        <p
+                          className={`text-sm font-medium ${
+                            doNotShipMessage.type === 'success' ? 'text-green-700' : 'text-red-700'
+                          }`}
+                        >
+                          {doNotShipMessage.text}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-52">
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={handleMarkDoNotShip}
+                        disabled={doNotShipUpdating}
+                      >
+                        {doNotShipUpdating
+                          ? 'جاري الحفظ...'
+                          : isDoNotShipMarked
+                            ? 'تحديث علامة الإيقاف'
+                            : 'عدم شحن الطلب'}
+                      </Button>
+                      {isDoNotShipMarked && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleUnmarkDoNotShip}
+                          disabled={doNotShipUpdating}
+                          className="bg-white"
+                        >
+                          إلغاء عدم الشحن
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -795,6 +968,14 @@ export default function OrderInvoiceSearchPage() {
                       </div>
                     )}
                   </div>
+                  {isDoNotShipMarked && shipmentLabelUrl && (
+                    <Alert variant="destructive">
+                      <Ban className="h-4 w-4" />
+                      <AlertDescription>
+                        تم إيقاف طباعة البوليصة لأن الطلب محدد بعدم الشحن.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <p className="text-sm text-gray-500">رقم التتبع</p>

@@ -9,6 +9,9 @@ export const env = {
     process.env.ZOKO_TPL_EXCHANGE_COUPON ||
     process.env.ZOKO_TPL_ORDER_CONFIRMED || // fall back to any legacy template if provided
     "exchange_coupon_notification",
+  ZOKO_TPL_RETURN_ORDER_LABEL_CREATED:
+    process.env.ZOKO_TPL_RETURN_ORDER_LABEL_CREATED ||
+    "return_order_label_created_ar",
   MSEGAT_API_URL: process.env.MSEGAT_API_URL || "https://www.msegat.com/gw/sendsms.php",
   MSEGAT_USERNAME: process.env.MSEGAT_USERNAME,
   MSEGAT_API_KEY: process.env.MSEGAT_API_KEY,

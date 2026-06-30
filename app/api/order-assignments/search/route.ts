@@ -88,9 +88,10 @@ const respondWithPayloadAndShipment = async (payload: any) => {
 };
 
 const respondWithAssignment = async (payload: any, shipment: any) => {
-  const [giftFlag, priorityRecord] = await Promise.all([
+  const [giftFlag, priorityRecord, doNotShipFlag] = await Promise.all([
     getGiftFlagForOrder(payload.merchantId, payload.orderId),
     getPriorityRecordForOrder(payload.merchantId, payload.orderId),
+    getDoNotShipFlagForOrder(payload.merchantId, payload.orderId, shipment?.trackingNumber),
   ]);
 
   const assignmentPayload = {
@@ -106,6 +107,7 @@ const respondWithAssignment = async (payload: any, shipment: any) => {
       priorityCreatedAt: priorityRecord?.createdAt
         ? priorityRecord.createdAt.toISOString()
         : null,
+      doNotShipFlag: serializeDoNotShipFlag(doNotShipFlag),
     },
   };
 
@@ -157,6 +159,37 @@ const getPriorityRecordForOrder = async (
   });
 };
 
+const getDoNotShipFlagForOrder = async (
+  merchantId: string | null | undefined,
+  orderId?: string | null,
+  trackingNumber?: string | null,
+) => {
+  const resolvedMerchantId = merchantId && merchantId.trim().length > 0
+    ? merchantId
+    : MERCHANT_ID;
+
+  const orFilters: Prisma.OrderDoNotShipFlagWhereInput[] = [];
+
+  if (orderId) {
+    orFilters.push({ orderId });
+  }
+  if (trackingNumber) {
+    orFilters.push({ trackingNumber });
+  }
+
+  if (orFilters.length === 0) {
+    return null;
+  }
+
+  return prisma.orderDoNotShipFlag.findFirst({
+    where: {
+      merchantId: resolvedMerchantId,
+      OR: orFilters,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
 const serializeGiftFlag = (flag: OrderGiftFlag | null) => {
   if (!flag) {
     return null;
@@ -171,6 +204,26 @@ const serializeGiftFlag = (flag: OrderGiftFlag | null) => {
     createdById: flag.createdById || null,
     createdByName: flag.createdByName || null,
     createdByUsername: flag.createdByUsername || null,
+  };
+};
+
+const serializeDoNotShipFlag = (flag: any | null) => {
+  if (!flag) {
+    return null;
+  }
+
+  return {
+    id: flag.id,
+    merchantId: flag.merchantId,
+    orderId: flag.orderId,
+    orderNumber: flag.orderNumber || null,
+    trackingNumber: flag.trackingNumber || null,
+    notes: flag.notes || null,
+    createdById: flag.createdById || null,
+    createdByName: flag.createdByName || null,
+    createdByUsername: flag.createdByUsername || null,
+    createdAt: flag.createdAt.toISOString(),
+    updatedAt: flag.updatedAt.toISOString(),
   };
 };
 
