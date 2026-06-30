@@ -74,6 +74,7 @@ export type CreatePurchaseRequestInput = {
 
 export type ListPurchaseRequestsInput = {
   status?: PurchaseRequestStatus;
+  manufacturerUserId?: string | null;
 };
 
 function normalizeText(value: unknown): string | null {
@@ -166,6 +167,14 @@ export async function listPurchaseRequests(
     where.status = { in: ['requested', 'on_the_way'] };
   }
 
+  if (params.manufacturerUserId) {
+    const productIds = await listManufacturerLinkedProductIds(params.manufacturerUserId);
+    if (productIds.length === 0) {
+      return [];
+    }
+    where.productId = { in: productIds };
+  }
+
   return prisma.sallaPurchaseRequest.findMany({
     where,
     orderBy: [{ requestedAt: 'desc' }],
@@ -179,11 +188,34 @@ export async function getManufacturerUserId(userId: string | null | undefined): 
   }
 
   const user = await prisma.orderUser.findFirst({
-    where: { id: userId, isActive: true, userType: 'manufacturer' },
-    select: { id: true },
+    where: { id: userId, isActive: true },
+    select: { id: true, userType: true },
   });
 
-  return user?.id ?? null;
+  if (!user) {
+    return null;
+  }
+
+  if (user.userType === 'manufacturer') {
+    return user.id;
+  }
+
+  const linkedProductCount = await prisma.sallaProductSupplier.count({
+    where: { userId: user.id },
+  });
+
+  return linkedProductCount > 0 ? user.id : null;
+}
+
+export async function listManufacturerLinkedProductIds(userId: string): Promise<number[]> {
+  const links = await prisma.sallaProductSupplier.findMany({
+    where: { userId },
+    select: { productId: true },
+  });
+
+  return links
+    .map((link) => normalizePositiveInt(link.productId))
+    .filter((productId): productId is number => productId != null);
 }
 
 const ORDER_STATUS_EXCLUDED = ['canceled', 'cancelled', 'refunded', 'restored', 'deleted'];

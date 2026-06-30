@@ -29,6 +29,7 @@ import type { SallaProductSummary, SallaProductVariation } from '@/app/lib/salla
 type PurchaseRequestsBoardProps = {
   initialRequests: PurchaseRequestRecord[];
   loadManufacturerProducts: boolean;
+  manufacturerProductIds: number[];
   canManage: boolean;
 };
 
@@ -198,6 +199,7 @@ function groupPurchaseRequests(requests: PurchaseRequestRecord[]): GroupedPurcha
 export function PurchaseRequestsBoard({
   initialRequests,
   loadManufacturerProducts,
+  manufacturerProductIds,
   canManage,
 }: PurchaseRequestsBoardProps) {
   const [requests, setRequests] = useState<PurchaseRequestRecord[]>(initialRequests);
@@ -213,6 +215,18 @@ export function PurchaseRequestsBoard({
   useEffect(() => {
     setRequests(initialRequests);
   }, [initialRequests]);
+
+  const manufacturerProductIdSet = useMemo(
+    () => new Set(manufacturerProductIds),
+    [manufacturerProductIds]
+  );
+  const visibleRequests = useMemo(
+    () =>
+      loadManufacturerProducts
+        ? requests.filter((request) => manufacturerProductIdSet.has(request.productId))
+        : requests,
+    [loadManufacturerProducts, manufacturerProductIdSet, requests]
+  );
 
   // The manufacturer "منتجاتي" sales stats are intentionally loaded client-side:
   // computing them scans the full orders table, so blocking the server render on
@@ -256,12 +270,12 @@ export function PurchaseRequestsBoard({
   }, [loadManufacturerProducts]);
 
   const requested = useMemo(
-    () => requests.filter((request) => request.status === 'requested'),
-    [requests]
+    () => visibleRequests.filter((request) => request.status === 'requested'),
+    [visibleRequests]
   );
   const onTheWay = useMemo(
-    () => requests.filter((request) => request.status === 'on_the_way'),
-    [requests]
+    () => visibleRequests.filter((request) => request.status === 'on_the_way'),
+    [visibleRequests]
   );
   const groupedRequested = useMemo(() => groupPurchaseRequests(requested), [requested]);
   const groupedOnTheWay = useMemo(() => groupPurchaseRequests(onTheWay), [onTheWay]);
@@ -320,7 +334,11 @@ export function PurchaseRequestsBoard({
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <AddProductDialog targetStatus={addProductTargetStatus} onCreated={upsertRequest} />
+        <AddProductDialog
+          targetStatus={addProductTargetStatus}
+          linkedProductIds={loadManufacturerProducts ? manufacturerProductIds : undefined}
+          onCreated={upsertRequest}
+        />
         <Button
           type="button"
           variant="outline"
@@ -390,7 +408,7 @@ export function PurchaseRequestsBoard({
                 <AlertDescription>{manufacturerError}</AlertDescription>
               </Alert>
             ) : (
-              <ManufacturerProductsTab products={manufacturerProducts ?? []} requests={requests} />
+              <ManufacturerProductsTab products={manufacturerProducts ?? []} requests={visibleRequests} />
             )}
           </TabsContent>
         )}
@@ -768,10 +786,11 @@ function RequestCard({ group, canManage, onUpdated, onRemoved }: RequestCardProp
 
 type AddProductDialogProps = {
   targetStatus: 'requested' | 'on_the_way';
+  linkedProductIds?: number[];
   onCreated: (request: PurchaseRequestRecord) => void;
 };
 
-function AddProductDialog({ targetStatus, onCreated }: AddProductDialogProps) {
+function AddProductDialog({ targetStatus, linkedProductIds, onCreated }: AddProductDialogProps) {
   const [open, setOpen] = useState(false);
   const [skuInput, setSkuInput] = useState('');
   const [products, setProducts] = useState<SallaProductSummary[]>([]);
@@ -784,6 +803,10 @@ function AddProductDialog({ targetStatus, onCreated }: AddProductDialogProps) {
   const isOnTheWay = targetStatus === 'on_the_way';
   const triggerLabel = isOnTheWay ? 'إضافة منتج قيد الشراء' : 'إضافة مطلوب شراؤه';
   const dialogTitle = isOnTheWay ? 'إضافة منتج قيد الشراء' : 'إضافة طلب شراء';
+  const linkedProductIdSet = useMemo(
+    () => (linkedProductIds ? new Set(linkedProductIds) : null),
+    [linkedProductIds]
+  );
 
   const loadVariations = async (productList: SallaProductSummary[], resolvedMerchantId: string | null) => {
     const productIds = productList.map((product) => product.id).filter((id) => Number.isFinite(id));
@@ -846,7 +869,10 @@ function AddProductDialog({ targetStatus, onCreated }: AddProductDialogProps) {
       if (!response.ok || !data.success) {
         throw new Error(data?.error || 'تعذر تحميل منتجات سلة');
       }
-      const productList = Array.isArray(data.products) ? data.products as SallaProductSummary[] : [];
+      const fetchedProducts = Array.isArray(data.products) ? data.products as SallaProductSummary[] : [];
+      const productList = linkedProductIdSet
+        ? fetchedProducts.filter((product) => linkedProductIdSet.has(product.id))
+        : fetchedProducts;
       const resolvedMerchantId = typeof data.merchantId === 'string' ? data.merchantId : null;
       setProducts(productList);
       setMerchantId(resolvedMerchantId);

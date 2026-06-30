@@ -4,6 +4,7 @@ import { authOptions } from '@/app/lib/auth';
 import {
   createPurchaseRequest,
   getManufacturerUserId,
+  listManufacturerLinkedProductIds,
   listManufacturerLinkedProductStats,
   listPurchaseRequests,
   type PurchaseRequestRecord,
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
 
   const manufacturerUserId = await getManufacturerUserId((session.user as any)?.id);
   const [requests, manufacturerProducts] = await Promise.all([
-    listPurchaseRequests({ status: allowedStatus }),
+    listPurchaseRequests({ status: allowedStatus, manufacturerUserId }),
     manufacturerUserId ? listManufacturerLinkedProductStats(manufacturerUserId) : Promise.resolve(null),
   ]);
 
@@ -84,6 +85,17 @@ export async function POST(request: NextRequest) {
     }
     if (status === 'on_the_way' && !expectedArrivalAt) {
       throw new Error('تاريخ الوصول المتوقع مطلوب لمنتجات قيد الشراء');
+    }
+
+    const manufacturerUserId = await getManufacturerUserId((session.user as any)?.id);
+    if (manufacturerUserId) {
+      const linkedProductIds = await listManufacturerLinkedProductIds(manufacturerUserId);
+      if (!linkedProductIds.includes(productId)) {
+        return NextResponse.json(
+          { success: false, error: 'لا يمكن إضافة طلب شراء لمنتج غير مرتبط بهذا المصنع' },
+          { status: 403 }
+        );
+      }
     }
 
     const rawVariantOptions = Array.isArray(body.variantOptions)

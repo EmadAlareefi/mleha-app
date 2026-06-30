@@ -4,6 +4,7 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import {
   getManufacturerUserId,
+  listManufacturerLinkedProductIds,
   listPurchaseRequests,
 } from '@/app/lib/salla-purchase-requests';
 import PurchaseRequestsBoard from './PurchaseRequestsBoard';
@@ -11,16 +12,17 @@ import PurchaseRequestsBoard from './PurchaseRequestsBoard';
 export const revalidate = 0;
 
 export default async function SallaPurchaseRequestsPage() {
-  const [session, requests] = await Promise.all([
-    getServerSession(authOptions),
-    listPurchaseRequests(),
-  ]);
+  const session = await getServerSession(authOptions);
 
   const canManage = hasServiceAccess(session, ['salla-purchase-requests-manage']);
   // Only resolve whether this user is a manufacturer here (cheap, indexed lookup).
   // The heavy linked-product sales stats are loaded client-side so the page never
   // blocks on a full scan of the orders table.
   const manufacturerUserId = await getManufacturerUserId((session?.user as any)?.id);
+  const [requests, manufacturerProductIds] = await Promise.all([
+    listPurchaseRequests({ manufacturerUserId }),
+    manufacturerUserId ? listManufacturerLinkedProductIds(manufacturerUserId) : Promise.resolve([]),
+  ]);
 
   return (
     <AppPageShell
@@ -30,6 +32,7 @@ export default async function SallaPurchaseRequestsPage() {
       <PurchaseRequestsBoard
         initialRequests={requests}
         loadManufacturerProducts={Boolean(manufacturerUserId)}
+        manufacturerProductIds={manufacturerProductIds}
         canManage={canManage}
       />
     </AppPageShell>
