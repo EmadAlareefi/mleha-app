@@ -111,6 +111,9 @@ export default function SallaManufacturerLinksPage() {
   // linked products and paginate the remainder locally.
   const [allProducts, setAllProducts] = useState<SallaProductSummary[]>([]);
   const [allProductsLoading, setAllProductsLoading] = useState(false);
+  // False when some catalog pages failed to load, so the unlinked list is partial.
+  const [allProductsComplete, setAllProductsComplete] = useState(true);
+  const [catalogTotal, setCatalogTotal] = useState<number | null>(null);
 
   const [savingMap, setSavingMap] = useState<Record<number, boolean>>({});
   const [saveErrors, setSaveErrors] = useState<Record<number, string>>({});
@@ -214,9 +217,12 @@ export default function SallaManufacturerLinksPage() {
         throw new Error(data?.error || 'تعذر تحميل منتجات سلة');
       }
       setAllProducts(Array.isArray(data.products) ? data.products : []);
+      setAllProductsComplete(data.complete !== false);
+      setCatalogTotal(typeof data.pagination?.total === 'number' ? data.pagination.total : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء تحميل المنتجات');
       setAllProducts([]);
+      setAllProductsComplete(true);
     } finally {
       setAllProductsLoading(false);
     }
@@ -452,15 +458,15 @@ export default function SallaManufacturerLinksPage() {
   const linkedCount = linkedRecords.length;
   // `pagination.total` is the store-wide catalog size only while browsing the
   // full list; during an SKU search it holds the match count, so ignore it then.
-  const storeTotal = searchSku ? null : pagination?.total ?? null;
-  // In the unlinked view the full filtered list is in memory, so report its exact
-  // size; otherwise estimate from the catalog total minus what's linked.
-  const remainingCount =
-    isUnlinkedMode && allProducts.length > 0
-      ? cardItems.length
-      : storeTotal != null
-        ? Math.max(storeTotal - linkedCount, 0)
-        : null;
+  const storeTotal = searchSku
+    ? null
+    : isUnlinkedMode
+      ? catalogTotal ?? pagination?.total ?? null
+      : pagination?.total ?? null;
+  // Remaining = catalog total minus what's linked. Derive it from the trustworthy
+  // counts (a real catalog total and our DB link count) rather than the length of
+  // the fetched list, which can be short if the catalog enumeration was partial.
+  const remainingCount = storeTotal != null ? Math.max(storeTotal - linkedCount, 0) : null;
 
   return (
     <AppPageShell
@@ -542,6 +548,15 @@ export default function SallaManufacturerLinksPage() {
             {(error || manufacturersError) && (
               <Alert variant="destructive">
                 <AlertDescription>{error || manufacturersError}</AlertDescription>
+              </Alert>
+            )}
+
+            {isUnlinkedMode && !allProductsLoading && !allProductsComplete && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  تعذر تحميل بعض صفحات المنتجات من سلة، لذلك قد تكون قائمة المنتجات غير المرتبطة غير
+                  مكتملة. اضغط «تحديث» لإعادة المحاولة.
+                </AlertDescription>
               </Alert>
             )}
 

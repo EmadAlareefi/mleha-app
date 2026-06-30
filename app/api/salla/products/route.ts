@@ -53,10 +53,13 @@ export async function GET(request: NextRequest) {
     const fetchAll = searchParams.get('all') === '1' || searchParams.get('all') === 'true';
 
     if (!sku && fetchAll) {
-      const { products, total } = await listAllSallaProducts(resolved.merchantId, { status });
+      const { products, total, complete } = await listAllSallaProducts(resolved.merchantId, {
+        status,
+      });
       return NextResponse.json({
         success: true,
         products,
+        complete,
         pagination: {
           count: products.length,
           total,

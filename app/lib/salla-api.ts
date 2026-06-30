@@ -1189,16 +1189,43 @@ export async function listSallaProducts(
   };
 }
 
-// Walks the entire catalog (first page sequentially to learn the page count,
-// the rest in parallel) and dedups by id, since Salla can repeat a product
-// across pages. Used by the manufacturer-links "unlinked" view, which has to
-// subtract linked products from the full list and paginate the remainder.
+async function fetchSallaProductsPageWithRetry(
+  merchantId: string,
+  page: number,
+  perPage: number,
+  status: string | undefined,
+  attempts = 3
+): Promise<SallaProductSummary[]> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const result = await listSallaProducts(merchantId, { page, perPage, status });
+      return result.products;
+    } catch (error) {
+      lastError = error;
+      // Most failures here are transient rate limits (Salla returns 429 and
+      // sallaMakeRequest surfaces it as a null response); back off and retry.
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`فشل تحميل صفحة المنتجات ${page}`);
+}
+
+// Walks the entire catalog and dedups by id (Salla can repeat a product across
+// pages). Pages are fetched with bounded concurrency + retry because firing all
+// pages at once trips Salla's rate limit and silently drops products. `complete`
+// is false if any page failed every retry, so callers can avoid presenting a
+// partial catalog as the whole truth. Used by the manufacturer-links "unlinked"
+// view, which subtracts linked products from the full list.
 export async function listAllSallaProducts(
   merchantId: string,
   options?: { status?: string; maxPages?: number }
-): Promise<{ products: SallaProductSummary[]; total: number }> {
+): Promise<{ products: SallaProductSummary[]; total: number; complete: boolean }> {
   const perPage = 100;
   const maxPages = Math.max(options?.maxPages ?? 200, 1);
+  const CONCURRENCY = 3;
 
   const firstPage = await listSallaProducts(merchantId, {
     page: 1,
@@ -1211,32 +1238,39 @@ export async function listAllSallaProducts(
     byId.set(product.id, product);
   }
 
+  const reportedTotal = firstPage.pagination?.total ?? byId.size;
   const totalPages = Math.min(firstPage.pagination?.totalPages ?? 1, maxPages);
+  let complete = (firstPage.pagination?.totalPages ?? 1) <= maxPages;
 
-  if (totalPages > 1) {
-    const pagePromises = [];
-    for (let page = 2; page <= totalPages; page += 1) {
-      pagePromises.push(
-        listSallaProducts(merchantId, { page, perPage, status: options?.status })
-      );
+  for (let start = 2; start <= totalPages; start += CONCURRENCY) {
+    const pages: number[] = [];
+    for (let page = start; page < start + CONCURRENCY && page <= totalPages; page += 1) {
+      pages.push(page);
     }
 
-    const settled = await Promise.allSettled(pagePromises);
-    for (const result of settled) {
+    const settled = await Promise.allSettled(
+      pages.map((page) =>
+        fetchSallaProductsPageWithRetry(merchantId, page, perPage, options?.status)
+      )
+    );
+
+    settled.forEach((result, index) => {
       if (result.status === 'fulfilled') {
-        for (const product of result.value.products) {
+        for (const product of result.value) {
           byId.set(product.id, product);
         }
       } else {
+        complete = false;
         log.error('Failed to load a Salla products page during full listing', {
           merchantId,
+          page: pages[index],
           reason: result.reason,
         });
       }
-    }
+    });
   }
 
-  return { products: Array.from(byId.values()), total: byId.size };
+  return { products: Array.from(byId.values()), total: reportedTotal, complete };
 }
 
 export async function getSallaProductBySku(

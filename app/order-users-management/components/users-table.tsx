@@ -1,11 +1,22 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, Printer } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Pencil,
+  Printer,
+  RotateCcw,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/dashboard/states';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Table,
   TableBody,
@@ -208,17 +219,33 @@ export function UsersTable({
                   </div>
                 </TableCell>
                 <TableCell className="px-3 py-2">
-                  <div className="flex max-w-[260px] flex-wrap gap-1">
-                    {serviceKeys.length > 0 ? (
-                      serviceKeys.map((key) => (
-                        <Badge key={key} variant="outline">
-                          {SERVICE_MAP.get(key)?.title || key}
+                  {serviceKeys.length > 0 ? (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className="cursor-pointer gap-1 hover:bg-accent"
+                        >
+                          <ShieldCheck className="size-3" />
+                          استعراض الصلاحيات ({serviceKeys.length})
                         </Badge>
-                      ))
-                    ) : (
-                      <span className="text-xs text-muted-foreground">لا توجد صلاحيات</span>
-                    )}
-                  </div>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-64">
+                        <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                          صلاحيات {user.name}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {serviceKeys.map((key) => (
+                            <Badge key={key} variant="secondary">
+                              {SERVICE_MAP.get(key)?.title || key}
+                            </Badge>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">لا توجد صلاحيات</span>
+                  )}
                 </TableCell>
                 <TableCell className="px-3 py-2">
                   {hasWarehouseRole ? (
@@ -269,21 +296,65 @@ export function UsersTable({
                   </div>
                 </TableCell>
                 <TableCell className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    <Button size="sm" variant="outline" onClick={() => onEdit(user)}>
-                      تعديل
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => onPrinter(user)}>
-                      طابعة
-                    </Button>
+                  <div className="flex items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-8"
+                          onClick={() => onEdit(user)}
+                        >
+                          <Pencil className="size-4" />
+                          <span className="sr-only">تعديل</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>تعديل</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-8"
+                          onClick={() => onPrinter(user)}
+                        >
+                          <Printer className="size-4" />
+                          <span className="sr-only">طابعة</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>ربط الطابعة</TooltipContent>
+                    </Tooltip>
                     {hasOrdersRole && user._count.assignments > 0 && (
-                      <Button size="sm" variant="outline" onClick={() => onResetOrders(user)}>
-                        تصفير
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-8"
+                            onClick={() => onResetOrders(user)}
+                          >
+                            <RotateCcw className="size-4" />
+                            <span className="sr-only">تصفير الطلبات</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>تصفير الطلبات</TooltipContent>
+                      </Tooltip>
                     )}
-                    <Button size="sm" variant="destructive" onClick={() => onDelete(user)}>
-                      حذف
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => onDelete(user)}
+                        >
+                          <Trash2 className="size-4" />
+                          <span className="sr-only">حذف</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>حذف</TooltipContent>
+                    </Tooltip>
                   </div>
                 </TableCell>
               </TableRow>
