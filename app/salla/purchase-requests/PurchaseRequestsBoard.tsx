@@ -106,6 +106,48 @@ type GroupedPurchaseRequest = {
   notes: Array<{ id: string; text: string; requestedBy: string; requestedAt: string | Date }>;
 };
 
+type ProductImagePreviewProps = {
+  imageUrl?: string | null;
+  alt: string;
+  className: string;
+  imageClassName?: string;
+};
+
+function ProductImagePreview({
+  imageUrl,
+  alt,
+  className,
+  imageClassName = 'object-cover',
+}: ProductImagePreviewProps) {
+  if (!imageUrl) {
+    return (
+      <div className={`${className} flex items-center justify-center text-[10px] text-slate-400`}>
+        لا صورة
+      </div>
+    );
+  }
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button type="button" className={`${className} block cursor-zoom-in p-0`} aria-label={`عرض صورة ${alt}`}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt={alt} className={`h-full w-full ${imageClassName}`} loading="lazy" />
+        </button>
+      </DialogTrigger>
+      <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] p-3 sm:max-w-3xl sm:p-4">
+        <DialogHeader>
+          <DialogTitle className="sr-only">{alt}</DialogTitle>
+        </DialogHeader>
+        <div className="flex max-h-[82vh] items-center justify-center overflow-hidden rounded-lg bg-slate-50">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt={alt} className="max-h-[82vh] w-full object-contain" />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function aggregateRequestsBySize(
   requests: PurchaseRequestRecord[]
 ): Array<{ key: string; variantName: string | null; quantity: number }> {
@@ -379,6 +421,15 @@ function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTab
     });
     return map;
   }, [requests]);
+  const requestImages = useMemo(() => {
+    const map = new Map<number, string>();
+    requests.forEach((request) => {
+      if (request.productImageUrl && !map.has(request.productId)) {
+        map.set(request.productId, request.productImageUrl);
+      }
+    });
+    return map;
+  }, [requests]);
 
   const rows = useMemo(
     () =>
@@ -392,6 +443,7 @@ function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTab
             requestedQuantity,
             onTheWayQuantity,
             totalPurchaseQuantity: requestedQuantity + onTheWayQuantity,
+            productImageUrl: product.productImageUrl ?? requestImages.get(product.productId) ?? null,
           };
         })
         .sort((a, b) => {
@@ -400,7 +452,7 @@ function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTab
           }
           return b.soldAmount - a.soldAmount;
         }),
-    [products, requestQuantities]
+    [products, requestImages, requestQuantities]
   );
 
   if (rows.length === 0) {
@@ -434,11 +486,19 @@ function ManufacturerProductsTab({ products, requests }: ManufacturerProductsTab
             {rows.map((product) => (
               <TableRow key={product.productId}>
                 <TableCell>
-                  <div className="min-w-48">
-                    <p className="font-medium text-slate-900">
-                      {product.productName || `#${product.productId}`}
-                    </p>
-                    <p className="text-xs text-muted-foreground">#{product.productId}</p>
+                  <div className="flex min-w-56 items-start gap-3">
+                    <ProductImagePreview
+                      imageUrl={product.productImageUrl}
+                      alt={product.productName || `#${product.productId}`}
+                      className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                      imageClassName="object-cover"
+                    />
+                    <div className="min-w-0">
+                      <p className="line-clamp-2 font-medium text-slate-900">
+                        {product.productName || `#${product.productId}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">#{product.productId}</p>
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell>{product.productSku || '—'}</TableCell>
@@ -570,20 +630,12 @@ function RequestCard({ group, canManage, onUpdated, onRemoved }: RequestCardProp
     <Card className="overflow-hidden">
       <CardContent className="space-y-4 p-4">
         <div className="flex items-start gap-4">
-          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-            {request.productImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={request.productImageUrl}
-                alt={request.productName}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">
-                لا صورة
-              </div>
-            )}
-          </div>
+          <ProductImagePreview
+            imageUrl={request.productImageUrl}
+            alt={request.productName}
+            className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+            imageClassName="object-cover"
+          />
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-semibold text-slate-900">{request.productName}</p>
             <p className="text-xs text-muted-foreground">SKU: {request.productSku || '—'}</p>

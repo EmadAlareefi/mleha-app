@@ -68,6 +68,7 @@ interface ReturnRequest {
   smsaLiveStatusUpdatedAt?: string | null;
   totalRefundAmount?: number | string | null;
   returnFee?: number;
+  currency?: string | null;
   couponCode?: string;
   couponId?: string;
   adminNotes?: string;
@@ -106,12 +107,14 @@ const formatTrackingTimestamp = (value?: string | null) => {
 };
 
 
-const formatPrice = (value: number | string) => {
+const formatPrice = (value: number | string, currency?: string | null) => {
   const amount = typeof value === 'number' ? value : Number(value);
+  const normalizedCurrency = currency?.trim().toUpperCase() || 'SAR';
+  const suffix = normalizedCurrency === 'SAR' ? 'ر.س' : normalizedCurrency;
   if (Number.isFinite(amount)) {
-    return amount.toFixed(2);
+    return `${amount.toFixed(2)} ${suffix}`;
   }
-  return '0.00';
+  return `0.00 ${suffix}`;
 };
 
 const resolveRefundAmount = (request: ReturnRequest): number | null => {
@@ -596,7 +599,7 @@ export default function ReturnsManagementPage() {
     }
 
     const confirmed = window.confirm(
-      `هل تم صرف مبلغ ${formatPrice(amount)} ر.س للعميل؟ سيتم تعليم الطلب كمكتمل.`,
+      `هل تم صرف مبلغ ${formatPrice(amount)} للعميل؟ سيتم تعليم الطلب كمكتمل.`,
     );
     if (!confirmed) {
       return;
@@ -923,7 +926,7 @@ export default function ReturnsManagementPage() {
                             <div className="flex justify-between font-semibold">
                               <span>المبلغ المسترد:</span>
                               <span className="text-green-600">
-                                {formatPrice(request.totalRefundAmount ?? 0)} ر.س
+                                {formatPrice(request.totalRefundAmount ?? 0, request.currency)}
                               </span>
                             </div>
                           </div>
@@ -1106,7 +1109,7 @@ export default function ReturnsManagementPage() {
                     <div key={item.id} className="py-2 border-b">
                       <div className="flex justify-between text-sm">
                         <span>{item.productName}</span>
-                        <span>x{item.quantity} - {formatPrice(item.price)} ر.س</span>
+                        <span>x{item.quantity} - {formatPrice(item.price, selectedRequest.currency)}</span>
                       </div>
                       {item.conditionStatus && (
                         <p className="text-xs text-gray-600 mt-1">

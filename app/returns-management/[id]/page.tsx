@@ -43,7 +43,7 @@ const gregorianDateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
   minute: 'numeric',
 });
 
-const formatPrice = (value: unknown): string => {
+const formatPrice = (value: unknown, currency?: string | null): string => {
   if (value === null || value === undefined) {
     return '—';
   }
@@ -51,7 +51,9 @@ const formatPrice = (value: unknown): string => {
   if (!Number.isFinite(amount)) {
     return '—';
   }
-  return `${amount.toFixed(2)} ر.س`;
+  const normalizedCurrency = currency?.trim().toUpperCase() || 'SAR';
+  const suffix = normalizedCurrency === 'SAR' ? 'ر.س' : normalizedCurrency;
+  return `${amount.toFixed(2)} ${suffix}`;
 };
 
 const extractOrderItemTotal = (item: SallaOrder['items'][number]): string => {
@@ -62,7 +64,7 @@ const extractOrderItemTotal = (item: SallaOrder['items'][number]): string => {
   if (total === undefined || total === null) {
     return '—';
   }
-  return formatPrice(total);
+  return formatPrice(total, item?.amounts?.total?.currency ?? item?.currency);
 };
 
 async function getReturnRequestWithOrder(id: string) {
@@ -267,11 +269,11 @@ export default async function ReturnOrderDetailsPage({
                 ) : null}
                 <div className="flex justify-between">
                   <dt>الرسوم</dt>
-                  <dd>{returnRequest.returnFee ? formatPrice(returnRequest.returnFee) : '—'}</dd>
+                  <dd>{returnRequest.returnFee ? formatPrice(returnRequest.returnFee, returnRequest.currency) : '—'}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt>المبلغ المسترد</dt>
-                  <dd>{returnRequest.totalRefundAmount ? formatPrice(returnRequest.totalRefundAmount) : '—'}</dd>
+                  <dd>{returnRequest.totalRefundAmount ? formatPrice(returnRequest.totalRefundAmount, returnRequest.currency) : '—'}</dd>
                 </div>
                 {returnRequest.couponCode && (
                   <div className="flex justify-between">
@@ -438,7 +440,7 @@ export default async function ReturnOrderDetailsPage({
                     </div>
                     <div>
                       <p className="text-gray-500 text-xs">السعر</p>
-                      <p>{formatPrice(item.price)}</p>
+                      <p>{formatPrice(item.price, returnRequest.currency)}</p>
                     </div>
                   </div>
                   <div className="mt-2">

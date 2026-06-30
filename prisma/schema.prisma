@@ -667,9 +667,12 @@ model ReturnRequest {
   returnLabelNotificationResponse Json?
 
   // Financial details
-  totalRefundAmount Decimal? @db.Decimal(10, 2)
-  returnFee         Decimal? @db.Decimal(10, 2) // Return processing fee
-  shippingAmount    Decimal? @db.Decimal(10, 2) // Original shipping cost (non-refundable)
+  totalRefundAmount     Decimal? @db.Decimal(10, 2)
+  returnFee             Decimal? @db.Decimal(10, 2) // Return processing fee in order currency
+  shippingAmount        Decimal? @db.Decimal(10, 2) // Original shipping cost in order currency
+  currency              String   @default("SAR")
+  feeExchangeRate       Decimal  @default(1) @db.Decimal(12, 6) // SAR per one order-currency unit
+  feeExchangeRateSource String   @default("sar")
 
   // Coupon for exchanges
   couponCode      String?   @unique // Generated coupon code for exchanges

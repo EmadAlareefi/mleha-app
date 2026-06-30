@@ -204,6 +204,14 @@ const getOrderStatusLabel = (status: unknown): string | undefined => {
   return undefined;
 };
 
+const formatReturnMoney = (value: number | string, currency?: string | null) => {
+  const amount = typeof value === 'number' ? value : Number(value);
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  const normalizedCurrency = currency?.trim().toUpperCase() || 'SAR';
+  const suffix = normalizedCurrency === 'SAR' ? 'ر.س' : normalizedCurrency;
+  return `${safeAmount.toFixed(2)} ${suffix}`;
+};
+
 export default function ReturnsPage() {
   const [step, setStep] = useState<Step>('lookup');
   const [orderNumber, setOrderNumber] = useState('');
@@ -673,7 +681,7 @@ export default function ReturnsPage() {
                         <div className="flex justify-between">
                           <span className="font-medium">المبلغ المتوقع للإرجاع:</span>
                           <span className="font-bold text-lg">
-                            {Number(returnReq.totalRefundAmount).toFixed(2)} ر.س
+                            {formatReturnMoney(returnReq.totalRefundAmount, returnReq.currency)}
                           </span>
                         </div>
                       </div>

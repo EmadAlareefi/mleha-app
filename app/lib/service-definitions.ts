@@ -499,6 +499,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager', 'warehouse', 'accountant'],
   },
   {
+    key: 'tailor-fabric-gate',
+    title: 'بوابة الخياطين',
+    description: 'رابط دخول الخياطين لعرض الأقمشة المتوفرة وطلب كميات جديدة',
+    icon: '🪡',
+    href: '/tailor-fabric-gate',
+    color: 'from-cyan-500 to-blue-600',
+    defaultRoles: ['admin', 'store_manager', 'warehouse'],
+    grantsRoles: ['store_manager', 'warehouse'],
+  },
+  {
     key: 'fabric-repeat-requests',
     title: 'طلبات التكرار',
     description: 'متابعة طلبات تكرار تصنيع الفساتين ومراحلها مع الخياطين',

@@ -67,6 +67,9 @@ NEXT_PUBLIC_MERCHANT_PHONE=0501234567
 NEXT_PUBLIC_MERCHANT_ADDRESS=عنوان متجرك أو المستودع
 NEXT_PUBLIC_MERCHANT_CITY=الرياض
 NEXT_PUBLIC_MERCHANT_LOGO=/logo.png
+
+# Optional: SAR per one unit of order currency when Salla does not provide a rate
+RETURN_FEE_SAR_RATES_JSON='{"USD":3.75,"AED":1.021}'
 ```
 
 ### How to Get the Credentials

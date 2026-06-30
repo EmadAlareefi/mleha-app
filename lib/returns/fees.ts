@@ -1,6 +1,23 @@
 import { getShippingTotal } from './shipping';
 
 const roundCurrency = (value: number) => Math.round(value * 100) / 100;
+const BASE_FEE_CURRENCY = 'SAR';
+
+type ReturnRequestType = 'return' | 'exchange';
+
+export type ReturnFeeExchangeRateSource = 'sar' | 'salla' | 'env' | 'stored';
+
+export interface ReturnFeeQuote {
+  currency: string;
+  baseCurrency: typeof BASE_FEE_CURRENCY;
+  exchangeRate: number;
+  exchangeRateSource: ReturnFeeExchangeRateSource;
+  shipmentLegFee: number;
+  returnShipmentFee: number;
+  processingFee: number;
+  shipmentLegFeeSar: number;
+  processingFeeSar: number;
+}
 
 /**
  * Flat per-leg shipment fees. The refund is computed from the order total
@@ -12,8 +29,9 @@ const roundCurrency = (value: number) => Math.round(value * 100) / 100;
  */
 export const RETURN_SHIPMENT_LEG_FEE = 30;
 export const EXCHANGE_SHIPMENT_LEG_FEE = 20;
+export const RETURN_FEE_BASE_CURRENCY = BASE_FEE_CURRENCY;
 
-export function getShipmentLegFee(type: 'return' | 'exchange'): number {
+export function getShipmentLegFee(type: ReturnRequestType): number {
   return type === 'exchange' ? EXCHANGE_SHIPMENT_LEG_FEE : RETURN_SHIPMENT_LEG_FEE;
 }
 
@@ -22,8 +40,52 @@ export function getShipmentLegFee(type: 'return' | 'exchange'): number {
  * (original outbound + return/exchange). 60 SAR for returns, 40 SAR for
  * exchanges.
  */
-export function getProcessingFee(type: 'return' | 'exchange'): number {
+export function getProcessingFee(type: ReturnRequestType): number {
   return getShipmentLegFee(type) * 2;
+}
+
+export function normalizeReturnCurrency(value: unknown): string {
+  if (typeof value !== 'string') {
+    return BASE_FEE_CURRENCY;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  return normalized || BASE_FEE_CURRENCY;
+}
+
+export function convertSarFeeToCurrency(amountSar: number, sarPerCurrencyUnit: number): number {
+  const safeAmount = Number.isFinite(amountSar) ? Math.max(0, amountSar) : 0;
+  const safeRate =
+    Number.isFinite(sarPerCurrencyUnit) && sarPerCurrencyUnit > 0 ? sarPerCurrencyUnit : 1;
+  return roundCurrency(safeAmount / safeRate);
+}
+
+export function buildReturnFeeQuote(
+  type: ReturnRequestType,
+  currencyInput?: unknown,
+  sarPerCurrencyUnit = 1,
+  exchangeRateSource: ReturnFeeExchangeRateSource = 'sar',
+): ReturnFeeQuote {
+  const currency = normalizeReturnCurrency(currencyInput);
+  const exchangeRate = currency === BASE_FEE_CURRENCY ? 1 : sarPerCurrencyUnit;
+  const safeRate =
+    Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
+  const shipmentLegFeeSar = getShipmentLegFee(type);
+  const processingFeeSar = getProcessingFee(type);
+  const processingFee = convertSarFeeToCurrency(processingFeeSar, safeRate);
+  const baseShipmentFee = Math.floor(processingFee * 100 / 2) / 100;
+
+  return {
+    currency,
+    baseCurrency: BASE_FEE_CURRENCY,
+    exchangeRate: safeRate,
+    exchangeRateSource: currency === BASE_FEE_CURRENCY ? 'sar' : exchangeRateSource,
+    shipmentLegFee: baseShipmentFee,
+    returnShipmentFee: roundCurrency(processingFee - baseShipmentFee),
+    processingFee,
+    shipmentLegFeeSar,
+    processingFeeSar,
+  };
 }
 
 interface OrderShippingAmounts {

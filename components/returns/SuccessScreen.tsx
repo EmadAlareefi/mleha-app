@@ -17,6 +17,7 @@ interface SuccessScreenProps {
     smsaTrackingNumber?: string;
     smsaLabelDataUrl?: string | null;
     totalRefundAmount?: number;
+    currency?: string;
     createdAt: string;
   };
   onReset?: () => void;
@@ -86,6 +87,11 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
 
   const hasLabel = Boolean(returnRequest.smsaLabelDataUrl);
   const downloadFileName = `return-label-${trackingNumber || returnRequest.orderNumber}.pdf`;
+  const formatMoney = (value: number) => {
+    const currency = returnRequest.currency?.trim().toUpperCase() || 'SAR';
+    const suffix = currency === 'SAR' ? 'ريال' : currency;
+    return `${Number(value).toFixed(2)} ${suffix}`;
+  };
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -206,7 +212,7 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
             <div className="p-4 bg-green-50 rounded-lg">
               <p className="text-sm text-gray-600 mb-1">مبلغ الاسترداد المتوقع</p>
               <p className="text-lg font-semibold text-green-700">
-                {returnRequest.totalRefundAmount} ريال
+                {formatMoney(returnRequest.totalRefundAmount)}
               </p>
             </div>
           )}

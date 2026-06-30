@@ -40,6 +40,7 @@ export type ManufacturerLinkedProductStats = {
   productId: number;
   productName: string | null;
   productSku: string | null;
+  productImageUrl: string | null;
   merchantId: string | null;
   remainingQuantity: number | null;
   requestedQuantity: number;
@@ -223,6 +224,7 @@ export async function listManufacturerLinkedProductStats(
       productId: true,
       productName: true,
       sku: true,
+      imageUrl: true,
       merchantId: true,
     },
   });
@@ -235,6 +237,7 @@ export async function listManufacturerLinkedProductStats(
             productId,
             productName: link.productName,
             productSku: link.sku,
+            productImageUrl: link.imageUrl,
             merchantId: link.merchantId,
           }
         : null;

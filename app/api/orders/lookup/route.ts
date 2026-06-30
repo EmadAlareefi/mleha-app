@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSallaOrderByReference, findOrdersByCustomerContact } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
+import {
+  buildMissingReturnFeeRateMessage,
+  getReturnFeeQuotesForOrder,
+  MissingReturnFeeExchangeRateError,
+} from '@/app/lib/returns/fee-quote';
 
 export const runtime = 'nodejs';
 
@@ -59,9 +64,30 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      let orderWithFeeQuotes: typeof order & {
+        returnFeeQuotes?: ReturnType<typeof getReturnFeeQuotesForOrder>;
+        returnFeeQuoteError?: string;
+      } = order;
+
+      try {
+        orderWithFeeQuotes = {
+          ...order,
+          returnFeeQuotes: getReturnFeeQuotesForOrder(order),
+        };
+      } catch (error) {
+        if (error instanceof MissingReturnFeeExchangeRateError) {
+          orderWithFeeQuotes = {
+            ...order,
+            returnFeeQuoteError: buildMissingReturnFeeRateMessage(error.currency),
+          };
+        } else {
+          throw error;
+        }
+      }
+
       return NextResponse.json({
         success: true,
-        order,
+        order: orderWithFeeQuotes,
       });
     }
 

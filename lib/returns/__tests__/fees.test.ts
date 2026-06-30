@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   calculateReturnFee,
+  buildReturnFeeQuote,
   getEffectiveReturnFee,
   getProcessingFee,
   getShipmentLegFee,
@@ -72,4 +73,18 @@ test('preserves the exact total when the fee has an odd number of halalas', () =
     baseShipmentFee: 5,
     returnShipmentFee: 5.01,
   });
+});
+
+test('converts SAR processing fees into the order currency', () => {
+  const exchangeQuote = buildReturnFeeQuote('exchange', 'USD', 3.75, 'env');
+  assert.equal(exchangeQuote.processingFeeSar, 40);
+  assert.equal(exchangeQuote.processingFee, 10.67);
+  assert.equal(exchangeQuote.shipmentLegFee, 5.33);
+  assert.equal(exchangeQuote.returnShipmentFee, 5.34);
+  assert.equal(exchangeQuote.shipmentLegFee + exchangeQuote.returnShipmentFee, 10.67);
+  assert.equal(exchangeQuote.currency, 'USD');
+
+  const returnQuote = buildReturnFeeQuote('return', 'USD', 3.75, 'env');
+  assert.equal(returnQuote.processingFeeSar, 60);
+  assert.equal(returnQuote.processingFee, 16);
 });

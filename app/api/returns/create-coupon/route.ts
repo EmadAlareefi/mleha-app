@@ -5,6 +5,7 @@ import { log } from '@/app/lib/logger';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 import { getSallaOrder } from '@/app/lib/salla-api';
 import { calculateExchangeCouponAmount } from '@/lib/returns/exchange-coupon-amount';
+import { getReturnFeeQuoteForOrder } from '@/app/lib/returns/fee-quote';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
@@ -56,9 +57,13 @@ export async function POST(request: NextRequest) {
     }
 
     let liveOrderAmounts;
+    let feeQuote;
     try {
       const order = await getSallaOrder(returnRequest.merchantId, returnRequest.orderId);
       liveOrderAmounts = order?.amounts;
+      if (order) {
+        feeQuote = getReturnFeeQuoteForOrder(order, 'exchange');
+      }
     } catch (error) {
       log.warn('Could not refresh Salla shipping amount before creating exchange coupon', {
         returnRequestId,
@@ -70,8 +75,10 @@ export async function POST(request: NextRequest) {
     const currentCalculation = calculateExchangeCouponAmount(
       returnRequest,
       liveOrderAmounts,
+      feeQuote,
     );
-    const couponAmount = currentCalculation.fullAmount;
+    const couponAmount = currentCalculation.fullAmountSar;
+    const customerCouponAmount = currentCalculation.fullAmount;
     const fallbackBodyAmount =
       amount !== undefined && amount !== null ? Number(amount) : undefined;
 
@@ -89,6 +96,10 @@ export async function POST(request: NextRequest) {
     }
 
     const sanitizedAmount = Number(couponAmount.toFixed(2));
+    const customerFullAmount = Number(customerCouponAmount.toFixed(2));
+    const customerDiscountedAmount = Number(
+      (customerFullAmount / (1 + SALLA_CUSTOMER_MARKUP)).toFixed(2)
+    );
     const discountedAmount = Number(
       (sanitizedAmount / (1 + SALLA_CUSTOMER_MARKUP)).toFixed(2)
     );
@@ -151,9 +162,12 @@ export async function POST(request: NextRequest) {
         couponCode: result.coupon.code,
         couponId: String(result.coupon.id),
         couponCreatedAt: new Date(),
-        totalRefundAmount: sanitizedAmount,
+        totalRefundAmount: customerFullAmount,
         returnFee: currentCalculation.processingFee,
         shippingAmount: currentCalculation.originalShipping,
+        currency: currentCalculation.currency,
+        feeExchangeRate: currentCalculation.exchangeRate,
+        feeExchangeRateSource: currentCalculation.exchangeRateSource,
       },
       include: { items: true },
     });
@@ -173,8 +187,11 @@ export async function POST(request: NextRequest) {
       customerPhone: returnRequest.customerPhone,
       orderNumber: returnRequest.orderNumber,
       couponCode: result.coupon.code,
-      discountedAmount,
-      fullAmount: sanitizedAmount,
+      discountedAmount:
+        currentCalculation.currency === 'SAR' ? discountedAmount : customerDiscountedAmount,
+      fullAmount: customerFullAmount,
+      currency: currentCalculation.currency,
+      sarFullAmount: sanitizedAmount,
       expiryDate,
     });
 

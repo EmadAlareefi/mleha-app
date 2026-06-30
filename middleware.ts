@@ -188,6 +188,20 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ],
   ['expenses', [/^\/expenses(\/.*)?$/]],
   [
+    'fabric-management',
+    [
+      /^\/fabric-management\/?$/,
+      /^\/api\/fabric-management\/?$/,
+    ],
+  ],
+  [
+    'tailor-fabric-gate',
+    [
+      /^\/tailor-fabric-gate(\/.*)?$/,
+      /^\/api\/tailor-fabric-gate(\/.*)?$/,
+    ],
+  ],
+  [
     'fabric-repeat-requests',
     [
       /^\/fabric-management\/repeat-requests(\/.*)?$/,

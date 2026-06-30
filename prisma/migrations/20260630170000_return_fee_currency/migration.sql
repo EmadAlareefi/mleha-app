@@ -1,0 +1,4 @@
+ALTER TABLE "ReturnRequest"
+  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'SAR',
+  ADD COLUMN "feeExchangeRate" DECIMAL(12, 6) NOT NULL DEFAULT 1,
+  ADD COLUMN "feeExchangeRateSource" TEXT NOT NULL DEFAULT 'sar';

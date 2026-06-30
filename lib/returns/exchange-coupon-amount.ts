@@ -1,4 +1,8 @@
-import { getOriginalShippingFee, getProcessingFee } from './fees';
+import {
+  buildReturnFeeQuote,
+  getOriginalShippingFee,
+  type ReturnFeeQuote,
+} from './fees';
 
 interface ExchangeItem {
   price: number | string | { toString(): string };
@@ -10,6 +14,9 @@ interface StoredExchangeAmounts {
   totalRefundAmount?: number | string | { toString(): string } | null;
   returnFee?: number | string | { toString(): string } | null;
   shippingAmount?: number | string | { toString(): string } | null;
+  currency?: string | null;
+  feeExchangeRate?: number | string | { toString(): string } | null;
+  feeExchangeRateSource?: string | null;
 }
 
 interface OrderShippingAmounts {
@@ -19,9 +26,14 @@ interface OrderShippingAmounts {
 
 interface ExchangeCouponAmount {
   fullAmount: number;
+  fullAmountSar: number;
   itemsTotal: number;
   originalShipping: number;
   processingFee: number;
+  processingFeeSar: number;
+  currency: string;
+  exchangeRate: number;
+  exchangeRateSource: string;
 }
 
 const roundCurrency = (value: number) => Math.round(value * 100) / 100;
@@ -42,6 +54,7 @@ const toFiniteNumber = (value: unknown): number | null => {
 export function calculateExchangeCouponAmount(
   request: StoredExchangeAmounts,
   liveOrderAmounts?: OrderShippingAmounts | null,
+  feeQuote?: ReturnFeeQuote,
 ): ExchangeCouponAmount {
   const itemsTotal = roundCurrency(
     request.items.reduce((sum, item) => {
@@ -73,15 +86,38 @@ export function calculateExchangeCouponAmount(
     }
   }
 
-  const processingFee = getProcessingFee('exchange');
+  const exchangeRate = toFiniteNumber(request.feeExchangeRate);
+  const quote =
+    feeQuote ??
+    buildReturnFeeQuote(
+      'exchange',
+      request.currency || 'SAR',
+      exchangeRate && exchangeRate > 0 ? exchangeRate : 1,
+      request.feeExchangeRateSource === 'salla' ||
+        request.feeExchangeRateSource === 'env' ||
+        request.feeExchangeRateSource === 'stored'
+        ? request.feeExchangeRateSource
+        : request.currency && request.currency !== 'SAR'
+          ? 'stored'
+          : 'sar',
+    );
+  const processingFee = quote.processingFee;
   const fullAmount = roundCurrency(
     Math.max(0, itemsTotal + originalShipping - processingFee),
+  );
+  const fullAmountSar = roundCurrency(
+    Math.max(0, itemsTotal * quote.exchangeRate + originalShipping * quote.exchangeRate - quote.processingFeeSar),
   );
 
   return {
     fullAmount,
+    fullAmountSar,
     itemsTotal,
     originalShipping,
     processingFee,
+    processingFeeSar: quote.processingFeeSar,
+    currency: quote.currency,
+    exchangeRate: quote.exchangeRate,
+    exchangeRateSource: quote.exchangeRateSource,
   };
 }

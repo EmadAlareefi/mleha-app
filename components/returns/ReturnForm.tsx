@@ -5,9 +5,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
-  getProcessingFee,
+  buildReturnFeeQuote,
   getOriginalShippingFee,
-  getShipmentLegFee,
+  type ReturnFeeQuote,
 } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
@@ -86,6 +86,11 @@ interface Order {
     email: string;
   };
   items: OrderItem[];
+  returnFeeQuotes?: {
+    return: ReturnFeeQuote;
+    exchange: ReturnFeeQuote;
+  };
+  returnFeeQuoteError?: string;
 }
 
 interface ReturnFormProps {
@@ -173,14 +178,33 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
+  const orderCurrency = order.returnFeeQuotes?.return?.currency || order.amounts?.total?.currency || 'SAR';
+  const fallbackReturnQuote = buildReturnFeeQuote('return', orderCurrency, 1, 'sar');
+  const fallbackExchangeQuote = buildReturnFeeQuote('exchange', orderCurrency, 1, 'sar');
+  const returnQuote = order.returnFeeQuotes?.return ?? fallbackReturnQuote;
+  const exchangeQuote = order.returnFeeQuotes?.exchange ?? fallbackExchangeQuote;
+  const activeQuote = type === 'exchange' ? exchangeQuote : returnQuote;
   // Refund = (items + original shipping the customer paid, incl. VAT) minus the
-  // two shipment legs. Each leg is flat per type: 30 SAR return / 20 SAR exchange.
+  // two shipment legs. The policy fee is SAR-based and converted to order currency.
   const originalShippingFee = getOriginalShippingFee(order.amounts);
-  const shipmentLegFee = getShipmentLegFee(type);
-  const appliedProcessingFee = getProcessingFee(type);
-  const returnTypeFee = getProcessingFee('return');
-  const exchangeTypeFee = getProcessingFee('exchange');
+  const shipmentLegFee = activeQuote.shipmentLegFee;
+  const appliedProcessingFee = activeQuote.processingFee;
+  const returnTypeFee = returnQuote.processingFee;
+  const exchangeTypeFee = exchangeQuote.processingFee;
   const exchangeSavings = returnTypeFee - exchangeTypeFee;
+  const formatMoney = (value: number, currency = orderCurrency) => {
+    const normalizedCurrency = currency.trim().toUpperCase() || 'SAR';
+    const suffix = normalizedCurrency === 'SAR' ? 'ر.س' : normalizedCurrency;
+    return `${value.toFixed(2)} ${suffix}`;
+  };
+  const formatFeeQuote = (value: number, quote: ReturnFeeQuote, sarEquivalent?: number) => {
+    const formatted = formatMoney(value, quote.currency);
+    if (quote.currency === 'SAR') {
+      return formatted;
+    }
+    const equivalent = sarEquivalent ?? quote.processingFeeSar;
+    return `${formatted} (يعادل ${equivalent.toFixed(2)} ر.س)`;
+  };
   const getNumericValue = (value: unknown): number => {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? value : 0;
@@ -395,6 +419,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       return;
     }
 
+    if (order.returnFeeQuoteError) {
+      setError(order.returnFeeQuoteError);
+      return;
+    }
+
     for (const itemId of selectedItems.keys()) {
       if (discountedCategoryItemIds.has(itemId)) {
         setError('لا يمكن إرجاع أو استبدال المنتجات ضمن فئات التخفيضات.');
@@ -509,7 +538,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
             }`}
           >
             <span className="block font-medium">إرجاع</span>
-            <span className="block text-xs text-gray-500 mt-1">رسوم {returnTypeFee} ر.س</span>
+            <span className="block text-xs text-gray-500 mt-1">
+              رسوم {formatFeeQuote(returnTypeFee, returnQuote, returnQuote.processingFeeSar)}
+            </span>
           </button>
           <button
             type="button"
@@ -521,10 +552,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
             }`}
           >
             <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">
-              وفّر {exchangeSavings} ر.س + شحن مجاني
+              وفّر {formatMoney(exchangeSavings)} + شحن مجاني
             </span>
             <span className="block font-medium">استبدال</span>
-            <span className="block text-xs text-gray-500 mt-1">رسوم {exchangeTypeFee} ر.س فقط</span>
+            <span className="block text-xs text-gray-500 mt-1">
+              رسوم {formatFeeQuote(exchangeTypeFee, exchangeQuote, exchangeQuote.processingFeeSar)} فقط
+            </span>
           </button>
         </div>
       </Card>
@@ -628,7 +661,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                       <p className="text-sm text-gray-600 mb-1">{item.variant.name}</p>
                     )}
 	                    <p className="text-sm text-gray-600 mb-2">
-	                      السعر: {Number(itemPrice).toFixed(2)} {item.currency || order.amounts?.total?.currency || 'SAR'}
+	                      السعر: {formatMoney(Number(itemPrice), item.currency || orderCurrency)}
 	                    </p>
 	                    {isDiscountedCategoryItem && (
 	                      <p className="text-xs text-red-600 font-medium">
@@ -665,6 +698,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         </div>
       </Card>
 
+      {order.returnFeeQuoteError && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          {order.returnFeeQuoteError}
+        </div>
+      )}
+
       {/* Financial Summary */}
       {selectedItems.size > 0 && (
         <Card className="p-6 bg-blue-50 border-blue-200">
@@ -689,28 +728,34 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                 <>
                   <div className="flex justify-between text-sm">
                     <span>إجمالي المنتجات:</span>
-                    <span className="font-medium">{itemsTotal.toFixed(2)} ر.س</span>
+                    <span className="font-medium">{formatMoney(itemsTotal)}</span>
                   </div>
 
                   {originalShippingFee > 0 && (
                     <div className="flex justify-between text-sm">
                       <span>شحن الطلب الأصلي (شامل الضريبة):</span>
-                      <span className="font-medium">{originalShippingFee.toFixed(2)} ر.س</span>
+                      <span className="font-medium">{formatMoney(originalShippingFee)}</span>
                     </div>
                   )}
 
                   <div className="flex justify-between text-sm border-t pt-3">
                     <span className="font-medium">الإجمالي:</span>
-                    <span className="font-semibold">{orderTotal.toFixed(2)} ر.س</span>
+                    <span className="font-semibold">{formatMoney(orderTotal)}</span>
                   </div>
 
                   <div className="flex justify-between text-sm text-red-600">
                     <span>رسوم الشحنة الأساسية:</span>
-                    <span>-{shipmentLegFee.toFixed(2)} ر.س</span>
+                    <span>-{formatFeeQuote(shipmentLegFee, activeQuote, activeQuote.shipmentLegFeeSar)}</span>
                   </div>
                   <div className="flex justify-between text-sm text-red-600">
                     <span>{returnLegLabel}</span>
-                    <span>-{shipmentLegFee.toFixed(2)} ر.س</span>
+                    <span>
+                      -{formatFeeQuote(
+                        activeQuote.returnShipmentFee,
+                        activeQuote,
+                        activeQuote.shipmentLegFeeSar,
+                      )}
+                    </span>
                   </div>
 
                   {isExchange && (
@@ -722,7 +767,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                   <div className="border-t pt-3 mt-3">
                     <div className="flex justify-between text-lg font-bold">
                       <span>{isExchange ? 'قيمة كوبون الاستبدال:' : 'المبلغ المسترد:'}</span>
-                      <span className="text-green-600">{finalRefund.toFixed(2)} ر.س</span>
+                      <span className="text-green-600">{formatMoney(finalRefund)}</span>
                     </div>
                   </div>
                 </>
@@ -779,7 +824,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       {/* Submit Button */}
       <Button
         type="submit"
-        disabled={loading}
+        disabled={loading || Boolean(order.returnFeeQuoteError)}
         className="w-full py-6 text-lg"
       >
         {loading ? 'جاري المعالجة...' : `إرسال طلب ${type === 'return' ? 'الإرجاع' : 'الاستبدال'}`}

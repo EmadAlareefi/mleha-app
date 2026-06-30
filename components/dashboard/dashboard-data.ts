@@ -38,6 +38,7 @@ import {
   Satellite,
   Scissors,
   Repeat,
+  DoorOpen,
 } from 'lucide-react';
 import {
   serviceDefinitions,
@@ -133,6 +134,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   settlements: 'finance',
   expenses: 'finance',
   'fabric-management': 'warehouse',
+  'tailor-fabric-gate': 'warehouse',
   'fabric-repeat-requests': 'warehouse',
   'salla-products': 'store',
   'salla-manufacturer-links': 'store',
@@ -194,6 +196,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'salla-requests': ClipboardList,
   expenses: Wallet,
   'fabric-management': Scissors,
+  'tailor-fabric-gate': DoorOpen,
   'fabric-repeat-requests': Repeat,
 };
 
@@ -218,6 +221,7 @@ const priorityMap: Partial<Record<ServiceKey, number>> = {
   'admin-order-prep': 76,
   'cod-tracker': 72,
   'fabric-management': 70,
+  'tailor-fabric-gate': 69.5,
   'fabric-repeat-requests': 69,
 };
 

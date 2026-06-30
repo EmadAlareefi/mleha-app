@@ -3,9 +3,14 @@ import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
-import { getProcessingFee, getOriginalShippingFee } from '@/lib/returns/fees';
+import { getOriginalShippingFee } from '@/lib/returns/fees';
 import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
+import {
+  buildMissingReturnFeeRateMessage,
+  getReturnFeeQuoteForOrder,
+  MissingReturnFeeExchangeRateError,
+} from '@/app/lib/returns/fee-quote';
 import {
   evaluateReturnWindowByProductId,
   getCategoryNamesByProductId,
@@ -290,8 +295,23 @@ export async function POST(request: NextRequest) {
     const originalShipping = getOriginalShippingFee(order.amounts);
     const orderTotal = totalItemsAmount + originalShipping;
 
-    // Flat processing fee = both shipment legs (60 SAR return / 40 SAR exchange).
-    const returnFee = getProcessingFee(body.type);
+    // Flat policy fee is configured in SAR, then converted into the order currency.
+    let feeQuote;
+    try {
+      feeQuote = getReturnFeeQuoteForOrder(order, body.type);
+    } catch (error) {
+      if (error instanceof MissingReturnFeeExchangeRateError) {
+        return NextResponse.json(
+          {
+            error: buildMissingReturnFeeRateMessage(error.currency),
+            errorCode: 'MISSING_RETURN_FEE_EXCHANGE_RATE',
+          },
+          { status: 400 },
+        );
+      }
+      throw error;
+    }
+    const returnFee = feeQuote.processingFee;
 
     // Calculate total refund: (items + original shipping) - return fee
     const totalRefundAmount = Math.max(0, orderTotal - returnFee);
@@ -478,6 +498,9 @@ export async function POST(request: NextRequest) {
         totalRefundAmount,
         returnFee,
         shippingAmount: originalShipping,
+        currency: feeQuote.currency,
+        feeExchangeRate: feeQuote.exchangeRate,
+        feeExchangeRateSource: feeQuote.exchangeRateSource,
 
         items: {
           create: body.items.map(item => ({
@@ -515,6 +538,8 @@ export async function POST(request: NextRequest) {
         sallaReturnPolicyOperationId: operationId,
         sallaReturnPolicyStatus: operationStatus,
         totalRefundAmount: returnRequest.totalRefundAmount,
+        currency: returnRequest.currency,
+        returnFee: returnRequest.returnFee,
         createdAt: returnRequest.createdAt,
       },
     });

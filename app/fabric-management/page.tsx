@@ -2,11 +2,9 @@
 
 import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import Link from 'next/link';
 import {
   CheckCircle2,
   ChevronDown,
-  ExternalLink,
   FileText,
   PackagePlus,
   Plus,
@@ -792,10 +790,6 @@ export default function FabricManagementPage() {
                 <RefreshCw />
                 تحديث
               </button>
-              <Link className="btn-outline" href="/tailor-fabric-gate" target="_blank" prefetch={false}>
-                <ExternalLink />
-                بوابة الخياطين
-              </Link>
             </div>
           </div>
 
@@ -2081,4 +2075,3 @@ function EditEntityDrawer({
     </Drawer>
   );
 }
-

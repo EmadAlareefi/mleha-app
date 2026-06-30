@@ -10,10 +10,12 @@ export interface CouponNotificationInput {
   customerPhone?: string | null;
   orderNumber?: string | null;
   couponCode: string;
-  /** Coupon face value sent to Salla (pre-VAT base). */
+  /** Customer-facing pre-VAT coupon value. */
   discountedAmount: number;
-  /** Effective VAT-inclusive credit the customer receives. */
+  /** Customer-facing VAT-inclusive credit the customer receives. */
   fullAmount: number;
+  currency?: string | null;
+  sarFullAmount?: number | null;
   expiryDate?: Date;
 }
 
@@ -32,10 +34,23 @@ const FALLBACK_CUSTOMER_NAME = 'عميلنا العزيز';
  * The discounted value is the coupon face value; the full value is the
  * VAT-inclusive credit the customer effectively receives at checkout.
  */
-const formatCouponAmount = (discountedAmount: number, fullAmount: number) => {
+const formatCouponAmount = (
+  discountedAmount: number,
+  fullAmount: number,
+  currency?: string | null,
+  sarFullAmount?: number | null,
+) => {
   const safeDiscounted = Number.isFinite(discountedAmount) ? discountedAmount : 0;
   const safeFull = Number.isFinite(fullAmount) ? fullAmount : 0;
-  return `${safeDiscounted.toFixed(2)} (${safeFull.toFixed(2)} شامل الضريبة)`;
+  const normalizedCurrency = currency?.trim().toUpperCase() || 'SAR';
+  const suffix = normalizedCurrency === 'SAR' ? 'ر.س' : normalizedCurrency;
+  const baseText = `${safeDiscounted.toFixed(2)} ${suffix} (${safeFull.toFixed(2)} ${suffix} شامل الضريبة)`;
+
+  if (normalizedCurrency === 'SAR' || !sarFullAmount || !Number.isFinite(sarFullAmount)) {
+    return baseText;
+  }
+
+  return `${baseText} - يعادل ${sarFullAmount.toFixed(2)} ر.س`;
 };
 
 const formatExpiry = (expiryDate?: Date) => {
@@ -79,7 +94,12 @@ export async function notifyExchangeCoupon(
   const templateArgs: (string | number)[] = [
     payload.customerName?.trim() || FALLBACK_CUSTOMER_NAME,
     payload.couponCode,
-    formatCouponAmount(payload.discountedAmount, payload.fullAmount),
+    formatCouponAmount(
+      payload.discountedAmount,
+      payload.fullAmount,
+      payload.currency,
+      payload.sarFullAmount,
+    ),
     formatExpiry(payload.expiryDate),
     payload.orderNumber || '',
   ];
