@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { LockKeyhole, PackagePlus, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { FileText, ImagePlus, LockKeyhole, PackagePlus, Plus, RefreshCw, Send, Shirt, Trash2 } from 'lucide-react';
 import { PublicPageShell } from '@/components/dashboard/public-page-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +60,37 @@ type GateData = {
   repeatRequests: GateRepeatRequest[];
 };
 
+type InvoiceItem = {
+  id: string;
+  fabricId: string; // real fabric id, '' (none), or '__new__'
+  name: string;
+  sku: string;
+  color: string;
+  length: string;
+  unitCost: string;
+};
+
+type RecipeRow = {
+  id: string;
+  role: string;
+  fabricId: string;
+  consumption: string;
+};
+
+const NEW_FABRIC = '__new__';
+const makeId = () => Math.random().toString(36).slice(2);
+const todayInputValue = () => new Date().toISOString().split('T')[0];
+const createInvoiceItem = (): InvoiceItem => ({
+  id: makeId(),
+  fabricId: '',
+  name: '',
+  sku: '',
+  color: '',
+  length: '',
+  unitCost: '',
+});
+const createRecipeRow = (role: string): RecipeRow => ({ id: makeId(), role, fabricId: '', consumption: '' });
+
 const REPEAT_STAGES = ['—', 'مطلوب', 'تم الطلب', 'تم الصنع', 'تم الشحن', 'متوفر'];
 
 const numberFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', { maximumFractionDigits: 2 });
@@ -88,22 +119,37 @@ export default function TailorFabricGatePage() {
   const [requestedLength, setRequestedLength] = useState('');
   const [lengthUnit, setLengthUnit] = useState<'meter' | 'yard'>('meter');
   const [notes, setNotes] = useState('');
-  const [purchaseName, setPurchaseName] = useState('');
-  const [purchaseSku, setPurchaseSku] = useState('');
-  const [purchaseColor, setPurchaseColor] = useState('');
-  const [purchaseFabricType, setPurchaseFabricType] = useState('');
-  const [purchaseSupplier, setPurchaseSupplier] = useState('');
-  const [purchaseLength, setPurchaseLength] = useState('');
-  const [purchaseLengthUnit, setPurchaseLengthUnit] = useState<'meter' | 'yard'>('meter');
-  const [purchaseUnitCost, setPurchaseUnitCost] = useState('');
-  const [purchaseNotes, setPurchaseNotes] = useState('');
+
+  // Purchase invoice (multi-line)
+  const [invoiceBillNumber, setInvoiceBillNumber] = useState('');
+  const [invoicePurchaseDate, setInvoicePurchaseDate] = useState(todayInputValue());
+  const [invoiceSupplier, setInvoiceSupplier] = useState('');
+  const [invoiceLengthUnit, setInvoiceLengthUnit] = useState<'meter' | 'yard'>('meter');
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([createInvoiceItem()]);
+
+  // New model (موديل)
+  const [modelSku, setModelSku] = useState('');
+  const [modelDescription, setModelDescription] = useState('');
+  const [modelSize, setModelSize] = useState('');
+  const [modelUnit, setModelUnit] = useState<'meter' | 'yard'>('meter');
+  const [modelImageData, setModelImageData] = useState<string | null>(null);
+  const [modelRecipe, setModelRecipe] = useState<RecipeRow[]>([createRecipeRow('main')]);
+  const [modelTailoringCost, setModelTailoringCost] = useState('');
+  const [modelExtraCost, setModelExtraCost] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const selectedFabric = useMemo(
     () => data?.fabrics.find((fabric) => fabric.id === fabricId),
     [data?.fabrics, fabricId]
+  );
+
+  const invoiceTotal = useMemo(
+    () => invoiceItems.reduce((sum, item) => sum + (Number(item.length) || 0) * (Number(item.unitCost) || 0), 0),
+    [invoiceItems]
   );
 
   const loadGate = async (code: string) => {
@@ -162,41 +208,134 @@ export default function TailorFabricGatePage() {
     }
   };
 
-  const handlePurchase = async (event: FormEvent) => {
+  const addInvoiceItem = () => setInvoiceItems((items) => [...items, createInvoiceItem()]);
+  const removeInvoiceItem = (id: string) =>
+    setInvoiceItems((items) => (items.length > 1 ? items.filter((item) => item.id !== id) : items));
+  const updateInvoiceItem = (id: string, changes: Partial<InvoiceItem>) =>
+    setInvoiceItems((items) => items.map((item) => (item.id === id ? { ...item, ...changes } : item)));
+
+  const handleInvoiceSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!invoiceBillNumber.trim()) {
+      setError('رقم الفاتورة مطلوب');
+      return;
+    }
+    if (invoiceItems.some((item) => !item.fabricId)) {
+      setError('اختر القماش لكل سطر أو اختر «قماش جديد»');
+      return;
+    }
+    if (invoiceItems.some((item) => item.fabricId === NEW_FABRIC && !item.name.trim())) {
+      setError('اكتب اسم القماش الجديد لكل سطر');
+      return;
+    }
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const response = await fetch('/api/tailor-fabric-gate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'purchase-fabric',
+          action: 'create-purchase-invoice',
           accessCode: activeCode,
-          purchaseName,
-          purchaseSku,
-          purchaseColor,
-          purchaseFabricType,
-          purchaseSupplier,
-          requestedLength: purchaseLength,
-          lengthUnit: purchaseLengthUnit,
-          purchaseUnitCost,
-          notes: purchaseNotes,
+          billNumber: invoiceBillNumber,
+          purchaseDate: invoicePurchaseDate,
+          supplier: invoiceSupplier,
+          lengthUnit: invoiceLengthUnit,
+          items: invoiceItems.map((item) => ({
+            fabricId: item.fabricId === NEW_FABRIC ? '' : item.fabricId,
+            name: item.name,
+            sku: item.sku,
+            color: item.color,
+            length: item.length,
+            unitCost: item.unitCost,
+          })),
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'فشل في إرسال شراء القماش');
-      setPurchaseName('');
-      setPurchaseSku('');
-      setPurchaseColor('');
-      setPurchaseFabricType('');
-      setPurchaseSupplier('');
-      setPurchaseLength('');
-      setPurchaseUnitCost('');
-      setPurchaseNotes('');
+      if (!response.ok) throw new Error(payload.error || 'فشل في حفظ الفاتورة');
+      setInvoiceBillNumber('');
+      setInvoicePurchaseDate(todayInputValue());
+      setInvoiceSupplier('');
+      setInvoiceItems([createInvoiceItem()]);
+      setNotice('تم إرسال الفاتورة للاعتماد');
       await loadGate(activeCode);
-    } catch (purchaseError: any) {
-      setError(purchaseError.message || 'فشل في إرسال شراء القماش');
+    } catch (invoiceError: any) {
+      setError(invoiceError.message || 'فشل في حفظ الفاتورة');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addRecipeRow = () => setModelRecipe((rows) => [...rows, createRecipeRow('lining')]);
+  const removeRecipeRow = (id: string) =>
+    setModelRecipe((rows) => (rows.length > 1 ? rows.filter((row) => row.id !== id) : rows));
+  const updateRecipeRow = (id: string, changes: Partial<RecipeRow>) =>
+    setModelRecipe((rows) => rows.map((row) => (row.id === id ? { ...row, ...changes } : row)));
+
+  const handleModelImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('الملف يجب أن يكون صورة');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('حجم الصورة كبير جداً (الحد الأقصى 2 ميجابايت)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setModelImageData(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
+
+  const handleModelSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!modelSku.trim()) {
+      setError('رقم الصنف (SKU) مطلوب');
+      return;
+    }
+    if (!modelRecipe.some((row) => row.fabricId && Number(row.consumption) > 0)) {
+      setError('أضف قماشاً واحداً على الأقل مع كمية استهلاك صحيحة');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch('/api/tailor-fabric-gate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create-model',
+          accessCode: activeCode,
+          sku: modelSku,
+          description: modelDescription,
+          size: modelSize,
+          unit: modelUnit,
+          imageData: modelImageData,
+          recipe: modelRecipe.map((row) => ({
+            role: row.role,
+            fabricId: row.fabricId,
+            consumption: row.consumption,
+          })),
+          tailoringCost: modelTailoringCost,
+          extraCost: modelExtraCost,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'فشل في حفظ الموديل');
+      setModelSku('');
+      setModelDescription('');
+      setModelSize('');
+      setModelImageData(null);
+      setModelRecipe([createRecipeRow('main')]);
+      setModelTailoringCost('');
+      setModelExtraCost('');
+      setNotice(`تم حفظ الموديل ${payload.sku}`);
+    } catch (modelError: any) {
+      setError(modelError.message || 'فشل في حفظ الموديل');
     } finally {
       setSaving(false);
     }
@@ -279,6 +418,7 @@ export default function TailorFabricGatePage() {
             </div>
 
             {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+            {notice && <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">{notice}</div>}
 
             <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
               <div className="overflow-hidden rounded-lg border bg-card">
@@ -372,81 +512,232 @@ export default function TailorFabricGatePage() {
                     </form>
                   </CardContent>
                 </Card>
+              </div>
+            </div>
 
-                <Card className="rounded-lg">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <PackagePlus className="size-4" />
-                      تسجيل شراء قماش
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handlePurchase} className="space-y-3">
+            <Card className="rounded-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <FileText className="size-4" />
+                  فاتورة شراء قماش
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleInvoiceSubmit} className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <Field>
+                      <FieldLabel>رقم الفاتورة</FieldLabel>
+                      <Input value={invoiceBillNumber} onChange={(event) => setInvoiceBillNumber(event.target.value)} required />
+                    </Field>
+                    <Field>
+                      <FieldLabel>تاريخ الشراء</FieldLabel>
+                      <Input type="date" value={invoicePurchaseDate} onChange={(event) => setInvoicePurchaseDate(event.target.value)} required />
+                    </Field>
+                    <Field>
+                      <FieldLabel>المورد</FieldLabel>
+                      <Input value={invoiceSupplier} onChange={(event) => setInvoiceSupplier(event.target.value)} />
+                    </Field>
+                    <Field>
+                      <FieldLabel>وحدة التكلفة والطول</FieldLabel>
+                      <NativeSelect value={invoiceLengthUnit} onChange={(event) => setInvoiceLengthUnit(event.target.value as 'meter' | 'yard')}>
+                        <NativeSelectOption value="meter">متر</NativeSelectOption>
+                        <NativeSelectOption value="yard">ياردة</NativeSelectOption>
+                      </NativeSelect>
+                    </Field>
+                  </div>
+
+                  <div className="space-y-3">
+                    {invoiceItems.map((item, index) => {
+                      const rowTotal = (Number(item.length) || 0) * (Number(item.unitCost) || 0);
+                      return (
+                        <div key={item.id} className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-muted-foreground">سطر {index + 1}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-red-600 hover:text-red-700"
+                              disabled={invoiceItems.length === 1}
+                              onClick={() => removeInvoiceItem(item.id)}
+                              aria-label="حذف السطر"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <Field>
+                              <FieldLabel>القماش</FieldLabel>
+                              <NativeSelect value={item.fabricId} onChange={(event) => updateInvoiceItem(item.id, { fabricId: event.target.value })}>
+                                <NativeSelectOption value="">اختر القماش</NativeSelectOption>
+                                {data.fabrics.map((fabric) => (
+                                  <NativeSelectOption key={fabric.id} value={fabric.id}>
+                                    {fabric.name}{fabric.sku ? ` (${fabric.sku})` : ''}
+                                  </NativeSelectOption>
+                                ))}
+                                <NativeSelectOption value={NEW_FABRIC}>+ قماش جديد</NativeSelectOption>
+                              </NativeSelect>
+                            </Field>
+                            <Field>
+                              <FieldLabel>{invoiceLengthUnit === 'yard' ? 'الكمية بالياردة' : 'الكمية بالمتر'}</FieldLabel>
+                              <Input type="number" min="0" step="0.01" value={item.length} onChange={(event) => updateInvoiceItem(item.id, { length: event.target.value })} required />
+                            </Field>
+                            <Field>
+                              <FieldLabel>{invoiceLengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'}</FieldLabel>
+                              <Input type="number" min="0" step="0.01" value={item.unitCost} onChange={(event) => updateInvoiceItem(item.id, { unitCost: event.target.value })} />
+                            </Field>
+                            <Field>
+                              <FieldLabel>الإجمالي</FieldLabel>
+                              <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm">{formatCurrency(rowTotal)}</div>
+                            </Field>
+                          </div>
+                          {item.fabricId === NEW_FABRIC && (
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              <Field>
+                                <FieldLabel>اسم القماش الجديد</FieldLabel>
+                                <Input value={item.name} onChange={(event) => updateInvoiceItem(item.id, { name: event.target.value })} required />
+                              </Field>
+                              <Field>
+                                <FieldLabel>رمز القماش</FieldLabel>
+                                <Input value={item.sku} onChange={(event) => updateInvoiceItem(item.id, { sku: event.target.value })} />
+                              </Field>
+                              <Field>
+                                <FieldLabel>اللون</FieldLabel>
+                                <Input value={item.color} onChange={(event) => updateInvoiceItem(item.id, { color: event.target.value })} />
+                              </Field>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Button type="button" variant="outline" size="sm" onClick={addInvoiceItem}>
+                      <Plus className="size-4" />
+                      إضافة قماش
+                    </Button>
+                    <div className="text-sm font-semibold">إجمالي الفاتورة: {formatCurrency(invoiceTotal)}</div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">اختر قماشاً موجوداً أو «قماش جديد». تُرسل الفاتورة للاعتماد قبل إضافتها للمخزون.</p>
+                  <Button type="submit" className="w-full sm:w-auto" disabled={saving || !data.fabrics.length}>
+                    <Send className="size-4" />
+                    حفظ الفاتورة وإرسالها للاعتماد
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Shirt className="size-4" />
+                  إضافة موديل جديد
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleModelSubmit} className="space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-[160px_1fr]">
+                    <div className="space-y-2">
+                      <FieldLabel>صورة الموديل</FieldLabel>
+                      <label className="flex aspect-square w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed bg-muted/30 text-center text-xs text-muted-foreground">
+                        {modelImageData ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={modelImageData} alt="صورة الموديل" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="flex flex-col items-center gap-1 p-2">
+                            <ImagePlus className="size-5" />
+                            اضغط لرفع صورة
+                          </span>
+                        )}
+                        <input type="file" accept="image/*" onChange={handleModelImageChange} className="hidden" />
+                      </label>
+                      {modelImageData && (
+                        <Button type="button" variant="ghost" size="sm" className="w-full" onClick={() => setModelImageData(null)}>
+                          إزالة الصورة
+                        </Button>
+                      )}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
                       <Field>
-                        <FieldLabel>اسم القماش</FieldLabel>
-                        <Input value={purchaseName} onChange={(event) => setPurchaseName(event.target.value)} required />
+                        <FieldLabel>رقم الصنف (SKU)</FieldLabel>
+                        <Input value={modelSku} onChange={(event) => setModelSku(event.target.value)} required />
                       </Field>
                       <Field>
-                        <FieldLabel>رمز القماش</FieldLabel>
-                        <Input value={purchaseSku} onChange={(event) => setPurchaseSku(event.target.value)} />
-                      </Field>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <Field>
-                          <FieldLabel>اللون</FieldLabel>
-                          <Input value={purchaseColor} onChange={(event) => setPurchaseColor(event.target.value)} />
-                        </Field>
-                        <Field>
-                          <FieldLabel>نوع القماش</FieldLabel>
-                          <Input value={purchaseFabricType} onChange={(event) => setPurchaseFabricType(event.target.value)} />
-                        </Field>
-                      </div>
-                      <Field>
-                        <FieldLabel>المورد</FieldLabel>
-                        <Input value={purchaseSupplier} onChange={(event) => setPurchaseSupplier(event.target.value)} />
+                        <FieldLabel>المقاس</FieldLabel>
+                        <Input value={modelSize} onChange={(event) => setModelSize(event.target.value)} />
                       </Field>
                       <Field>
-                        <FieldLabel>وحدة التكلفة والطول</FieldLabel>
-                        <NativeSelect value={purchaseLengthUnit} onChange={(event) => setPurchaseLengthUnit(event.target.value as 'meter' | 'yard')}>
+                        <FieldLabel>وحدة الاستهلاك</FieldLabel>
+                        <NativeSelect value={modelUnit} onChange={(event) => setModelUnit(event.target.value as 'meter' | 'yard')}>
                           <NativeSelectOption value="meter">متر</NativeSelectOption>
                           <NativeSelectOption value="yard">ياردة</NativeSelectOption>
                         </NativeSelect>
                       </Field>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <Field>
-                          <FieldLabel>{purchaseLengthUnit === 'yard' ? 'الطول المشترى بالياردة' : 'الطول المشترى بالمتر'}</FieldLabel>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={purchaseLength}
-                            onChange={(event) => setPurchaseLength(event.target.value)}
-                            required
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel>{purchaseLengthUnit === 'yard' ? 'تكلفة الياردة' : 'تكلفة المتر'}</FieldLabel>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={purchaseUnitCost}
-                            onChange={(event) => setPurchaseUnitCost(event.target.value)}
-                          />
-                        </Field>
-                      </div>
-                      <Field>
-                        <FieldLabel>ملاحظات الشراء</FieldLabel>
-                        <Textarea value={purchaseNotes} onChange={(event) => setPurchaseNotes(event.target.value)} />
+                      <Field className="sm:col-span-2">
+                        <FieldLabel>الوصف</FieldLabel>
+                        <Textarea value={modelDescription} onChange={(event) => setModelDescription(event.target.value)} />
                       </Field>
-                      <Button type="submit" className="w-full" disabled={saving}>
-                        <Send className="size-4" />
-                        إرسال للاعتماد
-                      </Button>
-                    </form>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <FieldLabel>الأقمشة المرتبطة</FieldLabel>
+                    {modelRecipe.map((row, index) => (
+                      <div key={row.id} className="grid items-end gap-3 sm:grid-cols-[1fr_140px_auto]">
+                        <Field>
+                          <FieldLabel>{index === 0 ? 'القماش الأساسي ★' : 'قماش إضافي'}</FieldLabel>
+                          <NativeSelect value={row.fabricId} onChange={(event) => updateRecipeRow(row.id, { fabricId: event.target.value })}>
+                            <NativeSelectOption value="">اختر القماش</NativeSelectOption>
+                            {data.fabrics.map((fabric) => (
+                              <NativeSelectOption key={fabric.id} value={fabric.id}>
+                                {fabric.name}{fabric.sku ? ` (${fabric.sku})` : ''}
+                              </NativeSelectOption>
+                            ))}
+                          </NativeSelect>
+                        </Field>
+                        <Field>
+                          <FieldLabel>{modelUnit === 'yard' ? 'الاستهلاك (ياردة)' : 'الاستهلاك (متر)'}</FieldLabel>
+                          <Input type="number" min="0" step="0.01" value={row.consumption} onChange={(event) => updateRecipeRow(row.id, { consumption: event.target.value })} />
+                        </Field>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-9 text-red-600 hover:text-red-700"
+                          disabled={modelRecipe.length === 1}
+                          onClick={() => removeRecipeRow(row.id)}
+                          aria-label="حذف القماش"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button type="button" variant="outline" size="sm" onClick={addRecipeRow}>
+                      <Plus className="size-4" />
+                      إضافة قماش
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel>تكلفة الخياطة</FieldLabel>
+                      <Input type="number" min="0" step="0.01" value={modelTailoringCost} onChange={(event) => setModelTailoringCost(event.target.value)} />
+                    </Field>
+                    <Field>
+                      <FieldLabel>تكاليف إضافية</FieldLabel>
+                      <Input type="number" min="0" step="0.01" value={modelExtraCost} onChange={(event) => setModelExtraCost(event.target.value)} />
+                    </Field>
+                  </div>
+
+                  <Button type="submit" className="w-full sm:w-auto" disabled={saving || !data.fabrics.length}>
+                    <Send className="size-4" />
+                    حفظ الموديل
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
 
             <div className="overflow-hidden rounded-lg border bg-card">
               <Table>
