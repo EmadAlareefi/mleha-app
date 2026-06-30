@@ -796,6 +796,10 @@ export interface SallaProductsQueryOptions {
   sku?: string;
   keyword?: string;
   status?: string;
+  // Salla only accepts created_at, price, sale_price (updated_at → 422). Defaults
+  // to created_at desc when omitted.
+  sortBy?: 'created_at' | 'price' | 'sale_price';
+  sort?: 'asc' | 'desc';
 }
 
 export interface SallaPaginationMeta {
@@ -1119,15 +1123,17 @@ export async function listSallaProducts(
   merchantId: string,
   options?: SallaProductsQueryOptions
 ): Promise<{ products: SallaProductSummary[]; pagination: SallaPaginationMeta }> {
-  const perPage = Math.min(Math.max(options?.perPage ?? 100, 1), 100);
+  // Upper bound is generous so callers can attempt a single large page (which has
+  // no offset drift); Salla clamps server-side if it enforces a smaller cap.
+  const perPage = Math.min(Math.max(options?.perPage ?? 100, 1), 5000);
   const page = Math.max(options?.page ?? 1, 1);
   const query = new URLSearchParams({
     per_page: perPage.toString(),
     page: page.toString(),
     // Salla's products API rejects sort_by=updated/updated_at (422 alert.invalid_fields).
     // Accepted values are created_at, price, sale_price — newest-first is the closest fit.
-    sort_by: 'created_at',
-    sort: 'desc',
+    sort_by: options?.sortBy ?? 'created_at',
+    sort: options?.sort ?? 'desc',
   });
 
   const trimmedSku = options?.sku?.trim();
@@ -1189,17 +1195,26 @@ export async function listSallaProducts(
   };
 }
 
+type SallaSortPass = { sortBy: 'created_at' | 'price' | 'sale_price'; sort: 'asc' | 'desc' };
+
 async function fetchSallaProductsPageWithRetry(
   merchantId: string,
   page: number,
   perPage: number,
   status: string | undefined,
+  pass: SallaSortPass,
   attempts = 3
 ): Promise<SallaProductSummary[]> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const result = await listSallaProducts(merchantId, { page, perPage, status });
+      const result = await listSallaProducts(merchantId, {
+        page,
+        perPage,
+        status,
+        sortBy: pass.sortBy,
+        sort: pass.sort,
+      });
       return result.products;
     } catch (error) {
       lastError = error;
@@ -1213,12 +1228,17 @@ async function fetchSallaProductsPageWithRetry(
   throw lastError instanceof Error ? lastError : new Error(`فشل تحميل صفحة المنتجات ${page}`);
 }
 
-// Walks the entire catalog and dedups by id (Salla can repeat a product across
-// pages). Pages are fetched with bounded concurrency + retry because firing all
-// pages at once trips Salla's rate limit and silently drops products. `complete`
-// is false if any page failed every retry, so callers can avoid presenting a
-// partial catalog as the whole truth. Used by the manufacturer-links "unlinked"
-// view, which subtracts linked products from the full list.
+// Enumerates the whole catalog as completely as Salla allows, deduping by id.
+//
+// Salla's offset pagination is unstable: paging through `created_at desc` only
+// surfaces a subset of distinct products (the page windows drift over rows that
+// share a sort value), so a naive page=1..N walk silently misses hundreds.
+// Strategy:
+//   1) Fast path — request one large page. A single query has no offset drift,
+//      so if Salla honors a big per_page we get everything in one shot.
+//   2) Fallback — page through under several sort orders and union the results.
+//      Each ordering drops a *different* slice, so the union recovers the gaps.
+// `complete` means we collected at least the reported total distinct products.
 export async function listAllSallaProducts(
   merchantId: string,
   options?: { status?: string; maxPages?: number }
@@ -1226,61 +1246,107 @@ export async function listAllSallaProducts(
   products: SallaProductSummary[];
   total: number;
   complete: boolean;
-  debug: { reportedTotal: number; reportedTotalPages: number; pagesOk: number; pagesFailed: number; rawCount: number; distinctCount: number; perPage: number };
+  debug: {
+    reportedTotal: number;
+    reportedTotalPages: number;
+    pagesOk: number;
+    pagesFailed: number;
+    rawCount: number;
+    distinctCount: number;
+    bigPageCount: number;
+  };
 }> {
-  const perPage = 100;
+  const status = options?.status;
   const maxPages = Math.max(options?.maxPages ?? 200, 1);
   const CONCURRENCY = 3;
-
-  const firstPage = await listSallaProducts(merchantId, {
-    page: 1,
-    perPage,
-    status: options?.status,
-  });
+  const PAGE_SIZE = 100;
 
   const byId = new Map<number, SallaProductSummary>();
-  for (const product of firstPage.products) {
-    byId.set(product.id, product);
-  }
-
-  const reportedTotal = firstPage.pagination?.total ?? byId.size;
-  const reportedTotalPages = firstPage.pagination?.totalPages ?? 1;
-  const totalPages = Math.min(reportedTotalPages, maxPages);
-  let complete = reportedTotalPages <= maxPages;
-  let pagesOk = 1;
+  let pagesOk = 0;
   let pagesFailed = 0;
-  let rawCount = firstPage.products.length;
+  let rawCount = 0;
+  let bigPageCount = 0;
 
-  for (let start = 2; start <= totalPages; start += CONCURRENCY) {
-    const pages: number[] = [];
-    for (let page = start; page < start + CONCURRENCY && page <= totalPages; page += 1) {
-      pages.push(page);
+  const addProducts = (products: SallaProductSummary[]) => {
+    rawCount += products.length;
+    for (const product of products) {
+      byId.set(product.id, product);
     }
+  };
 
-    const settled = await Promise.allSettled(
-      pages.map((page) =>
-        fetchSallaProductsPageWithRetry(merchantId, page, perPage, options?.status)
-      )
-    );
+  // Learn catalog size and grab page 1.
+  const firstPage = await listSallaProducts(merchantId, { page: 1, perPage: PAGE_SIZE, status });
+  const reportedTotal = firstPage.pagination?.total ?? firstPage.products.length;
+  const reportedTotalPages = firstPage.pagination?.totalPages ?? 1;
+  addProducts(firstPage.products);
+  pagesOk += 1;
 
-    settled.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        pagesOk += 1;
-        rawCount += result.value.length;
-        for (const product of result.value) {
-          byId.set(product.id, product);
-        }
-      } else {
-        complete = false;
-        pagesFailed += 1;
-        log.error('Failed to load a Salla products page during full listing', {
-          merchantId,
-          page: pages[index],
-          reason: result.reason,
-        });
+  // 1) Fast path: try to pull the entire catalog in a single large page.
+  if (byId.size < reportedTotal) {
+    try {
+      const big = await listSallaProducts(merchantId, {
+        page: 1,
+        perPage: Math.min(Math.max(reportedTotal, PAGE_SIZE), 5000),
+        status,
+      });
+      bigPageCount = big.products.length;
+      if (big.products.length > firstPage.products.length) {
+        addProducts(big.products);
       }
-    });
+    } catch (error) {
+      log.warn('Large-page catalog fetch failed; falling back to multi-sort paging', {
+        merchantId,
+        error,
+      });
+    }
   }
+
+  // 2) Fallback: page through under several sort orders and union the results.
+  const passes: SallaSortPass[] = [
+    { sortBy: 'created_at', sort: 'desc' },
+    { sortBy: 'created_at', sort: 'asc' },
+    { sortBy: 'price', sort: 'desc' },
+    { sortBy: 'price', sort: 'asc' },
+    { sortBy: 'sale_price', sort: 'desc' },
+  ];
+  const lastPage = Math.min(reportedTotalPages, maxPages);
+
+  for (const pass of passes) {
+    if (byId.size >= reportedTotal) break;
+
+    for (let start = 1; start <= lastPage; start += CONCURRENCY) {
+      const pages: number[] = [];
+      for (let page = start; page < start + CONCURRENCY && page <= lastPage; page += 1) {
+        pages.push(page);
+      }
+
+      const settled = await Promise.allSettled(
+        pages.map((page) =>
+          fetchSallaProductsPageWithRetry(merchantId, page, PAGE_SIZE, status, pass)
+        )
+      );
+
+      settled.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          pagesOk += 1;
+          addProducts(result.value);
+        } else {
+          pagesFailed += 1;
+          log.error('Failed to load a Salla products page during full listing', {
+            merchantId,
+            page: pages[index],
+            sortBy: pass.sortBy,
+            sort: pass.sort,
+            reason: result.reason,
+          });
+        }
+      });
+
+      if (byId.size >= reportedTotal) break;
+    }
+  }
+
+  const complete = byId.size >= reportedTotal;
 
   return {
     products: Array.from(byId.values()),
@@ -1293,7 +1359,7 @@ export async function listAllSallaProducts(
       pagesFailed,
       rawCount,
       distinctCount: byId.size,
-      perPage,
+      bigPageCount,
     },
   };
 }

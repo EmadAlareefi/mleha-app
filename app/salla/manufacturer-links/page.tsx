@@ -111,8 +111,6 @@ export default function SallaManufacturerLinksPage() {
   // linked products and paginate the remainder locally.
   const [allProducts, setAllProducts] = useState<SallaProductSummary[]>([]);
   const [allProductsLoading, setAllProductsLoading] = useState(false);
-  // False when some catalog pages failed to load, so the unlinked list is partial.
-  const [allProductsComplete, setAllProductsComplete] = useState(true);
   const [catalogTotal, setCatalogTotal] = useState<number | null>(null);
 
   const [savingMap, setSavingMap] = useState<Record<number, boolean>>({});
@@ -217,12 +215,10 @@ export default function SallaManufacturerLinksPage() {
         throw new Error(data?.error || 'تعذر تحميل منتجات سلة');
       }
       setAllProducts(Array.isArray(data.products) ? data.products : []);
-      setAllProductsComplete(data.complete !== false);
       setCatalogTotal(typeof data.pagination?.total === 'number' ? data.pagination.total : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء تحميل المنتجات');
       setAllProducts([]);
-      setAllProductsComplete(true);
     } finally {
       setAllProductsLoading(false);
     }
@@ -557,21 +553,13 @@ export default function SallaManufacturerLinksPage() {
               </Alert>
             )}
 
-            {isUnlinkedMode && !allProductsLoading && !allProductsComplete && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  تعذر تحميل بعض صفحات المنتجات من سلة، لذلك قد تكون قائمة المنتجات غير المرتبطة غير
-                  مكتملة. اضغط «تحديث» لإعادة المحاولة.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isUnlinkedMode && !allProductsLoading && allProductsComplete && catalogShortfall > 0 && (
+            {isUnlinkedMode && !allProductsLoading && catalogShortfall > 0 && (
               <Alert variant="destructive">
                 <AlertDescription>
                   أبلغت سلة عن {formatNumber(catalogTotal)} منتج، لكن واجهتها أعادت{' '}
-                  {formatNumber(allProducts.length)} منتجاً مميّزاً فقط عبر التصفّح، لذلك تعذّر عرض{' '}
-                  {formatNumber(catalogShortfall)} منتج. هذا قيد في ترقيم صفحات سلة وليس في بياناتك.
+                  {formatNumber(allProducts.length)} منتجاً مميّزاً فقط، لذلك تعذّر عرض{' '}
+                  {formatNumber(catalogShortfall)} منتج. قد يكون بعضها بسبب أخطاء مؤقتة من سلة — اضغط
+                  «تحديث» لإعادة المحاولة.
                 </AlertDescription>
               </Alert>
             )}
