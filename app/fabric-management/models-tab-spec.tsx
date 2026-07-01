@@ -82,6 +82,11 @@ export type DesignModel = {
   producedCount: number;
   inProgressCount: number;
   reservedLength: number;
+  sallaProductId?: number | null;
+  sallaProductName?: string | null;
+  sallaVariantId?: string | null;
+  sallaVariantName?: string | null;
+  sallaSku?: string | null;
 };
 
 const METER_TO_YARD = 1.0936132983;
@@ -366,6 +371,11 @@ export function ModelsTabSpec({
   const [extraCost, setExtraCost] = useState('10');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
+  const [sallaProductId, setSallaProductId] = useState('');
+  const [sallaProductName, setSallaProductName] = useState('');
+  const [sallaVariantId, setSallaVariantId] = useState('');
+  const [sallaVariantName, setSallaVariantName] = useState('');
+  const [sallaSku, setSallaSku] = useState('');
 
   const fabricOptions = useMemo(
     () =>
@@ -616,12 +626,22 @@ export function ModelsTabSpec({
       tailoringCost: 0,
       embroideryCost: 0,
       extraCost,
+      sallaProductId: sallaProductId.trim() || null,
+      sallaProductName: sallaProductName.trim() || null,
+      sallaVariantId: sallaVariantId.trim() || null,
+      sallaVariantName: sallaVariantName.trim() || null,
+      sallaSku: sallaSku.trim() || null,
     });
     if (saved) {
       setImageData(null);
       setSelectedColors(['متعدد الألوان']);
       setDescription('تفاصيل التصميم والقصة…');
       setSize('');
+      setSallaProductId('');
+      setSallaProductName('');
+      setSallaVariantId('');
+      setSallaVariantName('');
+      setSallaSku('');
     }
   };
 
@@ -885,6 +905,23 @@ export function ModelsTabSpec({
                   <DisplayField label="تكلفة التطريز" value={formatCurrency(calculations.embroideryCost)} auto hint="تلقائي من دورة الإنتاج" />
                   <EditableField label="تكلفة إضافية" value={extraCost} onChange={setExtraCost} suffix="ر.س" type="number" hint="كي • تغليف…" />
                   <DisplayField label="التكلفة الإجمالية" value={formatCurrency(calculations.totalCost)} auto hint="مجموع ما سبق" />
+                </div>
+              </div>
+            </details>
+
+            <details>
+              <summary>
+                <span className="ico">س</span>
+                ربط بمنتج سلة
+                <ChevronDown className="chev" />
+              </summary>
+              <div className="acc-body">
+                <div className="grid">
+                  <EditableField label="رقم المنتج (Product ID)" value={sallaProductId} onChange={setSallaProductId} type="number" hint="من صفحة المنتج في سلة" />
+                  <EditableField label="اسم المنتج" value={sallaProductName} onChange={setSallaProductName} />
+                  <EditableField label="رقم المتغير (Variant ID)" value={sallaVariantId} onChange={setSallaVariantId} hint="اتركه فارغاً إن لم يوجد مقاس/لون محدد" />
+                  <EditableField label="اسم المتغير" value={sallaVariantName} onChange={setSallaVariantName} />
+                  <EditableField label="SKU في سلة" value={sallaSku} onChange={setSallaSku} />
                 </div>
               </div>
             </details>
@@ -1461,6 +1498,11 @@ function ModelEditDrawer({
   );
   // Tailoring & embroidery are read-only here — auto-derived from the production cycle.
   const [extraCost, setExtraCost] = useState(String(model.extraCost));
+  const [sallaProductId, setSallaProductId] = useState(model.sallaProductId != null ? String(model.sallaProductId) : '');
+  const [sallaProductName, setSallaProductName] = useState(model.sallaProductName || '');
+  const [sallaVariantId, setSallaVariantId] = useState(model.sallaVariantId || '');
+  const [sallaVariantName, setSallaVariantName] = useState(model.sallaVariantName || '');
+  const [sallaSku, setSallaSku] = useState(model.sallaSku || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<ModelAuditLog[]>([]);
@@ -1553,6 +1595,11 @@ function ModelEditDrawer({
           tailoringCost: model.tailoringCost,
           embroideryCost: model.embroideryCost,
           extraCost,
+          sallaProductId: sallaProductId.trim() || null,
+          sallaProductName: sallaProductName.trim() || null,
+          sallaVariantId: sallaVariantId.trim() || null,
+          sallaVariantName: sallaVariantName.trim() || null,
+          sallaSku: sallaSku.trim() || null,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -1758,6 +1805,15 @@ function ModelEditDrawer({
         <DisplayField label="تكلفة التطريز" value={formatCurrency(model.embroideryCost)} auto hint="تلقائي من دورة الإنتاج" />
         <EditableField label="تكلفة إضافية" value={extraCost} onChange={setExtraCost} suffix="ر.س" type="number" />
         <DisplayField label="التكلفة الإجمالية" value={formatCurrency(calculations.totalCost)} auto />
+      </div>
+
+      <div className="rep-section-title">هـ – ربط بمنتج سلة</div>
+      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <EditableField label="رقم المنتج (Product ID)" value={sallaProductId} onChange={setSallaProductId} type="number" />
+        <EditableField label="اسم المنتج" value={sallaProductName} onChange={setSallaProductName} />
+        <EditableField label="رقم المتغير (Variant ID)" value={sallaVariantId} onChange={setSallaVariantId} />
+        <EditableField label="اسم المتغير" value={sallaVariantName} onChange={setSallaVariantName} />
+        <EditableField label="SKU في سلة" value={sallaSku} onChange={setSallaSku} />
       </div>
 
       {error && (

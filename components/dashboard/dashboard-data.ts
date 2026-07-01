@@ -37,8 +37,6 @@ import {
   Scale,
   Satellite,
   Scissors,
-  Repeat,
-  DoorOpen,
 } from 'lucide-react';
 import {
   serviceDefinitions,
@@ -52,7 +50,8 @@ export type DashboardRole =
   | 'store_manager'
   | 'warehouse'
   | 'accountant'
-  | 'delivery_agent';
+  | 'delivery_agent'
+  | 'tailor';
 
 export type DashboardCategoryId =
   | 'orders'
@@ -134,12 +133,11 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   settlements: 'finance',
   expenses: 'finance',
   'fabric-management': 'warehouse',
-  'tailor-fabric-gate': 'warehouse',
-  'fabric-repeat-requests': 'warehouse',
+  'tailor-dashboard': 'warehouse',
+  'fabric-tailor-hub': 'warehouse',
   'salla-products': 'store',
   'salla-manufacturer-links': 'store',
   'salla-notify': 'store',
-  'salla-requests': 'store',
   'delivery-agent-tasks': 'agents',
   'my-deliveries': 'agents',
   'agents-live-monitor': 'agents',
@@ -193,11 +191,10 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'salla-products': ShoppingBag,
   'salla-manufacturer-links': Factory,
   'salla-notify': Bell,
-  'salla-requests': ClipboardList,
   expenses: Wallet,
   'fabric-management': Scissors,
-  'tailor-fabric-gate': DoorOpen,
-  'fabric-repeat-requests': Repeat,
+  'tailor-dashboard': Scissors,
+  'fabric-tailor-hub': Scissors,
 };
 
 const categoryAccentMap: Record<DashboardCategoryId, string> = {
@@ -221,8 +218,8 @@ const priorityMap: Partial<Record<ServiceKey, number>> = {
   'admin-order-prep': 76,
   'cod-tracker': 72,
   'fabric-management': 70,
-  'tailor-fabric-gate': 69.5,
-  'fabric-repeat-requests': 69,
+  'tailor-dashboard': 69.7,
+  'fabric-tailor-hub': 70,
 };
 
 export function getRoleLabel(role?: string | null) {
@@ -233,6 +230,7 @@ export function getRoleLabel(role?: string | null) {
     warehouse: 'فريق المستودع',
     accountant: 'المحاسبة',
     delivery_agent: 'مندوب التوصيل',
+    tailor: 'خياط',
   };
 
   return role && role in labels ? labels[role as DashboardRole] : 'مستخدم النظام';
@@ -272,6 +270,12 @@ export function getVisibleDashboardServices({
       return true;
     }
 
+    // The fabric/tailor hub link isn't itself an assignable service key —
+    // its visibility derives from access to the two pages it links to.
+    if (service.key === 'fabric-tailor-hub') {
+      return serviceKeys.includes('fabric-management') || serviceKeys.includes('tailor-dashboard');
+    }
+
     return serviceKeys.includes(service.key);
   });
 
@@ -303,6 +307,25 @@ export function getVisibleDashboardServices({
 
 export function getDashboardServiceCount() {
   return serviceDefinitions.filter((service) => !service.hideFromDashboard).length;
+}
+
+// Cards for the consolidated fabric/tailor hub page, scoped to what the
+// current user can actually access (fabric-management and/or tailor-dashboard).
+export function getHubCardServices({
+  canFabric,
+  canTailor,
+}: {
+  canFabric: boolean;
+  canTailor: boolean;
+}): DashboardService[] {
+  const keys: ServiceKey[] = [
+    ...(canFabric ? (['fabric-management'] as const) : []),
+    ...(canTailor ? (['tailor-dashboard'] as const) : []),
+  ];
+  return keys
+    .map((key) => serviceDefinitions.find((service) => service.key === key))
+    .filter((service): service is ServiceDefinition => Boolean(service))
+    .map(mapServiceDefinition);
 }
 
 function mapServiceDefinition(service: ServiceDefinition): DashboardService {

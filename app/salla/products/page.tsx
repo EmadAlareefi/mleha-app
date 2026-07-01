@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, PackageSearch, RefreshCcw, Search, Users } from 'lucide-react';
+import { Loader2, PackageSearch, RefreshCcw, Search } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -34,34 +34,6 @@ type ManufacturerUserOption = {
   username: string;
   email?: string | null;
   phone?: string | null;
-};
-
-type ProductOptionSnapshot = {
-  id: string | number | null;
-  name: string;
-  sku: string | null;
-  barcode: string | null;
-  availableQuantity: number | null;
-};
-
-type QuantityRequestRecord = {
-  id: string;
-  productId: number;
-  productName: string;
-  productSku?: string | null;
-  productImageUrl?: string | null;
-  requestedAmount: number;
-  requestedRefundAmount?: number | null;
-  requestedFrom: string;
-  productOptions?: ProductOptionSnapshot[] | null;
-  requestedBy: string;
-  requestedFor?: string | null;
-  notes?: string | null;
-  status: 'pending' | 'completed';
-  requestedAt: string;
-  fulfilledAt?: string | null;
-  providedBy?: string | null;
-  providedAmount?: number | null;
 };
 
 function formatCurrency(value: number | null | undefined, currency?: string) {
@@ -130,9 +102,6 @@ export default function SallaProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchSku, setSearchSku] = useState('');
   const [skuInput, setSkuInput] = useState('');
-  const [productRequests, setProductRequests] = useState<Record<number, QuantityRequestRecord[]>>({});
-  const [requestsLoading, setRequestsLoading] = useState(false);
-  const [requestsError, setRequestsError] = useState<string | null>(null);
   const [productManufacturers, setProductManufacturers] = useState<Record<number, string>>({});
   const [manufacturers, setManufacturers] = useState<ManufacturerUserOption[]>([]);
   const [manufacturersError, setManufacturersError] = useState<string | null>(null);
@@ -189,59 +158,6 @@ export default function SallaProductsPage() {
     },
     []
   );
-
-  const fetchProductRequests = useCallback(async (productIds: number[]) => {
-    if (!productIds || productIds.length === 0) {
-      setProductRequests({});
-      return;
-    }
-
-    setRequestsLoading(true);
-    setRequestsError(null);
-
-    try {
-      const params = new URLSearchParams();
-      productIds.forEach((id) => params.append('productId', id.toString()));
-      const response = await fetch(`/api/salla/requests?${params.toString()}`, {
-        cache: 'no-store',
-      });
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data?.error || 'تعذر تحميل طلبات الكميات');
-      }
-
-      const map: Record<number, QuantityRequestRecord[]> = {};
-      productIds.forEach((id) => {
-        map[id] = [];
-      });
-
-      if (Array.isArray(data.requests)) {
-        data.requests.forEach((request: QuantityRequestRecord) => {
-          if (!map[request.productId]) {
-            map[request.productId] = [];
-          }
-          map[request.productId].push(request);
-        });
-      }
-
-      Object.keys(map).forEach((key) => {
-        const id = Number.parseInt(key, 10);
-        map[id] = map[id].sort(
-          (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
-        );
-      });
-
-      setProductRequests(map);
-    } catch (err) {
-      setRequestsError(
-        err instanceof Error ? err.message : 'تعذر تحميل طلبات الكميات لهذا المنتج'
-      );
-      setProductRequests({});
-    } finally {
-      setRequestsLoading(false);
-    }
-  }, []);
 
   const fetchManufacturers = useCallback(async () => {
     setManufacturersError(null);
@@ -401,14 +317,12 @@ export default function SallaProductsPage() {
       return;
     }
     if (products.length === 0) {
-      setProductRequests({});
       setProductManufacturers({});
       return;
     }
     const ids = products.map((product) => product.id);
-    fetchProductRequests(ids);
     fetchProductManufacturers(ids);
-  }, [status, products, fetchProductRequests, fetchProductManufacturers]);
+  }, [status, products, fetchProductManufacturers]);
 
   const handleRefresh = () => {
     fetchProducts(currentPage, searchSku, statusFilter);
@@ -550,12 +464,6 @@ export default function SallaProductsPage() {
                   <RefreshCcw className="h-4 w-4" />
                   تحديث البيانات
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push('/salla/requests')}
-                >
-                  لوحة طلبات الكميات
-                </Button>
               </div>
               </div>
               <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -653,7 +561,7 @@ export default function SallaProductsPage() {
               <div>
                 <CardTitle className="text-2xl text-slate-900">جدول المنتجات</CardTitle>
                 <CardDescription className="text-base text-slate-500">
-                  يظهر {PAGE_SIZE} منتجاً في كل صفحة مع إمكانية إرسال طلب كمية لكل عنصر.
+                  يظهر {PAGE_SIZE} منتجاً في كل صفحة.
                 </CardDescription>
               </div>
               <div className="flex flex-wrap gap-3">
@@ -685,20 +593,19 @@ export default function SallaProductsPage() {
                       <TableHead className="text-slate-600">المتوفر</TableHead>
                       <TableHead className="text-slate-600">الحالة</TableHead>
                       <TableHead className="w-56 text-slate-600">المصنع</TableHead>
-                      <TableHead className="w-[320px] text-slate-600">طلب كمية</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading && (
                       <TableRow>
-                        <TableCell colSpan={7} className="py-10 text-center">
+                        <TableCell colSpan={6} className="py-10 text-center">
                           <LoadingState label="جاري تحميل المنتجات من سلة..." />
                         </TableCell>
                       </TableRow>
                     )}
                     {!loading && products.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="py-10 text-center text-slate-500">
+                        <TableCell colSpan={6} className="py-10 text-center text-slate-500">
                           <EmptyState title="لا توجد منتجات مطابقة لبحثك حالياً" />
                         </TableCell>
                       </TableRow>
@@ -708,9 +615,6 @@ export default function SallaProductsPage() {
                         <ProductRow
                           key={product.id}
                           product={product}
-                          requests={productRequests[product.id] ?? []}
-                          requestsLoading={requestsLoading}
-                          requestsError={requestsError}
                           variations={variationsMap[product.id] ?? []}
                           variationsLoaded={Object.prototype.hasOwnProperty.call(
                             variationsMap,
@@ -737,9 +641,6 @@ export default function SallaProductsPage() {
 
 type ProductRowProps = {
   product: SallaProductSummary;
-  requests: QuantityRequestRecord[];
-  requestsLoading: boolean;
-  requestsError?: string | null;
   variations: SallaProductVariation[];
   variationsLoaded: boolean;
   rowVariationsLoading: boolean;
@@ -753,9 +654,6 @@ type ProductRowProps = {
 
 function ProductRow({
   product,
-  requests,
-  requestsLoading,
-  requestsError,
   variations,
   variationsLoaded,
   rowVariationsLoading,
@@ -936,45 +834,6 @@ function ProductRow({
     }
   };
 
-  const renderQuantityRequestSection = () => (
-    <div className="space-y-4 text-sm">
-      <div className="space-y-2 rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
-        <p className="text-xs text-slate-500">إنشاء طلب كمية انتقل إلى الصفحة المخصصة.</p>
-        <Button asChild className="w-full text-sm">
-          <Link href="/salla/quantity-request">
-            <Users className="h-4 w-4" />
-            <span>فتح طلب الكميات</span>
-          </Link>
-        </Button>
-      </div>
-
-      {requestsError && <p className="text-xs text-red-600">تعذر تحميل الطلبات: {requestsError}</p>}
-
-      {requestsLoading ? (
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          جاري تحميل الطلبات...
-        </div>
-      ) : requests.length === 0 ? (
-        <p className="text-xs text-slate-500">لا توجد طلبات مسجلة لهذا المنتج بعد.</p>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-[11px] text-slate-500">
-            تحديث حالة الطلبات يتم من خلال{' '}
-            <Link href="/salla/requests" className="text-indigo-600 hover:underline">
-              صفحة طلبات الكميات
-            </Link>
-            .
-          </p>
-          {requests.map((req) => (
-            <QuantityRequestCard key={req.id} request={req} />
-          ))}
-        </div>
-      )}
-
-    </div>
-  );
-
   const renderVariationSection = () => (
     <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1141,13 +1000,12 @@ function ProductRow({
           </Badge>
         </TableCell>
         <TableCell>{renderManufacturerEditor('desktop')}</TableCell>
-        <TableCell>{renderQuantityRequestSection()}</TableCell>
       </TableRow>
       <TableRow className="hidden bg-slate-50/60 lg:table-row">
-        <TableCell colSpan={7}>{renderVariationSection()}</TableCell>
+        <TableCell colSpan={6}>{renderVariationSection()}</TableCell>
       </TableRow>
       <TableRow className="lg:hidden">
-        <TableCell colSpan={7} className="border-0 p-0 align-top">
+        <TableCell colSpan={6} className="border-0 p-0 align-top">
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center gap-3">
               {product.imageUrl ? (
@@ -1196,7 +1054,6 @@ function ProductRow({
               <p className="mb-2 text-xs text-slate-500">المصنع</p>
               {renderManufacturerEditor('mobile')}
             </div>
-            {renderQuantityRequestSection()}
             {renderVariationSection()}
           </div>
         </TableCell>
@@ -1205,84 +1062,3 @@ function ProductRow({
   );
 }
 
-type QuantityRequestCardProps = {
-  request: QuantityRequestRecord;
-};
-
-function ProductOptionLine({ option }: { option: ProductOptionSnapshot }) {
-  return (
-    <div className="flex items-start justify-between gap-2 rounded-lg border border-slate-100 bg-white px-2 py-1.5">
-      <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-slate-800">{option.name}</p>
-        <p className="truncate text-[11px] text-slate-500">
-          {option.sku ? `SKU: ${option.sku}` : 'SKU غير محدد'}
-          {option.barcode ? ` · باركود: ${option.barcode}` : ''}
-        </p>
-      </div>
-      <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-        {formatNumber(option.availableQuantity)}
-      </span>
-    </div>
-  );
-}
-
-function QuantityRequestCard({ request }: QuantityRequestCardProps) {
-  const statusLabel = request.status === 'completed' ? 'تم التنفيذ' : 'بانتظار التوفير';
-  const requestOptions = Array.isArray(request.productOptions) ? request.productOptions : [];
-
-  return (
-    <div className="rounded-xl border border-slate-100 bg-white/80 p-3 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">
-            طلب {formatNumber(request.requestedAmount)}
-          </p>
-          <p className="text-xs text-slate-500">أضيف بواسطة {request.requestedBy}</p>
-        </div>
-        <Badge variant={request.status === 'completed' ? 'default' : 'secondary'}>
-          {statusLabel}
-        </Badge>
-      </div>
-      <div className="mt-2 space-y-1 text-xs text-slate-600">
-        <p>تاريخ الطلب: {formatDate(request.requestedAt)}</p>
-        {request.requestedFor && <p>موعد التوريد المطلوب: {formatDate(request.requestedFor)}</p>}
-        {request.notes && <p className="text-slate-500">ملاحظات: {request.notes}</p>}
-        {request.requestedRefundAmount && request.requestedRefundAmount > 0 && (
-          <p className="text-slate-600">
-            كمية المرتجع المطلوبة: {formatNumber(request.requestedRefundAmount)}
-          </p>
-        )}
-        {requestOptions.length > 0 && (
-          <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-2">
-            <p className="mb-1 text-[11px] font-semibold text-slate-600">خيارات المنتج وقت الطلب</p>
-            <div className="space-y-1">
-              {requestOptions.map((option) => (
-                <ProductOptionLine
-                  key={`${option.id ?? option.name}-${option.sku ?? ''}`}
-                  option={option}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-        {request.status === 'completed' && (
-          <p className="text-emerald-700">
-            اكتمل بواسطة {request.providedBy} بتوفير {formatNumber(request.providedAmount ?? null)} في{' '}
-            {formatDate(request.fulfilledAt)}
-          </p>
-        )}
-        {request.status === 'pending' && (
-          <p className="text-[11px] text-slate-500">
-            لتحديث حالة الطلب، انتقل إلى{' '}
-            <Link href="/salla/requests" className="text-indigo-600 hover:underline">
-              صفحة طلبات الكميات
-            </Link>
-            .
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-  

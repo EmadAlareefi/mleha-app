@@ -15,8 +15,6 @@ const PUBLIC_PATHS = [
   '/api/auth',
   '/api/salla/sync-invoices',
   '/salla/webhook',
-  '/tailor-fabric-gate',
-  '/api/tailor-fabric-gate',
   '/logo.png',
   '/manifest.webmanifest',
   '/cv.pdf',
@@ -140,7 +138,6 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/api\/salla\/products(\/.*)?$/,
     ],
   ],
-  ['salla-requests', [/^\/salla\/requests(\/.*)?$/, /^\/api\/salla\/requests(\/.*)?$/]],
   [
     'salla-purchase-requests',
     [
@@ -192,20 +189,15 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     [
       /^\/fabric-management\/?$/,
       /^\/api\/fabric-management\/?$/,
+      /^\/fabric-hub\/?$/,
     ],
   ],
   [
-    'tailor-fabric-gate',
+    'tailor-dashboard',
     [
-      /^\/tailor-fabric-gate(\/.*)?$/,
-      /^\/api\/tailor-fabric-gate(\/.*)?$/,
-    ],
-  ],
-  [
-    'fabric-repeat-requests',
-    [
-      /^\/fabric-management\/repeat-requests(\/.*)?$/,
-      /^\/api\/fabric-management\/repeat-requests(\/.*)?$/,
+      /^\/tailor(\/.*)?$/,
+      /^\/api\/tailor-portal(\/.*)?$/,
+      /^\/fabric-hub\/?$/,
     ],
   ],
 ]);

@@ -335,6 +335,8 @@ export function UserFormDialog({
                 <ServiceSelector
                   value={formData.serviceKeys}
                   onChange={(next) => update('serviceKeys', next)}
+                  userType={formData.userType === 'manufacturer' ? 'manufacturer' : 'employee'}
+                  onUserTypeChange={(next) => update('userType', next)}
                 />
               </div>
 

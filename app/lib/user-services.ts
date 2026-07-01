@@ -13,6 +13,7 @@ const serviceRoleToPrismaRole: Record<ServiceRole, OrderUserRole> = {
   warehouse: OrderUserRole.WAREHOUSE,
   accountant: OrderUserRole.ACCOUNTANT,
   delivery_agent: OrderUserRole.DELIVERY_AGENT,
+  tailor: OrderUserRole.TAILOR,
 };
 
 export async function getUserServiceKeys(userId: string): Promise<ServiceKey[]> {

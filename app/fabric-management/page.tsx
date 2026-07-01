@@ -33,6 +33,8 @@ type Fabric = {
   minStock: number;
   notes?: string | null;
   isLowStock: boolean;
+  atWarehouse?: number;
+  atTailors?: number;
 };
 
 type Accessory = {
@@ -157,6 +159,30 @@ type TailorFabricRequest = {
   tailor: Tailor;
 };
 
+type DeliveryNote = {
+  id: string;
+  noteNumber: string;
+  dressCount: number;
+  size?: string | null;
+  status: 'DRAFT' | 'SUBMITTED' | 'ACCEPTED' | 'REJECTED';
+  tailoringCost: number;
+  embroideryCost: number;
+  extraCost: number;
+  componentsConsumed?: {
+    fabrics?: Array<{ fabricId: string; name: string; meters: number }>;
+    accessories?: Array<{ accessoryId: string; name: string; qty: number }>;
+  } | null;
+  submittedAt?: string | null;
+  acceptedAt?: string | null;
+  rejectedAt?: string | null;
+  rejectionReason?: string | null;
+  sallaSyncStatus?: string | null;
+  sallaSyncError?: string | null;
+  createdAt: string;
+  tailor?: { id: string; name: string; workshopName?: string | null };
+  designModel?: { id: string; sku: string };
+};
+
 type FabricManagementData = {
   fabrics: Fabric[];
   accessories: Accessory[];
@@ -166,6 +192,8 @@ type FabricManagementData = {
   models: DesignModel[];
   suppliers: Supplier[];
   purchaseInvoices: PurchaseInvoice[];
+  deliveryNotes: DeliveryNote[];
+  tailorFabricBalances: Array<{ fabricId: string; tailorId: string; heldMeters: number }>;
   summary: {
     fabricsCount: number;
     accessoriesCount: number;
@@ -757,13 +785,20 @@ export default function FabricManagementPage() {
   const updateRequestStatus = (requestId: string, status: string) =>
     postAction({ action: 'update-request-status', requestId, status });
 
+  const acceptDeliveryNote = (noteId: string) => postAction({ action: 'accept-delivery-note', noteId });
+  const rejectDeliveryNote = (noteId: string) => {
+    const rejectionReason = window.prompt('سبب الرفض (اختياري):') || '';
+    return postAction({ action: 'reject-delivery-note', noteId, rejectionReason });
+  };
+  const resyncDeliveryNoteSalla = (noteId: string) => postAction({ action: 'resync-salla-stock', noteId });
+
   const summary = data?.summary;
 
   const [tab, setTab] = useState<'stock' | 'tailors' | 'production' | 'models' | 'invoices'>('stock');
   const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
   const [stockTableTab, setStockTableTab] = useState<'fabric' | 'accessory'>('fabric');
   const [tailorTab, setTailorTab] = useState<'list' | 'requests'>('list');
-  const [prodTab, setProdTab] = useState<'deliver' | 'receive'>('deliver');
+  const [prodTab, setProdTab] = useState<'deliver' | 'receive' | 'delivery-notes'>('deliver');
 
   const pendingCount = summary?.pendingRequestsCount || 0;
 
@@ -958,6 +993,12 @@ export default function FabricManagementPage() {
                     <div className="subtabs">
                       <button type="button" className={`subtab ${prodTab === 'deliver' ? 'active' : ''}`} onClick={() => setProdTab('deliver')}>↑ تسليم القماش للخياط</button>
                       <button type="button" className={`subtab ${prodTab === 'receive' ? 'active' : ''}`} onClick={() => setProdTab('receive')}>↓ استلام الفساتين والتكلفة</button>
+                      <button type="button" className={`subtab ${prodTab === 'delivery-notes' ? 'active' : ''}`} onClick={() => setProdTab('delivery-notes')}>
+                        تسليمات الخياطين
+                        {(data?.deliveryNotes || []).filter((n) => n.status === 'SUBMITTED').length > 0 && (
+                          <span className="new-count">{formatNumber((data?.deliveryNotes || []).filter((n) => n.status === 'SUBMITTED').length)} جديد</span>
+                        )}
+                      </button>
                     </div>
 
                     {prodTab === 'deliver' && (
@@ -995,6 +1036,16 @@ export default function FabricManagementPage() {
                         </div>
                         <button className="btn" type="submit" disabled={saving || !openIssues.length}><CheckCircle2 /> حفظ الاستلام</button>
                       </form>
+                    )}
+
+                    {prodTab === 'delivery-notes' && (
+                      <DeliveryNotesPanel
+                        notes={data?.deliveryNotes || []}
+                        saving={saving}
+                        onAccept={(noteId) => void acceptDeliveryNote(noteId)}
+                        onReject={(noteId) => void rejectDeliveryNote(noteId)}
+                        onResync={(noteId) => void resyncDeliveryNoteSalla(noteId)}
+                      />
                     )}
                   </FormAccordionCard>
 
@@ -1518,7 +1569,9 @@ function FabricTable({
             <th>رمز القماش</th>
             <th>اللون</th>
             <th>النوع</th>
-            <th>المخزون</th>
+            <th>الإجمالي</th>
+            <th>في المستودع</th>
+            <th>لدى الخياطين</th>
             <th>تكلفة المتر</th>
             <th>إجراء</th>
           </tr>
@@ -1530,10 +1583,12 @@ function FabricTable({
               <td data-label="رمز القماش" style={{ color: 'var(--muted-foreground)' }}>{fabric.sku || '-'}</td>
               <td data-label="اللون">{fabric.color || '-'}</td>
               <td data-label="النوع">{fabric.fabricType || '-'}</td>
-              <td data-label="المخزون">
+              <td data-label="الإجمالي">
                 {formatDualLength(fabric.stockLength)}
                 {fabric.isLowStock && <span className="low-badge">منخفض</span>}
               </td>
+              <td data-label="في المستودع">{formatDualLength(fabric.atWarehouse ?? fabric.stockLength)}</td>
+              <td data-label="لدى الخياطين">{formatDualLength(fabric.atTailors ?? 0)}</td>
               <td data-label="تكلفة المتر">{formatCurrency(fabric.unitCost)}</td>
               <td data-label="إجراء" className="actions-cell">
                 <div className="td-actions">
@@ -1544,7 +1599,7 @@ function FabricTable({
             </tr>
           ))}
           {!fabrics.length && (
-            <tr><td className="empty-row" colSpan={7}>لا توجد أقمشة مسجلة</td></tr>
+            <tr><td className="empty-row" colSpan={9}>لا توجد أقمشة مسجلة</td></tr>
           )}
         </tbody>
       </table>
@@ -1721,6 +1776,124 @@ function requestStatusPill(status: string) {
   if (status === 'pending') return 'warn';
   if (status === 'rejected') return 'red';
   return 'ok';
+}
+
+function deliveryNoteStatusPill(status: string) {
+  if (status === 'SUBMITTED') return 'warn';
+  if (status === 'REJECTED') return 'red';
+  if (status === 'ACCEPTED') return 'ok';
+  return 'muted';
+}
+
+function DeliveryNotesPanel({
+  notes,
+  saving,
+  onAccept,
+  onReject,
+  onResync,
+}: {
+  notes: DeliveryNote[];
+  saving: boolean;
+  onAccept: (noteId: string) => void;
+  onReject: (noteId: string) => void;
+  onResync: (noteId: string) => void;
+}) {
+  const submitted = notes.filter((note) => note.status === 'SUBMITTED');
+  const history = notes.filter((note) => note.status === 'ACCEPTED' || note.status === 'REJECTED');
+
+  return (
+    <div>
+      <div className="section-label" style={{ marginBottom: 10 }}>بانتظار القبول</div>
+      <div className="table-wrap">
+        <table className="cards-mobile">
+          <thead>
+            <tr>
+              <th>رقم المذكرة</th>
+              <th>الخياط</th>
+              <th>الموديل</th>
+              <th>العدد</th>
+              <th>المقاس</th>
+              <th>التكاليف</th>
+              <th>إجراء</th>
+            </tr>
+          </thead>
+          <tbody>
+            {submitted.map((note) => (
+              <tr key={note.id}>
+                <td data-label="رقم المذكرة"><b>{note.noteNumber}</b></td>
+                <td data-label="الخياط">{note.tailor?.name || '-'}</td>
+                <td data-label="الموديل">{note.designModel?.sku || '-'}</td>
+                <td data-label="العدد">{formatNumber(note.dressCount)}</td>
+                <td data-label="المقاس">{note.size || '-'}</td>
+                <td data-label="التكاليف">
+                  {formatCurrency(note.tailoringCost + note.embroideryCost + note.extraCost)}
+                </td>
+                <td data-label="إجراء" className="actions-cell">
+                  <div className="td-actions">
+                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onAccept(note.id)}>قبول</button>
+                    <button type="button" className="tbl-btn del" disabled={saving} onClick={() => onReject(note.id)}>رفض</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!submitted.length && (
+              <tr><td className="empty-row" colSpan={7}>لا توجد مذكرات تسليم بانتظار القبول</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="section-label" style={{ margin: '18px 0 10px' }}>السجل</div>
+      <div className="table-wrap">
+        <table className="cards-mobile">
+          <thead>
+            <tr>
+              <th>رقم المذكرة</th>
+              <th>الخياط</th>
+              <th>الموديل</th>
+              <th>العدد</th>
+              <th>الحالة</th>
+              <th>مزامنة سلة</th>
+              <th>إجراء</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((note) => (
+              <tr key={note.id}>
+                <td data-label="رقم المذكرة"><b>{note.noteNumber}</b></td>
+                <td data-label="الخياط">{note.tailor?.name || '-'}</td>
+                <td data-label="الموديل">{note.designModel?.sku || '-'}</td>
+                <td data-label="العدد">{formatNumber(note.dressCount)}</td>
+                <td data-label="الحالة">
+                  <span className={`pill ${deliveryNoteStatusPill(note.status)}`}>{note.status}</span>
+                  {note.status === 'REJECTED' && note.rejectionReason && (
+                    <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{note.rejectionReason}</div>
+                  )}
+                </td>
+                <td data-label="مزامنة سلة">
+                  {note.status === 'ACCEPTED' ? (
+                    <span className={`pill ${note.sallaSyncStatus === 'success' ? 'ok' : note.sallaSyncStatus === 'failed' ? 'red' : 'muted'}`}>
+                      {note.sallaSyncStatus || '-'}
+                    </span>
+                  ) : (
+                    '-'
+                  )}
+                </td>
+                <td data-label="إجراء" className="actions-cell">
+                  {note.status === 'ACCEPTED' && note.sallaSyncStatus === 'failed' && (
+                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onResync(note.id)}>إعادة المزامنة</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!history.length && (
+              <tr><td className="empty-row" colSpan={7}>لا يوجد سجل بعد</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function RequestsTable({

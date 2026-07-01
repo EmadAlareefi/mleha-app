@@ -3,7 +3,8 @@ export type ServiceRole =
   | 'store_manager'
   | 'warehouse'
   | 'accountant'
-  | 'delivery_agent';
+  | 'delivery_agent'
+  | 'tailor';
 
 export type ServiceAudience = ServiceRole | 'admin';
 
@@ -439,32 +440,12 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
-    key: 'salla-quantity-request',
-    title: 'طلب الكميات',
-    description: 'إنشاء طلبات كميات لمنتجات سلة مع حفظ خيارات المنتج داخل الطلب',
-    icon: '📦',
-    href: '/salla/quantity-request',
-    color: 'from-violet-500 to-indigo-500',
-    defaultRoles: ['admin', 'store_manager'],
-    grantsRoles: ['store_manager'],
-  },
-  {
     key: 'salla-notify',
     title: 'أبلغني عند التوفر',
     description: 'تسجيل طلبات العملاء للتواصل عند توفر مقاسات منتجات سلة',
     icon: '🔔',
     href: '/salla/notify',
     color: 'from-indigo-500 to-indigo-600',
-    defaultRoles: ['admin', 'store_manager'],
-    grantsRoles: ['store_manager'],
-  },
-  {
-    key: 'salla-requests',
-    title: 'طلبات كميات سلة',
-    description: 'متابعة طلبات الكميات وتواريخ التوريد لكل منتج',
-    icon: '📋',
-    href: '/salla/requests',
-    color: 'from-purple-500 to-rose-500',
     defaultRoles: ['admin', 'store_manager'],
     grantsRoles: ['store_manager'],
   },
@@ -508,26 +489,29 @@ const serviceDefinitionsData = [
     color: 'from-teal-500 to-cyan-600',
     defaultRoles: ['admin', 'store_manager', 'warehouse', 'accountant'],
     grantsRoles: ['store_manager', 'warehouse', 'accountant'],
+    hideFromDashboard: true,
   },
   {
-    key: 'tailor-fabric-gate',
-    title: 'بوابة الخياطين',
-    description: 'رابط دخول الخياطين لعرض الأقمشة المتوفرة وطلب كميات جديدة',
-    icon: '🪡',
-    href: '/tailor-fabric-gate',
-    color: 'from-cyan-500 to-blue-600',
-    defaultRoles: ['admin', 'store_manager', 'warehouse'],
-    grantsRoles: ['store_manager', 'warehouse'],
+    key: 'tailor-dashboard',
+    title: 'لوحة الخياط',
+    description: 'شراء الأقمشة وتتبع المخزون الخاص وتصميم الموديلات وتسليم دفعات الفساتين',
+    icon: '🧵',
+    href: '/tailor',
+    color: 'from-teal-500 to-cyan-600',
+    defaultRoles: ['admin', 'tailor'],
+    grantsRoles: ['tailor'],
+    hideFromDashboard: true,
   },
   {
-    key: 'fabric-repeat-requests',
-    title: 'طلبات التكرار',
-    description: 'متابعة طلبات تكرار تصنيع الفساتين ومراحلها مع الخياطين',
-    icon: '🔁',
-    href: '/fabric-management/repeat-requests',
-    color: 'from-cyan-500 to-teal-600',
-    defaultRoles: ['admin', 'store_manager', 'warehouse', 'accountant'],
+    key: 'fabric-tailor-hub',
+    title: 'الأقمشة والخياطين',
+    description: 'الوصول السريع لإدارة الأقمشة ولوحة الخياط الشخصية',
+    icon: '🧵',
+    href: '/fabric-hub',
+    color: 'from-teal-500 to-cyan-600',
+    defaultRoles: [],
     grantsRoles: [],
+    assignable: false,
   },
 ] as const satisfies ReadonlyArray<ServiceDefinitionSeed>;
 

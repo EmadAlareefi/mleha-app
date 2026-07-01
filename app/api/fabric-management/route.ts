@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { incrementSallaStock } from '@/app/lib/salla-stock';
 
 const FABRIC_SERVICE = 'fabric-management';
 const YARD_TO_METER = 0.9144;
@@ -333,6 +334,11 @@ function serializeModel(
     unit,
     colors: Array.isArray(model.colors) ? model.colors : [],
     imageData: model.imageData || null,
+    sallaProductId: model.sallaProductId ?? null,
+    sallaProductName: model.sallaProductName ?? null,
+    sallaVariantId: model.sallaVariantId ?? null,
+    sallaVariantName: model.sallaVariantName ?? null,
+    sallaSku: model.sallaSku ?? null,
     fabrics: recipe.map((row) => ({
       id: String(row.fabricId || '') || Math.random().toString(36).slice(2),
       role: row.role || 'main',
@@ -363,6 +369,65 @@ function serializeRequest(request: any) {
       : toNumber(request.purchaseUnitCost),
     fabric: request.fabric ? serializeFabric(request.fabric) : undefined,
   };
+}
+
+function serializeDeliveryNote(note: any) {
+  return {
+    ...note,
+    dressCount: Number(note.dressCount || 0),
+    tailoringCost: toNumber(note.tailoringCost),
+    embroideryCost: toNumber(note.embroideryCost),
+    extraCost: toNumber(note.extraCost),
+    tailor: note.tailor ? { id: note.tailor.id, name: note.tailor.name, workshopName: note.tailor.workshopName } : undefined,
+    designModel: note.designModel ? { id: note.designModel.id, sku: note.designModel.sku } : undefined,
+  };
+}
+
+// Sum of signed ledger movements for a fabric at a location (WAREHOUSE, or a specific tailor).
+// Legacy pre-migration rows (quantityDelta null) are excluded - they're read via the old
+// open-issue math (`status !== 'closed'` + remainingAtTailor) in the GET summary instead.
+async function getLedgerBalance(
+  client: Prisma.TransactionClient | typeof prisma,
+  fabricId: string,
+  location: 'WAREHOUSE' | 'TAILOR',
+  tailorId?: string | null
+) {
+  const agg = await client.tailorFabricIssue.aggregate({
+    where: {
+      fabricId,
+      location,
+      quantityDelta: { not: null },
+      ...(location === 'TAILOR' ? { tailorId: tailorId || undefined } : {}),
+    },
+    _sum: { quantityDelta: true },
+  });
+  return toNumber(agg._sum.quantityDelta, 0);
+}
+
+// How much of a fabric's grand total is currently sitting at the main warehouse (not
+// issued to any tailor). Grand total minus everything currently attributed to a tailor,
+// whether via an open legacy issue (pre-migration) or a new-style ledger entry.
+async function getWarehouseAvailable(client: Prisma.TransactionClient | typeof prisma, fabricId: string) {
+  const [fabric, legacyOpenAgg, tailorLedgerBalance] = await Promise.all([
+    client.fabric.findUnique({ where: { id: fabricId } }),
+    client.tailorFabricIssue.aggregate({
+      where: { fabricId, movementType: 'LEGACY_ISSUE', status: { not: 'closed' } },
+      _sum: { issuedLength: true, consumedLength: true, returnedLength: true },
+    }),
+    getLedgerBalance(client, fabricId, 'TAILOR'),
+  ]);
+  if (!fabric) return 0;
+  const legacyRemaining =
+    toNumber(legacyOpenAgg._sum.issuedLength, 0) -
+    toNumber(legacyOpenAgg._sum.consumedLength, 0) -
+    toNumber(legacyOpenAgg._sum.returnedLength, 0);
+  return toNumber(fabric.stockLength, 0) - legacyRemaining - tailorLedgerBalance;
+}
+
+async function requireWarehouseRole(session: any) {
+  if (session?.user?.role === 'admin') return true;
+  const roles: string[] = Array.isArray(session?.user?.roles) ? session.user.roles : [];
+  return roles.includes('warehouse');
 }
 
 async function requireAccess() {
@@ -420,6 +485,73 @@ export async function GET() {
     const purchaseInvoices = await prisma.purchaseInvoice
       .findMany({ include: { items: true }, orderBy: { purchaseDate: 'desc' }, take: 200 })
       .catch(() => [] as Awaited<ReturnType<typeof prisma.purchaseInvoice.findMany>>);
+
+    // Delivery notes: the tailor -> warehouse handoff queue + recent history.
+    const deliveryNotes = await prisma.deliveryNote
+      .findMany({
+        include: { tailor: true, designModel: true },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      })
+      .catch(() => [] as Awaited<ReturnType<typeof prisma.deliveryNote.findMany>>);
+
+    // Fabric location breakdown (grand total split into "at warehouse" vs "at tailors"),
+    // combining pre-migration legacy open issues with the new movement ledger.
+    const [legacyOpenAgg, ledgerLocationAgg, ledgerTailorFabricAgg] = await Promise.all([
+      prisma.tailorFabricIssue.groupBy({
+        by: ['fabricId'],
+        where: { movementType: 'LEGACY_ISSUE', status: { not: 'closed' } },
+        _sum: { issuedLength: true, consumedLength: true, returnedLength: true },
+      }),
+      prisma.tailorFabricIssue.groupBy({
+        by: ['fabricId', 'location'],
+        where: { quantityDelta: { not: null } },
+        _sum: { quantityDelta: true },
+      }),
+      prisma.tailorFabricIssue.groupBy({
+        by: ['fabricId', 'tailorId'],
+        where: { location: 'TAILOR', quantityDelta: { not: null }, tailorId: { not: null } },
+        _sum: { quantityDelta: true },
+      }),
+    ]);
+    const legacyRemainingByFabric = new Map<string, number>();
+    for (const row of legacyOpenAgg) {
+      legacyRemainingByFabric.set(
+        row.fabricId,
+        toNumber(row._sum.issuedLength, 0) - toNumber(row._sum.consumedLength, 0) - toNumber(row._sum.returnedLength, 0)
+      );
+    }
+    const ledgerAtTailorsByFabric = new Map<string, number>();
+    for (const row of ledgerLocationAgg) {
+      if (row.location !== 'TAILOR') continue;
+      ledgerAtTailorsByFabric.set(row.fabricId, toNumber(row._sum.quantityDelta, 0));
+    }
+    const tailorFabricBalanceMap = new Map<string, number>(); // key `${fabricId}|${tailorId}`
+    for (const row of ledgerTailorFabricAgg) {
+      if (!row.tailorId) continue;
+      tailorFabricBalanceMap.set(`${row.fabricId}|${row.tailorId}`, toNumber(row._sum.quantityDelta, 0));
+    }
+    // Fold legacy open issues (still tracked per-tailor via the old status field) into the
+    // same per-tailor balance map so the tailor-portal/warehouse UI see one consistent number.
+    for (const issue of issues) {
+      if (issue.movementType !== 'LEGACY_ISSUE' || issue.status === 'closed' || !issue.tailorId) continue;
+      const remaining =
+        toNumber(issue.issuedLength) - toNumber(issue.consumedLength) - toNumber(issue.returnedLength);
+      const key = `${issue.fabricId}|${issue.tailorId}`;
+      tailorFabricBalanceMap.set(key, (tailorFabricBalanceMap.get(key) || 0) + remaining);
+    }
+
+    function fabricLocationBreakdown(fabricId: string, grandTotal: number) {
+      const atTailors = (legacyRemainingByFabric.get(fabricId) || 0) + (ledgerAtTailorsByFabric.get(fabricId) || 0);
+      return { atWarehouse: grandTotal - atTailors, atTailors };
+    }
+
+    const tailorFabricBalances = Array.from(tailorFabricBalanceMap.entries())
+      .map(([key, heldMeters]) => {
+        const [fabricId, tailorId] = key.split('|');
+        return { fabricId, tailorId, heldMeters };
+      })
+      .filter((row) => Math.abs(row.heldMeters) > 0.001);
 
     const serializedIssues = issues.map(serializeIssue);
     const stockMeters = fabrics.reduce((sum, fabric) => sum + toNumber(fabric.stockLength), 0);
@@ -501,7 +633,10 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      fabrics: fabrics.map(serializeFabric),
+      fabrics: fabrics.map((fabric) => ({
+        ...serializeFabric(fabric),
+        ...fabricLocationBreakdown(fabric.id, toNumber(fabric.stockLength)),
+      })),
       accessories: accessories.map(serializeAccessory),
       tailors,
       issues: serializedIssues,
@@ -509,6 +644,8 @@ export async function GET() {
       models: serializedModels,
       suppliers: suppliers.map(serializeSupplier),
       purchaseInvoices: purchaseInvoices.map(serializePurchaseInvoice),
+      deliveryNotes: deliveryNotes.map(serializeDeliveryNote),
+      tailorFabricBalances,
       summary: {
         fabricsCount: fabrics.length,
         accessoriesCount: accessories.length,
@@ -626,21 +763,45 @@ export async function POST(request: NextRequest) {
       const lengthUnit = body.lengthUnit === 'yard' ? 'yard' : 'meter';
       const supplier = normalizeSupplier(body.supplier);
       const items = Array.isArray(body.items) ? body.items : [];
+      const enteredLocation = body.enteredLocation === 'TAILOR' ? 'TAILOR' : 'WAREHOUSE';
+      const tailorId = enteredLocation === 'TAILOR' ? cleanText(body.tailorId) : '';
 
       if (!billNumber) {
         return NextResponse.json({ error: 'رقم فاتورة الشراء مطلوب' }, { status: 400 });
       }
-
       if (!purchaseDate || Number.isNaN(new Date(purchaseDate).getTime())) {
         return NextResponse.json({ error: 'تاريخ الشراء مطلوب' }, { status: 400 });
       }
-
       if (!items.length) {
         return NextResponse.json({ error: 'أضف قماشاً واحداً على الأقل للفاتورة' }, { status: 400 });
       }
+      if (enteredLocation === 'TAILOR' && !tailorId) {
+        return NextResponse.json({ error: 'الخياط مطلوب عند إدخال فاتورة باسمه' }, { status: 400 });
+      }
 
-      const savedFabrics = await prisma.$transaction(async (tx) => {
-        const results = [];
+      const result = await prisma.$transaction(async (tx) => {
+        if (tailorId) {
+          const tailor = await tx.tailor.findUnique({ where: { id: tailorId } });
+          if (!tailor) throw new Error('الخياط غير موجود');
+        }
+
+        const existingInvoice = await tx.purchaseInvoice.findUnique({
+          where: { invoiceNumber_supplier: { invoiceNumber: billNumber, supplier: supplier || '' } },
+        });
+        if (existingInvoice) {
+          throw new Error(`رقم الفاتورة ${billNumber} مستخدم بالفعل لهذا المورّد`);
+        }
+
+        const savedFabrics: any[] = [];
+        const itemRows: Array<{
+          fabricId: string;
+          quantity: Prisma.Decimal;
+          unitCost: Prisma.Decimal;
+          data: Prisma.PurchaseInvoiceItemCreateManyInvoiceInput;
+        }> = [];
+        let subtotalExclVat = new Prisma.Decimal(0);
+        let vatTotal = new Prisma.Decimal(0);
+        let totalInclVat = new Prisma.Decimal(0);
 
         for (const [index, item] of items.entries()) {
           const rowLabel = `سطر ${index + 1}`;
@@ -651,19 +812,15 @@ export async function POST(request: NextRequest) {
           const unitCost =
             item?.unitCost !== undefined && item?.unitCost !== ''
               ? costToPerMeter(item.unitCost, lengthUnit)
-              : null;
+              : new Prisma.Decimal(0);
           const minStock =
             item?.minStock !== undefined && item?.minStock !== ''
               ? lengthToMeters(item.minStock, lengthUnit, `حد التنبيه في ${rowLabel}`)
               : null;
-          const purchaseNote = [
-            `فاتورة شراء ${billNumber}`,
-            `تاريخ الشراء: ${purchaseDate}`,
-            item?.notes ? cleanText(item.notes) : null,
-            body.notes ? cleanText(body.notes) : null,
-          ]
-            .filter(Boolean)
-            .join(' - ');
+          const vatRate =
+            item?.vatRate !== undefined && item?.vatRate !== ''
+              ? new Prisma.Decimal(toNumber(item.vatRate))
+              : new Prisma.Decimal(0.15);
 
           const existingFabric = fabricId
             ? await tx.fabric.findUnique({ where: { id: fabricId } })
@@ -675,51 +832,115 @@ export async function POST(request: NextRequest) {
             throw new Error(`القماش المحدد في ${rowLabel} غير موجود`);
           }
 
+          let fabric;
           if (existingFabric) {
-            const updatedFabric = await tx.fabric.update({
+            fabric = await tx.fabric.update({
               where: { id: existingFabric.id },
               data: {
                 stockLength: { increment: purchasedLength },
                 supplier: supplier || existingFabric.supplier,
                 color: cleanText(item?.color) || existingFabric.color,
-                unitCost: unitCost || existingFabric.unitCost,
+                unitCost: unitCost.greaterThan(0) ? unitCost : existingFabric.unitCost,
                 minStock: minStock || existingFabric.minStock,
-                notes: [existingFabric.notes, `توريد جديد: ${purchaseNote}`].filter(Boolean).join('\n'),
               },
             });
-            results.push(updatedFabric);
-            continue;
+          } else {
+            if (!name) throw new Error(`اسم القماش مطلوب في ${rowLabel}`);
+            fabric = await tx.fabric.create({
+              data: {
+                name,
+                sku: sku || null,
+                color: cleanText(item?.color) || null,
+                supplier,
+                unitCost,
+                stockLength: purchasedLength,
+                minStock: minStock || toDecimal(0),
+              },
+            });
           }
+          savedFabrics.push(fabric);
 
-          if (!name) {
-            throw new Error(`اسم القماش مطلوب في ${rowLabel}`);
-          }
+          const lineTotalExclVat = purchasedLength.mul(unitCost);
+          const vatAmount = lineTotalExclVat.mul(vatRate);
+          const lineTotalInclVat = lineTotalExclVat.plus(vatAmount);
+          subtotalExclVat = subtotalExclVat.plus(lineTotalExclVat);
+          vatTotal = vatTotal.plus(vatAmount);
+          totalInclVat = totalInclVat.plus(lineTotalInclVat);
 
-          const createdFabric = await tx.fabric.create({
+          itemRows.push({
+            fabricId: fabric.id,
+            quantity: purchasedLength,
+            unitCost,
             data: {
-              name,
-              sku: sku || null,
-              color: cleanText(item?.color) || null,
-              fabricType: null,
-              supplier,
-              unitCost: unitCost || toDecimal(0),
-              stockLength: purchasedLength,
-              minStock: minStock || toDecimal(0),
-              notes: purchaseNote,
+              itemType: 'fabric',
+              fabricId: fabric.id,
+              productName: fabric.name,
+              productNumber: fabric.sku,
+              unit: 'meter',
+              quantity: purchasedLength,
+              unitCost,
+              vatRate,
+              lineTotalExclVat,
+              vatAmount,
+              lineTotalInclVat,
+              notes: cleanText(item?.notes) || null,
             },
           });
-          results.push(createdFabric);
         }
 
-        return results;
+        const invoice = await tx.purchaseInvoice.create({
+          data: {
+            invoiceNumber: billNumber,
+            supplier,
+            purchaseDate: new Date(purchaseDate),
+            subtotalExclVat,
+            vatAmount: vatTotal,
+            totalInclVat,
+            notes: cleanText(body.notes) || null,
+            enteredLocation,
+            tailorId: tailorId || null,
+            items: { createMany: { data: itemRows.map((row) => row.data) } },
+          },
+          include: { items: true },
+        });
+
+        for (const row of itemRows) {
+          const invoiceItem = invoice.items.find((entry) => entry.fabricId === row.fabricId);
+          await tx.tailorFabricIssue.create({
+            data: {
+              fabricId: row.fabricId,
+              tailorId: tailorId || null,
+              issuedLength: row.quantity,
+              unitCostAtIssue: row.unitCost,
+              movementType: enteredLocation === 'TAILOR' ? 'TAILOR_PURCHASE' : 'WAREHOUSE_PURCHASE',
+              location: enteredLocation,
+              quantityDelta: row.quantity,
+              purchaseInvoiceItemId: invoiceItem?.id ?? null,
+              reference: billNumber,
+              status: 'closed',
+              issueDate: new Date(purchaseDate),
+              notes: cleanText(body.notes) || null,
+            },
+          });
+        }
+
+        return { fabrics: savedFabrics, invoice };
       });
 
-      return NextResponse.json({ fabrics: savedFabrics.map(serializeFabric) }, { status: 201 });
+      return NextResponse.json(
+        {
+          fabrics: result.fabrics.map(serializeFabric),
+          invoice: serializePurchaseInvoice(result.invoice),
+        },
+        { status: 201 }
+      );
     }
 
     if (action === 'add-fabric-stock') {
+      // Warehouse stock-count adjustment/correction: a manual delta on the fabric's
+      // total, recorded as a WAREHOUSE-location ledger entry (not tied to a bill).
       const fabricId = String(body.fabricId || '');
-      const purchasedLength = lengthToMeters(body.purchasedLength, body.lengthUnit, 'الكمية المضافة');
+      const delta = lengthToMeters(body.purchasedLength, body.lengthUnit, 'الكمية المعدَّلة');
 
       if (!fabricId) {
         return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
@@ -730,30 +951,69 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'القماش غير موجود' }, { status: 404 });
       }
 
-      const purchaseNote = [
-        body.purchaseBill ? `رقم فاتورة الشراء: ${body.purchaseBill}` : null,
-        body.notes,
-      ]
-        .filter(Boolean)
-        .join(' - ');
-      const supplier = normalizeSupplier(body.supplier);
+      const note = cleanText(body.notes) || null;
+      const actor = getAuditUser(access.session);
 
-      const updatedFabric = await prisma.fabric.update({
-        where: { id: fabricId },
-        data: {
-          stockLength: { increment: purchasedLength },
-          supplier: supplier || existingFabric.supplier,
-          unitCost:
-            body.unitCost !== undefined && body.unitCost !== ''
-              ? costToPerMeter(body.unitCost, body.lengthUnit)
-              : existingFabric.unitCost,
-          notes: purchaseNote
-            ? [existingFabric.notes, `توريد جديد: ${purchaseNote}`].filter(Boolean).join('\n')
-            : existingFabric.notes,
-        },
+      const updatedFabric = await prisma.$transaction(async (tx) => {
+        const updated = await tx.fabric.update({
+          where: { id: fabricId },
+          data: { stockLength: { increment: delta } },
+        });
+        await tx.tailorFabricIssue.create({
+          data: {
+            fabricId,
+            issuedLength: delta,
+            unitCostAtIssue: existingFabric.unitCost,
+            movementType: 'STOCK_ADJUSTMENT',
+            location: 'WAREHOUSE',
+            quantityDelta: delta,
+            status: 'closed',
+            notes: note,
+            reference: `تعديل جرد بواسطة ${actor}`,
+          },
+        });
+        return updated;
       });
 
       return NextResponse.json(serializeFabric(updatedFabric));
+    }
+
+    if (action === 'tailor-stock-adjustment') {
+      // A tailor's own stock-count correction on their held fabric.
+      const fabricId = String(body.fabricId || '');
+      const tailorId = String(body.tailorId || '');
+      const delta = lengthToMeters(body.delta, body.lengthUnit, 'الكمية المعدَّلة');
+
+      if (!fabricId || !tailorId) {
+        return NextResponse.json({ error: 'القماش والخياط مطلوبان' }, { status: 400 });
+      }
+
+      const [fabric, tailor] = await Promise.all([
+        prisma.fabric.findUnique({ where: { id: fabricId } }),
+        prisma.tailor.findUnique({ where: { id: tailorId } }),
+      ]);
+      if (!fabric) return NextResponse.json({ error: 'القماش غير موجود' }, { status: 404 });
+      if (!tailor) return NextResponse.json({ error: 'الخياط غير موجود' }, { status: 404 });
+
+      await prisma.$transaction(async (tx) => {
+        await tx.fabric.update({ where: { id: fabricId }, data: { stockLength: { increment: delta } } });
+        await tx.tailorFabricIssue.create({
+          data: {
+            fabricId,
+            tailorId,
+            issuedLength: delta,
+            unitCostAtIssue: fabric.unitCost,
+            movementType: 'STOCK_ADJUSTMENT',
+            location: 'TAILOR',
+            quantityDelta: delta,
+            status: 'closed',
+            notes: cleanText(body.notes) || null,
+          },
+        });
+      });
+
+      const balance = await getLedgerBalance(prisma, fabricId, 'TAILOR', tailorId);
+      return NextResponse.json({ fabricId, tailorId, heldBalance: balance });
     }
 
     if (action === 'issue-fabric') {
@@ -784,7 +1044,11 @@ export async function POST(request: NextRequest) {
           let mainUnitCost = new Prisma.Decimal(0);
           let mainIssuedLength = new Prisma.Decimal(0);
 
-          // Deduct every recipe fabric.
+          // Deduct every recipe fabric. The main fabric becomes a net-zero custody
+          // transfer to the tailor (paired ledger rows below, resolved later via
+          // record-delivery); secondary materials are treated as consumed immediately,
+          // matching the original behavior (they were never individually tracked as
+          // "held by tailor").
           for (const row of recipe) {
             const rowFabricId = String(row.fabricId || '');
             if (!rowFabricId) continue;
@@ -793,10 +1057,22 @@ export async function POST(request: NextRequest) {
             const needed = new Prisma.Decimal(consumptionMeters);
             const fabric = await tx.fabric.findUnique({ where: { id: rowFabricId } });
             if (!fabric) throw new Error('أحد أقمشة الموديل غير موجود');
-            if (fabric.stockLength.lessThan(needed)) {
-              throw new Error(`كمية القماش "${fabric.name}" في المخزون غير كافية`);
+            const isMain = rowFabricId === mainFabricId;
+
+            if (isMain) {
+              const available = await getWarehouseAvailable(tx, rowFabricId);
+              if (available < consumptionMeters) {
+                throw new Error(`كمية القماش "${fabric.name}" في المستودع غير كافية`);
+              }
+              mainUnitCost = fabric.unitCost;
+              mainIssuedLength = needed;
+            } else {
+              if (fabric.stockLength.lessThan(needed)) {
+                throw new Error(`كمية القماش "${fabric.name}" في المخزون غير كافية`);
+              }
+              await tx.fabric.update({ where: { id: rowFabricId }, data: { stockLength: { decrement: needed } } });
             }
-            await tx.fabric.update({ where: { id: rowFabricId }, data: { stockLength: { decrement: needed } } });
+
             fabricsSnapshot.push({
               fabricId: rowFabricId,
               name: fabric.name,
@@ -805,10 +1081,6 @@ export async function POST(request: NextRequest) {
               meters: consumptionMeters,
               unitCost: toNumber(fabric.unitCost),
             });
-            if (rowFabricId === mainFabricId) {
-              mainUnitCost = fabric.unitCost;
-              mainIssuedLength = needed;
-            }
           }
 
           // Deduct accessories that reference real inventory.
@@ -832,7 +1104,10 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          return tx.tailorFabricIssue.create({
+          const transferGroupId = `xfer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
+
+          const created = await tx.tailorFabricIssue.create({
             data: {
               fabricId: mainFabricId,
               tailorId,
@@ -842,12 +1117,34 @@ export async function POST(request: NextRequest) {
               plannedDressCount,
               size: body.size ? String(body.size) : null,
               componentsIssued: { fabrics: fabricsSnapshot, accessories: accessoriesSnapshot },
-              issueDate: body.issueDate ? new Date(body.issueDate) : new Date(),
+              issueDate,
               reference: body.reference || null,
               notes: body.notes || null,
+              movementType: 'ISSUE_TO_TAILOR',
+              location: 'TAILOR',
+              quantityDelta: mainIssuedLength,
+              transferGroupId,
             },
             include: { fabric: true, tailor: true },
           });
+
+          // Warehouse-side leg of the custody transfer: net-zero on the fabric's grand total.
+          await tx.tailorFabricIssue.create({
+            data: {
+              fabricId: mainFabricId,
+              issuedLength: mainIssuedLength,
+              unitCostAtIssue: mainUnitCost,
+              movementType: 'ISSUE_TO_TAILOR',
+              location: 'WAREHOUSE',
+              quantityDelta: mainIssuedLength.neg(),
+              transferGroupId,
+              status: 'closed',
+              issueDate,
+              reference: body.reference || null,
+            },
+          });
+
+          return created;
         });
 
         return NextResponse.json(serializeIssue(issue), { status: 201 });
@@ -863,28 +1160,48 @@ export async function POST(request: NextRequest) {
       const issue = await prisma.$transaction(async (tx) => {
         const fabric = await tx.fabric.findUnique({ where: { id: fabricId } });
         if (!fabric) throw new Error('القماش غير موجود');
-        if (fabric.stockLength.lessThan(issuedLength)) {
-          throw new Error('كمية القماش في المخزون غير كافية');
+        const available = await getWarehouseAvailable(tx, fabricId);
+        if (available < toNumber(issuedLength)) {
+          throw new Error('كمية القماش في المستودع غير كافية');
         }
 
-        await tx.fabric.update({
-          where: { id: fabricId },
-          data: { stockLength: { decrement: issuedLength } },
-        });
+        const transferGroupId = `xfer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
 
-        return tx.tailorFabricIssue.create({
+        const created = await tx.tailorFabricIssue.create({
           data: {
             fabricId,
             tailorId,
             issuedLength,
             unitCostAtIssue: fabric.unitCost,
             size: body.size ? String(body.size) : null,
-            issueDate: body.issueDate ? new Date(body.issueDate) : new Date(),
+            issueDate,
             reference: body.reference || null,
             notes: body.notes || null,
+            movementType: 'ISSUE_TO_TAILOR',
+            location: 'TAILOR',
+            quantityDelta: issuedLength,
+            transferGroupId,
           },
           include: { fabric: true, tailor: true },
         });
+
+        await tx.tailorFabricIssue.create({
+          data: {
+            fabricId,
+            issuedLength,
+            unitCostAtIssue: fabric.unitCost,
+            movementType: 'ISSUE_TO_TAILOR',
+            location: 'WAREHOUSE',
+            quantityDelta: issuedLength.neg(),
+            transferGroupId,
+            status: 'closed',
+            issueDate,
+            reference: body.reference || null,
+          },
+        });
+
+        return created;
       });
 
       return NextResponse.json(serializeIssue(issue), { status: 201 });
@@ -913,13 +1230,30 @@ export async function POST(request: NextRequest) {
           throw new Error('المستهلك والمرتجع لا يمكن أن يتجاوزا الكمية المسلمة');
         }
 
-        const previousReturned = existing.returnedLength || new Prisma.Decimal(0);
-        const returnedDelta = returnedLength.minus(previousReturned);
-        if (!returnedDelta.equals(0)) {
-          await tx.fabric.update({
-            where: { id: existing.fabricId },
-            data: { stockLength: { increment: returnedDelta } },
-          });
+        if (existing.movementType === 'LEGACY_ISSUE') {
+          // Pre-migration semantics: the full issuedLength was already subtracted from
+          // Fabric.stockLength at issue time, so only the unused (returned) portion needs
+          // crediting back. consumedLength was already accounted for by that original decrement.
+          const previousReturned = existing.returnedLength || new Prisma.Decimal(0);
+          const returnedDelta = returnedLength.minus(previousReturned);
+          if (!returnedDelta.equals(0)) {
+            await tx.fabric.update({
+              where: { id: existing.fabricId },
+              data: { stockLength: { increment: returnedDelta } },
+            });
+          }
+        } else {
+          // New custody-transfer semantics: issuing was net-zero on the grand total, so only
+          // actual consumption permanently leaves it. Returning fabric to the warehouse is a
+          // pure custody move (net zero), not a stock change.
+          const previousConsumed = existing.consumedLength || new Prisma.Decimal(0);
+          const consumedDelta = consumedLength.minus(previousConsumed);
+          if (!consumedDelta.equals(0)) {
+            await tx.fabric.update({
+              where: { id: existing.fabricId },
+              data: { stockLength: { decrement: consumedDelta } },
+            });
+          }
         }
 
         return tx.tailorFabricIssue.update({
@@ -941,6 +1275,269 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(serializeIssue(issue));
+    }
+
+    if (action === 'create-delivery-note') {
+      const tailorId = String(body.tailorId || '');
+      const designModelId = String(body.designModelId || '');
+      const dressCount = Math.max(1, Math.trunc(toNumber(body.dressCount, 1)));
+      if (!tailorId || !designModelId) {
+        return NextResponse.json({ error: 'الخياط والموديل مطلوبان' }, { status: 400 });
+      }
+
+      const [tailor, model] = await Promise.all([
+        prisma.tailor.findUnique({ where: { id: tailorId } }),
+        prisma.designModel.findUnique({ where: { id: designModelId } }),
+      ]);
+      if (!tailor) return NextResponse.json({ error: 'الخياط غير موجود' }, { status: 404 });
+      if (!model) return NextResponse.json({ error: 'الموديل غير موجود' }, { status: 404 });
+
+      const unit = model.unit || 'meter';
+      const recipe: RecipeRow[] = Array.isArray(model.recipe) ? (model.recipe as any[]) : [];
+      const accessoriesRecipe = parseAccessoryRecipe(model.accessories);
+      const fabricIds = recipe.map((row) => String(row.fabricId || '')).filter(Boolean);
+      const fabricsUsed = await prisma.fabric.findMany({ where: { id: { in: fabricIds } } });
+      const fabricLookup = new Map(fabricsUsed.map((f) => [f.id, f]));
+      const accessoryIds = (accessoriesRecipe as any[]).map((row) => row.accessoryId).filter(Boolean);
+      const accessoriesUsed = await prisma.accessory.findMany({ where: { id: { in: accessoryIds } } });
+      const accessoryLookup = new Map(accessoriesUsed.map((a) => [a.id, a]));
+
+      const fabricsSnapshot = recipe
+        .map((row) => {
+          const fabricId = String(row.fabricId || '');
+          const fabric = fabricLookup.get(fabricId);
+          const consumption = toNumber(row.consumption);
+          const meters = consumptionToMeters(row.consumption, unit) * dressCount;
+          if (!fabric || meters <= 0) return null;
+          return {
+            fabricId,
+            name: fabric.name,
+            consumption,
+            meters,
+            unitCost: toNumber(fabric.unitCost),
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => row !== null);
+
+      const accessoriesSnapshot = (accessoriesRecipe as any[])
+        .map((row) => {
+          if (!row.accessoryId) return null;
+          const accessory = accessoryLookup.get(row.accessoryId);
+          const qty = toNumber(row.consumption) * dressCount;
+          if (!accessory || qty <= 0) return null;
+          return { accessoryId: row.accessoryId, name: accessory.name, qty, unitPrice: toNumber(accessory.unitPrice) };
+        })
+        .filter((row): row is NonNullable<typeof row> => row !== null);
+
+      const note = await prisma.deliveryNote.create({
+        data: {
+          noteNumber: `DN-${Date.now().toString(36).toUpperCase()}`,
+          tailorId,
+          designModelId,
+          dressCount,
+          size: body.size ? String(body.size) : model.size,
+          status: 'DRAFT',
+          tailoringCost: toDecimal(body.tailoringCost ?? model.tailoringCost),
+          embroideryCost: toDecimal(body.embroideryCost ?? model.embroideryCost),
+          extraCost: toDecimal(body.extraCost ?? model.extraCost),
+          componentsConsumed: { fabrics: fabricsSnapshot, accessories: accessoriesSnapshot },
+          notes: cleanText(body.notes) || null,
+        },
+        include: { tailor: true, designModel: true },
+      });
+
+      return NextResponse.json(serializeDeliveryNote(note), { status: 201 });
+    }
+
+    if (action === 'submit-delivery-note') {
+      const noteId = String(body.noteId || '');
+      if (!noteId) return NextResponse.json({ error: 'مذكرة التسليم مطلوبة' }, { status: 400 });
+
+      const note = await prisma.deliveryNote.findUnique({ where: { id: noteId } });
+      if (!note) return NextResponse.json({ error: 'مذكرة التسليم غير موجودة' }, { status: 404 });
+      if (note.status !== 'DRAFT') {
+        return NextResponse.json({ error: 'لا يمكن تسليم مذكرة غير مسودة' }, { status: 409 });
+      }
+
+      const snapshot = (note.componentsConsumed as any) || { fabrics: [], accessories: [] };
+      for (const line of snapshot.fabrics || []) {
+        const balance = await getLedgerBalance(prisma, line.fabricId, 'TAILOR', note.tailorId);
+        if (balance < line.meters) {
+          return NextResponse.json(
+            { error: `كمية القماش "${line.name}" المتوفرة لدى الخياط غير كافية لهذه الدفعة` },
+            { status: 409 }
+          );
+        }
+      }
+
+      const updated = await prisma.deliveryNote.update({
+        where: { id: noteId },
+        data: {
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          tailoringCost: body.tailoringCost !== undefined ? toDecimal(body.tailoringCost) : undefined,
+          embroideryCost: body.embroideryCost !== undefined ? toDecimal(body.embroideryCost) : undefined,
+          extraCost: body.extraCost !== undefined ? toDecimal(body.extraCost) : undefined,
+        },
+        include: { tailor: true, designModel: true },
+      });
+
+      return NextResponse.json(serializeDeliveryNote(updated));
+    }
+
+    if (action === 'accept-delivery-note') {
+      if (!(await requireWarehouseRole(access.session))) {
+        return NextResponse.json({ error: 'قبول التسليم من صلاحيات المستودع فقط' }, { status: 403 });
+      }
+      const noteId = String(body.noteId || '');
+      if (!noteId) return NextResponse.json({ error: 'مذكرة التسليم مطلوبة' }, { status: 400 });
+      const actor = getAuditUser(access.session);
+
+      const note = await prisma.$transaction(async (tx) => {
+        const existing = await tx.deliveryNote.findUnique({ where: { id: noteId }, include: { designModel: true } });
+        if (!existing) throw new Error('مذكرة التسليم غير موجودة');
+        if (existing.status !== 'SUBMITTED') throw new Error('لا يمكن قبول مذكرة غير مُسلَّمة');
+
+        const snapshot = (existing.componentsConsumed as any) || { fabrics: [], accessories: [] };
+
+        for (const line of snapshot.fabrics || []) {
+          const balance = await getLedgerBalance(tx, line.fabricId, 'TAILOR', existing.tailorId);
+          if (balance < line.meters) {
+            throw new Error(`كمية القماش "${line.name}" المتوفرة لدى الخياط غير كافية لهذه الدفعة`);
+          }
+        }
+
+        for (const line of snapshot.fabrics || []) {
+          await tx.fabric.update({ where: { id: line.fabricId }, data: { stockLength: { decrement: line.meters } } });
+          await tx.tailorFabricIssue.create({
+            data: {
+              fabricId: line.fabricId,
+              tailorId: existing.tailorId,
+              designModelId: existing.designModelId,
+              issuedLength: new Prisma.Decimal(line.meters),
+              unitCostAtIssue: toDecimal(line.unitCost),
+              movementType: 'CONSUMPTION',
+              location: 'TAILOR',
+              quantityDelta: new Prisma.Decimal(-line.meters),
+              status: 'closed',
+              deliveryNoteId: existing.id,
+              reference: existing.noteNumber,
+            },
+          });
+        }
+
+        for (const line of snapshot.accessories || []) {
+          const accessory = await tx.accessory.findUnique({ where: { id: line.accessoryId } });
+          if (accessory) {
+            await tx.accessory.update({ where: { id: line.accessoryId }, data: { stockQty: { decrement: line.qty } } });
+          }
+        }
+
+        await writeAudit(
+          tx,
+          'model',
+          existing.designModelId,
+          [{ field: 'دفعة مقبولة', oldValue: null, newValue: `${existing.dressCount} قطعة (${existing.noteNumber})` }],
+          actor
+        );
+
+        return tx.deliveryNote.update({
+          where: { id: noteId },
+          data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedBy: actor, sallaSyncStatus: 'pending' },
+          include: { tailor: true, designModel: true },
+        });
+      });
+
+      // Salla stock increment happens outside the DB transaction (external HTTP call).
+      let sallaSyncStatus = 'success';
+      let sallaSyncError: string | null = null;
+      const model = note.designModel as any;
+      if (model?.sallaProductId || model?.sallaVariantId) {
+        const result = model.sallaVariantId
+          ? await incrementSallaStock('variant_id', model.sallaVariantId, note.dressCount)
+          : await incrementSallaStock('product_id', model.sallaProductId, note.dressCount);
+        if (!result.ok) {
+          sallaSyncStatus = 'failed';
+          sallaSyncError = result.error;
+        }
+      } else {
+        sallaSyncStatus = 'failed';
+        sallaSyncError = 'الموديل غير مرتبط بمنتج سلة';
+      }
+
+      const finalNote = await prisma.deliveryNote.update({
+        where: { id: noteId },
+        data: { sallaSyncStatus, sallaSyncError, sallaSyncedAt: new Date() },
+        include: { tailor: true, designModel: true },
+      });
+
+      return NextResponse.json(serializeDeliveryNote(finalNote));
+    }
+
+    if (action === 'reject-delivery-note') {
+      if (!(await requireWarehouseRole(access.session))) {
+        return NextResponse.json({ error: 'رفض التسليم من صلاحيات المستودع فقط' }, { status: 403 });
+      }
+      const noteId = String(body.noteId || '');
+      const rejectionReason = cleanText(body.rejectionReason);
+      if (!noteId) return NextResponse.json({ error: 'مذكرة التسليم مطلوبة' }, { status: 400 });
+
+      const existing = await prisma.deliveryNote.findUnique({ where: { id: noteId } });
+      if (!existing) return NextResponse.json({ error: 'مذكرة التسليم غير موجودة' }, { status: 404 });
+      if (existing.status !== 'SUBMITTED') {
+        return NextResponse.json({ error: 'لا يمكن رفض مذكرة غير مُسلَّمة' }, { status: 409 });
+      }
+
+      const updated = await prisma.deliveryNote.update({
+        where: { id: noteId },
+        data: {
+          status: 'REJECTED',
+          rejectedAt: new Date(),
+          rejectedBy: getAuditUser(access.session),
+          rejectionReason: rejectionReason || null,
+        },
+        include: { tailor: true, designModel: true },
+      });
+
+      return NextResponse.json(serializeDeliveryNote(updated));
+    }
+
+    if (action === 'resync-salla-stock') {
+      if (!(await requireWarehouseRole(access.session))) {
+        return NextResponse.json({ error: 'إعادة المزامنة من صلاحيات المستودع فقط' }, { status: 403 });
+      }
+      const noteId = String(body.noteId || '');
+      if (!noteId) return NextResponse.json({ error: 'مذكرة التسليم مطلوبة' }, { status: 400 });
+
+      const existing = await prisma.deliveryNote.findUnique({ where: { id: noteId }, include: { designModel: true } });
+      if (!existing) return NextResponse.json({ error: 'مذكرة التسليم غير موجودة' }, { status: 404 });
+      if (existing.status !== 'ACCEPTED') {
+        return NextResponse.json({ error: 'لا يمكن مزامنة مذكرة غير مقبولة' }, { status: 409 });
+      }
+
+      const model = existing.designModel as any;
+      let sallaSyncStatus = 'success';
+      let sallaSyncError: string | null = null;
+      if (model?.sallaProductId || model?.sallaVariantId) {
+        const result = model.sallaVariantId
+          ? await incrementSallaStock('variant_id', model.sallaVariantId, existing.dressCount)
+          : await incrementSallaStock('product_id', model.sallaProductId, existing.dressCount);
+        if (!result.ok) {
+          sallaSyncStatus = 'failed';
+          sallaSyncError = result.error;
+        }
+      } else {
+        sallaSyncStatus = 'failed';
+        sallaSyncError = 'الموديل غير مرتبط بمنتج سلة';
+      }
+
+      const updated = await prisma.deliveryNote.update({
+        where: { id: noteId },
+        data: { sallaSyncStatus, sallaSyncError, sallaSyncedAt: new Date() },
+        include: { tailor: true, designModel: true },
+      });
+
+      return NextResponse.json(serializeDeliveryNote(updated));
     }
 
     if (action === 'update-request-status') {
@@ -1079,6 +1676,11 @@ export async function POST(request: NextRequest) {
             tailoringCost: toDecimal(body.tailoringCost),
             embroideryCost: toDecimal(body.embroideryCost),
             extraCost: toDecimal(body.extraCost),
+            sallaProductId: body.sallaProductId !== undefined ? toNumber(body.sallaProductId, 0) || null : null,
+            sallaProductName: cleanText(body.sallaProductName) || null,
+            sallaVariantId: cleanText(body.sallaVariantId) || null,
+            sallaVariantName: cleanText(body.sallaVariantName) || null,
+            sallaSku: cleanText(body.sallaSku) || null,
           },
         });
 
@@ -1340,11 +1942,21 @@ export async function POST(request: NextRequest) {
           : typeof body.size === 'string'
             ? (body.size.trim() || null)
             : existing.size;
+      const sallaProductId =
+        body.sallaProductId === null ? null : body.sallaProductId !== undefined ? toNumber(body.sallaProductId, 0) || null : existing.sallaProductId;
+      const sallaProductName = body.sallaProductName !== undefined ? cleanText(body.sallaProductName) || null : existing.sallaProductName;
+      const sallaVariantId = body.sallaVariantId !== undefined ? cleanText(body.sallaVariantId) || null : existing.sallaVariantId;
+      const sallaVariantName = body.sallaVariantName !== undefined ? cleanText(body.sallaVariantName) || null : existing.sallaVariantName;
+      const sallaSku = body.sallaSku !== undefined ? cleanText(body.sallaSku) || null : existing.sallaSku;
 
       const updated = await prisma.$transaction(async (tx) => {
         const result = await tx.designModel.update({
           where: { id: modelId },
-          data: { status, description, size, unit, colors, imageData, recipe, accessories, tailoringCost, embroideryCost, extraCost },
+          data: {
+            status, description, size, unit, colors, imageData, recipe, accessories,
+            tailoringCost, embroideryCost, extraCost,
+            sallaProductId, sallaProductName, sallaVariantId, sallaVariantName, sallaSku,
+          },
         });
         await writeAudit(tx, 'model', modelId, [
           { field: 'الحالة', oldValue: existing.status, newValue: status },

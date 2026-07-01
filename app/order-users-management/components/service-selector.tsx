@@ -23,12 +23,24 @@ const ROLE_LABELS: Record<ServiceRole, string> = {
   store_manager: 'إدارة المتجر',
   accountant: 'المحاسبة',
   delivery_agent: 'المناديب',
+  tailor: 'الخياطون',
 };
 
 const OTHER_GROUP = 'أخرى';
+const FABRIC_TAILOR_GROUP = 'الأقمشة والخياطين';
 
-// Place each service in a single group (its first granted role, or "other").
+// Fabric/tailor services are grouped together regardless of their individual
+// grantsRoles[0], so this permission section stays in one place for admins.
+const GROUP_OVERRIDES: Partial<Record<ServiceKey, string>> = {
+  'fabric-management': FABRIC_TAILOR_GROUP,
+  'tailor-dashboard': FABRIC_TAILOR_GROUP,
+};
+
+// Place each service in a single group (an explicit override, its first
+// granted role, or "other").
 function getGroupLabel(service: ServiceDefinition): string {
+  const override = GROUP_OVERRIDES[service.key];
+  if (override) return override;
   const role = service.grantsRoles[0];
   return role ? ROLE_LABELS[role] : OTHER_GROUP;
 }
@@ -36,18 +48,22 @@ function getGroupLabel(service: ServiceDefinition): string {
 const GROUP_ORDER = [
   ROLE_LABELS.orders,
   ROLE_LABELS.warehouse,
+  FABRIC_TAILOR_GROUP,
   ROLE_LABELS.store_manager,
   ROLE_LABELS.accountant,
   ROLE_LABELS.delivery_agent,
+  ROLE_LABELS.tailor,
   OTHER_GROUP,
 ];
 
 interface ServiceSelectorProps {
   value: ServiceKey[];
   onChange: (next: ServiceKey[]) => void;
+  userType?: 'employee' | 'manufacturer';
+  onUserTypeChange?: (next: 'employee' | 'manufacturer') => void;
 }
 
-export function ServiceSelector({ value, onChange }: ServiceSelectorProps) {
+export function ServiceSelector({ value, onChange, userType, onUserTypeChange }: ServiceSelectorProps) {
   const [query, setQuery] = useState('');
 
   const selected = useMemo(() => new Set(value), [value]);
@@ -157,6 +173,17 @@ export function ServiceSelector({ value, onChange }: ServiceSelectorProps) {
                     );
                   })}
                 </div>
+                {group.label === FABRIC_TAILOR_GROUP && onUserTypeChange && (
+                  <label className="flex w-fit cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={userType === 'manufacturer'}
+                      onCheckedChange={(checked) =>
+                        onUserTypeChange(checked === true ? 'manufacturer' : 'employee')
+                      }
+                    />
+                    <span>مصنع</span>
+                  </label>
+                )}
               </div>
             );
           })
