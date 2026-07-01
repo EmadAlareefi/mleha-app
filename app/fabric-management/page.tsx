@@ -3,7 +3,6 @@
 import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  CheckCircle2,
   ChevronDown,
   FileText,
   PackagePlus,
@@ -14,7 +13,6 @@ import {
   Send,
   Shirt,
   Trash2,
-  UserPlus,
 } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { LoadingState } from '@/components/dashboard/states';
@@ -239,13 +237,6 @@ const LENGTH_UNIT_OPTIONS: SelectOption[] = [
   { value: 'yard', label: 'ياردة' },
 ];
 
-const DRESS_SIZE_OPTIONS: SelectOption[] = [
-  EMPTY_OPTION,
-  ...['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
-    '36', '38', '40', '42', '44', '46', '48', '50', '52', '54',
-    'مقاس حر'].map((value) => ({ value, label: value })),
-];
-
 const FABRIC_COLOR_OPTIONS: SelectOption[] = [
   'أبيض',
   'أوف وايت',
@@ -273,23 +264,6 @@ const FABRIC_COLOR_OPTIONS: SelectOption[] = [
   'نحاسي',
   'متعدد الألوان',
 ].map((value) => ({ value, label: value }));
-
-const WORKSHOP_OPTIONS: SelectOption[] = [
-  'ورشة داخلية',
-  'ورشة خارجية',
-  'خياط مستقل',
-  'فرع الإنتاج',
-  'تطريز خارجي',
-  'تعديل ومقاسات',
-].map((value) => ({ value, label: value }));
-
-const initialTailorForm = {
-  name: '',
-  workshopName: '',
-  phone: '',
-  accessCode: '',
-  notes: '',
-};
 
 type PurchaseBillForm = {
   billNumber: string;
@@ -363,29 +337,6 @@ const initialCreateSupplierDialog: CreateSupplierDialogState = {
 
 const looksLikeSku = (value: string) => /[0-9]/.test(value) || /^[A-Za-z0-9_-]+$/.test(value);
 
-const initialDeliveryForm = {
-  issueId: '',
-  deliveredDressCount: '',
-  returnedLength: '',
-  tailoringCost: '',
-  embroideryCost: '',
-  extraCost: '',
-  size: '',
-  deliveryDate: new Date().toISOString().split('T')[0],
-  notes: '',
-};
-
-// Model-driven delivery: pick a dress model + count, deduct its full BOM.
-const initialModelIssueForm = {
-  designModelId: '',
-  tailorId: '',
-  plannedDressCount: '1',
-  size: '',
-  issueDate: new Date().toISOString().split('T')[0],
-  reference: '',
-  notes: '',
-};
-
 type AccessoryBillItem = {
   id: string;
   accessoryId: string;
@@ -419,13 +370,10 @@ export default function FabricManagementPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lengthUnit, setLengthUnit] = useState('meter');
-  const [tailorForm, setTailorForm] = useState(initialTailorForm);
   const [purchaseBillForm, setPurchaseBillForm] = useState<PurchaseBillForm>(() => initialPurchaseBillForm());
   const [purchaseBillItems, setPurchaseBillItems] = useState<PurchaseBillItem[]>(() => [createPurchaseBillItem()]);
   const [createFabricDialog, setCreateFabricDialog] = useState<CreateFabricDialogState>(initialCreateFabricDialog);
   const [createSupplierDialog, setCreateSupplierDialog] = useState<CreateSupplierDialogState>(initialCreateSupplierDialog);
-  const [deliveryForm, setDeliveryForm] = useState(initialDeliveryForm);
-  const [modelIssueForm, setModelIssueForm] = useState(initialModelIssueForm);
   const [accessoryBillForm, setAccessoryBillForm] = useState<PurchaseBillForm>(() => initialPurchaseBillForm());
   const [accessoryBillItems, setAccessoryBillItems] = useState<AccessoryBillItem[]>(() => [createAccessoryBillItem()]);
   const [editDrawer, setEditDrawer] = useState<EditDrawerState>(closedDrawer);
@@ -438,15 +386,6 @@ export default function FabricManagementPage() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to fetch fabric data');
       setData(payload);
-      setDeliveryForm((current) => ({
-        ...current,
-        issueId: current.issueId || payload.issues[0]?.id || '',
-      }));
-      setModelIssueForm((current) => ({
-        ...current,
-        designModelId: current.designModelId || '',
-        tailorId: current.tailorId || '',
-      }));
     } catch (fetchError: any) {
       setError(fetchError.message || 'فشل في جلب بيانات الأقمشة');
     } finally {
@@ -457,11 +396,6 @@ export default function FabricManagementPage() {
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
-
-  const openIssues = useMemo(
-    () => (data?.issues || []).filter((issue) => issue.status !== 'closed'),
-    [data?.issues]
-  );
 
   const fabricColorOptions = useMemo(
     () => mergeOptions(FABRIC_COLOR_OPTIONS, data?.fabrics.map((fabric) => fabric.color) || [], true),
@@ -475,10 +409,6 @@ export default function FabricManagementPage() {
         description: [supplier.contactPerson, supplier.phone].filter(Boolean).join(' - ') || undefined,
       })),
     [data?.suppliers]
-  );
-  const workshopOptions = useMemo(
-    () => mergeOptions(WORKSHOP_OPTIONS, data?.tailors.map((tailor) => tailor.workshopName) || [], true),
-    [data?.tailors]
   );
   const fabricOptions = useMemo(
     () =>
@@ -494,24 +424,6 @@ export default function FabricManagementPage() {
       })),
     [data?.fabrics]
   );
-  const tailorOptions = useMemo(
-    () =>
-      (data?.tailors || []).map((tailor) => ({
-        value: tailor.id,
-        label: tailor.name,
-        description: tailor.workshopName || tailor.phone || undefined,
-      })),
-    [data?.tailors]
-  );
-  const issueOptions = useMemo(
-    () =>
-      openIssues.map((issue) => ({
-        value: issue.id,
-        label: `${issue.fabric.name} - ${issue.tailor.name}`,
-        description: `${formatDualLength(issue.issuedLength)} مسلم | ${formatDualLength(issue.remainingAtTailor)} لدى الخياط`,
-      })),
-    [openIssues]
-  );
   const accessoryOptions = useMemo(
     () =>
       (data?.accessories || []).map((accessory) => ({
@@ -524,20 +436,6 @@ export default function FabricManagementPage() {
       })),
     [data?.accessories]
   );
-  const modelOptions = useMemo(
-    () =>
-      (data?.models || []).map((model) => ({
-        value: model.id,
-        label: `${model.sku}${model.fabrics?.[0] ? ` — ${(data?.fabrics || []).find((f) => f.id === model.fabrics[0].fabricId)?.name || ''}` : ''}`,
-        description: `قابل للإنتاج: ${formatNumber(model.producibleCount)} | تكلفة: ${formatCurrency(model.totalCost)}`,
-      })),
-    [data?.models, data?.fabrics]
-  );
-  const selectedIssueModel = useMemo(
-    () => (data?.models || []).find((model) => model.id === modelIssueForm.designModelId) || null,
-    [data?.models, modelIssueForm.designModelId]
-  );
-
   const postAction = async (payload: Record<string, unknown>) => {
     setSaving(true);
     try {
@@ -690,16 +588,6 @@ export default function FabricManagementPage() {
     );
   };
 
-  const handleTailorSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!tailorForm.name.trim() || !tailorForm.accessCode.trim()) {
-      alert('اسم الخياط ورمز الدخول مطلوبان');
-      return;
-    }
-    const saved = await postAction({ action: 'create-tailor', ...tailorForm });
-    if (saved) setTailorForm(initialTailorForm);
-  };
-
   const handlePurchaseBillSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (purchaseBillItems.some((item) => !item.fabricId)) {
@@ -715,28 +603,6 @@ export default function FabricManagementPage() {
     if (saved) {
       setPurchaseBillForm(initialPurchaseBillForm());
       setPurchaseBillItems([createPurchaseBillItem()]);
-    }
-  };
-
-  const handleDeliverySubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    const saved = await postAction({ action: 'record-delivery', ...deliveryForm, lengthUnit });
-    if (saved) setDeliveryForm({ ...initialDeliveryForm, issueId: data?.issues[0]?.id || '' });
-  };
-
-  const handleModelIssueSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!modelIssueForm.designModelId || !modelIssueForm.tailorId) {
-      alert('اختر الفستان والخياط');
-      return;
-    }
-    const saved = await postAction({ action: 'issue-fabric', ...modelIssueForm });
-    if (saved) {
-      setModelIssueForm({
-        ...initialModelIssueForm,
-        designModelId: data?.models[0]?.id || '',
-        tailorId: data?.tailors[0]?.id || '',
-      });
     }
   };
 
@@ -785,20 +651,11 @@ export default function FabricManagementPage() {
   const updateRequestStatus = (requestId: string, status: string) =>
     postAction({ action: 'update-request-status', requestId, status });
 
-  const acceptDeliveryNote = (noteId: string) => postAction({ action: 'accept-delivery-note', noteId });
-  const rejectDeliveryNote = (noteId: string) => {
-    const rejectionReason = window.prompt('سبب الرفض (اختياري):') || '';
-    return postAction({ action: 'reject-delivery-note', noteId, rejectionReason });
-  };
-  const resyncDeliveryNoteSalla = (noteId: string) => postAction({ action: 'resync-salla-stock', noteId });
-
   const summary = data?.summary;
 
-  const [tab, setTab] = useState<'stock' | 'tailors' | 'production' | 'models' | 'invoices'>('stock');
+  const [tab, setTab] = useState<'stock' | 'tailors' | 'tailor-requests' | 'models' | 'invoices'>('stock');
   const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
   const [stockTableTab, setStockTableTab] = useState<'fabric' | 'accessory'>('fabric');
-  const [tailorTab, setTailorTab] = useState<'list' | 'requests'>('list');
-  const [prodTab, setProdTab] = useState<'deliver' | 'receive' | 'delivery-notes'>('deliver');
 
   const pendingCount = summary?.pendingRequestsCount || 0;
 
@@ -850,11 +707,11 @@ export default function FabricManagementPage() {
 
               <div className="tablist">
                 <button type="button" className={`tab ${tab === 'stock' ? 'active' : ''}`} onClick={() => setTab('stock')}>المخزون</button>
-                <button type="button" className={`tab ${tab === 'tailors' ? 'active' : ''}`} onClick={() => setTab('tailors')}>
-                  الخياطون وطلباتهم
+                <button type="button" className={`tab ${tab === 'tailors' ? 'active' : ''}`} onClick={() => setTab('tailors')}>الخياطون</button>
+                <button type="button" className={`tab ${tab === 'tailor-requests' ? 'active' : ''}`} onClick={() => setTab('tailor-requests')}>
+                  طلبات الخياطين
                   {pendingCount > 0 && <span className="tab-badge">{formatNumber(pendingCount)} جديد</span>}
                 </button>
-                <button type="button" className={`tab ${tab === 'production' ? 'active' : ''}`} onClick={() => setTab('production')}>دورة الإنتاج</button>
                 <button type="button" className={`tab ${tab === 'models' ? 'active' : ''}`} onClick={() => setTab('models')}>الموديلات</button>
                 <button type="button" className={`tab ${tab === 'invoices' ? 'active' : ''}`} onClick={() => setTab('invoices')}>فواتير الشراء</button>
               </div>
@@ -950,108 +807,18 @@ export default function FabricManagementPage() {
                 </div>
               )}
 
-              {/* ═════ الخياطون وطلباتهم ═════ */}
+              {/* ═════ الخياطون ═════ */}
               {tab === 'tailors' && (
                 <div className="card">
-                  <div className="subtabs" style={{ marginBottom: 0, padding: '0 14px' }}>
-                    <button type="button" className={`subtab ${tailorTab === 'list' ? 'active' : ''}`} onClick={() => setTailorTab('list')}>الخياطون</button>
-                    <button type="button" className={`subtab ${tailorTab === 'requests' ? 'active' : ''}`} onClick={() => setTailorTab('requests')}>
-                      طلبات الخياطين {pendingCount > 0 && <span className="new-count">{formatNumber(pendingCount)} جديد</span>}
-                    </button>
-                  </div>
-
-                  {tailorTab === 'list' && (
-                    <div>
-                      <FormAccordionCard marker="＋" title="إضافة خياط" description="بيانات الخياط ورمز دخوله لبوابة الخياطين">
-                        <form onSubmit={handleTailorSubmit}>
-                          <div className="grid two">
-                            <TextInput label="اسم الخياط" value={tailorForm.name} onChange={(name) => setTailorForm({ ...tailorForm, name })} required />
-                            <DesignSelect label="الورشة / نوع العمل" value={tailorForm.workshopName} options={workshopOptions} onChange={(workshopName) => setTailorForm({ ...tailorForm, workshopName })} allowCreate searchable />
-                            <TextInput label="الجوال" value={tailorForm.phone} onChange={(phone) => setTailorForm({ ...tailorForm, phone })} />
-                            <TextInput label="رمز الدخول للبوابة" value={tailorForm.accessCode} onChange={(accessCode) => setTailorForm({ ...tailorForm, accessCode })} required />
-                            <TextAreaField label="ملاحظات" value={tailorForm.notes} onChange={(notes) => setTailorForm({ ...tailorForm, notes })} className="full" />
-                          </div>
-                          <button className="btn" type="submit" disabled={saving}><UserPlus /> حفظ الخياط</button>
-                        </form>
-                      </FormAccordionCard>
-                      <TailorsTable tailors={data?.tailors || []} />
-                    </div>
-                  )}
-
-                  {tailorTab === 'requests' && (
-                    <div className="subtab-body">
-                      <RequestsTable requests={data?.requests || []} onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)} saving={saving} />
-                    </div>
-                  )}
+                  <TailorsTable tailors={data?.tailors || []} />
                 </div>
               )}
 
-              {/* ═════ دورة الإنتاج ═════ */}
-              {tab === 'production' && (
-                <div>
-                  <FormAccordionCard marker="⚙" title="دورة الإنتاج">
-                    <div className="subtabs">
-                      <button type="button" className={`subtab ${prodTab === 'deliver' ? 'active' : ''}`} onClick={() => setProdTab('deliver')}>↑ تسليم القماش للخياط</button>
-                      <button type="button" className={`subtab ${prodTab === 'receive' ? 'active' : ''}`} onClick={() => setProdTab('receive')}>↓ استلام الفساتين والتكلفة</button>
-                      <button type="button" className={`subtab ${prodTab === 'delivery-notes' ? 'active' : ''}`} onClick={() => setProdTab('delivery-notes')}>
-                        تسليمات الخياطين
-                        {(data?.deliveryNotes || []).filter((n) => n.status === 'SUBMITTED').length > 0 && (
-                          <span className="new-count">{formatNumber((data?.deliveryNotes || []).filter((n) => n.status === 'SUBMITTED').length)} جديد</span>
-                        )}
-                      </button>
-                    </div>
-
-                    {prodTab === 'deliver' && (
-                      <form onSubmit={handleModelIssueSubmit}>
-                        <DesignSelect label="اختر الفستان" value={modelIssueForm.designModelId} options={modelOptions} onChange={(designModelId) => setModelIssueForm({ ...modelIssueForm, designModelId })} placeholder="اختر الفستان" searchable className="full" />
-                        {selectedIssueModel && (
-                          <div style={{ marginTop: 12 }}>
-                            <ModelBomPreview model={selectedIssueModel} fabrics={data?.fabrics || []} count={Number(modelIssueForm.plannedDressCount) || 1} />
-                          </div>
-                        )}
-                        <div className="grid" style={{ marginTop: 14 }}>
-                          <DesignSelect label="الخياط" value={modelIssueForm.tailorId} options={tailorOptions} onChange={(tailorId) => setModelIssueForm({ ...modelIssueForm, tailorId })} placeholder="اختر الخياط" searchable />
-                          <TextInput label="عدد الفساتين" type="number" value={modelIssueForm.plannedDressCount} onChange={(plannedDressCount) => setModelIssueForm({ ...modelIssueForm, plannedDressCount })} required />
-                          <DesignSelect label="المقاس (اختياري)" value={modelIssueForm.size} options={DRESS_SIZE_OPTIONS} onChange={(size) => setModelIssueForm({ ...modelIssueForm, size })} placeholder="بدون مقاس" />
-                          <TextInput label="تاريخ التسليم" type="date" value={modelIssueForm.issueDate} onChange={(issueDate) => setModelIssueForm({ ...modelIssueForm, issueDate })} />
-                          <TextInput label="مرجع" value={modelIssueForm.reference} onChange={(reference) => setModelIssueForm({ ...modelIssueForm, reference })} />
-                          <TextAreaField label="ملاحظات" value={modelIssueForm.notes} onChange={(notes) => setModelIssueForm({ ...modelIssueForm, notes })} className="full" />
-                        </div>
-                        <button className="btn" type="submit" disabled={saving || !data?.models.length || !data?.tailors.length}><Send /> تسجيل التسليم</button>
-                      </form>
-                    )}
-
-                    {prodTab === 'receive' && (
-                      <form onSubmit={handleDeliverySubmit}>
-                        <div className="grid">
-                          <DesignSelect label="اختر الفستان" value={deliveryForm.issueId} options={issueOptions} onChange={(issueId) => setDeliveryForm({ ...deliveryForm, issueId, size: openIssues.find((issue) => issue.id === issueId)?.size || deliveryForm.size })} placeholder="اختر الفستان" searchable />
-                          <TextInput label="عدد الفساتين" type="number" value={deliveryForm.deliveredDressCount} onChange={(deliveredDressCount) => setDeliveryForm({ ...deliveryForm, deliveredDressCount })} />
-                          <DesignSelect label="المقاس (اختياري)" value={deliveryForm.size} options={DRESS_SIZE_OPTIONS} onChange={(size) => setDeliveryForm({ ...deliveryForm, size })} placeholder="بدون مقاس" />
-                          <TextInput label={lengthUnit === 'yard' ? 'المرتجع للمخزون بالياردة' : 'المرتجع للمخزون بالمتر'} type="number" value={deliveryForm.returnedLength} onChange={(returnedLength) => setDeliveryForm({ ...deliveryForm, returnedLength })} />
-                          <TextInput label="تكلفة الخياطة" type="number" value={deliveryForm.tailoringCost} onChange={(tailoringCost) => setDeliveryForm({ ...deliveryForm, tailoringCost })} />
-                          <TextInput label="تكلفة التطريز" type="number" value={deliveryForm.embroideryCost} onChange={(embroideryCost) => setDeliveryForm({ ...deliveryForm, embroideryCost })} />
-                          <TextInput label="تكاليف إضافية" type="number" value={deliveryForm.extraCost} onChange={(extraCost) => setDeliveryForm({ ...deliveryForm, extraCost })} />
-                          <TextInput label="تاريخ استلام الفساتين" type="date" value={deliveryForm.deliveryDate} onChange={(deliveryDate) => setDeliveryForm({ ...deliveryForm, deliveryDate })} />
-                          <TextAreaField label="ملاحظات" value={deliveryForm.notes} onChange={(notes) => setDeliveryForm({ ...deliveryForm, notes })} className="full" />
-                        </div>
-                        <button className="btn" type="submit" disabled={saving || !openIssues.length}><CheckCircle2 /> حفظ الاستلام</button>
-                      </form>
-                    )}
-
-                    {prodTab === 'delivery-notes' && (
-                      <DeliveryNotesPanel
-                        notes={data?.deliveryNotes || []}
-                        saving={saving}
-                        onAccept={(noteId) => void acceptDeliveryNote(noteId)}
-                        onReject={(noteId) => void rejectDeliveryNote(noteId)}
-                        onResync={(noteId) => void resyncDeliveryNoteSalla(noteId)}
-                      />
-                    )}
-                  </FormAccordionCard>
-
-                  <div className="card">
-                    <div className="card-head">سجل الحركات</div>
-                    <IssuesTable issues={data?.issues || []} showCost />
+              {/* ═════ طلبات الخياطين ═════ */}
+              {tab === 'tailor-requests' && (
+                <div className="card">
+                  <div className="subtab-body">
+                    <RequestsTable requests={data?.requests || []} onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)} saving={saving} />
                   </div>
                 </div>
               )}
@@ -1655,50 +1422,6 @@ function AccessoryTable({
   );
 }
 
-function ModelBomPreview({ model, fabrics, count }: { model: DesignModel; fabrics: Fabric[]; count: number }) {
-  const safeCount = Math.max(1, count || 1);
-  return (
-    <div className="dc-box">
-      <div className="dc-title">مكونات الفستان — {model.sku} (×{formatNumber(safeCount)})</div>
-      <table>
-        <thead>
-          <tr>
-            <th>المكوّن</th>
-            <th>النوع</th>
-            <th>الاستهلاك للقطعة</th>
-            <th>الإجمالي المطلوب</th>
-          </tr>
-        </thead>
-        <tbody>
-          {model.fabrics.map((row) => {
-            const fabric = fabrics.find((item) => item.id === row.fabricId);
-            const per = Number(row.consumption) || 0;
-            return (
-              <tr key={row.id}>
-                <td><b>{fabric?.name || '-'}</b></td>
-                <td>قماش</td>
-                <td>{formatNumber(per)}</td>
-                <td>{formatNumber(per * safeCount)}</td>
-              </tr>
-            );
-          })}
-          {model.accessories.filter((row) => row.accessoryId).map((row) => {
-            const per = Number(row.consumption) || 0;
-            return (
-              <tr key={row.id}>
-                <td><b>{row.name || '-'}</b></td>
-                <td>مستلزم</td>
-                <td>{formatNumber(per)}</td>
-                <td>{formatNumber(per * safeCount)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function TailorsTable({ tailors }: { tailors: Tailor[] }) {
   return (
     <div className="table-wrap">
@@ -1733,167 +1456,10 @@ function TailorsTable({ tailors }: { tailors: Tailor[] }) {
   );
 }
 
-function IssuesTable({ issues, showCost = false }: { issues: TailorFabricIssue[]; showCost?: boolean }) {
-  return (
-    <div className="table-wrap">
-      <table className="cards-mobile">
-        <thead>
-          <tr>
-            <th>القماش / رمز المنتج</th>
-            <th>الخياط</th>
-            <th>المسلم</th>
-            <th>المتبقي لدى الخياط</th>
-            <th>التاريخ</th>
-            {showCost && <th>تكلفة الفستان</th>}
-            {showCost && <th>إجمالي التكلفة</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {issues.map((issue) => (
-            <tr key={issue.id}>
-              <td data-label="القماش">
-                <b>{issue.fabric.name}</b>
-                <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{issue.fabric.sku || 'لا يوجد رمز'}</div>
-              </td>
-              <td data-label="الخياط">{issue.tailor.name}</td>
-              <td data-label="المسلم">{formatDualLength(issue.issuedLength)}</td>
-              <td data-label="المتبقي">{formatDualLength(issue.remainingAtTailor)}</td>
-              <td data-label="التاريخ">{formatDate(issue.deliveryDate || issue.issueDate)}</td>
-              {showCost && <td data-label="تكلفة الفستان">{formatCurrency(issue.costPerDress)}</td>}
-              {showCost && <td data-label="إجمالي التكلفة">{formatCurrency(issue.totalDressCost)}</td>}
-            </tr>
-          ))}
-          {!issues.length && (
-            <tr><td className="empty-row" colSpan={showCost ? 7 : 5}>لا توجد كميات مسلمة للخياطين</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function requestStatusPill(status: string) {
   if (status === 'pending') return 'warn';
   if (status === 'rejected') return 'red';
   return 'ok';
-}
-
-function deliveryNoteStatusPill(status: string) {
-  if (status === 'SUBMITTED') return 'warn';
-  if (status === 'REJECTED') return 'red';
-  if (status === 'ACCEPTED') return 'ok';
-  return 'muted';
-}
-
-function DeliveryNotesPanel({
-  notes,
-  saving,
-  onAccept,
-  onReject,
-  onResync,
-}: {
-  notes: DeliveryNote[];
-  saving: boolean;
-  onAccept: (noteId: string) => void;
-  onReject: (noteId: string) => void;
-  onResync: (noteId: string) => void;
-}) {
-  const submitted = notes.filter((note) => note.status === 'SUBMITTED');
-  const history = notes.filter((note) => note.status === 'ACCEPTED' || note.status === 'REJECTED');
-
-  return (
-    <div>
-      <div className="section-label" style={{ marginBottom: 10 }}>بانتظار القبول</div>
-      <div className="table-wrap">
-        <table className="cards-mobile">
-          <thead>
-            <tr>
-              <th>رقم المذكرة</th>
-              <th>الخياط</th>
-              <th>الموديل</th>
-              <th>العدد</th>
-              <th>المقاس</th>
-              <th>التكاليف</th>
-              <th>إجراء</th>
-            </tr>
-          </thead>
-          <tbody>
-            {submitted.map((note) => (
-              <tr key={note.id}>
-                <td data-label="رقم المذكرة"><b>{note.noteNumber}</b></td>
-                <td data-label="الخياط">{note.tailor?.name || '-'}</td>
-                <td data-label="الموديل">{note.designModel?.sku || '-'}</td>
-                <td data-label="العدد">{formatNumber(note.dressCount)}</td>
-                <td data-label="المقاس">{note.size || '-'}</td>
-                <td data-label="التكاليف">
-                  {formatCurrency(note.tailoringCost + note.embroideryCost + note.extraCost)}
-                </td>
-                <td data-label="إجراء" className="actions-cell">
-                  <div className="td-actions">
-                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onAccept(note.id)}>قبول</button>
-                    <button type="button" className="tbl-btn del" disabled={saving} onClick={() => onReject(note.id)}>رفض</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!submitted.length && (
-              <tr><td className="empty-row" colSpan={7}>لا توجد مذكرات تسليم بانتظار القبول</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="section-label" style={{ margin: '18px 0 10px' }}>السجل</div>
-      <div className="table-wrap">
-        <table className="cards-mobile">
-          <thead>
-            <tr>
-              <th>رقم المذكرة</th>
-              <th>الخياط</th>
-              <th>الموديل</th>
-              <th>العدد</th>
-              <th>الحالة</th>
-              <th>مزامنة سلة</th>
-              <th>إجراء</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.map((note) => (
-              <tr key={note.id}>
-                <td data-label="رقم المذكرة"><b>{note.noteNumber}</b></td>
-                <td data-label="الخياط">{note.tailor?.name || '-'}</td>
-                <td data-label="الموديل">{note.designModel?.sku || '-'}</td>
-                <td data-label="العدد">{formatNumber(note.dressCount)}</td>
-                <td data-label="الحالة">
-                  <span className={`pill ${deliveryNoteStatusPill(note.status)}`}>{note.status}</span>
-                  {note.status === 'REJECTED' && note.rejectionReason && (
-                    <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{note.rejectionReason}</div>
-                  )}
-                </td>
-                <td data-label="مزامنة سلة">
-                  {note.status === 'ACCEPTED' ? (
-                    <span className={`pill ${note.sallaSyncStatus === 'success' ? 'ok' : note.sallaSyncStatus === 'failed' ? 'red' : 'muted'}`}>
-                      {note.sallaSyncStatus || '-'}
-                    </span>
-                  ) : (
-                    '-'
-                  )}
-                </td>
-                <td data-label="إجراء" className="actions-cell">
-                  {note.status === 'ACCEPTED' && note.sallaSyncStatus === 'failed' && (
-                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onResync(note.id)}>إعادة المزامنة</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {!history.length && (
-              <tr><td className="empty-row" colSpan={7}>لا يوجد سجل بعد</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
 }
 
 function RequestsTable({

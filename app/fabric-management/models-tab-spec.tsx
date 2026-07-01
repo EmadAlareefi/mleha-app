@@ -279,6 +279,50 @@ function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+const MODEL_IMAGE_MAX_SIDE = 1280;
+const MODEL_IMAGE_QUALITY = 0.78;
+const MAX_MODEL_IMAGE_DATA_LENGTH = 2_900_000; // stays under the 3MB server-side cap
+
+// Camera photos can be several MB straight off a phone sensor; downscale + re-encode
+// as JPEG before storing so both gallery uploads and direct camera captures fit the cap.
+async function resizeModelImage(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('الملف يجب أن يكون صورة');
+  }
+
+  const originalDataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => (typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('تعذر قراءة الصورة')));
+    reader.onerror = () => reject(new Error('تعذر قراءة الصورة'));
+    reader.readAsDataURL(file);
+  });
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new window.Image();
+    element.onload = () => resolve(element);
+    element.onerror = () => reject(new Error('تعذر قراءة الصورة'));
+    element.src = originalDataUrl;
+  });
+
+  const largestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  const scale = largestSide > MODEL_IMAGE_MAX_SIDE ? MODEL_IMAGE_MAX_SIDE / largestSide : 1;
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('تعذر تجهيز الصورة');
+  context.drawImage(image, 0, 0, width, height);
+
+  const resizedDataUrl = canvas.toDataURL('image/jpeg', MODEL_IMAGE_QUALITY);
+  if (resizedDataUrl.length > MAX_MODEL_IMAGE_DATA_LENGTH) {
+    throw new Error('حجم الصورة كبير جداً، يرجى اختيار صورة أصغر');
+  }
+  return resizedDataUrl;
+}
+
 function getStatusLabel(status: string, options: SelectOption[] = BASE_STATUS_OPTIONS) {
   return options.find((option) => option.value === status)?.label || status;
 }
@@ -571,21 +615,16 @@ export function ModelsTabSpec({
 
   // Create a brand-new inventory item from the dropdown's "add new" row, then
   // select it on the row that triggered it (mirrors final-design-v2's inline add).
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('الملف يجب أن يكون صورة');
-      return;
+    try {
+      setError(null);
+      setImageData(await resizeModelImage(file));
+    } catch (resizeError: any) {
+      setError(resizeError.message || 'تعذر معالجة الصورة');
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setError('حجم الصورة كبير جداً (الحد الأقصى 2 ميجابايت)');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : null);
-    reader.readAsDataURL(file);
   };
 
   const postAction = async (payload: Record<string, unknown>) => {
@@ -693,16 +732,28 @@ export function ModelsTabSpec({
                       )}
                       <input type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
                     </label>
-                    {imageData && (
-                      <button
-                        type="button"
-                        className="btn ghost"
-                        style={{ margin: '8px 0 0', padding: '4px 12px', fontSize: 12 }}
-                        onClick={() => setImageData(null)}
-                      >
-                        إزالة الصورة
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 0' }}>
+                      <label className="btn ghost" style={{ padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}>
+                        📷 التقاط بالكاميرا
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handleImageChange}
+                          style={{ display: 'none' }}
+                        />
+                      </label>
+                      {imageData && (
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          style={{ padding: '4px 12px', fontSize: 12 }}
+                          onClick={() => setImageData(null)}
+                        >
+                          إزالة الصورة
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="sec-a-fields">
@@ -1554,21 +1605,16 @@ function ModelEditDrawer({
     setOpenSelect(null);
   };
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('الملف يجب أن يكون صورة');
-      return;
+    try {
+      setError(null);
+      setImageData(await resizeModelImage(file));
+    } catch (resizeError: any) {
+      setError(resizeError.message || 'تعذر معالجة الصورة');
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setError('حجم الصورة كبير جداً (الحد الأقصى 2 ميجابايت)');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : null);
-    reader.readAsDataURL(file);
   };
 
   const toggleColor = (name: string) =>
@@ -1645,16 +1691,28 @@ function ModelEditDrawer({
             )}
             <input type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
           </label>
-          {imageData && (
-            <button
-              type="button"
-              className="btn ghost"
-              style={{ margin: '8px 0 0', padding: '4px 12px', fontSize: 12 }}
-              onClick={() => setImageData(null)}
-            >
-              إزالة الصورة
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 0' }}>
+            <label className="btn ghost" style={{ padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}>
+              📷 التقاط بالكاميرا
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleImageChange}
+                style={{ display: 'none' }}
+              />
+            </label>
+            {imageData && (
+              <button
+                type="button"
+                className="btn ghost"
+                style={{ padding: '4px 12px', fontSize: 12 }}
+                onClick={() => setImageData(null)}
+              >
+                إزالة الصورة
+              </button>
+            )}
+          </div>
         </div>
         <DisplayField label="رقم الصنف (SKU)" value={model.sku} />
         <SelectBox
