@@ -440,7 +440,6 @@ function ModelsTab({
   saving: boolean;
   postAction: (payload: Record<string, unknown>) => Promise<boolean>;
 }) {
-  const [sku, setSku] = useState('');
   const [size, setSize] = useState('');
   const [description, setDescription] = useState('');
   const [unit, setUnit] = useState<'meter' | 'yard'>('meter');
@@ -457,13 +456,12 @@ function ModelsTab({
     const recipe = recipeRows
       .filter((row) => row.fabricId && row.consumption)
       .map((row) => ({ role: row.role, fabricId: row.fabricId, consumption: Number(row.consumption) }));
-    if (!sku || !recipe.length) {
-      alert('رقم الصنف وقماش واحد على الأقل مطلوبان');
+    if (!recipe.length) {
+      alert('قماش واحد على الأقل مطلوب');
       return;
     }
     const ok = await postAction({
       action: 'create-model',
-      sku,
       unit,
       size: size || undefined,
       description: description || undefined,
@@ -472,7 +470,6 @@ function ModelsTab({
       recipe,
     });
     if (ok) {
-      setSku('');
       setSize('');
       setDescription('');
       setTailoringCost('');
@@ -528,7 +525,7 @@ function ModelsTab({
         <CardContent className="py-4 space-y-3">
           <div className="font-medium">إنشاء موديل جديد</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input placeholder="رقم الصنف (SKU)" value={sku} onChange={(e) => setSku(e.target.value)} />
+            <Input placeholder="رقم الصنف (SKU) يولّد تلقائياً" disabled />
             <Input placeholder="المقاس (اختياري)" value={size} onChange={(e) => setSize(e.target.value)} />
             <NativeSelect value={unit} onChange={(e) => setUnit(e.target.value as 'meter' | 'yard')}>
               <NativeSelectOption value="meter">متر</NativeSelectOption>

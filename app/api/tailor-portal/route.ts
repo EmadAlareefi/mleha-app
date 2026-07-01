@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { authOptions } from '@/app/lib/auth';
+import { allocateDesignModelSku } from '@/app/lib/design-model-sku';
 import { hasServiceAccess } from '@/app/lib/service-access';
 
 const TAILOR_SERVICE = 'tailor-dashboard';
@@ -185,7 +186,7 @@ export async function POST(request: NextRequest) {
   try {
     const access = await requireTailor();
     if (access.error) return access.error;
-    const { tailor } = access;
+    const { session, tailor } = access;
 
     const body = await request.json();
     const action = body.action;
@@ -368,9 +369,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'create-model') {
-      const sku = cleanText(body.sku);
-      if (!sku) return NextResponse.json({ error: 'رقم الصنف (SKU) مطلوب' }, { status: 400 });
-
       const unit = body.unit === 'yard' ? 'yard' : 'meter';
       const rawRecipe = Array.isArray(body.recipe) ? body.recipe : [];
       const recipe = rawRecipe
@@ -390,27 +388,40 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'حجم الصورة كبير جداً (الحد الأقصى ~2 ميجابايت)' }, { status: 400 });
       }
 
+      let lastSku = '';
       try {
-        const model = await prisma.designModel.create({
-          data: {
-            sku,
-            status: 'active',
-            description: cleanText(body.description) || null,
-            size: cleanText(body.size) || null,
-            unit,
-            colors: [],
-            imageData,
-            recipe,
-            accessories: [],
-            tailoringCost: toDecimal(body.tailoringCost),
-            embroideryCost: toDecimal(0),
-            extraCost: toDecimal(body.extraCost),
-          },
-        });
-        return NextResponse.json(serializeModel(model), { status: 201 });
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            const model = await prisma.$transaction(async (tx) => {
+              const sku = await allocateDesignModelSku(tx, session);
+              lastSku = sku;
+              return tx.designModel.create({
+                data: {
+                  sku,
+                  status: 'active',
+                  description: cleanText(body.description) || null,
+                  size: cleanText(body.size) || null,
+                  unit,
+                  colors: [],
+                  imageData,
+                  recipe,
+                  accessories: [],
+                  tailoringCost: toDecimal(body.tailoringCost),
+                  embroideryCost: toDecimal(0),
+                  extraCost: toDecimal(body.extraCost),
+                },
+              });
+            });
+            return NextResponse.json(serializeModel(model), { status: 201 });
+          } catch (createError: any) {
+            if (createError?.code === 'P2002' && attempt < 2) continue;
+            throw createError;
+          }
+        }
+        return NextResponse.json({ error: 'تعذر إنشاء رقم صنف تلقائي، يرجى المحاولة مرة أخرى' }, { status: 409 });
       } catch (createError: any) {
         if (createError?.code === 'P2002') {
-          return NextResponse.json({ error: `رقم الصنف ${sku} مستخدم بالفعل` }, { status: 409 });
+          return NextResponse.json({ error: `رقم الصنف ${lastSku} مستخدم بالفعل، يرجى المحاولة مرة أخرى` }, { status: 409 });
         }
         throw createError;
       }

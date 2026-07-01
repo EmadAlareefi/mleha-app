@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { authOptions } from '@/app/lib/auth';
+import { allocateDesignModelSku } from '@/app/lib/design-model-sku';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { incrementSallaStock } from '@/app/lib/salla-stock';
 
@@ -1629,11 +1630,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'create-model') {
-      const sku = typeof body.sku === 'string' ? body.sku.trim() : '';
-      if (!sku) {
-        return NextResponse.json({ error: 'رقم الصنف (SKU) مطلوب' }, { status: 400 });
-      }
-
       const unit = body.unit === 'yard' ? 'yard' : 'meter';
       const rawRecipe = Array.isArray(body.recipe) ? body.recipe : [];
       const recipe = rawRecipe
@@ -1661,40 +1657,50 @@ export async function POST(request: NextRequest) {
         ? body.colors.filter((color: unknown): color is string => typeof color === 'string' && color.trim().length > 0)
         : [];
 
-      try {
-        const model = await prisma.designModel.create({
-          data: {
-            sku,
-            status: ['active', 'paused', 'draft'].includes(body.status) ? body.status : 'active',
-            description: typeof body.description === 'string' ? body.description : null,
-            size: typeof body.size === 'string' && body.size.trim() ? body.size.trim() : null,
-            unit,
-            colors,
-            imageData,
-            recipe,
-            accessories,
-            tailoringCost: toDecimal(body.tailoringCost),
-            embroideryCost: toDecimal(body.embroideryCost),
-            extraCost: toDecimal(body.extraCost),
-            sallaProductId: body.sallaProductId !== undefined ? toNumber(body.sallaProductId, 0) || null : null,
-            sallaProductName: cleanText(body.sallaProductName) || null,
-            sallaVariantId: cleanText(body.sallaVariantId) || null,
-            sallaVariantName: cleanText(body.sallaVariantName) || null,
-            sallaSku: cleanText(body.sallaSku) || null,
-          },
-        });
+      let lastSku = '';
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const model = await prisma.$transaction(async (tx) => {
+            const sku = await allocateDesignModelSku(tx, access.session);
+            lastSku = sku;
+            return tx.designModel.create({
+              data: {
+                sku,
+                status: ['active', 'paused', 'draft'].includes(body.status) ? body.status : 'active',
+                description: typeof body.description === 'string' ? body.description : null,
+                size: typeof body.size === 'string' && body.size.trim() ? body.size.trim() : null,
+                unit,
+                colors,
+                imageData,
+                recipe,
+                accessories,
+                tailoringCost: toDecimal(body.tailoringCost),
+                embroideryCost: toDecimal(body.embroideryCost),
+                extraCost: toDecimal(body.extraCost),
+                sallaProductId: body.sallaProductId !== undefined ? toNumber(body.sallaProductId, 0) || null : null,
+                sallaProductName: cleanText(body.sallaProductName) || null,
+                sallaVariantId: cleanText(body.sallaVariantId) || null,
+                sallaVariantName: cleanText(body.sallaVariantName) || null,
+                sallaSku: cleanText(body.sallaSku) || null,
+              },
+            });
+          });
 
-        const { fabricMap, accessoryMap } = await loadRecipeMaps(recipe, accessories);
-        return NextResponse.json(
-          serializeModel(model, fabricMap, accessoryMap, { inProgressCount: 0, reservedLength: 0 }),
-          { status: 201 }
-        );
-      } catch (createError: any) {
-        if (createError?.code === 'P2002') {
-          return NextResponse.json({ error: `رقم الصنف ${sku} مستخدم بالفعل` }, { status: 409 });
+          const { fabricMap, accessoryMap } = await loadRecipeMaps(recipe, accessories);
+          return NextResponse.json(
+            serializeModel(model, fabricMap, accessoryMap, { inProgressCount: 0, reservedLength: 0 }),
+            { status: 201 }
+          );
+        } catch (createError: any) {
+          if (createError?.code === 'P2002' && attempt < 2) continue;
+          if (createError?.code === 'P2002') {
+            return NextResponse.json({ error: `رقم الصنف ${lastSku} مستخدم بالفعل، يرجى المحاولة مرة أخرى` }, { status: 409 });
+          }
+          throw createError;
         }
-        throw createError;
       }
+
+      return NextResponse.json({ error: 'تعذر إنشاء رقم صنف تلقائي، يرجى المحاولة مرة أخرى' }, { status: 409 });
     }
 
     if (action === 'update-model-status') {

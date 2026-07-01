@@ -392,7 +392,6 @@ export function ModelsTabSpec({
   unit: 'meter' | 'yard';
 }) {
   const [openSelect, setOpenSelect] = useState<string | null>(null);
-  const [sku, setSku] = useState('');
   const [status, setStatus] = useState('active');
   const [statusOptions, setStatusOptions] = useState<SelectOption[]>(() => loadStatusOptions());
   const [description, setDescription] = useState('تفاصيل التصميم والقصة…');
@@ -651,7 +650,6 @@ export function ModelsTabSpec({
   const saveModel = async () => {
     const saved = await postAction({
       action: 'create-model',
-      sku: sku.trim(),
       status,
       description,
       size,
@@ -757,7 +755,7 @@ export function ModelsTabSpec({
                   </div>
 
                   <div className="sec-a-fields">
-                    <EditableField label="رقم الصنف (SKU)" value={sku} onChange={setSku} />
+                    <DisplayField label="رقم الصنف (SKU)" value="يُولّد تلقائياً" />
                     <SelectBox
                       id="status"
                       label="الحالة"
