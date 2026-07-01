@@ -21,7 +21,7 @@ const ensurePermission = async (): Promise<AuthResult> => {
     };
   }
 
-  if (!hasServiceAccess(session, 'order-invoice-search')) {
+  if (!hasServiceAccess(session, 'order-do-not-ship')) {
     return {
       authorized: false,
       response: NextResponse.json({ error: 'غير مصرح للوصول' }, { status: 403 }),

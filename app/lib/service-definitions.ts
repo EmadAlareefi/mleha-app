@@ -174,6 +174,17 @@ const serviceDefinitionsData = [
     grantsRoles: [],
   },
   {
+    key: 'order-do-not-ship',
+    title: 'إيقاف شحن الطلبات',
+    description: 'السماح بوضع وإزالة علامة عدم شحن الطلب من صفحة البحث عن الطلبات',
+    icon: '⛔',
+    href: '/order-invoice-search',
+    color: 'from-red-500 to-red-600',
+    defaultRoles: ['admin'],
+    grantsRoles: ['orders'],
+    hideFromDashboard: true,
+  },
+  {
     key: 'salla-product-search',
     title: 'البحث عن منتجات',
     description: 'البحث في منتجات سلة مع تواريخ الطلبات وطلبات الشراء المرتبطة',

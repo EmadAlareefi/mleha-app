@@ -151,6 +151,7 @@ export default function OrderInvoiceSearchPage() {
   const { data: session, status } = useSession();
   const invoiceServiceKey: ServiceKey = 'order-invoice-search';
   const isAuthorized = hasServiceAccess(session, invoiceServiceKey);
+  const canManageDoNotShip = hasServiceAccess(session, 'order-do-not-ship');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -844,63 +845,65 @@ export default function OrderInvoiceSearchPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Ban className="h-5 w-5 text-red-700" />
-                        <h3 className="font-semibold text-red-950">إيقاف شحن الطلب</h3>
-                        <Badge variant={isDoNotShipMarked ? 'destructive' : 'outline'}>
-                          {isDoNotShipMarked ? 'موقوف' : 'غير موقوف'}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-red-800">
-                        عند تفعيل العلامة، سيتم منع تسجيل الشحنة كصادرة في صفحة المستودع قبل خروجها.
-                      </p>
-                      <Textarea
-                        value={doNotShipNotes}
-                        onChange={(event) => setDoNotShipNotes(event.target.value)}
-                        placeholder="ملاحظة اختيارية لفريق خدمة العملاء"
-                        className="min-h-20 bg-white"
-                        disabled={doNotShipUpdating}
-                      />
-                      {doNotShipMessage && (
-                        <p
-                          className={`text-sm font-medium ${
-                            doNotShipMessage.type === 'success' ? 'text-green-700' : 'text-red-700'
-                          }`}
-                        >
-                          {doNotShipMessage.text}
+                {canManageDoNotShip && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Ban className="h-5 w-5 text-red-700" />
+                          <h3 className="font-semibold text-red-950">إيقاف شحن الطلب</h3>
+                          <Badge variant={isDoNotShipMarked ? 'destructive' : 'outline'}>
+                            {isDoNotShipMarked ? 'موقوف' : 'غير موقوف'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-red-800">
+                          عند تفعيل العلامة، سيتم منع تسجيل الشحنة كصادرة في صفحة المستودع قبل خروجها.
                         </p>
-                      )}
-                    </div>
-                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-52">
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        onClick={handleMarkDoNotShip}
-                        disabled={doNotShipUpdating}
-                      >
-                        {doNotShipUpdating
-                          ? 'جاري الحفظ...'
-                          : isDoNotShipMarked
-                            ? 'تحديث علامة الإيقاف'
-                            : 'عدم شحن الطلب'}
-                      </Button>
-                      {isDoNotShipMarked && (
+                        <Textarea
+                          value={doNotShipNotes}
+                          onChange={(event) => setDoNotShipNotes(event.target.value)}
+                          placeholder="ملاحظة اختيارية لفريق خدمة العملاء"
+                          className="min-h-20 bg-white"
+                          disabled={doNotShipUpdating}
+                        />
+                        {doNotShipMessage && (
+                          <p
+                            className={`text-sm font-medium ${
+                              doNotShipMessage.type === 'success' ? 'text-green-700' : 'text-red-700'
+                            }`}
+                          >
+                            {doNotShipMessage.text}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-52">
                         <Button
                           type="button"
-                          variant="outline"
-                          onClick={handleUnmarkDoNotShip}
+                          variant="destructive"
+                          onClick={handleMarkDoNotShip}
                           disabled={doNotShipUpdating}
-                          className="bg-white"
                         >
-                          إلغاء عدم الشحن
+                          {doNotShipUpdating
+                            ? 'جاري الحفظ...'
+                            : isDoNotShipMarked
+                              ? 'تحديث علامة الإيقاف'
+                              : 'عدم شحن الطلب'}
                         </Button>
-                      )}
+                        {isDoNotShipMarked && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleUnmarkDoNotShip}
+                            disabled={doNotShipUpdating}
+                            className="bg-white"
+                          >
+                            إلغاء عدم الشحن
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {shippingEntries.slice(0, 3).map((entry) => (
