@@ -16,19 +16,15 @@ export default async function FabricHubPage() {
   }
 
   const canFabric = hasServiceAccess(session, ['fabric-management', 'fabric-warehouse']);
-  const canTailor = hasServiceAccess(session, 'tailor-dashboard');
 
-  if (!canFabric && !canTailor) {
+  if (!canFabric) {
     redirect('/');
   }
 
-  const services = getHubCardServices({ canFabric, canTailor });
+  const services = getHubCardServices({ canFabric });
 
   return (
-    <AppPageShell
-      title="الأقمشة والخياطين"
-      subtitle="الوصول السريع لإدارة الأقمشة ولوحة الخياط الشخصية"
-    >
+    <AppPageShell title="الأقمشة والخياطين" subtitle="الوصول السريع لإدارة الأقمشة">
       <ServiceCardGrid services={services} />
     </AppPageShell>
   );

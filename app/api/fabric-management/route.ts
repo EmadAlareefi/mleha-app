@@ -533,7 +533,7 @@ export async function GET() {
       tailorFabricBalanceMap.set(`${row.fabricId}|${row.tailorId}`, toNumber(row._sum.quantityDelta, 0));
     }
     // Fold legacy open issues (still tracked per-tailor via the old status field) into the
-    // same per-tailor balance map so the tailor-portal/warehouse UI see one consistent number.
+    // same per-tailor balance map so the warehouse UI sees one consistent number.
     for (const issue of issues) {
       if (issue.movementType !== 'LEGACY_ISSUE' || issue.status === 'closed' || !issue.tailorId) continue;
       const remaining =

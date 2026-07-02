@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Tajawal } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
+import SessionWatcher from "@/components/SessionWatcher";
 import DirectionProvider from "@/components/DirectionProvider";
 import PwaProvider from "@/components/PwaProvider";
 import { ToastProvider } from "@/components/ui/use-toast";
@@ -45,6 +46,7 @@ export default function RootLayout({
           <ToastProvider>
             <TooltipProvider>
               <SessionProvider>
+                <SessionWatcher />
                 {children}
               </SessionProvider>
             </TooltipProvider>

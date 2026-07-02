@@ -10,6 +10,48 @@ import { getRolesFromServiceKeys, getAllServiceKeys } from '@/app/lib/service-de
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || '';
 
+// How often an already-issued session token is re-synced against the DB
+// (role/serviceKeys/isActive). Bounds how long a permission change or a
+// deactivation can take to propagate to an existing session.
+const SESSION_REFRESH_INTERVAL_MS = 60 * 1000;
+
+async function buildOrderUserSessionFields(orderUser: {
+  id: string;
+  affiliateName: string | null;
+  autoAssign: boolean;
+}) {
+  const serviceKeys = await getUserServiceKeys(orderUser.id);
+  const userRoles = getRolesFromServiceKeys(serviceKeys);
+  const primaryRole = userRoles[0] ?? 'orders';
+
+  const hasWarehouseRole = userRoles.includes('warehouse');
+  const warehouseData = hasWarehouseRole
+    ? {
+        warehouses: (
+          await prisma.warehouseAssignment.findMany({
+            where: {
+              userId: orderUser.id,
+              warehouse: { isActive: true },
+            },
+            include: {
+              warehouse: true,
+            },
+          })
+        ).map((assignment) => ({
+          id: assignment.warehouse.id,
+          name: assignment.warehouse.name,
+          code: assignment.warehouse.code,
+          location: assignment.warehouse.location,
+        })),
+      }
+    : undefined;
+
+  const hasOrdersRole = userRoles.includes('orders');
+  const orderUserData = hasOrdersRole ? { autoAssign: orderUser.autoAssign } : undefined;
+
+  return { serviceKeys, userRoles, primaryRole, warehouseData, orderUserData };
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -59,57 +101,21 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const serviceKeys = await getUserServiceKeys(orderUser.id);
-          if (serviceKeys.length === 0) {
+          const fields = await buildOrderUserSessionFields(orderUser);
+          if (fields.serviceKeys.length === 0) {
             return null;
           }
-
-          const userRoles = getRolesFromServiceKeys(serviceKeys);
-          const primaryRole = userRoles[0] ?? 'orders';
-
-          // Get warehouse assignments if user has warehouse role
-          const hasWarehouseRole = userRoles.includes('warehouse');
-          const warehouseAssignments = hasWarehouseRole
-            ? await prisma.warehouseAssignment.findMany({
-                where: {
-                  userId: orderUser.id,
-                  warehouse: { isActive: true },
-                },
-                include: {
-                  warehouse: true,
-                },
-              })
-            : [];
-
-          const warehouseData = hasWarehouseRole
-            ? {
-                warehouses: warehouseAssignments.map((assignment) => ({
-                  id: assignment.warehouse.id,
-                  name: assignment.warehouse.name,
-                  code: assignment.warehouse.code,
-                  location: assignment.warehouse.location,
-                })),
-              }
-            : undefined;
-
-          // Include order data if user has orders role
-          const hasOrdersRole = userRoles.includes('orders');
-          const orderUserData = hasOrdersRole
-            ? {
-                autoAssign: orderUser.autoAssign,
-              }
-            : undefined;
 
           const sessionPayload = {
             id: orderUser.id,
             name: orderUser.name,
             username: orderUser.username,
-            role: primaryRole,
-            roles: userRoles,
-            serviceKeys,
+            role: fields.primaryRole,
+            roles: fields.userRoles,
+            serviceKeys: fields.serviceKeys,
             affiliateName: orderUser.affiliateName,
-            orderUserData,
-            warehouseData,
+            orderUserData: fields.orderUserData,
+            warehouseData: fields.warehouseData,
           };
 
           return sessionPayload;
@@ -134,7 +140,47 @@ export const authOptions: NextAuthOptions = {
         token.affiliateName = (user as any).affiliateName;
         token.orderUserData = (user as any).orderUserData;
         token.warehouseData = (user as any).warehouseData;
+        token.isEnvAdmin = user.id === 'admin-1';
+        token.lastRefreshed = Date.now();
+        delete (token as any).error;
+        return token;
       }
+
+      // The env-var pseudo-admin has no OrderUser row — never DB-refetch it.
+      if ((token as any).isEnvAdmin) {
+        return token;
+      }
+
+      const lastRefreshed = ((token as any).lastRefreshed as number | undefined) ?? 0;
+      if (Date.now() - lastRefreshed < SESSION_REFRESH_INTERVAL_MS) {
+        return token;
+      }
+
+      const orderUser = await prisma.orderUser.findUnique({
+        where: { id: token.id as string },
+        select: { id: true, affiliateName: true, autoAssign: true, isActive: true },
+      });
+
+      if (!orderUser || !orderUser.isActive) {
+        token.role = undefined;
+        token.roles = [];
+        token.serviceKeys = [];
+        token.orderUserData = undefined;
+        token.warehouseData = undefined;
+        (token as any).error = 'AccountDeactivated';
+        (token as any).lastRefreshed = Date.now();
+        return token;
+      }
+
+      const fields = await buildOrderUserSessionFields(orderUser);
+      token.role = fields.primaryRole;
+      token.roles = fields.userRoles;
+      token.serviceKeys = fields.serviceKeys;
+      token.affiliateName = orderUser.affiliateName;
+      token.orderUserData = fields.orderUserData;
+      token.warehouseData = fields.warehouseData;
+      delete (token as any).error;
+      (token as any).lastRefreshed = Date.now();
       return token;
     },
     async session({ session, token }) {
@@ -147,6 +193,9 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).affiliateName = token.affiliateName;
         (session.user as any).orderUserData = token.orderUserData;
         (session.user as any).warehouseData = token.warehouseData;
+      }
+      if ((token as any).error) {
+        (session as any).error = (token as any).error;
       }
       return session;
     },

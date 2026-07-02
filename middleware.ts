@@ -1,6 +1,35 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 import { serviceDefinitions, ServiceKey } from '@/app/lib/service-definitions';
+import { prisma } from '@/lib/prisma';
+
+export const runtime = 'nodejs';
+
+// Soft, per-instance cache to bound how often middleware hits the DB to
+// check isActive. Not a security boundary (serverless instances aren't
+// guaranteed to share it) — a deactivated user is blocked within, at worst,
+// one TTL window of their next request.
+const DEACTIVATION_CACHE_TTL_MS = 10_000;
+const deactivationCache = new Map<string, { isActive: boolean; checkedAt: number }>();
+
+async function isOrderUserActive(userId: string): Promise<boolean> {
+  const cached = deactivationCache.get(userId);
+  if (cached && Date.now() - cached.checkedAt < DEACTIVATION_CACHE_TTL_MS) {
+    return cached.isActive;
+  }
+  const row = await prisma.orderUser.findUnique({
+    where: { id: userId },
+    select: { isActive: true },
+  });
+  const isActive = row?.isActive ?? false;
+  deactivationCache.set(userId, { isActive, checkedAt: Date.now() });
+  return isActive;
+}
+
+function clearAuthCookies(res: NextResponse) {
+  res.cookies.delete('next-auth.session-token');
+  res.cookies.delete('__Secure-next-auth.session-token');
+}
 
 const PUBLIC_PATHS = [
   '/returns',
@@ -193,10 +222,10 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     ],
   ],
   [
-    'tailor-dashboard',
+    'fabric-warehouse',
     [
-      /^\/tailor(\/.*)?$/,
-      /^\/api\/tailor-portal(\/.*)?$/,
+      /^\/fabric-management\/?$/,
+      /^\/api\/fabric-management\/?$/,
       /^\/fabric-hub\/?$/,
     ],
   ],
@@ -219,7 +248,7 @@ function getFallbackPath(serviceKeys: ServiceKey[]): string {
 }
 
 export default withAuth(
-  function middleware(req) {
+  async function middleware(req) {
     const token = req.nextauth.token;
     const path = req.nextUrl.pathname;
 
@@ -232,6 +261,19 @@ export default withAuth(
       const role = token.role as string | undefined;
       if (role === 'admin') {
         return NextResponse.next();
+      }
+
+      // The env-var pseudo-admin always has role 'admin' (handled above), so
+      // anything reaching here is a real OrderUser row — verify it hasn't
+      // been deactivated since this session's token was issued.
+      const active = await isOrderUserActive(token.id as string);
+      if (!active) {
+        const isApi = path.startsWith('/api/');
+        const res = isApi
+          ? NextResponse.json({ error: 'account_deactivated' }, { status: 401 })
+          : NextResponse.redirect(new URL('/login?reason=deactivated', req.url));
+        clearAuthCookies(res);
+        return res;
       }
 
       const serviceKeys = (token.serviceKeys as string[]) || [];

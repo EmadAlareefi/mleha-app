@@ -22,7 +22,6 @@
     "test:delivered-date": "node --test --import tsx app/lib/__tests__/salla-order-delivered-date.test.ts",
     "check:delivered-dates": "node --import tsx scripts/check-delivered-dates.ts",
     "cleanup:erp-2026": "node scripts/run-remove-2026-erp-invoices.js",
-    "migrate:tailors-to-order-users": "node --import tsx scripts/migrate-tailors-to-order-users.ts",
     "backfill:fabric-stock-grand-total": "node --import tsx scripts/backfill-fabric-stock-grand-total.ts"
   },
   "dependencies": {

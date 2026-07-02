@@ -133,7 +133,6 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   settlements: 'finance',
   expenses: 'finance',
   'fabric-management': 'warehouse',
-  'tailor-dashboard': 'warehouse',
   'fabric-tailor-hub': 'warehouse',
   'salla-products': 'store',
   'salla-manufacturer-links': 'store',
@@ -193,7 +192,6 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'salla-notify': Bell,
   expenses: Wallet,
   'fabric-management': Scissors,
-  'tailor-dashboard': Scissors,
   'fabric-tailor-hub': Scissors,
 };
 
@@ -218,7 +216,6 @@ const priorityMap: Partial<Record<ServiceKey, number>> = {
   'admin-order-prep': 76,
   'cod-tracker': 72,
   'fabric-management': 70,
-  'tailor-dashboard': 69.7,
   'fabric-tailor-hub': 70,
 };
 
@@ -270,10 +267,10 @@ export function getVisibleDashboardServices({
       return true;
     }
 
-    // The fabric/tailor hub link isn't itself an assignable service key —
-    // its visibility derives from access to the two pages it links to.
+    // The fabric hub link isn't itself an assignable service key — its
+    // visibility derives from access to the fabric-management page.
     if (service.key === 'fabric-tailor-hub') {
-      return serviceKeys.includes('fabric-management') || serviceKeys.includes('tailor-dashboard');
+      return serviceKeys.includes('fabric-management') || serviceKeys.includes('fabric-warehouse');
     }
 
     return serviceKeys.includes(service.key);
@@ -309,19 +306,10 @@ export function getDashboardServiceCount() {
   return serviceDefinitions.filter((service) => !service.hideFromDashboard).length;
 }
 
-// Cards for the consolidated fabric/tailor hub page, scoped to what the
-// current user can actually access (fabric-management and/or tailor-dashboard).
-export function getHubCardServices({
-  canFabric,
-  canTailor,
-}: {
-  canFabric: boolean;
-  canTailor: boolean;
-}): DashboardService[] {
-  const keys: ServiceKey[] = [
-    ...(canFabric ? (['fabric-management'] as const) : []),
-    ...(canTailor ? (['tailor-dashboard'] as const) : []),
-  ];
+// Cards for the fabric hub page, scoped to what the current user can
+// actually access (fabric-management and/or fabric-warehouse).
+export function getHubCardServices({ canFabric }: { canFabric: boolean }): DashboardService[] {
+  const keys: ServiceKey[] = canFabric ? (['fabric-management'] as const) : [];
   return keys
     .map((key) => serviceDefinitions.find((service) => service.key === key))
     .filter((service): service is ServiceDefinition => Boolean(service))

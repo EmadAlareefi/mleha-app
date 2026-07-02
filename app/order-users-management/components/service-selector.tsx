@@ -34,7 +34,6 @@ const FABRIC_TAILOR_GROUP = 'الأقمشة والخياطين';
 const GROUP_OVERRIDES: Partial<Record<ServiceKey, string>> = {
   'fabric-management': FABRIC_TAILOR_GROUP,
   'fabric-warehouse': FABRIC_TAILOR_GROUP,
-  'tailor-dashboard': FABRIC_TAILOR_GROUP,
 };
 
 // Place each service in a single group (an explicit override, its first
