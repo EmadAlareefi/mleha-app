@@ -7,7 +7,7 @@ import { allocateDesignModelSku } from '@/app/lib/design-model-sku';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { incrementSallaStock } from '@/app/lib/salla-stock';
 
-const FABRIC_SERVICE = 'fabric-management';
+const FABRIC_SERVICE: Array<'fabric-management' | 'fabric-warehouse'> = ['fabric-management', 'fabric-warehouse'];
 const YARD_TO_METER = 0.9144;
 const MAX_IMAGE_DATA_LENGTH = 3_000_000; // ~2.2MB base64 string
 

@@ -15,7 +15,7 @@ export default async function FabricHubPage() {
     redirect('/login');
   }
 
-  const canFabric = hasServiceAccess(session, 'fabric-management');
+  const canFabric = hasServiceAccess(session, ['fabric-management', 'fabric-warehouse']);
   const canTailor = hasServiceAccess(session, 'tailor-dashboard');
 
   if (!canFabric && !canTailor) {

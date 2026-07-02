@@ -492,6 +492,17 @@ const serviceDefinitionsData = [
     hideFromDashboard: true,
   },
   {
+    key: 'fabric-warehouse',
+    title: 'مستودع الأقمشة',
+    description: 'استلام طلبات الأقمشة من الخياطين وقبول تسليم دفعات الفساتين فقط',
+    icon: '📦',
+    href: '/fabric-management',
+    color: 'from-teal-500 to-cyan-600',
+    defaultRoles: ['admin', 'warehouse'],
+    grantsRoles: ['warehouse'],
+    hideFromDashboard: true,
+  },
+  {
     key: 'tailor-dashboard',
     title: 'لوحة الخياط',
     description: 'شراء الأقمشة وتتبع المخزون الخاص وتصميم الموديلات وتسليم دفعات الفساتين',

@@ -33,6 +33,7 @@ const FABRIC_TAILOR_GROUP = 'الأقمشة والخياطين';
 // grantsRoles[0], so this permission section stays in one place for admins.
 const GROUP_OVERRIDES: Partial<Record<ServiceKey, string>> = {
   'fabric-management': FABRIC_TAILOR_GROUP,
+  'fabric-warehouse': FABRIC_TAILOR_GROUP,
   'tailor-dashboard': FABRIC_TAILOR_GROUP,
 };
 
