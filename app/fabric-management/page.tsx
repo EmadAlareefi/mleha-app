@@ -655,10 +655,12 @@ export default function FabricManagementPage() {
   const summary = data?.summary;
 
   const { data: session, status: sessionStatus } = useSession();
-  const primaryRole = (session?.user as any)?.role as string | undefined;
-  const userRoles: string[] = (session?.user as any)?.roles || (primaryRole ? [primaryRole] : []);
-  const isWarehouseOnly =
-    userRoles.includes('warehouse') && !userRoles.some((role) => ['admin', 'store_manager', 'accountant'].includes(role));
+  const userServiceKeys: string[] = (session?.user as any)?.serviceKeys || [];
+  // Scoped to the fabric section specifically (not the user's overall role set) —
+  // a warehouse worker often also holds unrelated permissions elsewhere (e.g.
+  // salla-products for SKU search) that carry other roles as a side effect, so
+  // checking aggregate roles would wrongly exclude them from this restriction.
+  const isWarehouseOnly = userServiceKeys.includes('fabric-warehouse') && !userServiceKeys.includes('fabric-management');
 
   const [tab, setTab] = useState<'stock' | 'tailors' | 'tailor-requests' | 'models' | 'invoices' | 'delivery-requests'>('stock');
   const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
