@@ -68,8 +68,11 @@ function extractOrderStatus(order: AnyObj): string | null {
   return null;
 }
 
+// Optional CC for testing: set ZOKO_DEBUG_PHONE to mirror every outgoing
+// WhatsApp message to that number. Unset in production so only customers
+// receive messages.
 const DEBUG_WHATSAPP_RECIPIENT =
-  process.env.ZOKO_DEBUG_PHONE || process.env.ZOKO_TEST_PHONE || "+966501466365";
+  process.env.ZOKO_DEBUG_PHONE || process.env.ZOKO_TEST_PHONE || "";
 
 const TPL = {
   ORDER_CONFIRMATION:
@@ -449,19 +452,28 @@ async function sendTpl(
 
   const responses: any[] = [];
   for (const recipient of recipients) {
-    if (!templateId) {
-      const fallback = `إشعار: ${args.map(String).join(" - ")}`;
-      responses.push(await sendWhatsAppText(recipient, fallback));
-      continue;
-    }
-    responses.push(
-      await sendWhatsAppTemplate({
-        to: recipient,
+    try {
+      if (!templateId) {
+        const fallback = `إشعار: ${args.map(String).join(" - ")}`;
+        responses.push(await sendWhatsAppText(recipient, fallback));
+        continue;
+      }
+      responses.push(
+        await sendWhatsAppTemplate({
+          to: recipient,
+          templateId,
+          lang,
+          args,
+        })
+      );
+    } catch (error) {
+      log.error("Failed to send WhatsApp message", {
+        recipient,
         templateId,
-        lang,
-        args,
-      })
-    );
+        error,
+      });
+      responses.push({ error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   return responses.length === 1 ? responses[0] : responses;
