@@ -1092,11 +1092,18 @@ export async function POST(request: NextRequest) {
           if (!tailor) throw new Error('الخياط غير موجود');
         }
 
-        const existingInvoice = await tx.purchaseInvoice.findUnique({
-          where: { invoiceNumber_supplier: { invoiceNumber: billNumber, supplier: supplier || '' } },
+        // Duplicate guard: case-insensitive on the number, and a bill without a
+        // supplier must match older rows stored with either NULL or ''.
+        const existingInvoice = await tx.purchaseInvoice.findFirst({
+          where: {
+            invoiceNumber: { equals: billNumber, mode: 'insensitive' },
+            ...(supplier
+              ? { supplier: { equals: supplier, mode: 'insensitive' } }
+              : { OR: [{ supplier: null }, { supplier: '' }] }),
+          },
         });
         if (existingInvoice) {
-          throw new Error(`رقم الفاتورة ${billNumber} مستخدم بالفعل لهذا المورّد`);
+          throw new BadRequestError(`رقم الفاتورة ${billNumber} مستخدم بالفعل لهذا المورّد`);
         }
 
         const savedFabrics: any[] = [];
@@ -1198,7 +1205,9 @@ export async function POST(request: NextRequest) {
         const invoice = await tx.purchaseInvoice.create({
           data: {
             invoiceNumber: billNumber,
-            supplier,
+            // '' rather than NULL: Postgres treats NULLs as distinct, which would
+            // let the @@unique([invoiceNumber, supplier]) constraint pass duplicates.
+            supplier: supplier ?? '',
             purchaseDate: new Date(purchaseDate),
             subtotalExclVat,
             vatAmount: vatTotal,
@@ -1232,6 +1241,14 @@ export async function POST(request: NextRequest) {
         }
 
         return { fabrics: savedFabrics, invoice };
+      }).catch((txError: any) => {
+        // Two simultaneous submits can both pass the findFirst guard; the DB
+        // unique constraint on (invoiceNumber, supplier) is the backstop.
+        const target = Array.isArray(txError?.meta?.target) ? txError.meta.target : [];
+        if (txError?.code === 'P2002' && target.includes('invoiceNumber')) {
+          throw new BadRequestError(`رقم الفاتورة ${billNumber} مستخدم بالفعل لهذا المورّد`);
+        }
+        throw txError;
       });
 
       return NextResponse.json(
