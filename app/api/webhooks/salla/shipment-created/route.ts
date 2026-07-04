@@ -9,14 +9,15 @@ import {
 } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
-import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
+import { extractSallaTrackingNumber, extractTrackingFromShipment } from '@/app/lib/salla-shipment';
 import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-notification';
 
 export const runtime = 'nodejs';
 
 /**
  * POST /api/webhooks/salla/shipment-created
- * Webhook handler for Salla's order.shipment.created event
+ * Webhook handler for Salla's shipment.created event (legacy alias:
+ * order.shipment.created; order.updated payloads are accepted too)
  * Documentation: https://docs.salla.dev/433804m0
  *
  * This webhook fires AFTER Salla has created the shipment with the courier (SMSA/Aramex/DHL)
@@ -29,13 +30,17 @@ export async function POST(request: NextRequest) {
     // Parse webhook payload
     const payload = await request.json();
 
-    const supportedEvents = ['order.shipment.created', 'order.updated'];
+    const supportedEvents = ['shipment.created', 'order.shipment.created', 'order.updated'];
     const eventType = payload.event;
     const isOrderUpdatedEvent = eventType === 'order.updated';
+    // Salla's live shipment webhook is named `shipment.created` and carries the
+    // shipment object directly in `data`; the legacy `order.shipment.created`
+    // shape nests it under an order payload. Normalize both below.
+    const isShipmentEvent = eventType === 'shipment.created';
     log.info('Webhook payload received', {
       event: eventType,
       merchant: payload.merchant,
-      orderId: payload.data?.reference_id,
+      orderId: payload.data?.reference_id ?? payload.data?.order_id,
     });
 
     // Validate webhook event type
@@ -60,12 +65,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract shipment information
-    const orderIdFromPayload = data.id ? data.id.toString() : null;
-    const referenceIdValue = data.reference_id ?? data.referenceId ?? data.reference ?? null;
+    const orderIdFromPayload = isShipmentEvent
+      ? (data.order_id ? data.order_id.toString() : null)
+      : (data.id ? data.id.toString() : null);
+    const referenceIdValue = isShipmentEvent
+      ? data.order_reference_id ?? data.order_number ?? data.reference_id ?? null
+      : data.reference_id ?? data.referenceId ?? data.reference ?? null;
     const referenceId = referenceIdValue ? referenceIdValue.toString() : orderIdFromPayload ?? '';
     const shipmentsArray = Array.isArray(data.shipments) ? data.shipments : [];
     const fallbackShipment = shipmentsArray.find((shipment: any) => shipment?.label?.url) || shipmentsArray[0] || {};
-    const shipmentInfo = data.shipping?.shipment || fallbackShipment || {};
+    const shipmentInfo = isShipmentEvent ? data : data.shipping?.shipment || fallbackShipment || {};
     const receiver = data.shipping?.receiver || shipmentInfo.receiver || shipmentInfo.ship_to || {};
     const shippingCompany = data.shipping?.company || shipmentInfo.courier_name || shipmentInfo.courier || shipmentInfo.courierName || 'Unknown';
     const trackingLink = shipmentInfo.tracking_link || shipmentInfo.trackingLink || shipmentInfo.tracking_url || '';
@@ -77,8 +86,13 @@ export async function POST(request: NextRequest) {
     const shipmentReference =
       (data.shipping?.shipment_reference || shipmentInfo.shipment_reference || shipmentInfo.reference || shipmentInfo.reference_id || '')?.toString() || '';
     const city = data.shipping?.address?.city || shipmentInfo.ship_to?.city || '';
-    const status = shipmentInfo.status || data.status?.name || 'created';
+    const statusRaw = shipmentInfo.status ?? data.status;
+    const status =
+      typeof statusRaw === 'string' ? statusRaw : statusRaw?.name || statusRaw?.slug || 'created';
+    // A return shipment's label is for the customer, not the warehouse printer.
+    const isReturnShipment = /return|reverse|مرتجع|استرجاع/i.test(String(shipmentInfo.type ?? data.type ?? ''));
     const trackingNumberValue =
+      extractTrackingFromShipment(shipmentInfo) ||
       extractSallaTrackingNumber(data) ||
       shipmentReference ||
       trackingLink ||
@@ -242,6 +256,11 @@ export async function POST(request: NextRequest) {
       });
     } else if (isOrderUpdatedEvent) {
       log.info('Skipping PrintNode request for order.updated webhook payload', {
+        referenceId,
+        orderId: resolvedOrderId,
+      });
+    } else if (isReturnShipment) {
+      log.info('Skipping PrintNode request for return shipment label', {
         referenceId,
         orderId: resolvedOrderId,
       });
