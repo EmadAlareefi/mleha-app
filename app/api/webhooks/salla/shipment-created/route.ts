@@ -14,6 +14,10 @@ import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-no
 
 export const runtime = 'nodejs';
 
+// Warehouse staff print labels manually from the app, so webhook auto-printing
+// stays off. Flip to true to restore automatic printing on shipment creation.
+const WEBHOOK_AUTO_PRINT_ENABLED = false;
+
 /**
  * POST /api/webhooks/salla/shipment-created
  * Webhook handler for Salla's shipment.created event (legacy alias:
@@ -261,6 +265,11 @@ export async function POST(request: NextRequest) {
       });
     } else if (isReturnShipment) {
       log.info('Skipping PrintNode request for return shipment label', {
+        referenceId,
+        orderId: resolvedOrderId,
+      });
+    } else if (!WEBHOOK_AUTO_PRINT_ENABLED) {
+      log.info('Label auto-print disabled - warehouse prints manually', {
         referenceId,
         orderId: resolvedOrderId,
       });
