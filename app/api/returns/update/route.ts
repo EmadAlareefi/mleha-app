@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
+import { buildReturnFeeQuote } from '@/lib/returns/fees';
 
 export const runtime = 'nodejs';
 
@@ -70,6 +71,36 @@ export async function POST(request: NextRequest) {
 
     if (type) {
       updateData.type = type;
+
+      // Switching between "return" and "exchange" changes the flat shipment-leg
+      // fee (60 SAR for returns, 40 SAR for exchanges), so the refund total must
+      // be recalculated - otherwise a converted request keeps the old type's fee
+      // and over/under-refunds the customer.
+      const existing = await prisma.returnRequest.findUnique({
+        where: { id },
+        select: {
+          type: true,
+          currency: true,
+          feeExchangeRate: true,
+          feeExchangeRateSource: true,
+          totalRefundAmount: true,
+          returnFee: true,
+        },
+      });
+
+      if (existing && type !== existing.type) {
+        const orderTotal =
+          Number(existing.totalRefundAmount ?? 0) + Number(existing.returnFee ?? 0);
+        const feeQuote = buildReturnFeeQuote(
+          type,
+          existing.currency,
+          Number(existing.feeExchangeRate ?? 1),
+          (existing.feeExchangeRateSource as 'sar' | 'salla' | 'env' | 'stored') ?? 'sar',
+        );
+
+        updateData.returnFee = feeQuote.processingFee;
+        updateData.totalRefundAmount = Math.max(0, orderTotal - feeQuote.processingFee);
+      }
     }
 
     const returnRequest = await prisma.returnRequest.update({
