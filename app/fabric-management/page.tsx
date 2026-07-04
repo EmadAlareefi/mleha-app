@@ -769,9 +769,11 @@ export default function FabricManagementPage() {
 
   const pendingCount = summary?.pendingRequestsCount || 0;
   const pendingDeliveryCount = (data?.deliveryNotes || []).filter((note) => note.status === 'SUBMITTED').length;
-  const allowedTabs = isRestrictedView
-    ? ['tailor-requests', 'delivery-requests']
-    : ['stock', 'tailor-requests', 'models', 'invoices', 'delivery-requests'];
+  const allowedTabs = isTailorOnly
+    ? ['tailor-requests', 'delivery-requests', 'models', 'invoices']
+    : isWarehouseOnly
+      ? ['tailor-requests', 'delivery-requests']
+      : ['stock', 'tailor-requests', 'models', 'invoices', 'delivery-requests'];
   const activeTab = allowedTabs.includes(tab) ? tab : isRestrictedView ? 'tailor-requests' : 'stock';
 
   const fabricBillTotal = purchaseBillItems.reduce(
@@ -781,6 +783,42 @@ export default function FabricManagementPage() {
   const accessoryBillTotal = accessoryBillItems.reduce(
     (sum, item) => sum + (Number(item.purchasedQty) || 0) * (Number(item.unitPrice) || 0),
     0
+  );
+
+  // Shared between the stock tab (admins) and the invoices tab (tailors record
+  // their self-bought fabric; the API books it onto their own balance).
+  const fabricBillForm = (
+    <form onSubmit={handlePurchaseBillSubmit}>
+      <div className="grid" style={{ marginBottom: 14 }}>
+        <TextInput label="رقم الفاتورة" value={purchaseBillForm.billNumber} onChange={(billNumber) => setPurchaseBillForm({ ...purchaseBillForm, billNumber })} required />
+        <TextInput label="تاريخ الشراء" type="date" value={purchaseBillForm.purchaseDate} onChange={(purchaseDate) => setPurchaseBillForm({ ...purchaseBillForm, purchaseDate })} required />
+        <DesignSelect label="اسم المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} onCreate={(name) => openCreateSupplierDialog('fabric', name)} searchable fallbackLabel={purchaseBillForm.supplier} />
+      </div>
+      <div className="section-label" style={{ marginBottom: 10 }}>الأقمشة في الفاتورة</div>
+      <div className="inv-head">
+        <div>القماش</div><div>رقم المنتج</div><div>الكمية</div><div>التكلفة</div><div>حد التنبيه</div><div>الإجمالي</div><div></div>
+      </div>
+      {purchaseBillItems.map((item) => (
+        <PurchaseBillItemRow
+          key={item.id}
+          item={item}
+          fabricOptions={fabricOptions}
+          onFabricSelect={(fabricId) => selectPurchaseBillFabric(item.id, fabricId)}
+          onCreateFabric={(searchValue) => openCreateFabricDialog(item.id, searchValue)}
+          onChange={(changes) => updatePurchaseBillItem(item.id, changes)}
+          onRemove={() => removePurchaseBillItem(item.id)}
+          canRemove={purchaseBillItems.length > 1}
+        />
+      ))}
+      <div className="inv-total">
+        <span>إجمالي الفاتورة</span>
+        <span className="inv-total-val">{formatCurrency(fabricBillTotal)}</span>
+      </div>
+      <button type="button" className="btn-add-row" onClick={addPurchaseBillItem}><Plus size={15} /> إضافة قماش</button>
+      <TextAreaField label="ملاحظات الفاتورة" value={purchaseBillForm.notes} onChange={(notes) => setPurchaseBillForm({ ...purchaseBillForm, notes })} />
+      <p className="muted-note" style={{ marginTop: 8 }}>ابحث بالاسم أو الرمز. إذا لم تجد القماش، اختر إنشاء قماش جديد من نفس الحقل.</p>
+      <button className="btn" type="submit" disabled={saving}><FileText /> حفظ الفاتورة</button>
+    </form>
   );
 
   return (
@@ -833,10 +871,10 @@ export default function FabricManagementPage() {
                   طلبات التسليم
                   {pendingDeliveryCount > 0 && <span className="tab-badge">{formatNumber(pendingDeliveryCount)} جديد</span>}
                 </button>
-                {!isRestrictedView && (
+                {!isWarehouseOnly && (
                   <button type="button" className={`tab ${activeTab === 'models' ? 'active' : ''}`} onClick={() => setTab('models')}>الموديلات</button>
                 )}
-                {!isRestrictedView && (
+                {!isWarehouseOnly && (
                   <button type="button" className={`tab ${activeTab === 'invoices' ? 'active' : ''}`} onClick={() => setTab('invoices')}>فواتير الشراء</button>
                 )}
               </div>
@@ -850,39 +888,7 @@ export default function FabricManagementPage() {
                       <button type="button" className={`subtab ${stockBillTab === 'accessory' ? 'active' : ''}`} onClick={() => setStockBillTab('accessory')}>فاتورة شراء المستلزمات</button>
                     </div>
 
-                    {stockBillTab === 'fabric' && (
-                      <form onSubmit={handlePurchaseBillSubmit}>
-                        <div className="grid" style={{ marginBottom: 14 }}>
-                          <TextInput label="رقم الفاتورة" value={purchaseBillForm.billNumber} onChange={(billNumber) => setPurchaseBillForm({ ...purchaseBillForm, billNumber })} required />
-                          <TextInput label="تاريخ الشراء" type="date" value={purchaseBillForm.purchaseDate} onChange={(purchaseDate) => setPurchaseBillForm({ ...purchaseBillForm, purchaseDate })} required />
-                          <DesignSelect label="اسم المورد" value={purchaseBillForm.supplier} options={supplierOptions} onChange={(supplier) => setPurchaseBillForm({ ...purchaseBillForm, supplier })} onCreate={(name) => openCreateSupplierDialog('fabric', name)} searchable fallbackLabel={purchaseBillForm.supplier} />
-                        </div>
-                        <div className="section-label" style={{ marginBottom: 10 }}>الأقمشة في الفاتورة</div>
-                        <div className="inv-head">
-                          <div>القماش</div><div>رقم المنتج</div><div>الكمية</div><div>التكلفة</div><div>حد التنبيه</div><div>الإجمالي</div><div></div>
-                        </div>
-                        {purchaseBillItems.map((item) => (
-                          <PurchaseBillItemRow
-                            key={item.id}
-                            item={item}
-                            fabricOptions={fabricOptions}
-                            onFabricSelect={(fabricId) => selectPurchaseBillFabric(item.id, fabricId)}
-                            onCreateFabric={(searchValue) => openCreateFabricDialog(item.id, searchValue)}
-                            onChange={(changes) => updatePurchaseBillItem(item.id, changes)}
-                            onRemove={() => removePurchaseBillItem(item.id)}
-                            canRemove={purchaseBillItems.length > 1}
-                          />
-                        ))}
-                        <div className="inv-total">
-                          <span>إجمالي الفاتورة</span>
-                          <span className="inv-total-val">{formatCurrency(fabricBillTotal)}</span>
-                        </div>
-                        <button type="button" className="btn-add-row" onClick={addPurchaseBillItem}><Plus size={15} /> إضافة قماش</button>
-                        <TextAreaField label="ملاحظات الفاتورة" value={purchaseBillForm.notes} onChange={(notes) => setPurchaseBillForm({ ...purchaseBillForm, notes })} />
-                        <p className="muted-note" style={{ marginTop: 8 }}>ابحث بالاسم أو الرمز. إذا لم تجد القماش، اختر إنشاء قماش جديد من نفس الحقل.</p>
-                        <button className="btn" type="submit" disabled={saving}><FileText /> حفظ الفاتورة</button>
-                      </form>
-                    )}
+                    {stockBillTab === 'fabric' && fabricBillForm}
 
                     {stockBillTab === 'accessory' && (
                       <form onSubmit={handleAccessoryBillSubmit}>
@@ -1038,7 +1044,7 @@ export default function FabricManagementPage() {
               )}
 
               {/* ═════ الموديلات ═════ */}
-              {!isRestrictedView && activeTab === 'models' && (
+              {!isWarehouseOnly && activeTab === 'models' && (
                 <ModelsTabSpec
                   fabrics={data?.fabrics || []}
                   accessoriesInventory={data?.accessories || []}
@@ -1048,8 +1054,20 @@ export default function FabricManagementPage() {
                 />
               )}
 
-              {!isRestrictedView && activeTab === 'invoices' && (
-                <InvoicesTab invoices={data?.purchaseInvoices || []} />
+              {!isWarehouseOnly && activeTab === 'invoices' && (
+                <div>
+                  {isTailorOnly && (
+                    <FormAccordionCard
+                      marker="ف"
+                      title="فاتورة شراء قماش"
+                      tag="فاتورة"
+                      description="سجّل القماش الذي اشتريته بنفسك — تُضاف الكمية مباشرة إلى رصيدك من الأقمشة."
+                    >
+                      {fabricBillForm}
+                    </FormAccordionCard>
+                  )}
+                  <InvoicesTab invoices={data?.purchaseInvoices || []} />
+                </div>
               )}
 
               <CreateFabricDrawer

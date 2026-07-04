@@ -528,34 +528,43 @@ export async function GET() {
     if (access.error) return access.error;
 
     // Tailor-scoped payload: same response shape, but only the tailor's own
-    // requests/delivery notes plus pared-down fabric/model pickers — no costs,
-    // stock levels, invoices or other tailors' data.
+    // requests, delivery notes and purchase invoices. Fabrics/accessories/models
+    // come through whole because his invoice form and dress-model builder need
+    // them; other tailors' data and the movement ledger stay hidden.
     if (access.isTailor) {
       const tailor = await resolveTailorForUser(access.session);
-      const [fabrics, models, requests, deliveryNotes, ledgerAgg, legacyOpenIssues] = await Promise.all([
-        prisma.fabric.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } }),
-        prisma.designModel.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
-        prisma.tailorFabricRequest.findMany({
-          where: { tailorId: tailor.id },
-          include: { fabric: true, tailor: true },
-          orderBy: { createdAt: 'desc' },
-          take: 100,
-        }),
-        prisma.deliveryNote.findMany({
-          where: { tailorId: tailor.id },
-          include: { tailor: true, designModel: true },
-          orderBy: { createdAt: 'desc' },
-          take: 100,
-        }),
-        prisma.tailorFabricIssue.groupBy({
-          by: ['fabricId'],
-          where: { tailorId: tailor.id, location: 'TAILOR', quantityDelta: { not: null } },
-          _sum: { quantityDelta: true },
-        }),
-        prisma.tailorFabricIssue.findMany({
-          where: { tailorId: tailor.id, movementType: 'LEGACY_ISSUE', status: { not: 'closed' } },
-        }),
-      ]);
+      const [fabrics, accessories, suppliers, models, requests, deliveryNotes, purchaseInvoices, ledgerAgg, legacyOpenIssues] =
+        await Promise.all([
+          prisma.fabric.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } }),
+          prisma.accessory.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } }),
+          prisma.supplier
+            .findMany({ where: { isActive: true }, orderBy: { name: 'asc' } })
+            .catch(() => [] as Awaited<ReturnType<typeof prisma.supplier.findMany>>),
+          prisma.designModel.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
+          prisma.tailorFabricRequest.findMany({
+            where: { tailorId: tailor.id },
+            include: { fabric: true, tailor: true },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+          }),
+          prisma.deliveryNote.findMany({
+            where: { tailorId: tailor.id },
+            include: { tailor: true, designModel: true },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+          }),
+          prisma.purchaseInvoice
+            .findMany({ where: { tailorId: tailor.id }, include: { items: true }, orderBy: { purchaseDate: 'desc' }, take: 200 })
+            .catch(() => [] as Awaited<ReturnType<typeof prisma.purchaseInvoice.findMany>>),
+          prisma.tailorFabricIssue.groupBy({
+            by: ['fabricId'],
+            where: { tailorId: tailor.id, location: 'TAILOR', quantityDelta: { not: null } },
+            _sum: { quantityDelta: true },
+          }),
+          prisma.tailorFabricIssue.findMany({
+            where: { tailorId: tailor.id, movementType: 'LEGACY_ISSUE', status: { not: 'closed' } },
+          }),
+        ]);
 
       const balanceByFabric = new Map<string, number>();
       for (const row of ledgerAgg) {
@@ -570,30 +579,36 @@ export async function GET() {
         .map(([fabricId, heldMeters]) => ({ fabricId, tailorId: tailor.id, heldMeters }))
         .filter((row) => Math.abs(row.heldMeters) > 0.001);
 
-      const pickFabric = (fabric: any) =>
-        fabric
-          ? { id: fabric.id, name: fabric.name, sku: fabric.sku, color: fabric.color, fabricType: fabric.fabricType, isActive: fabric.isActive }
-          : undefined;
+      const fabricMap = new Map(
+        fabrics.map((fabric) => [
+          fabric.id,
+          { name: fabric.name, unitCost: toNumber(fabric.unitCost), stockLength: toNumber(fabric.stockLength) },
+        ])
+      );
+      const accessoryMap = new Map(
+        accessories.map((accessory) => [
+          accessory.id,
+          { name: accessory.name, unitPrice: toNumber(accessory.unitPrice), stockQty: toNumber(accessory.stockQty) },
+        ])
+      );
 
       return NextResponse.json({
-        fabrics: fabrics.map(pickFabric),
-        accessories: [],
+        fabrics: fabrics.map(serializeFabric),
+        accessories: accessories.map(serializeAccessory),
         issues: [],
-        requests: requests.map((request) => ({
-          ...serializeRequest(request),
-          fabric: pickFabric(request.fabric),
-        })),
-        models: models.map((model) => ({
-          id: model.id,
-          sku: model.sku,
-          size: model.size,
-          status: model.status,
-          description: model.description,
-          sallaProductName: model.sallaProductName,
-          isActive: model.isActive,
-        })),
-        suppliers: [],
-        purchaseInvoices: [],
+        requests: requests.map(serializeRequest),
+        models: models.map((model) =>
+          serializeModel(
+            model,
+            fabricMap,
+            accessoryMap,
+            { inProgressCount: 0, reservedLength: 0 },
+            { tailoringCost: 0, embroideryCost: 0 },
+            []
+          )
+        ),
+        suppliers: suppliers.map(serializeSupplier),
+        purchaseInvoices: purchaseInvoices.map(serializePurchaseInvoice),
         deliveryNotes: deliveryNotes.map(serializeDeliveryNote),
         tailorFabricBalances,
         summary: {
@@ -603,7 +618,7 @@ export async function GET() {
           withTailorsMeters: 0,
           pendingRequestsCount: requests.filter((request) => request.status === 'pending').length,
           modelsCount: models.length,
-          purchaseInvoicesCount: 0,
+          purchaseInvoicesCount: purchaseInvoices.length,
           lowStockFabricsCount: 0,
           lowStockAccessoriesCount: 0,
         },
@@ -822,9 +837,18 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const action = body.action;
 
-    // Tailor accounts can only create their own requests — never approve,
-    // accept, or touch stock/models/invoices.
-    if (access.isTailor && !['create-tailor-request', 'create-delivery-request'].includes(action)) {
+    // Tailor accounts can only create — their own requests, delivery notes,
+    // purchase bills (recorded in their name) and dress models. They can never
+    // approve/accept anything or edit existing stock.
+    const TAILOR_ALLOWED_ACTIONS = [
+      'create-tailor-request',
+      'create-delivery-request',
+      'create-purchase-bill',
+      'create-model',
+      'create-fabric',
+      'create-supplier',
+    ];
+    if (access.isTailor && !TAILOR_ALLOWED_ACTIONS.includes(action)) {
       return NextResponse.json({ error: 'لا تملك صلاحية لهذا الإجراء' }, { status: 403 });
     }
 
@@ -1014,8 +1038,11 @@ export async function POST(request: NextRequest) {
       const lengthUnit = body.lengthUnit === 'yard' ? 'yard' : 'meter';
       const supplier = normalizeSupplier(body.supplier);
       const items = Array.isArray(body.items) ? body.items : [];
-      const enteredLocation = body.enteredLocation === 'TAILOR' ? 'TAILOR' : 'WAREHOUSE';
-      const tailorId = enteredLocation === 'TAILOR' ? cleanText(body.tailorId) : '';
+      // A tailor's bill is always recorded in his own name: the fabric he bought
+      // lands on his balance (TAILOR_PURCHASE), never in the warehouse.
+      const selfTailor = access.isTailor ? await resolveTailorForUser(access.session) : null;
+      const enteredLocation = selfTailor || body.enteredLocation === 'TAILOR' ? 'TAILOR' : 'WAREHOUSE';
+      const tailorId = selfTailor ? selfTailor.id : enteredLocation === 'TAILOR' ? cleanText(body.tailorId) : '';
 
       if (!billNumber) {
         return NextResponse.json({ error: 'رقم فاتورة الشراء مطلوب' }, { status: 400 });
