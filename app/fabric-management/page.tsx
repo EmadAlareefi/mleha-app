@@ -751,15 +751,22 @@ export default function FabricManagementPage() {
 
   const { data: session, status: sessionStatus } = useSession();
   const userServiceKeys: string[] = (session?.user as any)?.serviceKeys || [];
-  // Manufacturer accounts are tailors: they get the self-scoped creation view
-  // regardless of service keys (the API scopes their data server-side too).
-  const isTailorOnly = (session?.user as any)?.userType === 'manufacturer';
+  // Manufacturer accounts are tailors and get the self-scoped creation view —
+  // but only when they hold no fabric service keys. The مصنع flag is also set
+  // on regular staff accounts (it predates this feature), so fabric access and
+  // the admin role always win over it. Mirrors the API's requireAccess gate.
+  const isAdminUser = (session?.user as any)?.role === 'admin';
+  const isTailorOnly =
+    (session?.user as any)?.userType === 'manufacturer' &&
+    !isAdminUser &&
+    !userServiceKeys.includes('fabric-warehouse') &&
+    !userServiceKeys.includes('fabric-management');
   // Scoped to the fabric section specifically (not the user's overall role set) —
   // a warehouse worker often also holds unrelated permissions elsewhere (e.g.
   // salla-products for SKU search) that carry other roles as a side effect, so
   // checking aggregate roles would wrongly exclude them from this restriction.
   const isWarehouseOnly =
-    !isTailorOnly && userServiceKeys.includes('fabric-warehouse') && !userServiceKeys.includes('fabric-management');
+    !isAdminUser && userServiceKeys.includes('fabric-warehouse') && !userServiceKeys.includes('fabric-management');
   // Both restricted audiences only ever see the two request tabs.
   const isRestrictedView = isWarehouseOnly || isTailorOnly;
 

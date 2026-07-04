@@ -488,11 +488,13 @@ async function requireAccess() {
     };
   }
 
-  // Manufacturer accounts are tailors: they always get the self-scoped tailor
-  // surface (own requests / delivery notes), never the management one — even if
-  // they also happen to hold fabric service keys.
+  // Manufacturer accounts are tailors and get the self-scoped surface (own
+  // requests / delivery notes) — but only when they hold no fabric service
+  // keys. The مصنع flag is also set on regular staff accounts (it predates
+  // this feature, used by the Salla purchase-requests flow), so full fabric
+  // access must always win over it.
   const isTailor =
-    (session.user as any)?.userType === 'manufacturer' && (session.user as any)?.role !== 'admin';
+    (session.user as any)?.userType === 'manufacturer' && !hasServiceAccess(session, FABRIC_SERVICE);
   if (isTailor) {
     return { session, isTailor: true };
   }
