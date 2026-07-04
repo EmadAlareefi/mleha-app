@@ -425,6 +425,49 @@ async function getWarehouseAvailable(client: Prisma.TransactionClient | typeof p
   return toNumber(fabric.stockLength, 0) - legacyRemaining - tailorLedgerBalance;
 }
 
+// Expand a design model's bill of materials into the per-batch components snapshot
+// stored on a delivery note (recipe fabrics + accessories × dress count).
+async function buildDeliverySnapshot(model: any, dressCount: number) {
+  const unit = model.unit || 'meter';
+  const recipe: RecipeRow[] = Array.isArray(model.recipe) ? (model.recipe as any[]) : [];
+  const accessoriesRecipe = parseAccessoryRecipe(model.accessories);
+  const fabricIds = recipe.map((row) => String(row.fabricId || '')).filter(Boolean);
+  const fabricsUsed = await prisma.fabric.findMany({ where: { id: { in: fabricIds } } });
+  const fabricLookup = new Map(fabricsUsed.map((f) => [f.id, f]));
+  const accessoryIds = (accessoriesRecipe as any[]).map((row) => row.accessoryId).filter(Boolean);
+  const accessoriesUsed = await prisma.accessory.findMany({ where: { id: { in: accessoryIds } } });
+  const accessoryLookup = new Map(accessoriesUsed.map((a) => [a.id, a]));
+
+  const fabrics = recipe
+    .map((row) => {
+      const fabricId = String(row.fabricId || '');
+      const fabric = fabricLookup.get(fabricId);
+      const consumption = toNumber(row.consumption);
+      const meters = consumptionToMeters(row.consumption, unit) * dressCount;
+      if (!fabric || meters <= 0) return null;
+      return {
+        fabricId,
+        name: fabric.name,
+        consumption,
+        meters,
+        unitCost: toNumber(fabric.unitCost),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  const accessories = (accessoriesRecipe as any[])
+    .map((row) => {
+      if (!row.accessoryId) return null;
+      const accessory = accessoryLookup.get(row.accessoryId);
+      const qty = toNumber(row.consumption) * dressCount;
+      if (!accessory || qty <= 0) return null;
+      return { accessoryId: row.accessoryId, name: accessory.name, qty, unitPrice: toNumber(accessory.unitPrice) };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  return { fabrics, accessories };
+}
+
 async function requireWarehouseRole(session: any) {
   if (session?.user?.role === 'admin') return true;
   const roles: string[] = Array.isArray(session?.user?.roles) ? session.user.roles : [];
@@ -442,6 +485,15 @@ async function requireAccess() {
     };
   }
 
+  // Manufacturer accounts are tailors: they always get the self-scoped tailor
+  // surface (own requests / delivery notes), never the management one — even if
+  // they also happen to hold fabric service keys.
+  const isTailor =
+    (session.user as any)?.userType === 'manufacturer' && (session.user as any)?.role !== 'admin';
+  if (isTailor) {
+    return { session, isTailor: true };
+  }
+
   if (!hasServiceAccess(session, FABRIC_SERVICE)) {
     return {
       error: NextResponse.json(
@@ -451,7 +503,23 @@ async function requireAccess() {
     };
   }
 
-  return { session };
+  return { session, isTailor: false };
+}
+
+// The Tailor row is still the FK anchor for the whole fabric ledger; manufacturer
+// accounts get one lazily, bound via the unique orderUserId link.
+async function resolveTailorForUser(session: any) {
+  const userId = String(session?.user?.id || '');
+  if (!userId) throw new Error('تعذر تحديد حساب الخياط');
+  return prisma.tailor.upsert({
+    where: { orderUserId: userId },
+    update: {},
+    create: {
+      name: session?.user?.name || session?.user?.username || 'خياط',
+      isActive: true,
+      orderUserId: userId,
+    },
+  });
 }
 
 export async function GET() {
@@ -459,10 +527,92 @@ export async function GET() {
     const access = await requireAccess();
     if (access.error) return access.error;
 
-    const [fabrics, accessories, tailors, issues, requests, models] = await Promise.all([
+    // Tailor-scoped payload: same response shape, but only the tailor's own
+    // requests/delivery notes plus pared-down fabric/model pickers — no costs,
+    // stock levels, invoices or other tailors' data.
+    if (access.isTailor) {
+      const tailor = await resolveTailorForUser(access.session);
+      const [fabrics, models, requests, deliveryNotes, ledgerAgg, legacyOpenIssues] = await Promise.all([
+        prisma.fabric.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } }),
+        prisma.designModel.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
+        prisma.tailorFabricRequest.findMany({
+          where: { tailorId: tailor.id },
+          include: { fabric: true, tailor: true },
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+        }),
+        prisma.deliveryNote.findMany({
+          where: { tailorId: tailor.id },
+          include: { tailor: true, designModel: true },
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+        }),
+        prisma.tailorFabricIssue.groupBy({
+          by: ['fabricId'],
+          where: { tailorId: tailor.id, location: 'TAILOR', quantityDelta: { not: null } },
+          _sum: { quantityDelta: true },
+        }),
+        prisma.tailorFabricIssue.findMany({
+          where: { tailorId: tailor.id, movementType: 'LEGACY_ISSUE', status: { not: 'closed' } },
+        }),
+      ]);
+
+      const balanceByFabric = new Map<string, number>();
+      for (const row of ledgerAgg) {
+        balanceByFabric.set(row.fabricId, toNumber(row._sum.quantityDelta, 0));
+      }
+      for (const issue of legacyOpenIssues) {
+        const remaining =
+          toNumber(issue.issuedLength) - toNumber(issue.consumedLength) - toNumber(issue.returnedLength);
+        balanceByFabric.set(issue.fabricId, (balanceByFabric.get(issue.fabricId) || 0) + remaining);
+      }
+      const tailorFabricBalances = Array.from(balanceByFabric.entries())
+        .map(([fabricId, heldMeters]) => ({ fabricId, tailorId: tailor.id, heldMeters }))
+        .filter((row) => Math.abs(row.heldMeters) > 0.001);
+
+      const pickFabric = (fabric: any) =>
+        fabric
+          ? { id: fabric.id, name: fabric.name, sku: fabric.sku, color: fabric.color, fabricType: fabric.fabricType, isActive: fabric.isActive }
+          : undefined;
+
+      return NextResponse.json({
+        fabrics: fabrics.map(pickFabric),
+        accessories: [],
+        issues: [],
+        requests: requests.map((request) => ({
+          ...serializeRequest(request),
+          fabric: pickFabric(request.fabric),
+        })),
+        models: models.map((model) => ({
+          id: model.id,
+          sku: model.sku,
+          size: model.size,
+          status: model.status,
+          description: model.description,
+          sallaProductName: model.sallaProductName,
+          isActive: model.isActive,
+        })),
+        suppliers: [],
+        purchaseInvoices: [],
+        deliveryNotes: deliveryNotes.map(serializeDeliveryNote),
+        tailorFabricBalances,
+        summary: {
+          fabricsCount: 0,
+          accessoriesCount: 0,
+          stockMeters: 0,
+          withTailorsMeters: 0,
+          pendingRequestsCount: requests.filter((request) => request.status === 'pending').length,
+          modelsCount: models.length,
+          purchaseInvoicesCount: 0,
+          lowStockFabricsCount: 0,
+          lowStockAccessoriesCount: 0,
+        },
+      });
+    }
+
+    const [fabrics, accessories, issues, requests, models] = await Promise.all([
       prisma.fabric.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
       prisma.accessory.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
-      prisma.tailor.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
       prisma.tailorFabricIssue.findMany({
         include: { fabric: true, tailor: true },
         orderBy: { issueDate: 'desc' },
@@ -639,7 +789,6 @@ export async function GET() {
         ...fabricLocationBreakdown(fabric.id, toNumber(fabric.stockLength)),
       })),
       accessories: accessories.map(serializeAccessory),
-      tailors,
       issues: serializedIssues,
       requests: requests.map(serializeRequest),
       models: serializedModels,
@@ -650,7 +799,6 @@ export async function GET() {
       summary: {
         fabricsCount: fabrics.length,
         accessoriesCount: accessories.length,
-        activeTailorsCount: tailors.filter((tailor) => tailor.isActive).length,
         stockMeters,
         withTailorsMeters,
         pendingRequestsCount: requests.filter((request) => request.status === 'pending').length,
@@ -673,6 +821,108 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const action = body.action;
+
+    // Tailor accounts can only create their own requests — never approve,
+    // accept, or touch stock/models/invoices.
+    if (access.isTailor && !['create-tailor-request', 'create-delivery-request'].includes(action)) {
+      return NextResponse.json({ error: 'لا تملك صلاحية لهذا الإجراء' }, { status: 403 });
+    }
+
+    if (action === 'create-tailor-request') {
+      if (!access.isTailor) {
+        return NextResponse.json({ error: 'هذا الإجراء مخصص لحسابات الخياطين' }, { status: 403 });
+      }
+      const tailor = await resolveTailorForUser(access.session);
+      const requestType = body.requestType === 'purchase' ? 'purchase' : 'stock_request';
+      const requestedLength = lengthToMeters(body.requestedLength, body.lengthUnit, 'الكمية المطلوبة');
+
+      let fabricId: string | null = null;
+      if (requestType === 'stock_request') {
+        fabricId = String(body.fabricId || '');
+        if (!fabricId) {
+          return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
+        }
+        const fabric = await prisma.fabric.findUnique({ where: { id: fabricId } });
+        if (!fabric) {
+          return NextResponse.json({ error: 'القماش غير موجود' }, { status: 404 });
+        }
+      }
+
+      const purchaseName = cleanText(body.purchaseName);
+      if (requestType === 'purchase' && !purchaseName) {
+        return NextResponse.json({ error: 'اسم القماش المطلوب شراؤه مطلوب' }, { status: 400 });
+      }
+
+      const created = await prisma.tailorFabricRequest.create({
+        data: {
+          tailorId: tailor.id,
+          fabricId,
+          requestType,
+          requestedLength,
+          purchaseName: requestType === 'purchase' ? purchaseName : null,
+          purchaseSku: requestType === 'purchase' ? cleanText(body.purchaseSku) || null : null,
+          purchaseColor: requestType === 'purchase' ? cleanText(body.purchaseColor) || null : null,
+          purchaseFabricType: requestType === 'purchase' ? cleanText(body.purchaseFabricType) || null : null,
+          purchaseSupplier: requestType === 'purchase' ? normalizeSupplier(body.purchaseSupplier) : null,
+          purchaseUnitCost:
+            requestType === 'purchase' && body.purchaseUnitCost !== undefined && body.purchaseUnitCost !== null && body.purchaseUnitCost !== ''
+              ? costToPerMeter(body.purchaseUnitCost, body.lengthUnit)
+              : null,
+          status: 'pending',
+          notes: cleanText(body.notes) || null,
+        },
+        include: { fabric: true, tailor: true },
+      });
+
+      return NextResponse.json(serializeRequest(created), { status: 201 });
+    }
+
+    if (action === 'create-delivery-request') {
+      if (!access.isTailor) {
+        return NextResponse.json({ error: 'هذا الإجراء مخصص لحسابات الخياطين' }, { status: 403 });
+      }
+      const tailor = await resolveTailorForUser(access.session);
+      const designModelId = String(body.designModelId || '');
+      const dressCount = Math.max(1, Math.trunc(toNumber(body.dressCount, 1)));
+      if (!designModelId) {
+        return NextResponse.json({ error: 'الموديل مطلوب' }, { status: 400 });
+      }
+      const model = await prisma.designModel.findUnique({ where: { id: designModelId } });
+      if (!model) {
+        return NextResponse.json({ error: 'الموديل غير موجود' }, { status: 404 });
+      }
+
+      const snapshot = await buildDeliverySnapshot(model, dressCount);
+      for (const line of snapshot.fabrics) {
+        const balance = await getLedgerBalance(prisma, line.fabricId, 'TAILOR', tailor.id);
+        if (balance < line.meters) {
+          return NextResponse.json(
+            { error: `كمية القماش "${line.name}" المتوفرة لديك غير كافية لهذه الدفعة` },
+            { status: 409 }
+          );
+        }
+      }
+
+      const note = await prisma.deliveryNote.create({
+        data: {
+          noteNumber: `DN-${Date.now().toString(36).toUpperCase()}`,
+          tailorId: tailor.id,
+          designModelId,
+          dressCount,
+          size: body.size ? String(body.size) : model.size,
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          tailoringCost: toDecimal(body.tailoringCost ?? model.tailoringCost),
+          embroideryCost: toDecimal(body.embroideryCost ?? model.embroideryCost),
+          extraCost: toDecimal(body.extraCost ?? model.extraCost),
+          componentsConsumed: snapshot,
+          notes: cleanText(body.notes) || null,
+        },
+        include: { tailor: true, designModel: true },
+      });
+
+      return NextResponse.json(serializeDeliveryNote(note), { status: 201 });
+    }
 
     if (action === 'create-fabric') {
       if (!body.name) {
@@ -1293,42 +1543,7 @@ export async function POST(request: NextRequest) {
       if (!tailor) return NextResponse.json({ error: 'الخياط غير موجود' }, { status: 404 });
       if (!model) return NextResponse.json({ error: 'الموديل غير موجود' }, { status: 404 });
 
-      const unit = model.unit || 'meter';
-      const recipe: RecipeRow[] = Array.isArray(model.recipe) ? (model.recipe as any[]) : [];
-      const accessoriesRecipe = parseAccessoryRecipe(model.accessories);
-      const fabricIds = recipe.map((row) => String(row.fabricId || '')).filter(Boolean);
-      const fabricsUsed = await prisma.fabric.findMany({ where: { id: { in: fabricIds } } });
-      const fabricLookup = new Map(fabricsUsed.map((f) => [f.id, f]));
-      const accessoryIds = (accessoriesRecipe as any[]).map((row) => row.accessoryId).filter(Boolean);
-      const accessoriesUsed = await prisma.accessory.findMany({ where: { id: { in: accessoryIds } } });
-      const accessoryLookup = new Map(accessoriesUsed.map((a) => [a.id, a]));
-
-      const fabricsSnapshot = recipe
-        .map((row) => {
-          const fabricId = String(row.fabricId || '');
-          const fabric = fabricLookup.get(fabricId);
-          const consumption = toNumber(row.consumption);
-          const meters = consumptionToMeters(row.consumption, unit) * dressCount;
-          if (!fabric || meters <= 0) return null;
-          return {
-            fabricId,
-            name: fabric.name,
-            consumption,
-            meters,
-            unitCost: toNumber(fabric.unitCost),
-          };
-        })
-        .filter((row): row is NonNullable<typeof row> => row !== null);
-
-      const accessoriesSnapshot = (accessoriesRecipe as any[])
-        .map((row) => {
-          if (!row.accessoryId) return null;
-          const accessory = accessoryLookup.get(row.accessoryId);
-          const qty = toNumber(row.consumption) * dressCount;
-          if (!accessory || qty <= 0) return null;
-          return { accessoryId: row.accessoryId, name: accessory.name, qty, unitPrice: toNumber(accessory.unitPrice) };
-        })
-        .filter((row): row is NonNullable<typeof row> => row !== null);
+      const snapshot = await buildDeliverySnapshot(model, dressCount);
 
       const note = await prisma.deliveryNote.create({
         data: {
@@ -1341,7 +1556,7 @@ export async function POST(request: NextRequest) {
           tailoringCost: toDecimal(body.tailoringCost ?? model.tailoringCost),
           embroideryCost: toDecimal(body.embroideryCost ?? model.embroideryCost),
           extraCost: toDecimal(body.extraCost ?? model.extraCost),
-          componentsConsumed: { fabrics: fabricsSnapshot, accessories: accessoriesSnapshot },
+          componentsConsumed: snapshot,
           notes: cleanText(body.notes) || null,
         },
         include: { tailor: true, designModel: true },
@@ -1556,10 +1771,9 @@ export async function POST(request: NextRequest) {
         if (!existingRequest) throw new Error('طلب القماش غير موجود');
 
         let fabricId = existingRequest.fabricId;
-        const isPurchaseApproval =
-          existingRequest.requestType === 'purchase' &&
-          status === 'approved' &&
-          !['approved', 'fulfilled'].includes(existingRequest.status);
+        const isFirstApproval =
+          status === 'approved' && !['approved', 'fulfilled'].includes(existingRequest.status);
+        const isPurchaseApproval = isFirstApproval && existingRequest.requestType === 'purchase';
 
         if (isPurchaseApproval) {
           const purchaseName = existingRequest.purchaseName?.trim();
@@ -1611,6 +1825,60 @@ export async function POST(request: NextRequest) {
             });
             fabricId = createdFabric.id;
           }
+        }
+
+        // Approval hands the fabric over: move the requested quantity from the
+        // warehouse to the tailor's ledger balance (paired custody-transfer rows,
+        // same pattern as issue-fabric) so his delivery notes pass the stock
+        // checks. Fires once — re-approving or fulfilling doesn't credit again.
+        if (isFirstApproval) {
+          if (!fabricId) throw new Error('القماش مطلوب لاعتماد الطلب');
+          const fabric = await tx.fabric.findUnique({ where: { id: fabricId } });
+          if (!fabric) throw new Error('القماش غير موجود');
+
+          const requestedLength = existingRequest.requestedLength;
+          // Purchase approvals just added this exact quantity to warehouse stock;
+          // stock requests draw on what's already available.
+          if (!isPurchaseApproval) {
+            const available = await getWarehouseAvailable(tx, fabricId);
+            if (available < toNumber(requestedLength)) {
+              throw new Error('كمية القماش في المستودع غير كافية لاعتماد الطلب');
+            }
+          }
+
+          const transferGroupId = `xfer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const issueDate = new Date();
+          const reference = `طلب قماش ${existingRequest.id}`;
+
+          await tx.tailorFabricIssue.create({
+            data: {
+              fabricId,
+              tailorId: existingRequest.tailorId,
+              issuedLength: requestedLength,
+              unitCostAtIssue: fabric.unitCost,
+              issueDate,
+              reference,
+              movementType: 'ISSUE_TO_TAILOR',
+              location: 'TAILOR',
+              quantityDelta: requestedLength,
+              transferGroupId,
+            },
+          });
+
+          await tx.tailorFabricIssue.create({
+            data: {
+              fabricId,
+              issuedLength: requestedLength,
+              unitCostAtIssue: fabric.unitCost,
+              movementType: 'ISSUE_TO_TAILOR',
+              location: 'WAREHOUSE',
+              quantityDelta: requestedLength.neg(),
+              transferGroupId,
+              status: 'closed',
+              issueDate,
+              reference,
+            },
+          });
         }
 
         return tx.tailorFabricRequest.update({

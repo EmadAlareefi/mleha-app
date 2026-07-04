@@ -54,8 +54,9 @@ export function AppPageShell({ title, subtitle, children, contentClassName }: Ap
         isAdmin,
         serviceKeys,
         affiliateName: user?.affiliateName,
+        userType: (user as any)?.userType,
       }),
-    [isAuthenticated, isAdmin, serviceKeys, user?.affiliateName]
+    [isAuthenticated, isAdmin, serviceKeys, user]
   );
 
   return (

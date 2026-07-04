@@ -102,7 +102,9 @@ export const authOptions: NextAuthOptions = {
           }
 
           const fields = await buildOrderUserSessionFields(orderUser);
-          if (fields.serviceKeys.length === 0) {
+          // Manufacturer (tailor) accounts sign in without any service keys —
+          // their access is derived from userType, not the service catalog.
+          if (fields.serviceKeys.length === 0 && orderUser.userType !== 'manufacturer') {
             return null;
           }
 
@@ -113,6 +115,7 @@ export const authOptions: NextAuthOptions = {
             role: fields.primaryRole,
             roles: fields.userRoles,
             serviceKeys: fields.serviceKeys,
+            userType: orderUser.userType,
             affiliateName: orderUser.affiliateName,
             orderUserData: fields.orderUserData,
             warehouseData: fields.warehouseData,
@@ -137,6 +140,7 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as any).role; // Primary role for backward compatibility
         token.roles = (user as any).roles || [(user as any).role]; // Array of all roles
         token.serviceKeys = (user as any).serviceKeys;
+        token.userType = (user as any).userType;
         token.affiliateName = (user as any).affiliateName;
         token.orderUserData = (user as any).orderUserData;
         token.warehouseData = (user as any).warehouseData;
@@ -158,7 +162,7 @@ export const authOptions: NextAuthOptions = {
 
       const orderUser = await prisma.orderUser.findUnique({
         where: { id: token.id as string },
-        select: { id: true, affiliateName: true, autoAssign: true, isActive: true },
+        select: { id: true, affiliateName: true, autoAssign: true, isActive: true, userType: true },
       });
 
       if (!orderUser || !orderUser.isActive) {
@@ -176,6 +180,7 @@ export const authOptions: NextAuthOptions = {
       token.role = fields.primaryRole;
       token.roles = fields.userRoles;
       token.serviceKeys = fields.serviceKeys;
+      token.userType = orderUser.userType;
       token.affiliateName = orderUser.affiliateName;
       token.orderUserData = fields.orderUserData;
       token.warehouseData = fields.warehouseData;
@@ -190,6 +195,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role; // Primary role for backward compatibility
         (session.user as any).roles = token.roles || [token.role]; // Array of all roles
         (session.user as any).serviceKeys = token.serviceKeys;
+        (session.user as any).userType = token.userType;
         (session.user as any).affiliateName = token.affiliateName;
         (session.user as any).orderUserData = token.orderUserData;
         (session.user as any).warehouseData = token.warehouseData;

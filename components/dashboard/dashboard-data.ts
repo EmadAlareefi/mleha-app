@@ -82,6 +82,7 @@ export type DashboardServiceInput = {
   isAdmin: boolean;
   serviceKeys: ServiceKey[];
   affiliateName?: string | null;
+  userType?: string | null;
 };
 
 export const dashboardCategories: Array<{
@@ -253,6 +254,7 @@ export function getVisibleDashboardServices({
   isAdmin,
   serviceKeys,
   affiliateName,
+  userType,
 }: DashboardServiceInput): DashboardService[] {
   if (!isAuthenticated) {
     return [];
@@ -269,8 +271,13 @@ export function getVisibleDashboardServices({
 
     // The fabric hub link isn't itself an assignable service key — its
     // visibility derives from access to the fabric-management page.
+    // Manufacturer (tailor) accounts reach their scoped view through it too.
     if (service.key === 'fabric-tailor-hub') {
-      return serviceKeys.includes('fabric-management') || serviceKeys.includes('fabric-warehouse');
+      return (
+        serviceKeys.includes('fabric-management') ||
+        serviceKeys.includes('fabric-warehouse') ||
+        userType === 'manufacturer'
+      );
     }
 
     return serviceKeys.includes(service.key);

@@ -12,7 +12,6 @@ import {
   Ruler,
   Scissors,
   Send,
-  Shirt,
   Trash2,
 } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
@@ -185,7 +184,6 @@ type DeliveryNote = {
 type FabricManagementData = {
   fabrics: Fabric[];
   accessories: Accessory[];
-  tailors: Tailor[];
   issues: TailorFabricIssue[];
   requests: TailorFabricRequest[];
   models: DesignModel[];
@@ -196,7 +194,6 @@ type FabricManagementData = {
   summary: {
     fabricsCount: number;
     accessoriesCount: number;
-    activeTailorsCount: number;
     stockMeters: number;
     withTailorsMeters: number;
     pendingRequestsCount: number;
@@ -365,6 +362,28 @@ type EditDrawerState =
 
 const closedDrawer: EditDrawerState = { open: false, kind: null, entity: null };
 
+const initialTailorRequestForm = {
+  fabricId: '',
+  requestedLength: '',
+  notes: '',
+  purchaseName: '',
+  purchaseSku: '',
+  purchaseColor: '',
+  purchaseFabricType: '',
+  purchaseSupplier: '',
+  purchaseUnitCost: '',
+};
+
+const initialDeliveryRequestForm = {
+  designModelId: '',
+  dressCount: '1',
+  size: '',
+  tailoringCost: '',
+  embroideryCost: '',
+  extraCost: '',
+  notes: '',
+};
+
 export default function FabricManagementPage() {
   const [data, setData] = useState<FabricManagementData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -378,6 +397,9 @@ export default function FabricManagementPage() {
   const [accessoryBillForm, setAccessoryBillForm] = useState<PurchaseBillForm>(() => initialPurchaseBillForm());
   const [accessoryBillItems, setAccessoryBillItems] = useState<AccessoryBillItem[]>(() => [createAccessoryBillItem()]);
   const [editDrawer, setEditDrawer] = useState<EditDrawerState>(closedDrawer);
+  const [tailorRequestTab, setTailorRequestTab] = useState<'stock' | 'purchase'>('stock');
+  const [tailorRequestForm, setTailorRequestForm] = useState(initialTailorRequestForm);
+  const [deliveryRequestForm, setDeliveryRequestForm] = useState(initialDeliveryRequestForm);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -436,6 +458,35 @@ export default function FabricManagementPage() {
           .join(' - '),
       })),
     [data?.accessories]
+  );
+  // Pared-down pickers for the tailor view: the scoped API payload carries no
+  // stock levels or costs, so these skip the quantities shown in fabricOptions.
+  const tailorFabricOptions = useMemo<SelectOption[]>(
+    () =>
+      (data?.fabrics || []).map((fabric) => ({
+        value: fabric.id,
+        label: fabric.name,
+        sku: fabric.sku || undefined,
+        description: [fabric.sku ? `رمز: ${fabric.sku}` : null, fabric.color].filter(Boolean).join(' - ') || undefined,
+      })),
+    [data?.fabrics]
+  );
+  const modelOptions = useMemo<SelectOption[]>(
+    () =>
+      (data?.models || []).map((model) => ({
+        value: model.id,
+        label: model.sku,
+        description: [model.sallaProductName, model.size].filter(Boolean).join(' - ') || undefined,
+      })),
+    [data?.models]
+  );
+  const tailorBalances = useMemo(
+    () =>
+      (data?.tailorFabricBalances || []).map((balance) => ({
+        ...balance,
+        fabricName: data?.fabrics.find((fabric) => fabric.id === balance.fabricId)?.name || balance.fabricId,
+      })),
+    [data?.tailorFabricBalances, data?.fabrics]
   );
   const postAction = async (payload: Record<string, unknown>) => {
     setSaving(true);
@@ -652,26 +703,76 @@ export default function FabricManagementPage() {
   const updateRequestStatus = (requestId: string, status: string) =>
     postAction({ action: 'update-request-status', requestId, status });
 
+  const handleTailorRequestSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const isPurchase = tailorRequestTab === 'purchase';
+    if (!isPurchase && !tailorRequestForm.fabricId) {
+      alert('اختر القماش المطلوب');
+      return;
+    }
+    const ok = await postAction({
+      action: 'create-tailor-request',
+      requestType: isPurchase ? 'purchase' : 'stock_request',
+      fabricId: isPurchase ? undefined : tailorRequestForm.fabricId,
+      requestedLength: tailorRequestForm.requestedLength,
+      lengthUnit,
+      notes: tailorRequestForm.notes,
+      purchaseName: isPurchase ? tailorRequestForm.purchaseName : undefined,
+      purchaseSku: isPurchase ? tailorRequestForm.purchaseSku : undefined,
+      purchaseColor: isPurchase ? tailorRequestForm.purchaseColor : undefined,
+      purchaseFabricType: isPurchase ? tailorRequestForm.purchaseFabricType : undefined,
+      purchaseSupplier: isPurchase ? tailorRequestForm.purchaseSupplier : undefined,
+      purchaseUnitCost:
+        isPurchase && tailorRequestForm.purchaseUnitCost !== '' ? tailorRequestForm.purchaseUnitCost : undefined,
+    });
+    if (ok) setTailorRequestForm(initialTailorRequestForm);
+  };
+
+  const handleDeliveryRequestSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!deliveryRequestForm.designModelId) {
+      alert('اختر الموديل');
+      return;
+    }
+    const ok = await postAction({
+      action: 'create-delivery-request',
+      designModelId: deliveryRequestForm.designModelId,
+      dressCount: deliveryRequestForm.dressCount,
+      size: deliveryRequestForm.size || undefined,
+      tailoringCost: deliveryRequestForm.tailoringCost === '' ? undefined : deliveryRequestForm.tailoringCost,
+      embroideryCost: deliveryRequestForm.embroideryCost === '' ? undefined : deliveryRequestForm.embroideryCost,
+      extraCost: deliveryRequestForm.extraCost === '' ? undefined : deliveryRequestForm.extraCost,
+      notes: deliveryRequestForm.notes,
+    });
+    if (ok) setDeliveryRequestForm(initialDeliveryRequestForm);
+  };
+
   const summary = data?.summary;
 
   const { data: session, status: sessionStatus } = useSession();
   const userServiceKeys: string[] = (session?.user as any)?.serviceKeys || [];
+  // Manufacturer accounts are tailors: they get the self-scoped creation view
+  // regardless of service keys (the API scopes their data server-side too).
+  const isTailorOnly = (session?.user as any)?.userType === 'manufacturer';
   // Scoped to the fabric section specifically (not the user's overall role set) —
   // a warehouse worker often also holds unrelated permissions elsewhere (e.g.
   // salla-products for SKU search) that carry other roles as a side effect, so
   // checking aggregate roles would wrongly exclude them from this restriction.
-  const isWarehouseOnly = userServiceKeys.includes('fabric-warehouse') && !userServiceKeys.includes('fabric-management');
+  const isWarehouseOnly =
+    !isTailorOnly && userServiceKeys.includes('fabric-warehouse') && !userServiceKeys.includes('fabric-management');
+  // Both restricted audiences only ever see the two request tabs.
+  const isRestrictedView = isWarehouseOnly || isTailorOnly;
 
-  const [tab, setTab] = useState<'stock' | 'tailors' | 'tailor-requests' | 'models' | 'invoices' | 'delivery-requests'>('stock');
+  const [tab, setTab] = useState<'stock' | 'tailor-requests' | 'models' | 'invoices' | 'delivery-requests'>('stock');
   const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
   const [stockTableTab, setStockTableTab] = useState<'fabric' | 'accessory'>('fabric');
 
   const pendingCount = summary?.pendingRequestsCount || 0;
   const pendingDeliveryCount = (data?.deliveryNotes || []).filter((note) => note.status === 'SUBMITTED').length;
-  const allowedTabs = isWarehouseOnly
+  const allowedTabs = isRestrictedView
     ? ['tailor-requests', 'delivery-requests']
-    : ['stock', 'tailors', 'tailor-requests', 'models', 'invoices', 'delivery-requests'];
-  const activeTab = allowedTabs.includes(tab) ? tab : isWarehouseOnly ? 'tailor-requests' : 'stock';
+    : ['stock', 'tailor-requests', 'models', 'invoices', 'delivery-requests'];
+  const activeTab = allowedTabs.includes(tab) ? tab : isRestrictedView ? 'tailor-requests' : 'stock';
 
   const fabricBillTotal = purchaseBillItems.reduce(
     (sum, item) => sum + (Number(item.purchasedLength) || 0) * (Number(item.unitCost) || 0),
@@ -705,13 +806,14 @@ export default function FabricManagementPage() {
             <LoadingState label="جاري تحميل بيانات الأقمشة" />
           ) : (
             <>
-              <div className="stats-row">
-                <StatCard title="أنواع الأقمشة" value={formatNumber(summary?.fabricsCount)} icon={<Scissors />} />
-                <StatCard title="الخياطون النشطون" value={formatNumber(summary?.activeTailorsCount)} icon={<Shirt />} />
-                <StatCard title="المخزون المتاح" value={formatDualLength(summary?.stockMeters)} icon={<Ruler />} />
-                <StatCard title="لدى الخياطين" value={formatDualLength(summary?.withTailorsMeters)} icon={<Send />} />
-                <StatCard title="طلبات معلقة" value={formatNumber(summary?.pendingRequestsCount)} icon={<PackagePlus />} />
-              </div>
+              {!isTailorOnly && (
+                <div className="stats-row">
+                  <StatCard title="أنواع الأقمشة" value={formatNumber(summary?.fabricsCount)} icon={<Scissors />} />
+                  <StatCard title="المخزون المتاح" value={formatDualLength(summary?.stockMeters)} icon={<Ruler />} />
+                  <StatCard title="لدى الخياطين" value={formatDualLength(summary?.withTailorsMeters)} icon={<Send />} />
+                  <StatCard title="طلبات معلقة" value={formatNumber(summary?.pendingRequestsCount)} icon={<PackagePlus />} />
+                </div>
+              )}
 
               <div className="unit-bar">
                 <span className="unit-bar-label">وحدة القياس</span>
@@ -720,11 +822,8 @@ export default function FabricManagementPage() {
               </div>
 
               <div className="tablist">
-                {!isWarehouseOnly && (
+                {!isRestrictedView && (
                   <button type="button" className={`tab ${activeTab === 'stock' ? 'active' : ''}`} onClick={() => setTab('stock')}>المخزون</button>
-                )}
-                {!isWarehouseOnly && (
-                  <button type="button" className={`tab ${activeTab === 'tailors' ? 'active' : ''}`} onClick={() => setTab('tailors')}>الخياطون</button>
                 )}
                 <button type="button" className={`tab ${activeTab === 'tailor-requests' ? 'active' : ''}`} onClick={() => setTab('tailor-requests')}>
                   طلبات الخياطين
@@ -734,16 +833,16 @@ export default function FabricManagementPage() {
                   طلبات التسليم
                   {pendingDeliveryCount > 0 && <span className="tab-badge">{formatNumber(pendingDeliveryCount)} جديد</span>}
                 </button>
-                {!isWarehouseOnly && (
+                {!isRestrictedView && (
                   <button type="button" className={`tab ${activeTab === 'models' ? 'active' : ''}`} onClick={() => setTab('models')}>الموديلات</button>
                 )}
-                {!isWarehouseOnly && (
+                {!isRestrictedView && (
                   <button type="button" className={`tab ${activeTab === 'invoices' ? 'active' : ''}`} onClick={() => setTab('invoices')}>فواتير الشراء</button>
                 )}
               </div>
 
               {/* ═════ المخزون ═════ */}
-              {!isWarehouseOnly && activeTab === 'stock' && (
+              {!isRestrictedView && activeTab === 'stock' && (
                 <div>
                   <FormAccordionCard marker="أ" title="إنشاء فاتورة جديدة" tag="فاتورة">
                     <div className="subtabs">
@@ -833,38 +932,113 @@ export default function FabricManagementPage() {
                 </div>
               )}
 
-              {/* ═════ الخياطون ═════ */}
-              {!isWarehouseOnly && activeTab === 'tailors' && (
-                <div className="card">
-                  <TailorsTable tailors={data?.tailors || []} />
-                </div>
-              )}
-
               {/* ═════ طلبات الخياطين ═════ */}
               {activeTab === 'tailor-requests' && (
-                <div className="card">
-                  <div className="subtab-body">
-                    <RequestsTable requests={data?.requests || []} onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)} saving={saving} />
+                <div>
+                  {isTailorOnly && (
+                    <FormAccordionCard marker="ط" title="طلب قماش جديد" tag="طلب">
+                      <div className="subtabs">
+                        <button type="button" className={`subtab ${tailorRequestTab === 'stock' ? 'active' : ''}`} onClick={() => setTailorRequestTab('stock')}>طلب من المخزون</button>
+                        <button type="button" className={`subtab ${tailorRequestTab === 'purchase' ? 'active' : ''}`} onClick={() => setTailorRequestTab('purchase')}>شراء قماش</button>
+                      </div>
+                      <form onSubmit={handleTailorRequestSubmit}>
+                        <div className="grid" style={{ marginBottom: 14 }}>
+                          {tailorRequestTab === 'stock' ? (
+                            <DesignSelect
+                              label="القماش"
+                              value={tailorRequestForm.fabricId}
+                              options={tailorFabricOptions}
+                              onChange={(fabricId) => setTailorRequestForm({ ...tailorRequestForm, fabricId })}
+                              searchable
+                            />
+                          ) : (
+                            <>
+                              <TextInput label="اسم القماش" value={tailorRequestForm.purchaseName} onChange={(purchaseName) => setTailorRequestForm({ ...tailorRequestForm, purchaseName })} required />
+                              <TextInput label="رمز القماش" value={tailorRequestForm.purchaseSku} onChange={(purchaseSku) => setTailorRequestForm({ ...tailorRequestForm, purchaseSku })} />
+                              <DesignSelect label="اللون" value={tailorRequestForm.purchaseColor} options={fabricColorOptions} onChange={(purchaseColor) => setTailorRequestForm({ ...tailorRequestForm, purchaseColor })} allowCreate searchable />
+                              <TextInput label="نوع القماش" value={tailorRequestForm.purchaseFabricType} onChange={(purchaseFabricType) => setTailorRequestForm({ ...tailorRequestForm, purchaseFabricType })} />
+                              <TextInput label="المورد" value={tailorRequestForm.purchaseSupplier} onChange={(purchaseSupplier) => setTailorRequestForm({ ...tailorRequestForm, purchaseSupplier })} />
+                              <TextInput label={`تكلفة ${lengthUnit === 'yard' ? 'الياردة' : 'المتر'}`} type="number" value={tailorRequestForm.purchaseUnitCost} onChange={(purchaseUnitCost) => setTailorRequestForm({ ...tailorRequestForm, purchaseUnitCost })} />
+                            </>
+                          )}
+                          <TextInput label={`الكمية المطلوبة (${lengthUnit === 'yard' ? 'ياردة' : 'متر'})`} type="number" value={tailorRequestForm.requestedLength} onChange={(requestedLength) => setTailorRequestForm({ ...tailorRequestForm, requestedLength })} required />
+                        </div>
+                        <TextAreaField label="ملاحظات" value={tailorRequestForm.notes} onChange={(notes) => setTailorRequestForm({ ...tailorRequestForm, notes })} />
+                        <button className="btn" type="submit" disabled={saving}><PackagePlus /> إرسال الطلب</button>
+                      </form>
+                    </FormAccordionCard>
+                  )}
+                  <div className="card">
+                    <div className="subtab-body">
+                      <RequestsTable
+                        requests={data?.requests || []}
+                        onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)}
+                        saving={saving}
+                        readOnly={isTailorOnly}
+                      />
+                    </div>
                   </div>
                 </div>
               )}
 
               {/* ═════ طلبات التسليم ═════ */}
               {activeTab === 'delivery-requests' && (
-                <div className="card">
-                  <div className="subtab-body">
-                    <DeliveryRequestsTable
-                      notes={(data?.deliveryNotes || []).filter((note) => note.status === 'SUBMITTED')}
-                      onAccept={(noteId) => void postAction({ action: 'accept-delivery-note', noteId })}
-                      onReject={(noteId, rejectionReason) => void postAction({ action: 'reject-delivery-note', noteId, rejectionReason })}
-                      saving={saving}
-                    />
+                <div>
+                  {isTailorOnly && (
+                    <>
+                      {tailorBalances.length > 0 && (
+                        <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+                          <div className="section-label" style={{ marginBottom: 8 }}>رصيدك من الأقمشة</div>
+                          {tailorBalances.map((balance) => (
+                            <div key={balance.fabricId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '4px 0' }}>
+                              <span>{balance.fabricName}</span>
+                              <b>{formatDualLength(balance.heldMeters)}</b>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <FormAccordionCard marker="ت" title="طلب تسليم جديد" tag="تسليم" description="اختر الموديل وعدد القطع الجاهزة — يُرسل الطلب لمراجعة المستودع وقبوله.">
+                        <form onSubmit={handleDeliveryRequestSubmit}>
+                          <div className="grid" style={{ marginBottom: 14 }}>
+                            <DesignSelect
+                              label="الموديل"
+                              value={deliveryRequestForm.designModelId}
+                              options={modelOptions}
+                              onChange={(designModelId) => setDeliveryRequestForm({ ...deliveryRequestForm, designModelId })}
+                              searchable
+                            />
+                            <TextInput label="عدد القطع" type="number" value={deliveryRequestForm.dressCount} onChange={(dressCount) => setDeliveryRequestForm({ ...deliveryRequestForm, dressCount })} required />
+                            <TextInput label="المقاس" value={deliveryRequestForm.size} onChange={(size) => setDeliveryRequestForm({ ...deliveryRequestForm, size })} />
+                            <TextInput label="تكلفة الخياطة" type="number" value={deliveryRequestForm.tailoringCost} onChange={(tailoringCost) => setDeliveryRequestForm({ ...deliveryRequestForm, tailoringCost })} />
+                            <TextInput label="تكلفة التطريز" type="number" value={deliveryRequestForm.embroideryCost} onChange={(embroideryCost) => setDeliveryRequestForm({ ...deliveryRequestForm, embroideryCost })} />
+                            <TextInput label="تكاليف إضافية" type="number" value={deliveryRequestForm.extraCost} onChange={(extraCost) => setDeliveryRequestForm({ ...deliveryRequestForm, extraCost })} />
+                          </div>
+                          <TextAreaField label="ملاحظات" value={deliveryRequestForm.notes} onChange={(notes) => setDeliveryRequestForm({ ...deliveryRequestForm, notes })} />
+                          <button className="btn" type="submit" disabled={saving}><Send /> إرسال طلب التسليم</button>
+                        </form>
+                      </FormAccordionCard>
+                    </>
+                  )}
+                  <div className="card">
+                    <div className="subtab-body">
+                      <DeliveryRequestsTable
+                        notes={
+                          isTailorOnly
+                            ? data?.deliveryNotes || []
+                            : (data?.deliveryNotes || []).filter((note) => note.status === 'SUBMITTED')
+                        }
+                        onAccept={(noteId) => void postAction({ action: 'accept-delivery-note', noteId })}
+                        onReject={(noteId, rejectionReason) => void postAction({ action: 'reject-delivery-note', noteId, rejectionReason })}
+                        saving={saving}
+                        readOnly={isTailorOnly}
+                      />
+                    </div>
                   </div>
                 </div>
               )}
 
               {/* ═════ الموديلات ═════ */}
-              {!isWarehouseOnly && activeTab === 'models' && (
+              {!isRestrictedView && activeTab === 'models' && (
                 <ModelsTabSpec
                   fabrics={data?.fabrics || []}
                   accessoriesInventory={data?.accessories || []}
@@ -874,7 +1048,7 @@ export default function FabricManagementPage() {
                 />
               )}
 
-              {!isWarehouseOnly && activeTab === 'invoices' && (
+              {!isRestrictedView && activeTab === 'invoices' && (
                 <InvoicesTab invoices={data?.purchaseInvoices || []} />
               )}
 
@@ -1462,40 +1636,6 @@ function AccessoryTable({
   );
 }
 
-function TailorsTable({ tailors }: { tailors: Tailor[] }) {
-  return (
-    <div className="table-wrap">
-      <table className="cards-mobile">
-        <thead>
-          <tr>
-            <th>الخياط</th>
-            <th>الورشة</th>
-            <th>الجوال</th>
-            <th>رمز الدخول</th>
-            <th>الحالة</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tailors.map((tailor) => (
-            <tr key={tailor.id}>
-              <td data-label="الخياط"><b>{tailor.name}</b></td>
-              <td data-label="الورشة">{tailor.workshopName || '-'}</td>
-              <td data-label="الجوال">{tailor.phone || '-'}</td>
-              <td data-label="رمز الدخول">{tailor.accessCode}</td>
-              <td data-label="الحالة">
-                {tailor.isActive ? <span className="pill ok">نشط</span> : <span className="pill muted">متوقف</span>}
-              </td>
-            </tr>
-          ))}
-          {!tailors.length && (
-            <tr><td className="empty-row" colSpan={5}>لا يوجد خياطون مسجلون</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function requestStatusPill(status: string) {
   if (status === 'pending') return 'warn';
   if (status === 'rejected') return 'red';
@@ -1506,10 +1646,12 @@ function RequestsTable({
   requests,
   onStatusChange,
   saving,
+  readOnly = false,
 }: {
   requests: TailorFabricRequest[];
   onStatusChange: (requestId: string, status: string) => void;
   saving: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <div className="table-wrap">
@@ -1523,7 +1665,7 @@ function RequestsTable({
             <th>التكلفة</th>
             <th>الحالة</th>
             <th>التاريخ</th>
-            <th>إجراء</th>
+            {!readOnly && <th>إجراء</th>}
           </tr>
         </thead>
         <tbody>
@@ -1557,23 +1699,25 @@ function RequestsTable({
                 )}
               </td>
               <td data-label="التاريخ">{formatDate(request.createdAt)}</td>
-              <td data-label="إجراء" className="actions-cell">
-                <div className="td-actions" style={{ flexWrap: 'wrap' }}>
-                  <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'approved')}>
-                    {request.requestType === 'purchase' ? 'اعتماد وإدخال' : 'موافقة'}
-                  </button>
-                  <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'fulfilled')}>
-                    تم التوريد
-                  </button>
-                  <button type="button" className="tbl-btn del" disabled={saving} onClick={() => onStatusChange(request.id, 'rejected')}>
-                    رفض
-                  </button>
-                </div>
-              </td>
+              {!readOnly && (
+                <td data-label="إجراء" className="actions-cell">
+                  <div className="td-actions" style={{ flexWrap: 'wrap' }}>
+                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'approved')}>
+                      {request.requestType === 'purchase' ? 'اعتماد وإدخال' : 'موافقة'}
+                    </button>
+                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'fulfilled')}>
+                      تم التوريد
+                    </button>
+                    <button type="button" className="tbl-btn del" disabled={saving} onClick={() => onStatusChange(request.id, 'rejected')}>
+                      رفض
+                    </button>
+                  </div>
+                </td>
+              )}
             </tr>
           ))}
           {!requests.length && (
-            <tr><td className="empty-row" colSpan={8}>لا توجد طلبات من الخياطين</td></tr>
+            <tr><td className="empty-row" colSpan={readOnly ? 7 : 8}>لا توجد طلبات من الخياطين</td></tr>
           )}
         </tbody>
       </table>
@@ -1581,16 +1725,25 @@ function RequestsTable({
   );
 }
 
+function deliveryStatusPill(status: DeliveryNote['status']) {
+  if (status === 'SUBMITTED') return { cls: 'warn', label: 'بانتظار المراجعة' };
+  if (status === 'ACCEPTED') return { cls: 'ok', label: 'مقبول' };
+  if (status === 'REJECTED') return { cls: 'red', label: 'مرفوض' };
+  return { cls: 'muted', label: 'مسودة' };
+}
+
 function DeliveryRequestsTable({
   notes,
   onAccept,
   onReject,
   saving,
+  readOnly = false,
 }: {
   notes: DeliveryNote[];
   onAccept: (noteId: string) => void;
   onReject: (noteId: string, rejectionReason?: string) => void;
   saving: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <div className="table-wrap">
@@ -1604,7 +1757,7 @@ function DeliveryRequestsTable({
             <th>التكلفة</th>
             <th>المكونات المستهلكة</th>
             <th>تاريخ التسليم</th>
-            <th>إجراء</th>
+            {readOnly ? <th>الحالة</th> : <th>إجراء</th>}
           </tr>
         </thead>
         <tbody>
@@ -1624,26 +1777,35 @@ function DeliveryRequestsTable({
                 <td data-label="التكلفة">{formatCurrency(totalCost)}</td>
                 <td data-label="المكونات المستهلكة" style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{componentsSummary}</td>
                 <td data-label="تاريخ التسليم">{formatDate(note.submittedAt || note.createdAt)}</td>
-                <td data-label="إجراء" className="actions-cell">
-                  <div className="td-actions" style={{ flexWrap: 'wrap' }}>
-                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onAccept(note.id)}>
-                      قبول
-                    </button>
-                    <button
-                      type="button"
-                      className="tbl-btn del"
-                      disabled={saving}
-                      onClick={() => onReject(note.id, window.prompt('سبب الرفض (اختياري):') || undefined)}
-                    >
-                      رفض
-                    </button>
-                  </div>
-                </td>
+                {readOnly ? (
+                  <td data-label="الحالة">
+                    <span className={`pill ${deliveryStatusPill(note.status).cls}`}>{deliveryStatusPill(note.status).label}</span>
+                    {note.status === 'REJECTED' && note.rejectionReason && (
+                      <div style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{note.rejectionReason}</div>
+                    )}
+                  </td>
+                ) : (
+                  <td data-label="إجراء" className="actions-cell">
+                    <div className="td-actions" style={{ flexWrap: 'wrap' }}>
+                      <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onAccept(note.id)}>
+                        قبول
+                      </button>
+                      <button
+                        type="button"
+                        className="tbl-btn del"
+                        disabled={saving}
+                        onClick={() => onReject(note.id, window.prompt('سبب الرفض (اختياري):') || undefined)}
+                      >
+                        رفض
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             );
           })}
           {!notes.length && (
-            <tr><td className="empty-row" colSpan={8}>لا توجد طلبات تسليم بانتظار المراجعة</td></tr>
+            <tr><td className="empty-row" colSpan={8}>{readOnly ? 'لا توجد طلبات تسليم بعد' : 'لا توجد طلبات تسليم بانتظار المراجعة'}</td></tr>
           )}
         </tbody>
       </table>
