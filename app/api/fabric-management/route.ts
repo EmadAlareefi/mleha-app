@@ -545,7 +545,11 @@ export async function GET() {
           prisma.supplier
             .findMany({ where: { isActive: true }, orderBy: { name: 'asc' } })
             .catch(() => [] as Awaited<ReturnType<typeof prisma.supplier.findMany>>),
-          prisma.designModel.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
+          prisma.designModel.findMany({
+            where: { isActive: true, createdByTailorId: tailor.id },
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+          }),
           prisma.tailorFabricRequest.findMany({
             where: { tailorId: tailor.id },
             include: { fabric: true, tailor: true },
@@ -860,6 +864,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'لا تملك صلاحية لهذا الإجراء' }, { status: 403 });
     }
 
+    // Tailors may only touch models they created themselves.
+    if (access.isTailor && ['update-model', 'update-model-status', 'fetch-audit'].includes(action)) {
+      const tailor = await resolveTailorForUser(access.session);
+      const targetModelId = String(body.modelId || (body.entityType === 'model' ? body.entityId : '') || '');
+      const target = targetModelId
+        ? await prisma.designModel.findUnique({ where: { id: targetModelId }, select: { createdByTailorId: true } })
+        : null;
+      if (!target || target.createdByTailorId !== tailor.id) {
+        return NextResponse.json({ error: 'لا يمكنك تعديل موديل لم تقم بإنشائه' }, { status: 403 });
+      }
+    }
+
     if (action === 'create-tailor-request') {
       if (!access.isTailor) {
         return NextResponse.json({ error: 'هذا الإجراء مخصص لحسابات الخياطين' }, { status: 403 });
@@ -922,6 +938,9 @@ export async function POST(request: NextRequest) {
       const model = await prisma.designModel.findUnique({ where: { id: designModelId } });
       if (!model) {
         return NextResponse.json({ error: 'الموديل غير موجود' }, { status: 404 });
+      }
+      if (model.createdByTailorId !== tailor.id) {
+        return NextResponse.json({ error: 'لا يمكنك التسليم إلا لموديلاتك الخاصة' }, { status: 403 });
       }
 
       const snapshot = await buildDeliverySnapshot(model, dressCount);
@@ -1960,6 +1979,8 @@ export async function POST(request: NextRequest) {
         ? body.colors.filter((color: unknown): color is string => typeof color === 'string' && color.trim().length > 0)
         : [];
 
+      const creatorTailor = access.isTailor ? await resolveTailorForUser(access.session) : null;
+
       let lastSku = '';
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
@@ -1985,6 +2006,7 @@ export async function POST(request: NextRequest) {
                 sallaVariantId: cleanText(body.sallaVariantId) || null,
                 sallaVariantName: cleanText(body.sallaVariantName) || null,
                 sallaSku: cleanText(body.sallaSku) || null,
+                createdByTailorId: creatorTailor?.id ?? null,
               },
             });
           });

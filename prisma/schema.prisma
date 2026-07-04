@@ -1494,6 +1494,10 @@ model DesignModel {
   sallaVariantName String?
   sallaSku         String?
 
+  // Tailor (manufacturer account) who created this model. Tailors only see and
+  // edit their own models; null = created by staff, visible to staff only.
+  createdByTailorId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1504,6 +1508,7 @@ model DesignModel {
   @@index([status])
   @@index([isActive])
   @@index([sallaProductId])
+  @@index([createdByTailorId])
 }
 
 // The formal tailor -> main-warehouse handoff document for a manufactured dress batch.
