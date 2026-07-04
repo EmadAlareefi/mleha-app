@@ -1200,6 +1200,14 @@ export function MultiSelectBox({
 }) {
   const isOpen = openSelect === id;
   const selectedLabels = options.filter((option) => selected.includes(option.value)).map((option) => option.label);
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    if (!isOpen) setSearch('');
+  }, [isOpen]);
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleOptions = normalizedSearch
+    ? options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(normalizedSearch))
+    : options;
   return (
     <div className={`field ${className}`}>
       {label && <label>{label}</label>}
@@ -1213,8 +1221,22 @@ export function MultiSelectBox({
           <span className="sel-chev">▾</span>
         </button>
         <div className={`sel-menu ${isOpen ? 'open' : ''}`}>
+          <div className="sel-add-row">
+            <input
+              className="sel-add-input"
+              placeholder="بحث…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setSearch('');
+                }
+              }}
+            />
+          </div>
           <div className="sel-options-list">
-            {options.map((option) => (
+            {visibleOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
@@ -1225,7 +1247,7 @@ export function MultiSelectBox({
                 {selected.includes(option.value) ? ' ✓' : ''}
               </button>
             ))}
-            {!options.length && <div className="sel-option">لا توجد خيارات</div>}
+            {!visibleOptions.length && <div className="sel-option">لا توجد نتائج مطابقة</div>}
           </div>
         </div>
       </div>
@@ -1277,7 +1299,15 @@ export function SelectBox({
   const selected = options.find((option) => option.value === value);
   const isOpen = openSelect === id;
   const [customValue, setCustomValue] = useState('');
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<{ value: string; label: string } | null>(null);
+  useEffect(() => {
+    if (!isOpen) setSearch('');
+  }, [isOpen]);
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleOptions = normalizedSearch
+    ? options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(normalizedSearch))
+    : options;
   const commitEdit = () => {
     if (!editing) return;
     const next = editing.label.trim();
@@ -1298,8 +1328,22 @@ export function SelectBox({
           <span className="sel-chev">▾</span>
         </button>
         <div className={`sel-menu ${isOpen ? 'open' : ''}`}>
+          <div className="sel-add-row">
+            <input
+              className="sel-add-input"
+              placeholder="بحث…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setSearch('');
+                }
+              }}
+            />
+          </div>
           <div className="sel-options-list">
-            {options.map((option) =>
+            {visibleOptions.map((option) =>
               editableOptions && editing?.value === option.value ? (
                 <div className="sel-edit-row" key={option.value}>
                   <input
@@ -1365,7 +1409,7 @@ export function SelectBox({
                 </button>
               )
             )}
-            {!options.length && <div className="sel-option">لا توجد خيارات</div>}
+            {!visibleOptions.length && <div className="sel-option">لا توجد نتائج مطابقة</div>}
           </div>
           {allowCustom && (
             <div className="sel-add-row">
