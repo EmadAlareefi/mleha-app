@@ -858,7 +858,9 @@ export async function POST(request: NextRequest) {
       'update-model-status',
       'fetch-audit',
       'create-fabric',
+      'create-accessory',
       'create-supplier',
+      'add-opening-balance',
     ];
     if (access.isTailor && !TAILOR_ALLOWED_ACTIONS.includes(action)) {
       return NextResponse.json({ error: 'لا تملك صلاحية لهذا الإجراء' }, { status: 403 });
@@ -1239,6 +1241,74 @@ export async function POST(request: NextRequest) {
         },
         { status: 201 }
       );
+    }
+
+    if (action === 'add-opening-balance') {
+      // Opening/initial stock count, recorded without a purchase bill. A tailor's
+      // entry lands on his own held balance; a warehouse/staff entry lands on
+      // warehouse stock. Accessories are a global pool, so both just add there.
+      const itemType = body.itemType === 'accessory' ? 'accessory' : 'fabric';
+      const notes = cleanText(body.notes) || null;
+      const actor = getAuditUser(access.session);
+      const selfTailor = access.isTailor ? await resolveTailorForUser(access.session) : null;
+
+      if (itemType === 'accessory') {
+        const accessoryId = String(body.accessoryId || '');
+        if (!accessoryId) {
+          return NextResponse.json({ error: 'المستلزم مطلوب' }, { status: 400 });
+        }
+        const qty = toPositiveDecimal(body.quantity, 'الكمية');
+        const existing = await prisma.accessory.findUnique({ where: { id: accessoryId } });
+        if (!existing) return NextResponse.json({ error: 'المستلزم غير موجود' }, { status: 404 });
+
+        const updated = await prisma.$transaction(async (tx) => {
+          const accessory = await tx.accessory.update({
+            where: { id: accessoryId },
+            data: { stockQty: { increment: qty } },
+          });
+          await writeAudit(
+            tx,
+            'accessory',
+            accessoryId,
+            [{ field: 'رصيد افتتاحي', oldValue: existing.stockQty, newValue: accessory.stockQty }],
+            actor
+          );
+          return accessory;
+        });
+        return NextResponse.json(serializeAccessory(updated), { status: 201 });
+      }
+
+      const fabricId = String(body.fabricId || '');
+      if (!fabricId) {
+        return NextResponse.json({ error: 'القماش مطلوب' }, { status: 400 });
+      }
+      const delta = lengthToMeters(body.quantity, body.lengthUnit, 'الكمية');
+      const fabric = await prisma.fabric.findUnique({ where: { id: fabricId } });
+      if (!fabric) return NextResponse.json({ error: 'القماش غير موجود' }, { status: 404 });
+
+      const updatedFabric = await prisma.$transaction(async (tx) => {
+        const updated = await tx.fabric.update({
+          where: { id: fabricId },
+          data: { stockLength: { increment: delta } },
+        });
+        await tx.tailorFabricIssue.create({
+          data: {
+            fabricId,
+            tailorId: selfTailor?.id ?? null,
+            issuedLength: delta,
+            unitCostAtIssue: fabric.unitCost,
+            movementType: 'STOCK_ADJUSTMENT',
+            location: selfTailor ? 'TAILOR' : 'WAREHOUSE',
+            quantityDelta: delta,
+            status: 'closed',
+            notes,
+            reference: `رصيد افتتاحي بواسطة ${actor}`,
+          },
+        });
+        return updated;
+      });
+
+      return NextResponse.json(serializeFabric(updatedFabric), { status: 201 });
     }
 
     if (action === 'add-fabric-stock') {

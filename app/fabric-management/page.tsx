@@ -400,6 +400,8 @@ export default function FabricManagementPage() {
   const [tailorRequestTab, setTailorRequestTab] = useState<'stock' | 'purchase'>('stock');
   const [tailorRequestForm, setTailorRequestForm] = useState(initialTailorRequestForm);
   const [deliveryRequestForm, setDeliveryRequestForm] = useState(initialDeliveryRequestForm);
+  const [openingBalanceTab, setOpeningBalanceTab] = useState<'fabric' | 'accessory'>('fabric');
+  const [openingBalanceForm, setOpeningBalanceForm] = useState({ fabricId: '', accessoryId: '', quantity: '', notes: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -566,7 +568,9 @@ export default function FabricManagementPage() {
       if (!response.ok) throw new Error(createdFabric.error || 'فشل في إنشاء القماش');
 
       await fetchData();
-      if (createFabricDialog.rowId && createdFabric.id) {
+      if (createFabricDialog.rowId === 'opening-balance' && createdFabric.id) {
+        setOpeningBalanceForm((current) => ({ ...current, fabricId: createdFabric.id }));
+      } else if (createFabricDialog.rowId && createdFabric.id) {
         updatePurchaseBillItem(createFabricDialog.rowId, {
           fabricId: createdFabric.id,
           unitCost: createdFabric.unitCost ? String(createdFabric.unitCost) : '',
@@ -728,6 +732,46 @@ export default function FabricManagementPage() {
     if (ok) setTailorRequestForm(initialTailorRequestForm);
   };
 
+  const handleOpeningBalanceSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const isAccessory = openingBalanceTab === 'accessory';
+    if (isAccessory ? !openingBalanceForm.accessoryId : !openingBalanceForm.fabricId) {
+      alert(isAccessory ? 'اختر المستلزم' : 'اختر القماش');
+      return;
+    }
+    const ok = await postAction({
+      action: 'add-opening-balance',
+      itemType: openingBalanceTab,
+      fabricId: isAccessory ? undefined : openingBalanceForm.fabricId,
+      accessoryId: isAccessory ? openingBalanceForm.accessoryId : undefined,
+      quantity: openingBalanceForm.quantity,
+      lengthUnit,
+      notes: openingBalanceForm.notes,
+    });
+    if (ok) setOpeningBalanceForm({ fabricId: '', accessoryId: '', quantity: '', notes: '' });
+  };
+
+  const handleCreateAccessoryForOpening = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      const response = await fetch('/api/fabric-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create-accessory', name: trimmed }),
+      });
+      const created = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(created.error || 'فشل في إنشاء المستلزم');
+      await fetchData();
+      if (created.id) setOpeningBalanceForm((current) => ({ ...current, accessoryId: created.id }));
+    } catch (createError: any) {
+      alert(createError.message || 'فشل في إنشاء المستلزم');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDeliveryRequestSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!deliveryRequestForm.designModelId) {
@@ -770,17 +814,17 @@ export default function FabricManagementPage() {
   // Both restricted audiences only ever see the two request tabs.
   const isRestrictedView = isWarehouseOnly || isTailorOnly;
 
-  const [tab, setTab] = useState<'stock' | 'tailor-requests' | 'models' | 'invoices' | 'delivery-requests'>('stock');
+  const [tab, setTab] = useState<'stock' | 'tailor-requests' | 'models' | 'invoices' | 'delivery-requests' | 'opening-balance'>('stock');
   const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
   const [stockTableTab, setStockTableTab] = useState<'fabric' | 'accessory'>('fabric');
 
   const pendingCount = summary?.pendingRequestsCount || 0;
   const pendingDeliveryCount = (data?.deliveryNotes || []).filter((note) => note.status === 'SUBMITTED').length;
   const allowedTabs = isTailorOnly
-    ? ['tailor-requests', 'delivery-requests', 'models', 'invoices']
+    ? ['tailor-requests', 'delivery-requests', 'models', 'invoices', 'opening-balance']
     : isWarehouseOnly
-      ? ['tailor-requests', 'delivery-requests']
-      : ['stock', 'tailor-requests', 'models', 'invoices', 'delivery-requests'];
+      ? ['tailor-requests', 'delivery-requests', 'opening-balance']
+      : ['stock', 'tailor-requests', 'models', 'invoices', 'delivery-requests', 'opening-balance'];
   const activeTab = allowedTabs.includes(tab) ? tab : isRestrictedView ? 'tailor-requests' : 'stock';
 
   const fabricBillTotal = purchaseBillItems.reduce(
@@ -884,6 +928,7 @@ export default function FabricManagementPage() {
                 {!isWarehouseOnly && (
                   <button type="button" className={`tab ${activeTab === 'invoices' ? 'active' : ''}`} onClick={() => setTab('invoices')}>فواتير الشراء</button>
                 )}
+                <button type="button" className={`tab ${activeTab === 'opening-balance' ? 'active' : ''}`} onClick={() => setTab('opening-balance')}>رصيد افتتاحي</button>
               </div>
 
               {/* ═════ المخزون ═════ */}
@@ -1074,6 +1119,71 @@ export default function FabricManagementPage() {
                     </FormAccordionCard>
                   )}
                   <InvoicesTab invoices={data?.purchaseInvoices || []} />
+                </div>
+              )}
+
+              {/* ═════ رصيد افتتاحي ═════ */}
+              {activeTab === 'opening-balance' && (
+                <div>
+                  <FormAccordionCard
+                    marker="ر"
+                    title="إضافة رصيد افتتاحي"
+                    tag="جرد"
+                    description={
+                      isTailorOnly
+                        ? 'سجّل الكميات الموجودة لديك حالياً بدون فاتورة — تُضاف مباشرة إلى رصيدك.'
+                        : 'سجّل الكميات الموجودة في المستودع حالياً بدون فاتورة شراء.'
+                    }
+                  >
+                    <div className="subtabs">
+                      <button type="button" className={`subtab ${openingBalanceTab === 'fabric' ? 'active' : ''}`} onClick={() => setOpeningBalanceTab('fabric')}>الأقمشة</button>
+                      <button type="button" className={`subtab ${openingBalanceTab === 'accessory' ? 'active' : ''}`} onClick={() => setOpeningBalanceTab('accessory')}>الاكسسوارات</button>
+                    </div>
+                    <form onSubmit={handleOpeningBalanceSubmit}>
+                      <div className="grid" style={{ marginBottom: 14 }}>
+                        {openingBalanceTab === 'fabric' ? (
+                          <DesignSelect
+                            label="القماش"
+                            value={openingBalanceForm.fabricId}
+                            options={isTailorOnly ? tailorFabricOptions : fabricOptions}
+                            onChange={(fabricId) => setOpeningBalanceForm({ ...openingBalanceForm, fabricId })}
+                            onCreate={(name) => openCreateFabricDialog('opening-balance', name)}
+                            searchable
+                          />
+                        ) : (
+                          <DesignSelect
+                            label="المستلزم"
+                            value={openingBalanceForm.accessoryId}
+                            options={accessoryOptions}
+                            onChange={(accessoryId) => setOpeningBalanceForm({ ...openingBalanceForm, accessoryId })}
+                            onCreate={(name) => void handleCreateAccessoryForOpening(name)}
+                            searchable
+                          />
+                        )}
+                        <TextInput
+                          label={openingBalanceTab === 'fabric' ? `الكمية (${lengthUnit === 'yard' ? 'ياردة' : 'متر'})` : 'الكمية'}
+                          type="number"
+                          value={openingBalanceForm.quantity}
+                          onChange={(quantity) => setOpeningBalanceForm({ ...openingBalanceForm, quantity })}
+                          required
+                        />
+                      </div>
+                      <TextAreaField label="ملاحظات" value={openingBalanceForm.notes} onChange={(notes) => setOpeningBalanceForm({ ...openingBalanceForm, notes })} />
+                      <p className="muted-note" style={{ marginTop: 8 }}>إذا لم تجد الصنف في القائمة، اكتب اسمه واختر إنشاءه من نفس الحقل.</p>
+                      <button className="btn" type="submit" disabled={saving}><PackagePlus /> إضافة الرصيد</button>
+                    </form>
+                  </FormAccordionCard>
+                  {isTailorOnly && tailorBalances.length > 0 && (
+                    <div className="card" style={{ padding: 14 }}>
+                      <div className="section-label" style={{ marginBottom: 8 }}>رصيدك من الأقمشة</div>
+                      {tailorBalances.map((balance) => (
+                        <div key={balance.fabricId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '4px 0' }}>
+                          <span>{balance.fabricName}</span>
+                          <b>{formatDualLength(balance.heldMeters)}</b>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
