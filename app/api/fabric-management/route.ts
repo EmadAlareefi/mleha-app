@@ -307,10 +307,13 @@ function serializeModel(
   });
 
   const accessoriesCost = accessoriesResolved.reduce((sum, row) => sum + row.cost, 0);
-  // Tailoring & embroidery costs are auto-derived from the production cycle
-  // (weighted per-dress average of the model's deliveries) when available.
-  const tailoringCost = autoCosts ? autoCosts.tailoringCost : toNumber(model.tailoringCost);
-  const embroideryCost = autoCosts ? autoCosts.embroideryCost : toNumber(model.embroideryCost);
+  // Tailoring & embroidery costs entered on the model win; models without a
+  // manual value fall back to the production-cycle average (weighted per-dress
+  // across the model's deliveries) when available.
+  const storedTailoringCost = toNumber(model.tailoringCost);
+  const storedEmbroideryCost = toNumber(model.embroideryCost);
+  const tailoringCost = storedTailoringCost > 0 ? storedTailoringCost : autoCosts ? autoCosts.tailoringCost : 0;
+  const embroideryCost = storedEmbroideryCost > 0 ? storedEmbroideryCost : autoCosts ? autoCosts.embroideryCost : 0;
   const extraCost = toNumber(model.extraCost);
   const totalCost = fabricCost + accessoriesCost + tailoringCost + embroideryCost + extraCost;
 

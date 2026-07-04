@@ -99,11 +99,19 @@ const BASE_STATUS_OPTIONS: SelectOption[] = [
 ];
 
 const DRESS_SIZE_OPTIONS: SelectOption[] = [
-  { value: '', label: 'بدون مقاس' },
-  ...['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
-    '36', '38', '40', '42', '44', '46', '48', '50', '52', '54',
-    'مقاس حر'].map((value) => ({ value, label: value })),
-];
+  'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
+  '36', '38', '40', '42', '44', '46', '48', '50', '52', '54',
+  'مقاس حر',
+].map((value) => ({ value, label: value }));
+
+// Multiple sizes live in the single `size` column as a "، "-joined string, so
+// the DB schema and every existing consumer of model.size keep working.
+const splitSizes = (value?: string | null) =>
+  (value || '')
+    .split(/[،,]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+const joinSizes = (values: string[]) => values.join('، ');
 
 const STATUS_OPTIONS_STORAGE_KEY = 'mleha:model-status-options';
 
@@ -395,7 +403,7 @@ export function ModelsTabSpec({
   const [status, setStatus] = useState('active');
   const [statusOptions, setStatusOptions] = useState<SelectOption[]>(() => loadStatusOptions());
   const [description, setDescription] = useState('تفاصيل التصميم والقصة…');
-  const [size, setSize] = useState('');
+  const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   const [imageData, setImageData] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -409,8 +417,8 @@ export function ModelsTabSpec({
   const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>(() => [
     { id: makeId('accessory'), accessoryId: '', consumption: '' },
   ]);
-  // Tailoring & embroidery are auto-derived from the production cycle; a brand-new
-  // model has no deliveries yet, so both stay 0 and read-only here.
+  const [tailoringCost, setTailoringCost] = useState('0');
+  const [embroideryCost, setEmbroideryCost] = useState('0');
   const [extraCost, setExtraCost] = useState('10');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
@@ -446,11 +454,11 @@ export function ModelsTabSpec({
         rows: recipeRows,
         accessories: accessoryRows,
         unit,
-        tailoringCost: '0',
-        embroideryCost: '0',
+        tailoringCost,
+        embroideryCost,
         extraCost,
       }),
-    [accessoriesInventory, accessoryRows, extraCost, fabrics, recipeRows, unit]
+    [accessoriesInventory, accessoryRows, tailoringCost, embroideryCost, extraCost, fabrics, recipeRows, unit]
   );
 
   const visibleModels = models;
@@ -563,7 +571,6 @@ export function ModelsTabSpec({
 
   const setSelectValue = (id: string, value: string) => {
     if (id === 'status') setStatus(value);
-    if (id === 'size') setSize(value);
     if (id.startsWith('fabric-')) {
       const rowId = id.replace('fabric-', '');
       setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
@@ -652,7 +659,7 @@ export function ModelsTabSpec({
       action: 'create-model',
       status,
       description,
-      size,
+      size: joinSizes(selectedSizes),
       unit,
       colors: encodeColors(selectedColors, customColors),
       imageData,
@@ -660,8 +667,8 @@ export function ModelsTabSpec({
       accessories: accessoryRows
         .filter((row) => row.accessoryId)
         .map((row) => ({ accessoryId: row.accessoryId, consumption: row.consumption })),
-      tailoringCost: 0,
-      embroideryCost: 0,
+      tailoringCost,
+      embroideryCost,
       extraCost,
       sallaProductId: sallaProductId.trim() || null,
       sallaProductName: sallaProductName.trim() || null,
@@ -673,7 +680,7 @@ export function ModelsTabSpec({
       setImageData(null);
       setSelectedColors(['متعدد الألوان']);
       setDescription('تفاصيل التصميم والقصة…');
-      setSize('');
+      setSelectedSizes([]);
       setSallaProductId('');
       setSallaProductName('');
       setSallaVariantId('');
@@ -794,15 +801,19 @@ export function ModelsTabSpec({
                       }}
                     />
 
-                    <SelectBox
+                    <MultiSelectBox
                       id="size"
-                      label="المقاس (اختياري)"
+                      label="المقاسات (اختياري)"
                       options={DRESS_SIZE_OPTIONS}
-                      value={size}
+                      selected={selectedSizes}
                       placeholder="بدون مقاس"
                       openSelect={openSelect}
                       setOpenSelect={setOpenSelect}
-                      onChange={setSelectValue}
+                      onToggle={(value) =>
+                        setSelectedSizes((current) =>
+                          current.includes(value) ? current.filter((entry) => entry !== value) : [...current, value]
+                        )
+                      }
                     />
 
                     <DisplayField
@@ -950,8 +961,8 @@ export function ModelsTabSpec({
                 <div className="grid">
                   <DisplayField label="تكلفة القماش" value={formatCurrency(calculations.fabricCost)} auto hint="من الأقمشة × أسعارها" />
                   <DisplayField label="تكلفة الإكسسوارات" value={formatCurrency(calculations.accessoriesCost)} auto hint="مجموع أسعار الإكسسوارات" />
-                  <DisplayField label="تكلفة الخياطة" value={formatCurrency(calculations.tailoringCost)} auto hint="تلقائي من دورة الإنتاج" />
-                  <DisplayField label="تكلفة التطريز" value={formatCurrency(calculations.embroideryCost)} auto hint="تلقائي من دورة الإنتاج" />
+                  <EditableField label="تكلفة الخياطة" value={tailoringCost} onChange={setTailoringCost} suffix="ر.س" type="number" />
+                  <EditableField label="تكلفة التطريز" value={embroideryCost} onChange={setEmbroideryCost} suffix="ر.س" type="number" />
                   <EditableField label="تكلفة إضافية" value={extraCost} onChange={setExtraCost} suffix="ر.س" type="number" hint="كي • تغليف…" />
                   <DisplayField label="التكلفة الإجمالية" value={formatCurrency(calculations.totalCost)} auto hint="مجموع ما سبق" />
                 </div>
@@ -1160,6 +1171,65 @@ function EditableField({
         </div>
       )}
       {hint && <span className="hint">{hint}</span>}
+    </div>
+  );
+}
+
+export function MultiSelectBox({
+  id,
+  label,
+  options,
+  selected,
+  onToggle,
+  openSelect,
+  setOpenSelect,
+  className = '',
+  placeholder = 'اختر',
+  hint,
+}: {
+  id: string;
+  label?: string;
+  options: SelectOption[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  openSelect: string | null;
+  setOpenSelect: (value: string | null) => void;
+  className?: string;
+  placeholder?: string;
+  hint?: string;
+}) {
+  const isOpen = openSelect === id;
+  const selectedLabels = options.filter((option) => selected.includes(option.value)).map((option) => option.label);
+  return (
+    <div className={`field ${className}`}>
+      {label && <label>{label}</label>}
+      <div className="sel-wrap">
+        <button
+          type="button"
+          className={`sel-trigger ${isOpen ? 'open' : ''}`}
+          onClick={() => setOpenSelect(isOpen ? null : id)}
+        >
+          <span className="sel-val">{selectedLabels.length ? selectedLabels.join('، ') : placeholder}</span>
+          <span className="sel-chev">▾</span>
+        </button>
+        <div className={`sel-menu ${isOpen ? 'open' : ''}`}>
+          <div className="sel-options-list">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`sel-option ${selected.includes(option.value) ? 'selected' : ''}`}
+                onClick={() => onToggle(option.value)}
+              >
+                {option.label}
+                {selected.includes(option.value) ? ' ✓' : ''}
+              </button>
+            ))}
+            {!options.length && <div className="sel-option">لا توجد خيارات</div>}
+          </div>
+        </div>
+      </div>
+      {hint && <span className="field-hint">{hint}</span>}
     </div>
   );
 }
@@ -1534,7 +1604,7 @@ function ModelEditDrawer({
   const decodedColors = decodeStoredColors(model.colors);
   const [status, setStatus] = useState(model.status);
   const [description, setDescription] = useState(model.description || '');
-  const [size, setSize] = useState(model.size || '');
+  const [selectedSizes, setSelectedSizes] = useState<string[]>(() => splitSizes(model.size));
   const [selectedColors, setSelectedColors] = useState<string[]>(decodedColors.names);
   const [customColors, setCustomColors] = useState<ColorChip[]>(decodedColors.customColors);
   const [recipeRows, setRecipeRows] = useState<RecipeFabricRow[]>(
@@ -1545,7 +1615,8 @@ function ModelEditDrawer({
   const [accessoryRows, setAccessoryRows] = useState<AccessoryRow[]>(
     model.accessories.map((row) => ({ id: makeId('eacc'), accessoryId: row.accessoryId, consumption: String(row.consumption) }))
   );
-  // Tailoring & embroidery are read-only here — auto-derived from the production cycle.
+  const [tailoringCost, setTailoringCost] = useState(String(model.tailoringCost));
+  const [embroideryCost, setEmbroideryCost] = useState(String(model.embroideryCost));
   const [extraCost, setExtraCost] = useState(String(model.extraCost));
   const [sallaProductId, setSallaProductId] = useState(model.sallaProductId != null ? String(model.sallaProductId) : '');
   const [sallaProductName, setSallaProductName] = useState(model.sallaProductName || '');
@@ -1582,14 +1653,13 @@ function ModelEditDrawer({
     rows: recipeRows,
     accessories: accessoryRows,
     unit: drawerUnit,
-    tailoringCost: String(model.tailoringCost),
-    embroideryCost: String(model.embroideryCost),
+    tailoringCost,
+    embroideryCost,
     extraCost,
   });
 
   const dispatchSelect = (id: string, value: string) => {
     if (id === 'edit-status') setStatus(value);
-    else if (id === 'edit-size') setSize(value);
     else if (id.startsWith('edit-fabric-')) {
       const rowId = id.replace('edit-fabric-', '');
       setRecipeRows((current) => current.map((row) => (row.id === rowId ? { ...row, fabricId: value } : row)));
@@ -1630,14 +1700,14 @@ function ModelEditDrawer({
           modelId: model.id,
           status,
           description,
-          size,
+          size: joinSizes(selectedSizes),
           unit: drawerUnit,
           colors: encodeColors(selectedColors, customColors),
           imageData,
           recipe: recipeRows.map((row) => ({ role: row.role, fabricId: row.fabricId, consumption: row.consumption })),
           accessories: accessoryRows.filter((row) => row.accessoryId).map((row) => ({ accessoryId: row.accessoryId, consumption: row.consumption })),
-          tailoringCost: model.tailoringCost,
-          embroideryCost: model.embroideryCost,
+          tailoringCost,
+          embroideryCost,
           extraCost,
           sallaProductId: sallaProductId.trim() || null,
           sallaProductName: sallaProductName.trim() || null,
@@ -1750,15 +1820,19 @@ function ModelEditDrawer({
             setSelectedColors((current) => current.filter((c) => c !== name));
           }}
         />
-        <SelectBox
+        <MultiSelectBox
           id="edit-size"
-          label="المقاس (اختياري)"
+          label="المقاسات (اختياري)"
           options={DRESS_SIZE_OPTIONS}
-          value={size}
+          selected={selectedSizes}
           placeholder="بدون مقاس"
           openSelect={openSelect}
           setOpenSelect={setOpenSelect}
-          onChange={dispatchSelect}
+          onToggle={(value) =>
+            setSelectedSizes((current) =>
+              current.includes(value) ? current.filter((entry) => entry !== value) : [...current, value]
+            )
+          }
         />
         <DisplayField
           label="الخياط المرتبط"
@@ -1857,8 +1931,8 @@ function ModelEditDrawer({
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <DisplayField label="تكلفة القماش" value={formatCurrency(calculations.fabricCost)} auto />
         <DisplayField label="تكلفة الإكسسوارات" value={formatCurrency(calculations.accessoriesCost)} auto />
-        <DisplayField label="تكلفة الخياطة" value={formatCurrency(model.tailoringCost)} auto hint="تلقائي من دورة الإنتاج" />
-        <DisplayField label="تكلفة التطريز" value={formatCurrency(model.embroideryCost)} auto hint="تلقائي من دورة الإنتاج" />
+        <EditableField label="تكلفة الخياطة" value={tailoringCost} onChange={setTailoringCost} suffix="ر.س" type="number" />
+        <EditableField label="تكلفة التطريز" value={embroideryCost} onChange={setEmbroideryCost} suffix="ر.س" type="number" />
         <EditableField label="تكلفة إضافية" value={extraCost} onChange={setExtraCost} suffix="ر.س" type="number" />
         <DisplayField label="التكلفة الإجمالية" value={formatCurrency(calculations.totalCost)} auto />
       </div>
