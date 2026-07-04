@@ -848,6 +848,9 @@ export async function POST(request: NextRequest) {
       'create-delivery-request',
       'create-purchase-bill',
       'create-model',
+      'update-model',
+      'update-model-status',
+      'fetch-audit',
       'create-fabric',
       'create-supplier',
     ];
