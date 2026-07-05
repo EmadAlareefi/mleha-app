@@ -28,7 +28,11 @@
       "Bash(node scripts/run-check-active-orders.js:*)",
       "WebFetch(domain:www.printnode.com)",
       "WebFetch(domain:www.postman.com)",
-      "mcp__claude_ai_Supabase__list_projects"
+      "mcp__claude_ai_Supabase__list_projects",
+      "Bash(npx tsx *)",
+      "Bash(cp /tmp/claude-1000/-mnt-d-dev-mleha-app/981472d0-6b30-4c41-9d47-9496af471fb8/scratchpad/check-dupes.ts /mnt/d/dev/mleha-app/check-dupes.tmp.ts)",
+      "Bash(rm -f /mnt/d/dev/mleha-app/check-dupes.tmp.ts)",
+      "mcp__claude_ai_Supabase__execute_sql"
     ],
     "deny": [],
     "ask": []

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { detectInternationalOrder, generateCommercialInvoicePdf } from '@/app/lib/commercial-invoice';
+import { isSaudiCountry } from '@/app/lib/order-destination';
 import {
   sendPrintJob,
   PRINTNODE_INVOICE_PRINTER_ID,
@@ -13,14 +14,6 @@ const normalizeString = (value: unknown): string => {
     return String(value).trim();
   }
   return '';
-};
-
-const isSaudiCountry = (value: string): boolean => {
-  if (!value) return false;
-  const normalized = value.toUpperCase().replace(/\s+/g, '');
-  return ['SA', 'SAU', 'SAUDIARABIA', 'السعودية', 'المملكةالعربيةالسعودية'].some(
-    (code) => normalized === code.toUpperCase()
-  );
 };
 
 interface PrintInvoiceParams {

@@ -15,6 +15,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
 import { detectMessengerShipments, buildShipToArabicLabel } from '@/app/lib/local-shipping/messenger';
 import { getItemColor, getItemSize } from '@/lib/returns/item-attributes';
+import { detectInternationalOrder } from '@/app/lib/order-destination';
 
 interface OrderUser {
   id: string;
@@ -601,6 +602,7 @@ export default function OrderShippingPage() {
   const [refreshingItems, setRefreshingItems] = useState(false);
   const [creatingShipment, setCreatingShipment] = useState(false);
   const [printingShipmentLabel, setPrintingShipmentLabel] = useState(false);
+  const [printingInvoice, setPrintingInvoice] = useState(false);
   const [returningOrder, setReturningOrder] = useState(false);
   const [shipmentInfo, setShipmentInfo] = useState<{
     trackingNumber: string;
@@ -761,6 +763,15 @@ export default function OrderShippingPage() {
     }
     return getShippingAddressSummary(currentOrder.orderData);
   }, [currentOrder]);
+
+  const internationalOrderInfo = useMemo(() => {
+    if (!currentOrder?.orderData) {
+      return { isInternational: false, country: '' };
+    }
+    return detectInternationalOrder(currentOrder.orderData);
+  }, [currentOrder]);
+
+  const isInternationalOrder = internationalOrderInfo.isInternational;
 
   const customerSummary = useMemo(() => {
     return getOrderCustomerSummary(currentOrder?.orderData || {}, shippingAddressSummary);
@@ -934,15 +945,15 @@ const getPrepStatusForItem = useCallback(
   }, [currentOrder, shipmentInfo]);
 
   const shouldShowManualPrintButton =
-    Boolean(existingShipmentLabelUrl) && !shipmentInfo && currentOrder?.status !== 'shipped';
+    Boolean(existingShipmentLabelUrl) && !shipmentInfo && currentOrder?.status !== 'shipped' && !isInternationalOrder;
 
   const canPrintShipmentLabel =
-    Boolean(currentOrder && (currentOrder.status === 'shipped' || shipmentInfo));
+    Boolean(currentOrder && !isInternationalOrder && (currentOrder.status === 'shipped' || shipmentInfo));
   const shouldShowShipmentCard = Boolean(
     shipmentInfo || currentOrder?.status === 'shipped' || existingShipmentLabelUrl,
   );
 
-  const canCreateLocalShipment = Boolean(currentOrder && resolvedMerchantId && currentOrder.orderNumber);
+  const canCreateLocalShipment = Boolean(currentOrder && !isInternationalOrder && resolvedMerchantId && currentOrder.orderNumber);
   const canReturnOrderToReview = Boolean(
     currentOrder && (!currentOrder.source || currentOrder.source === 'assignment')
   );
@@ -1190,6 +1201,10 @@ const handleRefreshItems = async () => {
 
   const handleCreateShipment = async () => {
     if (!currentOrder) return;
+    if (isInternationalOrder) {
+      setShipmentError('هذا الطلب دولي. لا يتم إنشاء شحنة له من هذه الصفحة؛ يرجى طباعة الفاتورة فقط.');
+      return;
+    }
 
     const shouldIncludeAssignmentId =
       !currentOrder.source || currentOrder.source === 'assignment';
@@ -1313,6 +1328,40 @@ const handleRefreshItems = async () => {
       alert('فشل إرسال البوليصة للطابعة');
     } finally {
       setPrintingShipmentLabel(false);
+    }
+  };
+
+  const handlePrintInvoice = async () => {
+    if (!currentOrder) return;
+
+    setPrintingInvoice(true);
+    try {
+      const response = await fetch('/api/invoices/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: currentOrder.orderId,
+          orderNumber: currentOrder.orderNumber,
+          merchantId: resolvedMerchantId || currentOrder.merchantId || null,
+          forceInternational: true,
+          shippingCountry: internationalOrderInfo.country || shippingAddressSummary?.country || null,
+          allowDomestic: false,
+        }),
+      });
+
+      const data = await parseJsonResponse(response, 'POST /api/invoices/print');
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data?.error || 'فشل إرسال الفاتورة للطابعة');
+      }
+
+      const country = data.data?.country || internationalOrderInfo.country;
+      alert(country ? `تم إرسال الفاتورة التجارية للطابعة.\nالدولة: ${country}` : 'تم إرسال الفاتورة التجارية للطابعة.');
+    } catch (error) {
+      console.error('Print invoice failed', error);
+      alert(error instanceof Error ? error.message : 'فشل إرسال الفاتورة للطابعة');
+    } finally {
+      setPrintingInvoice(false);
     }
   };
 
@@ -1490,6 +1539,10 @@ const handleRefreshItems = async () => {
     if (!currentOrder) {
       return;
     }
+    if (isInternationalOrder) {
+      alert('هذا الطلب دولي. لا يتم إنشاء شحنة له من هذه الصفحة؛ يرجى طباعة الفاتورة فقط.');
+      return;
+    }
     if (!resolvedMerchantId) {
       alert('لا يمكن إنشاء شحنة محلية لهذا الطلب لعدم توفر معرف التاجر.');
       return;
@@ -1527,6 +1580,7 @@ const handleRefreshItems = async () => {
     }
   }, [
     currentOrder,
+    isInternationalOrder,
     resolvedMerchantId,
     agentSelectionDialogOpen,
     deliveryAgents,
@@ -1792,6 +1846,18 @@ const handleRefreshItems = async () => {
                     </div>
                   </div>
                 </Card>
+              )}
+
+              {isInternationalOrder && (
+                <Alert className="mb-4 border-blue-200 bg-blue-50 text-blue-950">
+                  <AlertTitle>طلب دولي</AlertTitle>
+                  <AlertDescription>
+                    {internationalOrderInfo.country
+                      ? `وجهة الطلب: ${internationalOrderInfo.country}. `
+                      : ''}
+                    تم تعطيل إنشاء الشحنات لهذا الطلب. الإجراء المتاح هو طباعة الفاتورة التجارية فقط.
+                  </AlertDescription>
+                </Alert>
               )}
 
               <div className="space-y-3 md:space-y-4">
@@ -2115,7 +2181,23 @@ const handleRefreshItems = async () => {
               <div className="mt-8 md:mt-10 md:sticky md:bottom-0 md:z-40 md:-mx-6 md:px-6">
                 <div className="rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-white/80 md:rounded-none md:border-x-0 md:border-b-0 md:border-t md:shadow-[0_-12px_30px_rgba(15,23,42,0.12)] md:bg-white/95 md:p-5">
                   <div className="flex flex-col sm:flex-row gap-3">
-                    {canPrintShipmentLabel ? (
+                    {isInternationalOrder ? (
+                      <Button
+                        type="button"
+                        onClick={() =>
+                          openConfirmationDialog({
+                            title: 'طباعة الفاتورة التجارية',
+                            message: 'هذا الطلب دولي. سيتم إرسال الفاتورة التجارية فقط إلى الطابعة بدون إنشاء شحنة.',
+                            confirmLabel: 'نعم، اطبع الفاتورة',
+                            onConfirm: handlePrintInvoice,
+                          })
+                        }
+                        disabled={printingInvoice}
+                        className={`${ACTION_BUTTON_BASE} bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                      >
+                        {printingInvoice ? 'جاري إرسال الفاتورة...' : 'طباعة الفاتورة التجارية'}
+                      </Button>
+                    ) : canPrintShipmentLabel ? (
                       <Button
                         type="button"
                         onClick={() =>
@@ -2182,25 +2264,27 @@ const handleRefreshItems = async () => {
                         {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
                       </Button>
                     )}
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        void handleCreateLocalShipment();
-                      }}
-                      disabled={
-                        !canCreateLocalShipment ||
-                        creatingLocalShipment ||
-                        loadingAgentSelection ||
-                        agentSelectionDialogOpen
-                      }
-                      className={`${ACTION_BUTTON_BASE} bg-amber-500 hover:bg-amber-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
-                    >
-                      {creatingLocalShipment
-                        ? 'جاري إنشاء الشحنة المحلية...'
-                        : loadingAgentSelection
-                          ? 'جاري تحميل قائمة المناديب...'
-                          : 'إنشاء شحنة محلية'}
-                    </Button>
+                    {!isInternationalOrder && (
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          void handleCreateLocalShipment();
+                        }}
+                        disabled={
+                          !canCreateLocalShipment ||
+                          creatingLocalShipment ||
+                          loadingAgentSelection ||
+                          agentSelectionDialogOpen
+                        }
+                        className={`${ACTION_BUTTON_BASE} bg-amber-500 hover:bg-amber-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                      >
+                        {creatingLocalShipment
+                          ? 'جاري إنشاء الشحنة المحلية...'
+                          : loadingAgentSelection
+                            ? 'جاري تحميل قائمة المناديب...'
+                            : 'إنشاء شحنة محلية'}
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
+import { detectInternationalOrder } from '@/app/lib/order-destination';
 
 export const runtime = 'nodejs';
 
@@ -81,6 +82,38 @@ export async function POST(request: NextRequest) {
       (typeof providedOrderNumber === 'number' || typeof providedOrderNumber === 'string'
         ? String(providedOrderNumber)
         : targetOrderIdValue);
+
+    const storedOrder = await prisma.sallaOrder.findFirst({
+      where: {
+        merchantId: resolvedMerchantId,
+        OR: [
+          { orderId: targetOrderIdValue },
+          { orderNumber: targetOrderNumber },
+          { referenceId: targetOrderNumber },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { rawOrder: true },
+    });
+    const internationalOrder = detectInternationalOrder(assignment?.orderData || storedOrder?.rawOrder);
+
+    if (internationalOrder.isInternational) {
+      log.warn('Blocked shipment creation for international order', {
+        assignmentId: assignment?.id ?? assignmentId ?? null,
+        orderId: targetOrderIdValue,
+        orderNumber: targetOrderNumber,
+        country: internationalOrder.country,
+      });
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'هذا الطلب دولي. لا يتم إنشاء شحنة من صفحة شحن الطلبات؛ يرجى طباعة الفاتورة فقط.',
+          country: internationalOrder.country,
+        },
+        { status: 400 }
+      );
+    }
 
     // Use Salla's orders/actions API to create shipping policy
     // Based on: https://docs.salla.dev/7549669e0

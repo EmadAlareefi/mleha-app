@@ -1,8 +1,8 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { applyCommercialInvoiceDeclaredValue } from '@/lib/commercial-invoice-valuation';
 import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
+import { detectInternationalOrder } from '@/app/lib/order-destination';
 
-const SAUDI_CODES = ['SA', 'SAU', 'SAUDI ARABIA', 'السعودية', 'المملكة العربية السعودية'];
 const SHIPPER_INFO = [
   'Maliha Trading Company',
   'Halab,7714 Halab, Al Baghdadiyah Al Gharbiyah',
@@ -141,24 +141,7 @@ const normalizeItems = (items: unknown): any[] => {
   return [];
 };
 
-export const detectInternationalOrder = (orderData: any): { isInternational: boolean; country: string } => {
-  const countryCandidates = [
-    orderData?.shipping_address?.country,
-    orderData?.billing_address?.country,
-    orderData?.customer?.country,
-  ];
-
-  const country = countryCandidates
-    .map((value) => getStringValue(value))
-    .find((value) => Boolean(value)) || '';
-
-  if (!country) {
-    return { isInternational: false, country: '' };
-  }
-
-  const isInternational = !SAUDI_CODES.some((code) => country.toUpperCase() === code.toUpperCase());
-  return { isInternational, country };
-};
+export { detectInternationalOrder };
 
 export async function generateCommercialInvoicePdf(orderData: any, orderNumber: string): Promise<Buffer> {
   const consignee = resolveCommercialInvoiceConsignee(orderData);

@@ -16,6 +16,7 @@ import {
   buildShipToArabicLabel,
 } from '@/app/lib/local-shipping/messenger';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
+import { detectInternationalOrder } from '@/app/lib/order-destination';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
   '1': 75062490,
@@ -219,6 +220,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'لم يتم العثور على الطلب' },
         { status: 404 }
+      );
+    }
+
+    const internationalOrder = detectInternationalOrder(order);
+    if (internationalOrder.isInternational) {
+      log.warn('Blocked local shipment creation for international order', {
+        merchantId: body.merchantId,
+        orderNumber: body.orderNumber,
+        country: internationalOrder.country,
+      });
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'هذا الطلب دولي. لا يتم إنشاء شحنة محلية له من صفحة شحن الطلبات؛ يرجى طباعة الفاتورة فقط.',
+          country: internationalOrder.country,
+        },
+        { status: 400 }
       );
     }
 

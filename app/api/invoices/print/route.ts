@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
     const user = session.user as any;
 
-    if (!hasServiceAccess(session, 'order-invoice-search')) {
+    if (!hasServiceAccess(session, ['order-invoice-search', 'order-shipping'])) {
       return NextResponse.json({ success: false, error: 'لا تملك صلاحية طباعة الفواتير' }, { status: 403 });
     }
 
