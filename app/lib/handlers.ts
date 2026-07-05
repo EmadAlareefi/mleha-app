@@ -321,26 +321,6 @@ async function maybePrintShipmentLabelFromStatus(
       storedShipment.labelPrinted ||
       (storedShipment.printCount ?? 0) > 0 ||
       Boolean((storedShipment.shipmentData as any)?.labelPrinted);
-
-    const returnLabelNotification = await maybeNotifyReturnLabelCreated({
-      merchantId,
-      orderId: resolvedOrderId,
-      orderNumber: referenceId || resolvedOrderId,
-      labelUrl: shipmentUrl,
-      trackingNumber: trackingNumberValue,
-      shipmentData: data,
-      source: "salla-order-updated-webhook",
-    });
-
-    if (returnLabelNotification.status !== "skipped") {
-      log.info("Return label notification result from order.updated webhook", {
-        merchantId,
-        orderId: resolvedOrderId,
-        result: returnLabelNotification.status,
-        reason: returnLabelNotification.reason,
-        returnRequestId: returnLabelNotification.returnRequestId,
-      });
-    }
   } catch (error) {
     log.error("Failed to upsert shipment from order.updated webhook", {
       error,
