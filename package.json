@@ -19,6 +19,7 @@
     "check:salla-tokens": "node scripts/run-check-token-status.js",
     "db:migrate:supabase": "bash scripts/migrate-neon-to-supabase.sh",
     "test:zoko": "node --test --import tsx app/lib/__tests__/zoko-webhook.test.ts",
+    "test:phone": "node --test --import tsx app/lib/__tests__/phone.test.ts",
     "test:delivered-date": "node --test --import tsx app/lib/__tests__/salla-order-delivered-date.test.ts",
     "check:delivered-dates": "node --import tsx scripts/check-delivered-dates.ts",
     "cleanup:erp-2026": "node scripts/run-remove-2026-erp-invoices.js",

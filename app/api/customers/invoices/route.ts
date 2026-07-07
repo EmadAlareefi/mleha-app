@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const normalized = normalizeKSA(phone);
+    const normalized = normalizeKSA(phone) || phone;
 
     log.info('Looking up invoices by customer phone', { merchantId, phone: normalized });
 

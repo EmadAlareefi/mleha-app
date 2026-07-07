@@ -533,7 +533,12 @@ export async function getInvoicesByCustomerPhone(
   phone: string
 ): Promise<CustomerInvoice[]> {
   try {
-    const normalized = normalizeKSA(phone);
+    // normalizeKSA returns "" for numbers it can't confidently resolve;
+    // fall back to the caller's raw input for the lookup in that case.
+    const normalized = normalizeKSA(phone) || phone.trim();
+    if (!normalized) {
+      return [];
+    }
 
     // Salla's `?mobile=` matching is format-sensitive. Try the normalized
     // E.164 value first, then fall back to the local `05xxxxxxxx` form.
