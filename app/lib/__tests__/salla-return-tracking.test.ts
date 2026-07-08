@@ -49,6 +49,59 @@ test('extracts generated return awb values without using order identifiers', () 
   );
 });
 
+test('skips the original outbound tracking echoed in the action response', () => {
+  // The create_return_policy response echoes the order, which still carries the
+  // original outbound shipment tracking. When it is excluded and no return waybill
+  // has been issued yet, no tracking number should be linked to the return request.
+  assert.equal(
+    extractGeneratedReturnTrackingNumber(
+      {
+        data: [
+          {
+            operation_id: 'op-123',
+            action_name: 'create_return_policy',
+            status: 'success',
+            order: {
+              shipments: [
+                {
+                  type: 'shipment',
+                  tracking_number: 'OUTBOUND999',
+                },
+              ],
+            },
+          },
+        ],
+      },
+      ['op-123', 'OUTBOUND999']
+    ),
+    null
+  );
+});
+
+test('prefers the new return tracking over the excluded outbound tracking', () => {
+  assert.equal(
+    extractGeneratedReturnTrackingNumber(
+      {
+        data: [
+          {
+            operation_id: 'op-123',
+            action_name: 'create_return_policy',
+            status: 'success',
+            order: {
+              shipments: [{ type: 'shipment', tracking_number: 'OUTBOUND999' }],
+            },
+            result: {
+              return_shipment: { awb_number: 'RETURN12345' },
+            },
+          },
+        ],
+      },
+      ['op-123', 'OUTBOUND999']
+    ),
+    'RETURN12345'
+  );
+});
+
 test('extracts all generated return tracking candidates', () => {
   assert.deepEqual(
     extractGeneratedReturnTrackingNumbers(

@@ -4,7 +4,11 @@ import { getSallaOrder } from '@/app/lib/salla-api';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { getOriginalShippingFee } from '@/lib/returns/fees';
-import { extractGeneratedReturnTrackingNumber } from '@/app/lib/returns/salla-return-tracking';
+import {
+  extractGeneratedReturnTrackingNumber,
+  extractGeneratedReturnTrackingNumbers,
+} from '@/app/lib/returns/salla-return-tracking';
+import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import {
   buildMissingReturnFeeRateMessage,
@@ -407,6 +411,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The `create_return_policy` action response echoes the existing order, which
+    // still carries the ORIGINAL (outbound) shipment's tracking number/link. Salla
+    // issues the return waybill (بوليصة الرجيع) asynchronously, so it is usually not
+    // in this response yet. Without excluding the outbound tracking, the extractor
+    // would latch onto it and link the original shipment's label to the return
+    // request. Collect every tracking value already present on the order and exclude
+    // it, so we only accept a genuinely new (return) tracking number here — otherwise
+    // the value stays null and the return-type-filtered backfill in
+    // /api/returns/check and /api/returns/tracking-status populates it later.
+    const originalOrderTrackingNumbers = Array.from(
+      new Set(
+        [
+          extractSallaTrackingNumber(order as any),
+          ...extractGeneratedReturnTrackingNumbers(order),
+        ].filter((value): value is string => Boolean(value))
+      )
+    );
+
     const generatedReturnTrackingNumber = extractGeneratedReturnTrackingNumber(
       {
         operation: returnPolicyOperation,
@@ -419,6 +441,7 @@ export async function POST(request: NextRequest) {
         order.reference_id,
         orderReference,
         operationId,
+        ...originalOrderTrackingNumbers,
       ]
     );
 
