@@ -187,7 +187,11 @@ export function extractCurrency(order: AnyRecord): string | null {
     normalizers.string(order.amounts?.total?.currency),
     normalizers.string(order.amounts?.subtotal?.currency),
     normalizers.string(order.amounts?.grand_total?.currency),
-    normalizers.string(order.amount?.currency)
+    normalizers.string(order.amount?.currency),
+    // List/webhook payload shape: total lives at the top level.
+    normalizers.string(order.total?.currency),
+    // Salla's exchange_rate names the order currency as exchange_currency.
+    normalizers.string(order.exchange_rate?.exchange_currency)
   );
 }
 

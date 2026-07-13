@@ -46,6 +46,21 @@ test('falls back to raw order fields when stored currency is missing', () => {
   assert.equal(resolveERPOrderCurrency(null, null), null);
 });
 
+test('resolves currency from list/webhook-shaped payloads', () => {
+  // List payloads carry `total` at the top level instead of `amounts`.
+  assert.equal(
+    resolveERPOrderCurrency(null, { total: { amount: 119, currency: 'SAR' } }),
+    'SAR'
+  );
+  // Last resort: the exchange_rate object names the order currency.
+  assert.equal(
+    resolveERPOrderCurrency(null, {
+      exchange_rate: { rate: '12.11', base_currency: 'SAR', exchange_currency: 'KWD' },
+    }),
+    'KWD'
+  );
+});
+
 test('SAR orders resolve to a rate of 1 without needing raw data', () => {
   assert.equal(resolveERPSarRate('SAR', null), 1);
 });

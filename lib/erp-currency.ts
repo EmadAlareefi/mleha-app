@@ -42,12 +42,18 @@ export function resolveERPOrderCurrency(currency: unknown, rawOrder: unknown): s
   }
 
   const amounts = isRecord(rawOrder.amounts) ? rawOrder.amounts : {};
-  const total = isRecord(amounts.total) ? amounts.total : {};
+  const amountsTotal = isRecord(amounts.total) ? amounts.total : {};
+  // List/webhook payload shape: total lives at the top level.
+  const topLevelTotal = isRecord(rawOrder.total) ? rawOrder.total : {};
+  // Salla's exchange_rate names the order currency as exchange_currency.
+  const exchangeRate = isRecord(rawOrder.exchange_rate) ? rawOrder.exchange_rate : {};
 
   return (
     normalizeERPCurrency(rawOrder.currency) ??
     normalizeERPCurrency(rawOrder.currency_code) ??
-    normalizeERPCurrency(total.currency)
+    normalizeERPCurrency(amountsTotal.currency) ??
+    normalizeERPCurrency(topLevelTotal.currency) ??
+    normalizeERPCurrency(exchangeRate.exchange_currency)
   );
 }
 
