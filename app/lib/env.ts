@@ -12,6 +12,9 @@ export const env = {
   ZOKO_TPL_RETURN_ORDER_LABEL_CREATED:
     process.env.ZOKO_TPL_RETURN_ORDER_LABEL_CREATED ||
     "return_order_label_created_ar",
+  ZOKO_TPL_ASSIGNED_WELCOME:
+    process.env.ZOKO_TPL_ASSIGNED_WELCOME || "assigned_welcome_ar",
+  ZOKO_DEBUG_PHONE: process.env.ZOKO_DEBUG_PHONE || process.env.ZOKO_TEST_PHONE || "",
   MSEGAT_API_URL: process.env.MSEGAT_API_URL || "https://www.msegat.com/gw/sendsms.php",
   MSEGAT_USERNAME: process.env.MSEGAT_USERNAME,
   MSEGAT_API_KEY: process.env.MSEGAT_API_KEY,
