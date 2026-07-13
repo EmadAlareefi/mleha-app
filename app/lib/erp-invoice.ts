@@ -16,8 +16,12 @@ import {
   isNegativeERPInvoiceId,
 } from '@/lib/erp-order-sync';
 import {
+  ERP_SUPPORTED_CURRENCY,
+  buildMissingERPSarRateMessage,
   buildUnsupportedERPCurrencyMessage,
-  isSupportedERPCurrency,
+  normalizeERPCurrency,
+  resolveERPOrderCurrency,
+  resolveERPSarRate,
 } from '@/lib/erp-currency';
 import { isPotentialRefundStatus } from '@/lib/refund-status';
 
@@ -130,6 +134,29 @@ function parseMoney(value: unknown): number {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Parse a Salla money value and convert it to SAR.
+ * Values labeled with an explicit SAR currency (Salla labels zero-value
+ * defaults as SAR even on foreign-currency orders) are kept as-is; everything
+ * else is assumed to be in the order currency and multiplied by `sarRate`.
+ */
+function convertMoneyToSar(value: unknown, sarRate: number): number {
+  const amount = parseMoney(value);
+
+  if (amount === 0 || sarRate === 1) {
+    return amount;
+  }
+
+  if (value && typeof value === 'object') {
+    const label = normalizeERPCurrency((value as Record<string, unknown>).currency);
+    if (label === ERP_SUPPORTED_CURRENCY) {
+      return amount;
+    }
+  }
+
+  return amount * sarRate;
 }
 
 function calculateERPLineTotalHalalas(item: ERPInvoiceItem): number {
@@ -468,9 +495,11 @@ async function fetchOrderItemsFromSalla(merchantId: string, orderId: string): Pr
 }
 
 /**
- * Extract items from raw order JSON or Salla API
+ * Extract items from raw order JSON or Salla API.
+ * Item prices arrive in the order currency and are converted to SAR
+ * using `sarRate` (1 for SAR orders).
  */
-async function extractOrderItems(order: SallaOrder): Promise<ExtractOrderItemsResult> {
+async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<ExtractOrderItemsResult> {
   const items: ERPInvoiceItem[] = [];
   let explicitOptionNetTotal = 0;
 
@@ -518,26 +547,27 @@ async function extractOrderItems(order: SallaOrder): Promise<ExtractOrderItemsRe
 
     if (item.amounts?.price_without_tax?.amount && item.amounts?.tax?.amount?.amount) {
       // Salla API format: price with tax = price_without_tax + tax
-      const priceWithoutTax = parseFloat(item.amounts.price_without_tax.amount);
-      const taxAmount = parseFloat(item.amounts.tax.amount.amount);
+      const priceWithoutTax = convertMoneyToSar(item.amounts.price_without_tax, sarRate);
+      const taxAmount = convertMoneyToSar(item.amounts.tax.amount, sarRate);
       price = priceWithoutTax + taxAmount;
     } else if (item.amounts?.total?.amount) {
       // Fallback to total amount
-      price = parseFloat(item.amounts.total.amount);
+      price = convertMoneyToSar(item.amounts.total, sarRate);
     } else {
       // Final fallback
-      price = parseFloat(item.price || item.amount || '0');
+      price = convertMoneyToSar(item.price ?? item.amount ?? 0, sarRate);
     }
+    price = roundMoney(price);
 
     // Calculate discount percentage from exact line halalas, not rounded unit percentages.
     let discpc = 0;
     const grossLineHalalas = toHalalas(price) * qty;
     if (grossLineHalalas > 0) {
-      const discountAmount = parseMoney(item.amounts?.total_discount?.amount ?? item.amounts?.total_discount);
+      const discountAmount = convertMoneyToSar(item.amounts?.total_discount, sarRate);
       let discountHalalas = toHalalas(discountAmount);
 
       if (discountHalalas <= 0) {
-        const lineTotalAmount = parseMoney(item.amounts?.total?.amount ?? item.amounts?.total);
+        const lineTotalAmount = convertMoneyToSar(item.amounts?.total, sarRate);
         const desiredNetHalalas = toHalalas(lineTotalAmount);
 
         if (lineTotalAmount > 0 && desiredNetHalalas <= grossLineHalalas) {
@@ -581,7 +611,7 @@ async function extractOrderItems(order: SallaOrder): Promise<ExtractOrderItemsRe
       for (const option of item.options) {
         // Check if option has a price
         if (option.value?.price?.amount && parseFloat(option.value.price.amount) > 0) {
-          const optionPrice = parseFloat(option.value.price.amount);
+          const optionPrice = roundMoney(convertMoneyToSar(option.value.price, sarRate));
 
           items.push({
             cmbkey: '0000',
@@ -615,25 +645,43 @@ async function extractOrderItems(order: SallaOrder): Promise<ExtractOrderItemsRe
  * Transform SallaOrder to ERP invoice payload
  */
 export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERPInvoicePayload> {
-  if (!isSupportedERPCurrency(order.currency)) {
+  const rawOrder = order.rawOrder as any;
+
+  // ERP only accepts SAR. Non-SAR orders are converted using the exchange
+  // rate Salla ships in the raw order payload (or the configured env rates).
+  const orderCurrency = resolveERPOrderCurrency(order.currency, rawOrder);
+  if (!orderCurrency) {
     throw new Error(buildUnsupportedERPCurrencyMessage(order.currency));
+  }
+
+  const sarRate = resolveERPSarRate(orderCurrency, rawOrder);
+  if (sarRate === null) {
+    throw new Error(buildMissingERPSarRateMessage(orderCurrency));
+  }
+
+  if (orderCurrency !== ERP_SUPPORTED_CURRENCY) {
+    logger.info('Converting order amounts to SAR for ERP', {
+      orderId: order.orderId,
+      orderNumber: order.orderNumber,
+      orderCurrency,
+      sarRate,
+    });
   }
 
   const invoiceType = getInvoiceType(order);
   const salesCenter = getSalesCenterCode(order);
-  const rawOrder = order.rawOrder as any;
-  const extractedItems = await extractOrderItems(order);
+  const extractedItems = await extractOrderItems(order, sarRate);
   const items = extractedItems.items;
 
   // Extract amounts - try from database first, then fetch from Salla API if needed
-  const taxAmount = roundMoney(parseMoney(order.taxAmount));
-  let shippingAmount = roundMoney(parseMoney(order.shippingAmount));
-  const discountAmount = roundMoney(parseMoney(order.discountAmount));
-  const optionsTotalAmount = roundMoney(parseMoney(rawOrder?.amounts?.options_total));
+  const taxAmount = roundMoney(convertMoneyToSar(order.taxAmount, sarRate));
+  let shippingAmount = roundMoney(convertMoneyToSar(order.shippingAmount, sarRate));
+  const discountAmount = roundMoney(convertMoneyToSar(order.discountAmount, sarRate));
+  const optionsTotalAmount = roundMoney(convertMoneyToSar(rawOrder?.amounts?.options_total, sarRate));
   const expectedTotal = roundMoney(
-    parseMoney(rawOrder?.amounts?.total) ||
-      parseMoney(rawOrder?.total) ||
-      parseMoney(order.totalAmount)
+    convertMoneyToSar(rawOrder?.amounts?.total, sarRate) ||
+      convertMoneyToSar(rawOrder?.total, sarRate) ||
+      convertMoneyToSar(order.totalAmount, sarRate)
   );
 
   // If shippingAmount is 0, try to extract from raw order data or fetch from API
@@ -664,7 +712,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
       }
     }
 
-    shippingAmount = roundMoney(parseMoney(rawShipping));
+    shippingAmount = roundMoney(convertMoneyToSar(rawShipping, sarRate));
 
     logger.info('Extracted shipping amount', {
       orderId: order.orderId,
@@ -730,7 +778,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
       }
     }
 
-    codFeeAmount = roundMoney(parseMoney(codFee));
+    codFeeAmount = roundMoney(convertMoneyToSar(codFee, sarRate));
 
     if (codFeeAmount > 0) {
       const codFeeWithTax = roundMoney(codFeeAmount * 1.15);
@@ -833,6 +881,8 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
 
   logger.info('Total validation', {
     orderId: order.orderId,
+    orderCurrency,
+    sarRate,
     calculatedTotal,
     expectedTotal,
     differenceHalalas: totalDifference,
@@ -857,8 +907,8 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     throw new Error(errorMsg);
   }
 
-  // Calculate discount percentage on total
-  const subtotal = parseFloat(order.subtotalAmount?.toString() || '0');
+  // Calculate discount percentage on total (both sides in SAR)
+  const subtotal = convertMoneyToSar(order.subtotalAmount, sarRate);
   const discountPercentage = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
 
   // Generate description for refunds

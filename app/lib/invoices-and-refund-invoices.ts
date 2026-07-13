@@ -20,7 +20,8 @@ import {
 } from '@/lib/erp-order-sync';
 import {
   buildUnsupportedERPCurrencyMessage,
-  isSupportedERPCurrency,
+  getERPCurrencySyncBlockReason,
+  isERPSyncableCurrency,
 } from '@/lib/erp-currency';
 import {
   isDefiniteRefundStatus,
@@ -558,7 +559,7 @@ async function listPendingERPOrders(dateRange: DateRangeInput = {}): Promise<Pen
 
   return orders.map((order) => {
     const queueStatus = mapOrderQueueStatus(order, {
-      supportedCurrency: isSupportedERPCurrency(order.currency),
+      supportedCurrency: isERPSyncableCurrency(order.currency),
       currencyMessage: buildUnsupportedERPCurrencyMessage(order.currency),
     });
     const hasRefundSignal =
@@ -725,7 +726,7 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
   const orderRows = refundOrders.flatMap<PendingERPRefundRow>((order) => {
     const orderSyncRecord = refundOrderSyncByOrderRecordId.get(order.id) ?? null;
     const hasSaleInvoiceSync = hasSuccessfulERPSync(order);
-    const supportedCurrency = isSupportedERPCurrency(order.currency);
+    const supportedCurrency = isERPSyncableCurrency(order.currency);
     const linkedInvoices = buildIdentityKeys(order.merchantId, order.orderId, order.orderNumber)
       .flatMap((key) => refundInvoicesByKey.get(key) || [])
       .filter((invoice, index, array) => array.findIndex((item) => item.id === invoice.id) === index);
@@ -896,7 +897,7 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
     const invoiceCurrency =
       invoice.currency ||
       getRawString(rawOrder?.currency, rawOrder?.currency_code, rawOrder?.amounts?.total?.currency);
-    const supportedCurrency = isSupportedERPCurrency(invoiceCurrency);
+    const supportedCurrency = isERPSyncableCurrency(invoiceCurrency);
 
     const queueStatus = mapRefundQueueStatus(invoice, {
       hasSaleInvoiceSync,
@@ -999,11 +1000,9 @@ async function syncPendingOrder(input: {
     throw new InvoicesAndRefundInvoicesError('لم يتم العثور على الطلب داخل قاعدة البيانات.', 404);
   }
 
-  if (!isSupportedERPCurrency(order.currency)) {
-    throw new InvoicesAndRefundInvoicesError(
-      buildUnsupportedERPCurrencyMessage(order.currency),
-      400
-    );
+  const currencyBlockReason = getERPCurrencySyncBlockReason(order.currency, order.rawOrder);
+  if (currencyBlockReason) {
+    throw new InvoicesAndRefundInvoicesError(currencyBlockReason, 400);
   }
 
   const result = await syncOrderToERP(forceSaleOrder(order), false);
@@ -1183,11 +1182,9 @@ async function syncPendingRefund(input: {
   const { order, invoice } = await resolveRefundOrder(input);
   const orderSyncRecord = await getERPRefundOrderSyncRecord(order.id);
 
-  if (!isSupportedERPCurrency(order.currency)) {
-    throw new InvoicesAndRefundInvoicesError(
-      buildUnsupportedERPCurrencyMessage(order.currency),
-      400
-    );
+  const currencyBlockReason = getERPCurrencySyncBlockReason(order.currency, order.rawOrder);
+  if (currencyBlockReason) {
+    throw new InvoicesAndRefundInvoicesError(currencyBlockReason, 400);
   }
 
   if (invoice?.erpSyncedAt) {
