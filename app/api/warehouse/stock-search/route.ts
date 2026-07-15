@@ -26,10 +26,38 @@ const ALLOWED_SERVICES: ServiceKey[] = [
 ];
 const MAX_PRODUCTS = 5;
 const FALLBACK_FETCH_SIZE = 50;
+const ACTIVE_REMOTE_ORDER_STATUSES = ['under_review', 'in_progress', 'new', 'new_order'];
+const ACTIVE_REMOTE_ORDER_NAMES = [
+  'طلب جديد',
+  'بإنتظار المراجعة',
+  'تحت المراجعة',
+  'قيد التنفيذ',
+  'جاري التجهيز',
+  'جاري التنفيذ',
+];
+const ACTIVE_WEBHOOK_STATUS_VALUES = [
+  ...ACTIVE_REMOTE_ORDER_STATUSES,
+  ...ACTIVE_REMOTE_ORDER_NAMES,
+  '449146439',
+  '566146469',
+  '1065456688',
+  '1576217163',
+  '1882207425',
+  '1939592358',
+  '1956875584',
+];
+const WEBHOOK_ORDER_LOOKBACK_DAYS = 30;
 
 type PendingAssignment = {
+  orderId: string;
   status: string;
   sallaStatus: string | null;
+  orderData: Prisma.JsonValue | null;
+};
+
+type PendingOrderSource = {
+  orderId: string;
+  status: string | null;
   orderData: Prisma.JsonValue | null;
 };
 
@@ -120,7 +148,7 @@ export async function POST(request: NextRequest) {
 
     const variantSkuEntries = collectVariantSkuEntries(trimmedProducts);
     const pendingMap = variantSkuEntries.keys.length
-      ? await loadPendingQuantities(variantSkuEntries)
+      ? await loadPendingQuantities(resolved.merchantId, variantSkuEntries)
       : {};
 
     const results: StockSearchResult[] = trimmedProducts.map((product) => {
@@ -243,31 +271,75 @@ function collectVariantSkuEntries(products: SallaProductSummary[]) {
   return { keys, entries };
 }
 
-async function loadPendingQuantities(entrySet: {
+async function loadPendingQuantities(merchantId: string, entrySet: {
   keys: string[];
   entries: Array<{ sku: string; tokens: Set<string> }>;
 }) {
   const result: Record<string, number> = {};
 
-  const assignments = await prisma.orderAssignment.findMany({
-    where: {
-      status: { in: ['assigned', 'preparing'] },
-      removedAt: null,
-    },
-    select: {
-      status: true,
-      sallaStatus: true,
-      orderData: true,
-    },
-  });
+  const [assignments, syncedOrders, webhookOrders] = await Promise.all([
+    prisma.orderAssignment.findMany({
+      where: {
+        merchantId,
+        status: { in: ['assigned', 'preparing'] },
+        removedAt: null,
+      },
+      select: {
+        orderId: true,
+        status: true,
+        sallaStatus: true,
+        orderData: true,
+      },
+    }),
+    prisma.sallaOrder.findMany({
+      where: {
+        merchantId,
+        OR: [
+          { statusSlug: { in: ACTIVE_REMOTE_ORDER_STATUSES } },
+          { statusName: { in: ACTIVE_REMOTE_ORDER_NAMES } },
+        ],
+      },
+      select: {
+        orderId: true,
+        statusSlug: true,
+        rawOrder: true,
+      },
+    }),
+    loadMatchingWebhookOrders(merchantId, entrySet).catch((error) => {
+      log.warn('Failed to load pending orders from recent Salla webhooks', { error });
+      return [];
+    }),
+  ]);
+
+  const ordersById = new Map<string, Prisma.JsonValue | null>();
 
   assignments.forEach((assignment) => {
     if (!shouldCountAssignment(assignment)) {
       return;
     }
-    const items = extractOrderItems(assignment.orderData);
+    ordersById.set(assignment.orderId, assignment.orderData);
+  });
+
+  syncedOrders.forEach((order) => {
+    if (ordersById.has(order.orderId) || !shouldCountRemoteOrder(order.statusSlug, order.rawOrder)) {
+      return;
+    }
+    ordersById.set(order.orderId, order.rawOrder);
+  });
+
+  webhookOrders.forEach((order) => {
+    if (ordersById.has(order.orderId) || !shouldCountRemoteOrder(order.status, order.orderData)) {
+      return;
+    }
+    ordersById.set(order.orderId, order.orderData);
+  });
+
+  ordersById.forEach((orderData) => {
+    const items = extractOrderItems(orderData);
     items.forEach((item: any) => {
-      const normalizedSku = normalizeSku(item?.sku);
+      const normalizedSku = normalizeSku(
+        item?.sku ?? item?.product?.sku ?? item?.variant?.sku ?? item?.product_sku
+      );
       if (!normalizedSku) {
         return;
       }
@@ -286,21 +358,114 @@ async function loadPendingQuantities(entrySet: {
   return result;
 }
 
+async function loadMatchingWebhookOrders(
+  merchantId: string,
+  entrySet: {
+    keys: string[];
+    entries: Array<{ sku: string; tokens: Set<string> }>;
+  }
+): Promise<PendingOrderSource[]> {
+  const cutoff = new Date(Date.now() - WEBHOOK_ORDER_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const latestActiveOrders = await prisma.$queryRaw<
+    Array<{ orderId: string; status: string | null }>
+  >(Prisma.sql`
+    SELECT latest."orderId", latest."status"
+    FROM (
+      SELECT DISTINCT ON ("orderId") "orderId", "status", "receivedAt"
+      FROM "WebhookEvent"
+      WHERE "orderId" IS NOT NULL
+        AND "receivedAt" >= ${cutoff}
+      ORDER BY "orderId", "receivedAt" DESC
+    ) latest
+    WHERE LOWER(latest."status") IN (${Prisma.join(ACTIVE_WEBHOOK_STATUS_VALUES)})
+  `);
+  const orderIds = latestActiveOrders.map((order) => order.orderId).filter(Boolean);
+
+  if (orderIds.length === 0) {
+    return [];
+  }
+
+  const events = await prisma.webhookEvent.findMany({
+    where: { orderId: { in: orderIds } },
+    orderBy: { receivedAt: 'desc' },
+    select: {
+      orderId: true,
+      status: true,
+      rawPayload: true,
+    },
+  });
+  const matchingPayloadByOrderId = new Map<string, Prisma.JsonValue>();
+
+  events.forEach((event) => {
+    if (!event.orderId || extractMerchantId(event.rawPayload) !== merchantId) {
+      return;
+    }
+    if (
+      !matchingPayloadByOrderId.has(event.orderId) &&
+      extractOrderItems(event.rawPayload).some((item: any) => {
+        const sku = normalizeSku(
+          item?.sku ?? item?.product?.sku ?? item?.variant?.sku ?? item?.product_sku
+        );
+        return Boolean(sku && findMatchingSku(sku, entrySet.entries));
+      })
+    ) {
+      matchingPayloadByOrderId.set(event.orderId, event.rawPayload);
+    }
+  });
+
+  return latestActiveOrders.flatMap((order) => {
+    const orderData = matchingPayloadByOrderId.get(order.orderId);
+    if (!orderData) {
+      return [];
+    }
+    return [{ orderId: order.orderId, status: order.status, orderData }];
+  });
+}
+
 function extractOrderItems(orderData: Prisma.JsonValue | null): unknown[] {
   if (!orderData || typeof orderData !== 'object') {
     return [];
   }
 
-  const data = orderData as Record<string, any>;
-  const candidates = [data.items, data.order_items, data.products, data.lines].filter((value) =>
-    Array.isArray(value)
-  );
+  const payload = orderData as Record<string, any>;
+  const data = unwrapOrderPayload(payload);
+  const candidates = [data.items, data.order_items, data.products, data.lines].filter(Array.isArray);
 
   if (candidates.length > 0) {
     return candidates[0] as unknown[];
   }
 
   return [];
+}
+
+function unwrapOrderPayload(payload: Record<string, any>): Record<string, any> {
+  const data = payload.data && typeof payload.data === 'object' ? payload.data : payload;
+  return data.order && typeof data.order === 'object' ? data.order : data;
+}
+
+function extractMerchantId(orderData: Prisma.JsonValue | null): string | null {
+  if (!orderData || typeof orderData !== 'object') {
+    return null;
+  }
+  const payload = orderData as Record<string, any>;
+  const order = unwrapOrderPayload(payload);
+  const candidates = [
+    payload.merchant,
+    payload.merchant_id,
+    payload.merchantId,
+    order.merchant,
+    order.merchant_id,
+    order.merchantId,
+    order.store?.id,
+    order.store_id,
+    order.storeId,
+  ];
+  for (const candidate of candidates) {
+    if (candidate !== null && candidate !== undefined && String(candidate).trim()) {
+      return String(candidate).trim();
+    }
+  }
+  return null;
 }
 
 function shouldCountAssignment(assignment: PendingAssignment): boolean {
@@ -321,6 +486,14 @@ function shouldCountAssignment(assignment: PendingAssignment): boolean {
   return slug === 'in_progress' || slug === 'under_review' || slug === 'new' || slug === 'new_order';
 }
 
+function shouldCountRemoteOrder(
+  rawStatus: string | null,
+  orderData: Prisma.JsonValue | null
+): boolean {
+  const slug = extractStatusSlug(rawStatus, orderData);
+  return Boolean(slug && ACTIVE_REMOTE_ORDER_STATUSES.includes(slug));
+}
+
 function extractStatusSlug(
   rawStatus: string | null,
   orderData: Prisma.JsonValue | null
@@ -334,6 +507,9 @@ function extractStatusSlug(
       const status = getStatusById(Number.parseInt(value, 10));
       return status?.slug || null;
     }
+    if (ARABIC_STATUS_TO_SLUG[value]) {
+      return ARABIC_STATUS_TO_SLUG[value];
+    }
     return value.toLowerCase();
   }
 
@@ -341,7 +517,7 @@ function extractStatusSlug(
     return null;
   }
 
-  const payload = orderData as Record<string, any>;
+  const payload = unwrapOrderPayload(orderData as Record<string, any>);
   const status = payload.status || payload.order_status || null;
   const slugSources = [
     payload.statusSlug,

@@ -623,6 +623,7 @@ export async function process_salla_order_created(
   const customerName = getCustomerName(customer);
   const orderNumber =
     getOrderNumber(order) || String(order?.id ?? order?.order_id ?? "");
+  await upsertSallaOrderFromPayload(data);
   log.debug("Exchange link attempt", {
     orderId: meta?.orderId ?? order?.id?.toString?.() ?? null,
     merchantId: meta?.merchantId,
