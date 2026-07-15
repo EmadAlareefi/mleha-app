@@ -68,6 +68,9 @@ Other helpers live in `app/lib/settings.ts` (`erp_auto_sync_*` keys) and `prisma
 
 Keep those in mind when addressing bug reports—most issues come from external API drift or the duplicate ingestion implementations.
 
+## Currency Handling (non-SAR orders)
+Salla stores every order amount in the **customer's currency** (AED, KWD, USD, …) and ships the conversion rate in `rawOrder.exchange_rate` (`{ rate, base_currency: "SAR", exchange_currency }`, rate = SAR per one order-currency unit). `transformOrderToERPInvoice` converts all amounts (item prices, shipping, COD, discounts, expected total) to SAR via `resolveERPSarRate` in `lib/erp-currency.ts` before building the payload; the existing halala reconciliation absorbs per-line conversion rounding. Orders whose raw payload lacks a rate fall back to env rates (`ERP_SAR_RATES_JSON`, then `RETURN_FEE_SAR_RATES_JSON`, both JSON maps like `{"AED": 1.02}`) and fail with a clear Arabic message when neither resolves. Only orders with no currency at all remain blocked in the queue UI. Unit tests: `lib/__tests__/erp-currency.test.ts` (`node --test --import tsx …`).
+
 ## Testing & Verification
 - `npm run dev` and load `/invoices`, `/order-reports`, `/erp-settings` to confirm UI flows.
 - Run `npx ts-node scripts/test-erp-sync.ts` (with `ERP_DEBUG_MODE=true`) before touching live ERP.

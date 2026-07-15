@@ -5,10 +5,7 @@ import path from 'path';
 import type { SallaOrder } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { postInvoiceToERP, transformOrderToERPInvoice } from '@/app/lib/erp-invoice';
-import {
-  buildUnsupportedERPCurrencyMessage,
-  isSupportedERPCurrency,
-} from '@/lib/erp-currency';
+import { getERPCurrencySyncBlockReason } from '@/lib/erp-currency';
 import { prisma } from '@/lib/prisma';
 
 const WORKBOOK_FILE_NAME = 'invoices.xlsx';
@@ -568,8 +565,9 @@ export async function refundInvoiceWorkbookRow(input: {
       throw new InvoiceRefundError('لم يتم العثور على الطلب داخل قاعدة البيانات.', 404);
     }
 
-    if (!isSupportedERPCurrency(order.currency)) {
-      throw new InvoiceRefundError(buildUnsupportedERPCurrencyMessage(order.currency), 400);
+    const currencyBlockReason = getERPCurrencySyncBlockReason(order.currency, order.rawOrder);
+    if (currencyBlockReason) {
+      throw new InvoiceRefundError(currencyBlockReason, 400);
     }
 
     const payload = await transformOrderToERPInvoice(forceRefundOrder(order));
