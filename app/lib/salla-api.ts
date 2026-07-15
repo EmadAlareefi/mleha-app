@@ -25,6 +25,10 @@ export interface SallaOrder {
       amount?: number;
       currency?: string;
     };
+    options_total?: {
+      amount: number;
+      currency: string;
+    };
   };
   date: {
     created: string;
@@ -42,6 +46,7 @@ export interface SallaOrder {
     location?: string | null;
   };
   items: SallaOrderItem[];
+  options?: SallaOrderItem[];
   shipping?: {
     pickup_address?: any;
     company?: string;

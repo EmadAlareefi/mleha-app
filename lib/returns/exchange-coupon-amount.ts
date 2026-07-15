@@ -1,6 +1,8 @@
 import {
   buildReturnFeeQuote,
+  getOrderOptionsTotal,
   getOriginalShippingFee,
+  type PaidOrderOption,
   type ReturnFeeQuote,
 } from './fees';
 
@@ -29,6 +31,7 @@ interface ExchangeCouponAmount {
   fullAmountSar: number;
   itemsTotal: number;
   originalShipping: number;
+  orderOptionsTotal: number;
   processingFee: number;
   processingFeeSar: number;
   currency: string;
@@ -55,6 +58,7 @@ export function calculateExchangeCouponAmount(
   request: StoredExchangeAmounts,
   liveOrderAmounts?: OrderShippingAmounts | null,
   feeQuote?: ReturnFeeQuote,
+  liveOrderOptions?: PaidOrderOption[] | null,
 ): ExchangeCouponAmount {
   const itemsTotal = roundCurrency(
     request.items.reduce((sum, item) => {
@@ -102,11 +106,17 @@ export function calculateExchangeCouponAmount(
           : 'sar',
     );
   const processingFee = quote.processingFee;
+  const orderOptionsTotal = getOrderOptionsTotal(liveOrderOptions);
+  const customerPaidTotal = itemsTotal + originalShipping + orderOptionsTotal;
+  const refundableSubtotal = customerPaidTotal - orderOptionsTotal;
   const fullAmount = roundCurrency(
-    Math.max(0, itemsTotal + originalShipping - processingFee),
+    Math.max(0, refundableSubtotal - processingFee),
   );
   const fullAmountSar = roundCurrency(
-    Math.max(0, itemsTotal * quote.exchangeRate + originalShipping * quote.exchangeRate - quote.processingFeeSar),
+    Math.max(
+      0,
+      refundableSubtotal * quote.exchangeRate - quote.processingFeeSar,
+    ),
   );
 
   return {
@@ -114,6 +124,7 @@ export function calculateExchangeCouponAmount(
     fullAmountSar,
     itemsTotal,
     originalShipping,
+    orderOptionsTotal,
     processingFee,
     processingFeeSar: quote.processingFeeSar,
     currency: quote.currency,

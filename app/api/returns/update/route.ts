@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
+import { recalculateReturnRequestFinancials } from '@/lib/returns/request-financials';
 
 export const runtime = 'nodejs';
 
@@ -69,7 +70,40 @@ export async function POST(request: NextRequest) {
     }
 
     if (type) {
+      const existingRequest = await prisma.returnRequest.findUnique({
+        where: { id },
+        include: {
+          items: {
+            select: {
+              price: true,
+              quantity: true,
+            },
+          },
+        },
+      });
+
+      if (!existingRequest) {
+        return NextResponse.json(
+          { error: 'طلب الإرجاع غير موجود' },
+          { status: 404 },
+        );
+      }
+
+      const financials = recalculateReturnRequestFinancials({
+        type,
+        currency: existingRequest.currency,
+        exchangeRate: existingRequest.feeExchangeRate,
+        totalRefundAmount: existingRequest.totalRefundAmount,
+        returnFee: existingRequest.returnFee,
+        shippingAmount: existingRequest.shippingAmount,
+        items: existingRequest.items,
+      });
+
       updateData.type = type;
+      updateData.returnFee = financials.returnFee;
+      updateData.totalRefundAmount = financials.totalRefundAmount;
+      updateData.feeExchangeRate = financials.feeExchangeRate;
+      updateData.feeExchangeRateSource = financials.feeExchangeRateSource;
     }
 
     const returnRequest = await prisma.returnRequest.update({

@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import {
   buildReturnFeeQuote,
   getOriginalShippingFee,
+  getOrderOptionsTotal,
   type ReturnFeeQuote,
 } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
@@ -77,6 +78,10 @@ interface Order {
       amount?: number;
       currency?: string;
     };
+    options_total?: {
+      amount: number;
+      currency?: string;
+    };
   };
   customer: {
     id: number;
@@ -86,6 +91,7 @@ interface Order {
     email: string;
   };
   items: OrderItem[];
+  options?: OrderItem[];
   returnFeeQuotes?: {
     return: ReturnFeeQuote;
     exchange: ReturnFeeQuote;
@@ -184,9 +190,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const returnQuote = order.returnFeeQuotes?.return ?? fallbackReturnQuote;
   const exchangeQuote = order.returnFeeQuotes?.exchange ?? fallbackExchangeQuote;
   const activeQuote = type === 'exchange' ? exchangeQuote : returnQuote;
-  // Refund = (items + original shipping the customer paid, incl. VAT) minus the
-  // two shipment legs. The policy fee is SAR-based and converted to order currency.
+  // Paid order options such as packaging are shown in the customer-paid total,
+  // then deducted as non-refundable alongside the two shipment-leg fees.
   const originalShippingFee = getOriginalShippingFee(order.amounts);
+  const orderOptionsTotal = getOrderOptionsTotal(order.options);
   const shipmentLegFee = activeQuote.shipmentLegFee;
   const appliedProcessingFee = activeQuote.processingFee;
   const returnTypeFee = returnQuote.processingFee;
@@ -719,8 +726,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                 return sum + (itemPrice * quantity);
               }, 0);
 
-              const orderTotal = itemsTotal + originalShippingFee;
-              const finalRefund = Math.max(0, orderTotal - appliedProcessingFee);
+              const orderTotal = itemsTotal + originalShippingFee + orderOptionsTotal;
+              const finalRefund = Math.max(
+                0,
+                orderTotal - orderOptionsTotal - appliedProcessingFee,
+              );
               const isExchange = type === 'exchange';
               const returnLegLabel = isExchange ? 'رسوم شحنة الاستبدال:' : 'رسوم شحنة الاسترجاع:';
 
@@ -738,10 +748,24 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                     </div>
                   )}
 
+                  {orderOptionsTotal > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>خيارات الطلب المدفوعة (شامل الضريبة):</span>
+                      <span className="font-medium">{formatMoney(orderOptionsTotal)}</span>
+                    </div>
+                  )}
+
                   <div className="flex justify-between text-sm border-t pt-3">
                     <span className="font-medium">الإجمالي:</span>
                     <span className="font-semibold">{formatMoney(orderTotal)}</span>
                   </div>
+
+                  {orderOptionsTotal > 0 && (
+                    <div className="flex justify-between text-sm text-red-600">
+                      <span>خيارات الطلب غير المستردة (مثل التغليف):</span>
+                      <span>-{formatMoney(orderOptionsTotal)}</span>
+                    </div>
+                  )}
 
                   <div className="flex justify-between text-sm text-red-600">
                     <span>رسوم الشحنة الأساسية:</span>

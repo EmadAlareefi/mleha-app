@@ -20,12 +20,36 @@ test('uses the current 40 SAR exchange fee with live order shipping', () => {
     fullAmountSar: 400,
     itemsTotal: 410,
     originalShipping: 30,
+    orderOptionsTotal: 0,
     processingFee: 40,
     processingFeeSar: 40,
     currency: 'SAR',
     exchangeRate: 1,
     exchangeRateSource: 'sar',
   });
+});
+
+test('deducts paid packaging from exchange credit', () => {
+  const result = calculateExchangeCouponAmount(
+    {
+      items: [{ price: 720, quantity: 1 }],
+    },
+    { shipping_cost: { amount: 0 } },
+    buildReturnFeeQuote('exchange', 'SAR'),
+    [
+      {
+        quantity: 1,
+        amounts: {
+          price_without_tax: { amount: 13.04 },
+          tax: { amount: { amount: 1.96 } },
+          total: { amount: 15 },
+        },
+      },
+    ],
+  );
+
+  assert.equal(result.orderOptionsTotal, 15);
+  assert.equal(result.fullAmount, 680);
 });
 
 test('does not reuse a legacy stored exchange fee calculation', () => {

@@ -93,6 +93,63 @@ interface OrderShippingAmounts {
   shipping_tax?: { amount?: number | string | null } | null;
 }
 
+type OrderOptionAmount = number | string | { amount?: number | string | null } | null | undefined;
+
+export interface PaidOrderOption {
+  quantity?: number | null;
+  amounts?: {
+    price_without_tax?: { amount?: OrderOptionAmount } | null;
+    tax?: { amount?: OrderOptionAmount } | null;
+    total_discount?: { amount?: OrderOptionAmount } | null;
+    total?: { amount?: OrderOptionAmount } | null;
+  } | null;
+}
+
+const toOrderOptionAmount = (value: OrderOptionAmount): number | null => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (value && typeof value === 'object' && 'amount' in value) {
+    return toOrderOptionAmount(value.amount);
+  }
+  return null;
+};
+
+/**
+ * Paid order-level options (such as gift packaging) are returned separately
+ * from product items by Salla. Their detailed amounts are tax-exclusive, so
+ * rebuild the tax-inclusive customer-paid value for refund calculations.
+ */
+export function getOrderOptionsTotal(options?: PaidOrderOption[] | null): number {
+  if (!Array.isArray(options)) {
+    return 0;
+  }
+
+  const total = options.reduce((sum, option) => {
+    const amounts = option?.amounts;
+    const priceWithoutTax = toOrderOptionAmount(amounts?.price_without_tax?.amount);
+    const tax = toOrderOptionAmount(amounts?.tax?.amount);
+    const discount = toOrderOptionAmount(amounts?.total_discount?.amount);
+    const statedTotal = toOrderOptionAmount(amounts?.total?.amount);
+    const hasDetailedAmounts = priceWithoutTax !== null || tax !== null || discount !== null;
+    const unitAmount = hasDetailedAmounts
+      ? Math.max(0, (priceWithoutTax ?? 0) + (tax ?? 0) - (discount ?? 0))
+      : Math.max(0, statedTotal ?? 0);
+    const quantity =
+      typeof option.quantity === 'number' && Number.isFinite(option.quantity)
+        ? Math.max(0, option.quantity)
+        : 1;
+
+    return sum + unitAmount * quantity;
+  }, 0);
+
+  return roundCurrency(total);
+}
+
 /**
  * Original outbound shipping the customer actually paid at checkout, gross
  * (including shipping VAT). When the tax isn't itemized the net cost is grossed

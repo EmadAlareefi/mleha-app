@@ -7,6 +7,7 @@ import {
   getProcessingFee,
   getShipmentLegFee,
   getOriginalShippingFee,
+  getOrderOptionsTotal,
   splitReturnFee,
   RETURN_SHIPMENT_LEG_FEE,
   EXCHANGE_SHIPMENT_LEG_FEE,
@@ -34,6 +35,26 @@ test('uses the itemized shipping tax when present', () => {
 test('returns zero original shipping for free-shipping orders', () => {
   assert.equal(getOriginalShippingFee({ shipping_cost: { amount: 0 } }), 0);
   assert.equal(getOriginalShippingFee(undefined), 0);
+});
+
+test('includes the tax-inclusive value of paid order options', () => {
+  const orderOptionsTotal = getOrderOptionsTotal([
+    {
+      quantity: 1,
+      amounts: {
+        price_without_tax: { amount: 13.04 },
+        tax: { amount: { amount: 1.96 } },
+        total_discount: { amount: 0 },
+        total: { amount: 15 },
+      },
+    },
+  ]);
+
+  assert.equal(orderOptionsTotal, 15);
+
+  const customerPaidTotal = 720 + orderOptionsTotal;
+  assert.equal(customerPaidTotal - orderOptionsTotal - getProcessingFee('return'), 660);
+  assert.equal(customerPaidTotal - orderOptionsTotal - getProcessingFee('exchange'), 680);
 });
 
 test('full refund example: items 410 + shipping 30 - fee', () => {

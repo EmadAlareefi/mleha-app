@@ -57,10 +57,12 @@ export async function POST(request: NextRequest) {
     }
 
     let liveOrderAmounts;
+    let liveOrderOptions;
     let feeQuote;
     try {
       const order = await getSallaOrder(returnRequest.merchantId, returnRequest.orderId);
       liveOrderAmounts = order?.amounts;
+      liveOrderOptions = order?.options;
       if (order) {
         feeQuote = getReturnFeeQuoteForOrder(order, 'exchange');
       }
@@ -76,6 +78,7 @@ export async function POST(request: NextRequest) {
       returnRequest,
       liveOrderAmounts,
       feeQuote,
+      liveOrderOptions,
     );
     const couponAmount = currentCalculation.fullAmountSar;
     const customerCouponAmount = currentCalculation.fullAmount;

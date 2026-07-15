@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
-import { getOriginalShippingFee } from '@/lib/returns/fees';
+import { getOrderOptionsTotal, getOriginalShippingFee } from '@/lib/returns/fees';
 import {
   extractGeneratedReturnTrackingNumber,
   extractGeneratedReturnTrackingNumbers,
@@ -293,11 +293,11 @@ export async function POST(request: NextRequest) {
       0
     );
 
-    // The order total returned to the customer is items + the original shipping
-    // they paid (gross, incl. VAT). From that we deduct the two shipment legs:
-    // the original outbound shipment + the return/exchange shipment.
+    // Start from the customer-paid total, then deduct non-refundable order-level
+    // options (such as packaging) and both shipment legs.
     const originalShipping = getOriginalShippingFee(order.amounts);
-    const orderTotal = totalItemsAmount + originalShipping;
+    const orderOptionsTotal = getOrderOptionsTotal(order.options);
+    const orderTotal = totalItemsAmount + originalShipping + orderOptionsTotal;
 
     // Flat policy fee is configured in SAR, then converted into the order currency.
     let feeQuote;
@@ -317,8 +317,8 @@ export async function POST(request: NextRequest) {
     }
     const returnFee = feeQuote.processingFee;
 
-    // Calculate total refund: (items + original shipping) - return fee
-    const totalRefundAmount = Math.max(0, orderTotal - returnFee);
+    // Calculate total refund: paid total - non-refundable options - return fee
+    const totalRefundAmount = Math.max(0, orderTotal - orderOptionsTotal - returnFee);
 
     const parsedOrderId = parseInt(body.orderId, 10);
     const normalizedOrderId = Number.isNaN(parsedOrderId) ? body.orderId : parsedOrderId;
