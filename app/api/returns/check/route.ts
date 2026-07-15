@@ -91,22 +91,33 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Evaluate the return window per item using each product's own category, so evening
-    // dresses (24h) and other categories (3 days) are judged independently. Only block the
-    // whole order when every item is past its own window.
+    // Evaluate both windows per item using each product's own category. Returns use the shorter
+    // window (3 days / 24h evening dress) and exchanges the longer one (7 days / 24h evening
+    // dress). The customer chooses return vs exchange later in the form, so we surface both sets
+    // and only hard-block the order when every item is past even its exchange window.
     const windowExpiredProductIds = getWindowExpiredProductIds(
       categoriesByProductId,
-      deliveryDateResult.date
+      deliveryDateResult.date,
+      undefined,
+      'return'
+    );
+    const exchangeWindowExpiredProductIds = getWindowExpiredProductIds(
+      categoriesByProductId,
+      deliveryDateResult.date,
+      undefined,
+      'exchange'
     );
     const allProductsExpired =
-      productIds.length > 0 && productIds.every((productId) => windowExpiredProductIds.has(productId));
+      productIds.length > 0 &&
+      productIds.every((productId) => exchangeWindowExpiredProductIds.has(productId));
 
     if (allProductsExpired) {
-      // Use the evening-dress message only when every product is an evening dress; otherwise
-      // the default 3-day window is the binding constraint.
-      const orderPolicy = getReturnWindowPolicy(Object.values(categoriesByProductId).flat());
+      // Every item is past even the (longer) exchange window, so neither return nor exchange is
+      // possible. Use the evening-dress message when every product is an evening dress; otherwise
+      // the 7-day exchange window is the outer binding constraint.
+      const orderPolicy = getReturnWindowPolicy(Object.values(categoriesByProductId).flat(), 'exchange');
 
-      log.warn('Shipment delivery date exceeds allowed return window for all items', {
+      log.warn('Shipment delivery date exceeds allowed return/exchange window for all items', {
         merchantId,
         orderId,
         deliveryDate: deliveryDateResult.date.toISOString(),
@@ -115,7 +126,7 @@ export async function GET(request: NextRequest) {
       });
 
       return NextResponse.json({
-        error: 'انتهت مدة الإرجاع المسموحة',
+        error: 'انتهت مدة الإرجاع والاستبدال المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
         message: orderPolicy.message,
         allowedHours: orderPolicy.windowHours,
@@ -162,6 +173,7 @@ export async function GET(request: NextRequest) {
         allowMultipleRequests: allowMultiple,
         canCreateNew: true,
         windowExpiredProductIds: Array.from(windowExpiredProductIds),
+        exchangeWindowExpiredProductIds: Array.from(exchangeWindowExpiredProductIds),
       });
     }
 
@@ -244,6 +256,7 @@ export async function GET(request: NextRequest) {
       allowMultipleRequests: allowMultiple,
       canCreateNew: allowMultiple, // Can create new only if multiple requests are allowed
       windowExpiredProductIds: Array.from(windowExpiredProductIds),
+      exchangeWindowExpiredProductIds: Array.from(exchangeWindowExpiredProductIds),
     });
 
   } catch (error) {

@@ -233,6 +233,7 @@ export async function POST(request: NextRequest) {
     const selectedWindowEvaluations = evaluateReturnWindowByProductId({
       categoriesByProductId: selectedCategoriesByProductId,
       deliveryDate,
+      type: body.type,
     });
 
     log.info('Using shipment delivery date for return window validation', {

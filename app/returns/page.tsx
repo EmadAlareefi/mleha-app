@@ -220,6 +220,7 @@ export default function ReturnsPage() {
   const [existingReturns, setExistingReturns] = useState<any[]>([]);
   const [canCreateNew, setCanCreateNew] = useState(true);
   const [windowExpiredProductIds, setWindowExpiredProductIds] = useState<string[]>([]);
+  const [exchangeWindowExpiredProductIds, setExchangeWindowExpiredProductIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [errorDialogOpen, setErrorDialogOpen] = useState(false);
@@ -410,6 +411,11 @@ export default function ReturnsPage() {
       setCanCreateNew(returnsData.canCreateNew !== false);
       setWindowExpiredProductIds(
         Array.isArray(returnsData.windowExpiredProductIds) ? returnsData.windowExpiredProductIds : []
+      );
+      setExchangeWindowExpiredProductIds(
+        Array.isArray(returnsData.exchangeWindowExpiredProductIds)
+          ? returnsData.exchangeWindowExpiredProductIds
+          : []
       );
 
       if (returnsData.hasExistingReturns && returnsData.returns.length > 0) {
@@ -738,6 +744,7 @@ export default function ReturnsPage() {
                 city: MERCHANT_CONFIG.city,
               }}
               windowExpiredProductIds={windowExpiredProductIds}
+              exchangeWindowExpiredProductIds={exchangeWindowExpiredProductIds}
               onSuccess={handleReturnSuccess}
             />
           </div>

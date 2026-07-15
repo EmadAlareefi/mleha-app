@@ -15,10 +15,15 @@ import {
 const EPSILON_DAYS = 0.001; // ~1.5 minutes tolerance
 const EVENING_DRESS_WINDOW_HOURS = 24;
 const DEFAULT_RETURN_WINDOW_DAYS = 3;
+const DEFAULT_EXCHANGE_WINDOW_DAYS = 7;
 const HOUR_MS = 1000 * 60 * 60;
 const DAY_MS = HOUR_MS * 24;
 
 type AnyRecord = Record<string, any>;
+
+// Returns are limited to a shorter window than exchanges. Evening dresses keep their own
+// stricter 24h window regardless of whether the customer chooses a return or an exchange.
+export type ReturnFlowType = 'return' | 'exchange';
 
 export interface ReturnWindowPolicy {
   categoryName: string;
@@ -35,7 +40,10 @@ export interface ReturnWindowEvaluation {
   daysSinceDelivery: number;
 }
 
-export const getReturnWindowPolicy = (categoryNames: string[]): ReturnWindowPolicy => {
+export const getReturnWindowPolicy = (
+  categoryNames: string[],
+  type: ReturnFlowType = 'return'
+): ReturnWindowPolicy => {
   if (categoryNames.some(isEveningDressCategory)) {
     return {
       categoryName: EVENING_DRESS_CATEGORY,
@@ -44,10 +52,18 @@ export const getReturnWindowPolicy = (categoryNames: string[]): ReturnWindowPoli
     };
   }
 
+  if (type === 'exchange') {
+    return {
+      categoryName: 'other',
+      windowHours: DEFAULT_EXCHANGE_WINDOW_DAYS * 24,
+      message: 'لقد تجاوز الطلب مدة 7 أيام من وقت وصول الشحنة للعميل. لا يمكن إنشاء طلب استبدال.',
+    };
+  }
+
   return {
     categoryName: 'other',
     windowHours: DEFAULT_RETURN_WINDOW_DAYS * 24,
-    message: 'لقد تجاوز الطلب مدة 3 أيام من وقت وصول الشحنة للعميل. لا يمكن إنشاء طلب إرجاع أو استبدال.',
+    message: 'لقد تجاوز الطلب مدة 3 أيام من وقت وصول الشحنة للعميل. لا يمكن إنشاء طلب إرجاع.',
   };
 };
 
@@ -378,9 +394,10 @@ export const evaluateReturnWindow = (params: {
   categoryNames: string[];
   deliveryDate: Date;
   now?: Date;
+  type?: ReturnFlowType;
 }): ReturnWindowEvaluation => {
   const now = params.now ?? new Date();
-  const policy = getReturnWindowPolicy(params.categoryNames);
+  const policy = getReturnWindowPolicy(params.categoryNames, params.type ?? 'return');
   const elapsedHours = (now.getTime() - params.deliveryDate.getTime()) / HOUR_MS;
   const allowedDays = policy.windowHours / 24;
   const daysSinceDelivery = (now.getTime() - params.deliveryDate.getTime()) / DAY_MS;
@@ -404,12 +421,13 @@ export const evaluateReturnWindowByProductId = (params: {
   categoriesByProductId: Record<string, string[]>;
   deliveryDate: Date;
   now?: Date;
+  type?: ReturnFlowType;
 }): Record<string, ReturnWindowEvaluation> => {
   const now = params.now ?? new Date();
   return Object.fromEntries(
     Object.entries(params.categoriesByProductId).map(([productId, categoryNames]) => [
       productId,
-      evaluateReturnWindow({ categoryNames, deliveryDate: params.deliveryDate, now }),
+      evaluateReturnWindow({ categoryNames, deliveryDate: params.deliveryDate, now, type: params.type }),
     ])
   );
 };
@@ -420,9 +438,10 @@ export const evaluateReturnWindowByProductId = (params: {
 export const getWindowExpiredProductIds = (
   categoriesByProductId: Record<string, string[]>,
   deliveryDate: Date,
-  now?: Date
+  now?: Date,
+  type: ReturnFlowType = 'return'
 ): Set<string> => {
-  const evaluations = evaluateReturnWindowByProductId({ categoriesByProductId, deliveryDate, now });
+  const evaluations = evaluateReturnWindowByProductId({ categoriesByProductId, deliveryDate, now, type });
   const expired = new Set<string>();
   Object.entries(evaluations).forEach(([productId, evaluation]) => {
     if (!evaluation.eligible) {

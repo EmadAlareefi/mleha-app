@@ -18,6 +18,30 @@ test('evening dresses use the 24h window, other categories use 3 days', () => {
   assert.equal(getReturnWindowPolicy([OTHER_CATEGORY]).windowHours, 72);
 });
 
+test('exchanges extend the other-category window to 7 days but keep evening dresses at 24h', () => {
+  assert.equal(getReturnWindowPolicy([OTHER_CATEGORY], 'exchange').windowHours, 168);
+  assert.equal(getReturnWindowPolicy([OTHER_CATEGORY], 'return').windowHours, 72);
+  assert.equal(getReturnWindowPolicy([EVENING_DRESS], 'exchange').windowHours, 24);
+});
+
+test('other-category item at 4 days is expired for return but still exchangeable', () => {
+  const now = new Date('2026-06-21T12:00:00.000Z');
+  const categoriesByProductId = { 'other-1': [OTHER_CATEGORY] };
+  const returnExpired = getWindowExpiredProductIds(categoriesByProductId, daysAgo(4, now), now, 'return');
+  const exchangeExpired = getWindowExpiredProductIds(categoriesByProductId, daysAgo(4, now), now, 'exchange');
+
+  assert.ok(returnExpired.has('other-1'), 'past the 3-day return window');
+  assert.ok(!exchangeExpired.has('other-1'), 'still within the 7-day exchange window');
+});
+
+test('other-category item past 7 days is expired for exchange too', () => {
+  const now = new Date('2026-06-21T12:00:00.000Z');
+  const categoriesByProductId = { 'other-1': [OTHER_CATEGORY] };
+  const exchangeExpired = getWindowExpiredProductIds(categoriesByProductId, daysAgo(8, now), now, 'exchange');
+
+  assert.ok(exchangeExpired.has('other-1'), 'past the 7-day exchange window');
+});
+
 test('mixed order at ~2.5 days expires only the evening dress item', () => {
   const now = new Date('2026-06-21T12:00:00.000Z');
   const categoriesByProductId = {

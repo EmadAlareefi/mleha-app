@@ -10,7 +10,7 @@ import {
   type ReturnFeeQuote,
 } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
-import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
+import { isDiscountedCategory, isEveningDressCategory, isOutletCategory } from '@/lib/returns/categories';
 
 interface OrderItem {
   id: number;
@@ -103,6 +103,7 @@ interface ReturnFormProps {
     city: string;
   };
   windowExpiredProductIds?: string[];
+  exchangeWindowExpiredProductIds?: string[];
   onSuccess: (result: any) => void;
 }
 
@@ -168,7 +169,7 @@ const getOrderItemProductIdWithFallback = (item: OrderItem, fallback?: number | 
   return fallbackValue ?? String(item.id);
 };
 
-export default function ReturnForm({ order, merchantId, merchantInfo, windowExpiredProductIds, onSuccess }: ReturnFormProps) {
+export default function ReturnForm({ order, merchantId, merchantInfo, windowExpiredProductIds, exchangeWindowExpiredProductIds, onSuccess }: ReturnFormProps) {
   const [type, setType] = useState<'return' | 'exchange'>('return');
   const [reason, setReason] = useState('');
   const [reasonDetails, setReasonDetails] = useState('');
@@ -255,10 +256,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     });
     return ids;
   }, [order, itemCategories, outletCategoryProducts]);
-  // Items whose own return window has already expired (e.g. evening dresses past 24h while the
-  // rest of the order is still within the 3-day window). Computed server-side in /api/returns/check.
+  // Items whose window for the currently selected flow has already expired. Returns use the
+  // shorter window (3 days / 24h evening dress), exchanges the longer one (7 days / 24h evening
+  // dress). Both sets are computed server-side in /api/returns/check; we pick the one that matches
+  // the selected type so an item past the 3-day return window can still be exchanged within 7 days.
   const windowExpiredItemIds = useMemo(() => {
-    const expiredProductIds = new Set(windowExpiredProductIds ?? []);
+    const activeExpiredProductIds =
+      type === 'exchange' ? exchangeWindowExpiredProductIds : windowExpiredProductIds;
+    const expiredProductIds = new Set(activeExpiredProductIds ?? []);
     const ids = new Set<number>();
     if (expiredProductIds.size === 0) {
       return ids;
@@ -270,7 +275,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       }
     });
     return ids;
-  }, [order, windowExpiredProductIds]);
+  }, [order, type, windowExpiredProductIds, exchangeWindowExpiredProductIds]);
 
   // Fetch categories for all items
   useEffect(() => {
@@ -360,13 +365,22 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   }, [order, merchantId]);
 
   useEffect(() => {
-    if (type !== 'return' || selectedItems.size === 0) {
+    if (selectedItems.size === 0) {
       return;
     }
     const nextSelectedItems = new Map(selectedItems);
     let changed = false;
     for (const itemId of selectedItems.keys()) {
-      if (outletCategoryItemIds.has(itemId)) {
+      // Outlet items are exchange-only, so drop them when switching to a return.
+      if (type === 'return' && outletCategoryItemIds.has(itemId)) {
+        nextSelectedItems.delete(itemId);
+        changed = true;
+        continue;
+      }
+      // Windows differ by flow (return 3 days, exchange 7 days), so an item that was selectable
+      // as an exchange can fall outside the return window and vice versa. Drop anything now past
+      // the window for the currently selected flow.
+      if (windowExpiredItemIds.has(itemId)) {
         nextSelectedItems.delete(itemId);
         changed = true;
       }
@@ -374,7 +388,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     if (changed) {
       setSelectedItems(nextSelectedItems);
     }
-  }, [type, selectedItems, outletCategoryItemIds]);
+  }, [type, selectedItems, outletCategoryItemIds, windowExpiredItemIds]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
     if (
@@ -430,7 +444,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         return;
       }
       if (windowExpiredItemIds.has(itemId)) {
-        setError('انتهت مدة إرجاع فساتين السهرة (24 ساعة من وقت التسليم).');
+        setError(
+          type === 'exchange'
+            ? 'انتهت مدة الاستبدال المسموحة لأحد المنتجات المختارة.'
+            : 'انتهت مدة الإرجاع المسموحة لأحد المنتجات المختارة.'
+        );
         return;
       }
       if (type === 'return' && outletCategoryItemIds.has(itemId)) {
@@ -586,6 +604,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                 isOutletProduct || isOutletCategory(category) || outletCategoryItemIds.has(item.id);
               const isExchangeOnlyUnavailable = type === 'return' && isOutletCategoryItem;
               const isWindowExpiredItem = windowExpiredItemIds.has(item.id);
+              const isEveningDressItem = isEveningDressCategory(category);
+              const windowExpiredMessage = isEveningDressItem
+                ? `انتهت مدة ${type === 'exchange' ? 'استبدال' : 'إرجاع'} فساتين السهرة (24 ساعة من وقت التسليم)`
+                : type === 'exchange'
+                ? 'انتهت مدة الاستبدال المسموحة (7 أيام من وقت التسليم)'
+                : 'انتهت مدة الإرجاع المسموحة (3 أيام من وقت التسليم)';
               const isItemDisabled =
                 isDiscountedCategoryItem || isExchangeOnlyUnavailable || isWindowExpiredItem;
               const { color, size } = getItemAttributes(item);
@@ -675,7 +699,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                     )}
                     {isWindowExpiredItem && (
                       <p className="text-xs text-red-600 font-medium">
-                        انتهت مدة إرجاع فساتين السهرة (24 ساعة من وقت التسليم)
+                        {windowExpiredMessage}
                       </p>
                     )}
                     <p className="text-xs text-gray-500">
