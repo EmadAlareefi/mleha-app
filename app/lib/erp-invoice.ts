@@ -9,10 +9,12 @@ import { getERPAccessToken } from './erp-auth';
 import { log as logger } from './logger';
 import { sallaMakeRequest } from './salla-oauth';
 import {
+  buildFreeOrderInternalTransferMessage,
   buildNegativeERPInvoiceIdError,
   extractERPInvoiceId,
   extractERPInvoiceIdFromText,
   hasSuccessfulERPSync,
+  isFreeERPOrder,
   isNegativeERPInvoiceId,
 } from '@/lib/erp-order-sync';
 import {
@@ -545,12 +547,13 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
     // Price should be: price_without_tax + tax (original price with tax, before discounts)
     let price = 0;
 
-    if (item.amounts?.price_without_tax?.amount && item.amounts?.tax?.amount?.amount) {
+    if (item.amounts?.price_without_tax?.amount != null && item.amounts?.tax?.amount?.amount != null) {
       // Salla API format: price with tax = price_without_tax + tax
+      // (use != null, not truthiness: a fully-discounted item legitimately has tax amount 0)
       const priceWithoutTax = convertMoneyToSar(item.amounts.price_without_tax, sarRate);
       const taxAmount = convertMoneyToSar(item.amounts.tax.amount, sarRate);
       price = priceWithoutTax + taxAmount;
-    } else if (item.amounts?.total?.amount) {
+    } else if (item.amounts?.total?.amount != null) {
       // Fallback to total amount
       price = convertMoneyToSar(item.amounts.total, sarRate);
     } else {
@@ -584,6 +587,16 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
     const { barcode, itemNoUsed, isFallback } = await fetchBarcodeFromERP(sku);
     const erpSku = itemNoUsed;
 
+    // A line whose net value is 0 (fully discounted, or a genuinely free/gift
+    // item with no original price) is a free item, not a discounted sale.
+    // Record it via fqty (free quantity) rather than qty + discpc, since the
+    // ERP appears to reject invoices whose net total settles to 0 SAR.
+    const netLineHalalas = grossLineHalalas - Math.round(grossLineHalalas * (discpc / 100));
+    const isFullyFree = qty > 0 && netLineHalalas === 0;
+    const finalQty = isFullyFree ? 0 : qty;
+    const finalFqty = isFullyFree ? qty : 0;
+    const finalDiscpc = isFullyFree ? 0 : discpc;
+
     logger.info('Extracted item for ERP', {
       orderId: order.orderId,
       requestedSku: sku,
@@ -591,19 +604,21 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
       rawSku,
       barcode,
       usedFallbackBarcode: isFallback,
-      qty,
+      qty: finalQty,
+      fqty: finalFqty,
       price,
-      discpc,
+      discpc: finalDiscpc,
+      isFullyFree,
       itemName: item.name,
     });
 
     items.push({
       cmbkey: erpSku,
       barcode: barcode,
-      qty: qty,
-      fqty: 0,
+      qty: finalQty,
+      fqty: finalFqty,
       price: price,
-      discpc,
+      discpc: finalDiscpc,
     });
 
     // Add extra options (like packaging) if available
@@ -1092,6 +1107,25 @@ export async function syncOrderToERP(
         success: true,
         erpInvoiceId: order.erpInvoiceId || undefined,
         message: 'Order already synced to ERP (use force=true to re-sync)',
+      };
+    }
+
+    // Fully-discounted orders have no revenue to invoice, and the ERP rejects
+    // zero-total sale invoices outright. Block the attempt (even with force)
+    // rather than repeatedly hitting the ERP for something it will never accept.
+    if (!hasSuccessfulERPSync(order) && isFreeERPOrder(order)) {
+      const message = buildFreeOrderInternalTransferMessage();
+
+      logger.info('Skipping ERP sync for free order (needs manual internal transfer)', {
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        totalAmount: order.totalAmount,
+      });
+
+      return {
+        success: false,
+        error: message,
+        message,
       };
     }
 

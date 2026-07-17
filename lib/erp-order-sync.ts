@@ -80,3 +80,21 @@ export function getERPOrderSyncError(state: ERPSyncState): string | null {
 
   return null;
 }
+
+/**
+ * A fully-discounted order (net total 0 SAR) has no revenue to invoice.
+ * The ERP rejects zero-total sale invoices outright, so these must be
+ * recorded as a manual internal stock transfer inside the ERP instead.
+ */
+export function isFreeERPOrder(state: { totalAmount?: unknown }): boolean {
+  if (state.totalAmount === null || state.totalAmount === undefined) {
+    return false;
+  }
+
+  const amount = Number(state.totalAmount);
+  return Number.isFinite(amount) && amount === 0;
+}
+
+export function buildFreeOrderInternalTransferMessage(): string {
+  return 'هذا الطلب مجاني بالكامل (بدون قيمة بعد الخصم) ولا يمكن إرساله كفاتورة بيع إلى ERP. يجب على فريق العمليات إنشاء تحويل مخزني داخلي يدوياً داخل ERP لخصم المنتجات من المخزون بدلاً من إنشاء فاتورة.';
+}

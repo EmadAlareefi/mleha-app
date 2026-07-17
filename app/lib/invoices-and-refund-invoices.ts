@@ -14,8 +14,10 @@ import { syncSallaOrders } from '@/app/lib/salla-orders';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
 import {
   NEGATIVE_ERP_INVOICE_ID_PREFIX,
+  buildFreeOrderInternalTransferMessage,
   getERPOrderSyncError,
   hasSuccessfulERPSync,
+  isFreeERPOrder,
   isNegativeERPInvoiceId,
 } from '@/lib/erp-order-sync';
 import {
@@ -28,7 +30,7 @@ import {
   isPotentialRefundStatus,
 } from '@/lib/refund-status';
 
-export type PendingERPOrderRowStatus = 'ready' | 'error' | 'synced';
+export type PendingERPOrderRowStatus = 'ready' | 'error' | 'synced' | 'internal-transfer';
 export type PendingERPRefundRowStatus = 'ready' | 'error' | 'waiting';
 
 export type PendingERPOrderRow = {
@@ -221,7 +223,7 @@ function hasCompletedRefundSync(
 }
 
 function mapOrderQueueStatus(
-  order: Pick<SallaOrder, 'erpSyncedAt' | 'erpInvoiceId' | 'erpSyncError'>,
+  order: Pick<SallaOrder, 'erpSyncedAt' | 'erpInvoiceId' | 'erpSyncError' | 'totalAmount'>,
   options: {
     supportedCurrency?: boolean;
     currencyMessage?: string;
@@ -232,6 +234,15 @@ function mapOrderQueueStatus(
       queueStatus: 'synced',
       queueStatusLabel: 'تم إرسال فاتورة البيع',
       queueStatusMessage: null,
+      canSync: false,
+    };
+  }
+
+  if (isFreeERPOrder(order)) {
+    return {
+      queueStatus: 'internal-transfer',
+      queueStatusLabel: 'يتطلب تحويل مخزني داخلي',
+      queueStatusMessage: buildFreeOrderInternalTransferMessage(),
       canSync: false,
     };
   }
@@ -998,6 +1009,10 @@ async function syncPendingOrder(input: {
 
   if (!order) {
     throw new InvoicesAndRefundInvoicesError('لم يتم العثور على الطلب داخل قاعدة البيانات.', 404);
+  }
+
+  if (!hasSuccessfulERPSync(order) && isFreeERPOrder(order)) {
+    throw new InvoicesAndRefundInvoicesError(buildFreeOrderInternalTransferMessage(), 400);
   }
 
   const currencyBlockReason = getERPCurrencySyncBlockReason(order.currency, order.rawOrder);

@@ -51,7 +51,7 @@ type OrderQueueRow = {
   erpSyncedAt: string | null;
   erpSyncError: string | null;
   erpSyncAttempts: number;
-  queueStatus: 'ready' | 'error' | 'synced';
+  queueStatus: 'ready' | 'error' | 'synced' | 'internal-transfer';
   queueStatusLabel: string;
   queueStatusMessage: string | null;
   canSync: boolean;
@@ -359,6 +359,7 @@ export default function InvoicesAndRefundInvoicesPage() {
     return {
       pendingOrders: orders.filter((order) => order.canSync).length,
       orderErrors: orders.filter((order) => order.queueStatus === 'error').length,
+      internalTransferOrders: orders.filter((order) => order.queueStatus === 'internal-transfer').length,
       pendingRefunds: refunds.filter((refund) => refund.canSync).length,
       refundIssues: refunds.filter((refund) => refund.queueStatus !== 'ready').length,
     };
@@ -774,7 +775,9 @@ export default function InvoicesAndRefundInvoicesPage() {
     setBulkProgress(null);
   };
 
-  const getQueueStatusBadgeClasses = (statusValue: 'ready' | 'error' | 'waiting' | 'synced') => {
+  const getQueueStatusBadgeClasses = (
+    statusValue: 'ready' | 'error' | 'waiting' | 'synced' | 'internal-transfer'
+  ) => {
     switch (statusValue) {
       case 'error':
         return 'border-rose-200 bg-rose-50 text-rose-700';
@@ -782,6 +785,8 @@ export default function InvoicesAndRefundInvoicesPage() {
         return 'border-amber-200 bg-amber-50 text-amber-700';
       case 'synced':
         return 'border-sky-200 bg-sky-50 text-sky-700';
+      case 'internal-transfer':
+        return 'border-violet-200 bg-violet-50 text-violet-700';
       default:
         return 'border-emerald-200 bg-emerald-50 text-emerald-700';
     }
@@ -884,7 +889,7 @@ export default function InvoicesAndRefundInvoicesPage() {
       subtitle="مزامنة طلبات البيع والمرتجعات مع ERP حسب اليوم أو النطاق الزمني"
     >
       <div className="mx-auto w-full max-w-7xl">
-        <section className="grid gap-4 md:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
           <Card className="rounded-3xl border border-indigo-100 bg-white/95 p-5 shadow-sm">
             <p className="text-sm text-slate-500">طلبات بيع جاهزة للإرسال</p>
             <p className="mt-2 text-3xl font-bold text-indigo-700">{summary.pendingOrders}</p>
@@ -892,6 +897,10 @@ export default function InvoicesAndRefundInvoicesPage() {
           <Card className="rounded-3xl border border-rose-100 bg-white/95 p-5 shadow-sm">
             <p className="text-sm text-slate-500">طلبات بيع تحتاج إعادة محاولة</p>
             <p className="mt-2 text-3xl font-bold text-rose-700">{summary.orderErrors}</p>
+          </Card>
+          <Card className="rounded-3xl border border-violet-100 bg-white/95 p-5 shadow-sm">
+            <p className="text-sm text-slate-500">طلبات مجانية تحتاج تحويل مخزني داخلي</p>
+            <p className="mt-2 text-3xl font-bold text-violet-700">{summary.internalTransferOrders}</p>
           </Card>
           <Card className="rounded-3xl border border-emerald-100 bg-white/95 p-5 shadow-sm">
             <p className="text-sm text-slate-500">مرتجعات جاهزة للإرسال</p>
@@ -1183,7 +1192,9 @@ export default function InvoicesAndRefundInvoicesPage() {
             تعرض هذه القائمة طلبات <span className="font-medium">SallaOrder</span> داخل النطاق
             الحالي سواء كانت بانتظار الإرسال أو أُرسلت بالفعل. يظهر هنا رقم فاتورة ERP بعد نجاح
             الإرسال، وحتى الطلبات التي أصبحت لاحقاً مرتجعات أو إلغاءات يجب إرسال فاتورة بيعها
-            الأصلية أولاً من هنا.
+            الأصلية أولاً من هنا. الطلبات المجانية بالكامل (بدون قيمة بعد الخصم) لا تُرسل كفاتورة
+            بيع، وتظهر بدلاً من ذلك بحالة &quot;يتطلب تحويل مخزني داخلي&quot; ليقوم فريق العمليات
+            بإنشاء تحويل مخزني يدوياً داخل ERP.
           </p>
 
           <div className="overflow-hidden rounded-2xl border border-slate-100">
@@ -1274,6 +1285,8 @@ export default function InvoicesAndRefundInvoicesPage() {
                             </>
                           ) : order.queueStatus === 'synced' ? (
                             'تم الإرسال'
+                          ) : order.queueStatus === 'internal-transfer' ? (
+                            'يتطلب تحويل مخزني يدوي'
                           ) : (
                             'إرسال فاتورة البيع'
                           )}
