@@ -93,6 +93,8 @@ const TIMEFRAME_CONFIG: Record<TimeframeKey, { label: string; days: number }> = 
   '90d': { label: 'آخر ٩٠ يوماً', days: 90 },
 };
 
+const ITEMS_PAGE_SIZE = 10;
+
 const FALLBACK_REASON = 'أسباب غير مصنفة';
 const REASON_LABELS: Record<string, string> = {
   defective: 'معيب / تالف',
@@ -166,6 +168,8 @@ export default function ReturnsAnalyticsPage() {
   const [timeframe, setTimeframe] = useState<TimeframeKey>('30d');
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [searchSku, setSearchSku] = useState('');
+  const [refundedItemsPage, setRefundedItemsPage] = useState(1);
+  const [exchangedItemsPage, setExchangedItemsPage] = useState(1);
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -367,7 +371,6 @@ export default function ReturnsAnalyticsPage() {
 
       return Array.from(map.values())
         .sort((a, b) => b.totalQuantity - a.totalQuantity)
-        .slice(0, 5)
         .map((entry) => ({
           sku: entry.sku,
           name: entry.name,
@@ -384,6 +387,41 @@ export default function ReturnsAnalyticsPage() {
 
   const mostRefundedItems = useMemo(() => aggregateItems('return'), [aggregateItems]);
   const mostExchangedItems = useMemo(() => aggregateItems('exchange'), [aggregateItems]);
+
+  const refundedItemsTotalPages = Math.max(
+    1,
+    Math.ceil(mostRefundedItems.length / ITEMS_PAGE_SIZE)
+  );
+  const exchangedItemsTotalPages = Math.max(
+    1,
+    Math.ceil(mostExchangedItems.length / ITEMS_PAGE_SIZE)
+  );
+
+  useEffect(() => {
+    setRefundedItemsPage((prev) => Math.min(prev, refundedItemsTotalPages));
+  }, [refundedItemsTotalPages]);
+
+  useEffect(() => {
+    setExchangedItemsPage((prev) => Math.min(prev, exchangedItemsTotalPages));
+  }, [exchangedItemsTotalPages]);
+
+  const paginatedRefundedItems = useMemo(
+    () =>
+      mostRefundedItems.slice(
+        (refundedItemsPage - 1) * ITEMS_PAGE_SIZE,
+        refundedItemsPage * ITEMS_PAGE_SIZE
+      ),
+    [mostRefundedItems, refundedItemsPage]
+  );
+
+  const paginatedExchangedItems = useMemo(
+    () =>
+      mostExchangedItems.slice(
+        (exchangedItemsPage - 1) * ITEMS_PAGE_SIZE,
+        exchangedItemsPage * ITEMS_PAGE_SIZE
+      ),
+    [mostExchangedItems, exchangedItemsPage]
+  );
 
   const reportRows = useMemo<ReportRow[]>(() => {
     return filteredRequests.flatMap((request) => {
@@ -640,9 +678,16 @@ export default function ReturnsAnalyticsPage() {
 
         <div className="flex flex-col gap-6">
           <Card className="border-slate-100">
-            <CardHeader>
-              <CardTitle className="text-lg">أكثر المنتجات إرجاعاً</CardTitle>
-              <CardDescription>يتم ترتيب المنتجات بناءً على عدد وحدات الإرجاع المسجلة</CardDescription>
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-lg">أكثر المنتجات إرجاعاً</CardTitle>
+                <CardDescription>يتم ترتيب المنتجات بناءً على عدد وحدات الإرجاع المسجلة</CardDescription>
+              </div>
+              {mostRefundedItems.length > 0 && (
+                <p className="text-sm text-slate-500">
+                  {formatNumber(mostRefundedItems.length)} SKU
+                </p>
+              )}
             </CardHeader>
             <CardContent className="pt-0">
               {mostRefundedItems.length === 0 ? (
@@ -650,58 +695,96 @@ export default function ReturnsAnalyticsPage() {
                   لا توجد منتجات بارزة ضمن الفترة الحالية بعد تطبيق الفلاتر.
                 </p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>المنتج</TableHead>
-                      <TableHead>SKU</TableHead>
-                      <TableHead>وحدات الإرجاع</TableHead>
-                      <TableHead>القيمة المستردة</TableHead>
-                      <TableHead>أبرز الأسباب</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {mostRefundedItems.map((item) => (
-                      <TableRow key={`refund-${item.sku}-${item.name}`}>
-                        <TableCell>
-                          <p className="font-medium text-slate-900">{item.name}</p>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm text-slate-600">{item.sku}</TableCell>
-                        <TableCell className="font-semibold text-slate-900">
-                          {formatNumber(item.totalQuantity)}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {formatCurrency(item.totalValue)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            {item.reasons.map((reason) => {
-                              const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
-                              return (
-                                <Badge
-                                  key={`refund-reason-${item.sku}-${reason}`}
-                                  variant="outline"
-                                >
-                                  {displayReason}
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                        </TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>المنتج</TableHead>
+                        <TableHead>SKU</TableHead>
+                        <TableHead>وحدات الإرجاع</TableHead>
+                        <TableHead>القيمة المستردة</TableHead>
+                        <TableHead>أبرز الأسباب</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedRefundedItems.map((item) => (
+                        <TableRow key={`refund-${item.sku}-${item.name}`}>
+                          <TableCell>
+                            <p className="font-medium text-slate-900">{item.name}</p>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm text-slate-600">{item.sku}</TableCell>
+                          <TableCell className="font-semibold text-slate-900">
+                            {formatNumber(item.totalQuantity)}
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-600">
+                            {formatCurrency(item.totalValue)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-2">
+                              {item.reasons.map((reason) => {
+                                const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
+                                return (
+                                  <Badge
+                                    key={`refund-reason-${item.sku}-${reason}`}
+                                    variant="outline"
+                                  >
+                                    {displayReason}
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {refundedItemsTotalPages > 1 && (
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <p className="text-xs text-slate-500">
+                        صفحة {formatNumber(refundedItemsPage)} من {formatNumber(refundedItemsTotalPages)}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRefundedItemsPage((prev) => Math.max(1, prev - 1))}
+                          disabled={refundedItemsPage === 1}
+                        >
+                          السابق
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setRefundedItemsPage((prev) => Math.min(refundedItemsTotalPages, prev + 1))
+                          }
+                          disabled={refundedItemsPage === refundedItemsTotalPages}
+                        >
+                          التالي
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
 
           <Card className="border-slate-100">
-            <CardHeader>
-              <CardTitle className="text-lg">أكثر المنتجات استبدالاً</CardTitle>
-              <CardDescription>
-                ساعد فرق المخزون على تجهيز المقاسات أو الألوان المطلوبة بناءً على سجل الاستبدالات
-              </CardDescription>
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-lg">أكثر المنتجات استبدالاً</CardTitle>
+                <CardDescription>
+                  ساعد فرق المخزون على تجهيز المقاسات أو الألوان المطلوبة بناءً على سجل الاستبدالات
+                </CardDescription>
+              </div>
+              {mostExchangedItems.length > 0 && (
+                <p className="text-sm text-slate-500">
+                  {formatNumber(mostExchangedItems.length)} SKU
+                </p>
+              )}
             </CardHeader>
             <CardContent className="pt-0">
               {mostExchangedItems.length === 0 ? (
@@ -709,48 +792,79 @@ export default function ReturnsAnalyticsPage() {
                   لا توجد منتجات استبدال بارزة ضمن الفترة الحالية بعد تطبيق الفلاتر.
                 </p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>المنتج</TableHead>
-                      <TableHead>SKU</TableHead>
-                      <TableHead>وحدات الاستبدال</TableHead>
-                      <TableHead>القيمة</TableHead>
-                      <TableHead>أبرز الأسباب</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {mostExchangedItems.map((item) => (
-                      <TableRow key={`exchange-${item.sku}-${item.name}`}>
-                        <TableCell>
-                          <p className="font-medium text-slate-900">{item.name}</p>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm text-slate-600">{item.sku}</TableCell>
-                        <TableCell className="font-semibold text-slate-900">
-                          {formatNumber(item.totalQuantity)}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {formatCurrency(item.totalValue)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            {item.reasons.map((reason) => {
-                              const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
-                              return (
-                                <Badge
-                                  key={`exchange-reason-${item.sku}-${reason}`}
-                                  variant="outline"
-                                >
-                                  {displayReason}
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                        </TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>المنتج</TableHead>
+                        <TableHead>SKU</TableHead>
+                        <TableHead>وحدات الاستبدال</TableHead>
+                        <TableHead>القيمة</TableHead>
+                        <TableHead>أبرز الأسباب</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedExchangedItems.map((item) => (
+                        <TableRow key={`exchange-${item.sku}-${item.name}`}>
+                          <TableCell>
+                            <p className="font-medium text-slate-900">{item.name}</p>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm text-slate-600">{item.sku}</TableCell>
+                          <TableCell className="font-semibold text-slate-900">
+                            {formatNumber(item.totalQuantity)}
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-600">
+                            {formatCurrency(item.totalValue)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-2">
+                              {item.reasons.map((reason) => {
+                                const displayReason = reasonLabelMap[reason] || getReasonLabel(reason);
+                                return (
+                                  <Badge
+                                    key={`exchange-reason-${item.sku}-${reason}`}
+                                    variant="outline"
+                                  >
+                                    {displayReason}
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {exchangedItemsTotalPages > 1 && (
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <p className="text-xs text-slate-500">
+                        صفحة {formatNumber(exchangedItemsPage)} من {formatNumber(exchangedItemsTotalPages)}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setExchangedItemsPage((prev) => Math.max(1, prev - 1))}
+                          disabled={exchangedItemsPage === 1}
+                        >
+                          السابق
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setExchangedItemsPage((prev) => Math.min(exchangedItemsTotalPages, prev + 1))
+                          }
+                          disabled={exchangedItemsPage === exchangedItemsTotalPages}
+                        >
+                          التالي
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
