@@ -403,6 +403,7 @@ model SallaOrder {
 
   erpRefundOrderSync ERPRefundOrderSync?
   settlements        OrderSettlement[]
+  items              SallaOrderItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -416,6 +417,35 @@ model SallaOrder {
   @@index([merchantId, erpSyncedAt])
   @@index([merchantId, campaignSource])
   @@index([merchantId, campaignName])
+}
+
+// Line items for a SallaOrder. Salla's order-list sync endpoint doesn't
+// include items, but webhook payloads (order.created/order.updated) do —
+// so this is populated for free from webhooks going forward, with a
+// live-fetch fallback only for orders that predate webhook coverage.
+model SallaOrderItem {
+  id            String   @id @default(cuid())
+  merchantId    String
+  orderId       String
+  itemId        String
+  productId     String?
+  sku           String?
+  skuNormalized String?
+  name          String?
+  quantity      Int      @default(0)
+  priceAmount   Decimal? @db.Decimal(12, 2)
+  totalAmount   Decimal? @db.Decimal(12, 2)
+  currency      String?
+  source        String // 'webhook' | 'api'
+
+  order SallaOrder @relation(fields: [merchantId, orderId], references: [merchantId, orderId], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([merchantId, orderId, itemId])
+  @@index([merchantId, skuNormalized])
+  @@index([merchantId, orderId])
 }
 
 model ERPRefundOrderSync {

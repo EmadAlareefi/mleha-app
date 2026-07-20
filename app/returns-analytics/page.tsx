@@ -184,7 +184,7 @@ export default function ReturnsAnalyticsPage() {
   const [salesBySku, setSalesBySku] = useState<Record<string, number>>({});
   const [salesLoading, setSalesLoading] = useState(true);
   const [salesError, setSalesError] = useState('');
-  const [salesTruncated, setSalesTruncated] = useState(false);
+  const [salesMissingCount, setSalesMissingCount] = useState(0);
 
   const loadRequests = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -233,7 +233,7 @@ export default function ReturnsAnalyticsPage() {
         }
         if (!cancelled) {
           setSalesBySku(data.data?.bySku || {});
-          setSalesTruncated(Boolean(data.data?.truncated));
+          setSalesMissingCount(Number(data.data?.ordersStillMissing) || 0);
         }
       } catch (err) {
         console.error('Failed to load sales-by-sku data', err);
@@ -579,7 +579,7 @@ export default function ReturnsAnalyticsPage() {
               </Button>
             </div>
           </div>
-          {(loading || error || salesError || salesTruncated) && (
+          {(loading || error || salesError || salesMissingCount > 0) && (
             <div className="mt-4 flex flex-col gap-2">
               {error && (
                 <Alert variant="destructive">
@@ -591,10 +591,10 @@ export default function ReturnsAnalyticsPage() {
                   <AlertDescription>{salesError}</AlertDescription>
                 </Alert>
               )}
-              {salesTruncated && (
+              {salesMissingCount > 0 && (
                 <Alert>
                   <AlertDescription>
-                    عدد الطلبات في هذه الفترة كبير جداً، تم احتساب المبيعات لأحدث الطلبات فقط وقد تكون نسبة الإرجاع/الاستبدال تقريبية.
+                    تعذر جلب بيانات المبيعات لـ {formatNumber(salesMissingCount)} طلب ضمن هذه الفترة، وقد تكون نسبة الإرجاع/الاستبدال تقريبية.
                   </AlertDescription>
                 </Alert>
               )}

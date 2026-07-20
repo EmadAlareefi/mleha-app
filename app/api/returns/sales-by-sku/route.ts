@@ -4,24 +4,17 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { prisma } from '@/lib/prisma';
 import { getSallaOrderItems } from '@/app/lib/salla-api';
+import { upsertSallaOrderItems } from '@/app/lib/salla-order-items';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { log } from '@/app/lib/logger';
 
 export const runtime = 'nodejs';
 
-// Salla has no bulk "order items across many orders" endpoint, so this route
-// live-fetches items per order. Cap how many orders we touch per request so a
-// wide timeframe can't turn one page load into hundreds of upstream calls.
-const MAX_ORDERS = 300;
-const CONCURRENCY = 8;
-
-function normalizeSku(input: unknown): string {
-  if (typeof input !== 'string') {
-    return '';
-  }
-  const trimmed = input.trim();
-  return trimmed ? trimmed.toUpperCase() : '';
-}
+// Orders in range that have no local SallaOrderItem yet (e.g. a webhook that
+// hasn't landed) are gap-filled with a live fetch, capped so a large backlog
+// can't turn a page load back into hundreds of upstream calls — the backfill
+// script (scripts/backfill-order-items.ts) handles bulk historical gaps.
+const MAX_LIVE_FALLBACK = 50;
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -61,49 +54,65 @@ export async function GET(request: NextRequest) {
         { status: requestedMerchant ? 404 : 503 }
       );
     }
+    const merchantId = resolved.merchantId;
 
     const daysParam = Number.parseInt(searchParams.get('days') || '30', 10);
     const days = Number.isFinite(daysParam) && daysParam > 0 ? daysParam : 30;
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const orders = await prisma.sallaOrder.findMany({
-      where: {
-        merchantId: resolved.merchantId,
-        placedAt: { gte: startDate },
-        statusSlug: { not: 'canceled' },
-      },
+    // Gross sales (return-rate denominator): every non-canceled order counts,
+    // even ones later returned — otherwise a 100%-returned SKU would divide
+    // by a near-zero "net sales" figure instead of showing a 100% rate.
+    const ordersInRange = await prisma.sallaOrder.findMany({
+      where: { merchantId, placedAt: { gte: startDate }, statusSlug: { not: 'canceled' } },
       select: { orderId: true },
-      orderBy: { placedAt: 'desc' },
-      take: MAX_ORDERS,
+    });
+    const orderIdsInRange = ordersInRange.map((o) => o.orderId);
+
+    const localItems = await prisma.sallaOrderItem.findMany({
+      where: { merchantId, orderId: { in: orderIdsInRange } },
+      select: { orderId: true, skuNormalized: true, quantity: true },
     });
 
     const bySku: Record<string, number> = {};
-    let failedOrders = 0;
-
-    await mapWithConcurrency(orders, CONCURRENCY, async ({ orderId }) => {
-      const items = await getSallaOrderItems(resolved.merchantId, orderId);
-      if (!items) {
-        failedOrders += 1;
+    const coveredOrderIds = new Set<string>();
+    localItems.forEach((item) => {
+      coveredOrderIds.add(item.orderId);
+      if (!item.skuNormalized || item.quantity <= 0) {
         return;
       }
-      items.forEach((item) => {
-        const sku = normalizeSku(item.sku || item.product?.sku);
-        if (!sku) {
-          return;
-        }
-        const quantity = Number(item.quantity ?? 0);
-        if (!Number.isFinite(quantity) || quantity <= 0) {
-          return;
-        }
-        bySku[sku] = (bySku[sku] || 0) + quantity;
-      });
+      bySku[item.skuNormalized] = (bySku[item.skuNormalized] || 0) + item.quantity;
     });
 
-    if (failedOrders > 0) {
-      log.warn('Some orders failed while computing sales-by-sku', {
-        merchantId: resolved.merchantId,
-        failedOrders,
-        ordersProcessed: orders.length,
+    const missingOrderIds = orderIdsInRange.filter((id) => !coveredOrderIds.has(id));
+    const fallbackOrderIds = missingOrderIds.slice(0, MAX_LIVE_FALLBACK);
+    let fallbackFailed = 0;
+
+    if (fallbackOrderIds.length > 0) {
+      await mapWithConcurrency(fallbackOrderIds, 6, async (orderId) => {
+        const items = await getSallaOrderItems(merchantId, orderId);
+        if (!items) {
+          fallbackFailed += 1;
+          return;
+        }
+        await upsertSallaOrderItems(merchantId, orderId, items, 'api');
+        items.forEach((item) => {
+          const sku = (item.sku || item.product?.sku || '').toString().trim().toUpperCase();
+          const quantity = Number(item.quantity ?? 0);
+          if (!sku || !Number.isFinite(quantity) || quantity <= 0) {
+            return;
+          }
+          bySku[sku] = (bySku[sku] || 0) + quantity;
+        });
+      });
+    }
+
+    if (missingOrderIds.length > 0) {
+      log.info('sales-by-sku: gap-filled orders missing local items', {
+        merchantId,
+        missing: missingOrderIds.length,
+        fallbackAttempted: fallbackOrderIds.length,
+        fallbackFailed,
       });
     }
 
@@ -111,9 +120,9 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         bySku,
-        ordersProcessed: orders.length - failedOrders,
-        ordersFailed: failedOrders,
-        truncated: orders.length >= MAX_ORDERS,
+        ordersInRange: orderIdsInRange.length,
+        ordersMissingLocally: missingOrderIds.length,
+        ordersStillMissing: Math.max(0, missingOrderIds.length - fallbackOrderIds.length + fallbackFailed),
       },
     });
   } catch (error) {

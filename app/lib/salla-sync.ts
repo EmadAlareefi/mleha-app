@@ -18,6 +18,7 @@ import {
 } from '@/app/lib/salla-orders';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
+import { extractItemsFromWebhookPayload, upsertSallaOrderItems } from '@/app/lib/salla-order-items';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   success: boolean;
@@ -160,6 +161,11 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       rawOrder: order,
     },
   });
+
+  const items = extractItemsFromWebhookPayload(payload);
+  if (items.length > 0) {
+    await upsertSallaOrderItems(merchantId, orderId, items, 'webhook');
+  }
 
   return { success: true, orderId, merchantId };
 }
