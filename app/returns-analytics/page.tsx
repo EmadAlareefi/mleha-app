@@ -72,6 +72,8 @@ interface AggregatedItem {
   totalQuantity: number;
   totalValue: number;
   reasons: string[];
+  salesQuantity: number | null;
+  ratePercentage: number | null;
 }
 
 interface ReportRow {
@@ -113,6 +115,11 @@ const dateFormatter = new Intl.DateTimeFormat('ar-SA', {
   month: 'short',
   day: 'numeric',
 });
+
+const normalizeSku = (value?: string | null): string => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toUpperCase() : '';
+};
 
 const normalizeReason = (value?: string | null): string => {
   const trimmed = value?.trim();
@@ -174,6 +181,10 @@ export default function ReturnsAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [salesBySku, setSalesBySku] = useState<Record<string, number>>({});
+  const [salesLoading, setSalesLoading] = useState(true);
+  const [salesError, setSalesError] = useState('');
+  const [salesTruncated, setSalesTruncated] = useState(false);
 
   const loadRequests = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -207,6 +218,40 @@ export default function ReturnsAnalyticsPage() {
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSales = async () => {
+      setSalesError('');
+      setSalesLoading(true);
+      try {
+        const days = TIMEFRAME_CONFIG[timeframe].days;
+        const response = await fetch(`/api/returns/sales-by-sku?days=${days}`);
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'تعذر جلب بيانات المبيعات');
+        }
+        if (!cancelled) {
+          setSalesBySku(data.data?.bySku || {});
+          setSalesTruncated(Boolean(data.data?.truncated));
+        }
+      } catch (err) {
+        console.error('Failed to load sales-by-sku data', err);
+        if (!cancelled) {
+          setSalesError('تعذر جلب عدد المبيعات لكل SKU. سيتم عرض المرتجعات بدون نسبة المبيعات.');
+          setSalesBySku({});
+        }
+      } finally {
+        if (!cancelled) {
+          setSalesLoading(false);
+        }
+      }
+    };
+    loadSales();
+    return () => {
+      cancelled = true;
+    };
+  }, [timeframe]);
 
   const timeframeMeta = useMemo(() => {
     const durationMs = TIMEFRAME_CONFIG[timeframe].days * 24 * 60 * 60 * 1000;
@@ -371,18 +416,28 @@ export default function ReturnsAnalyticsPage() {
 
       return Array.from(map.values())
         .sort((a, b) => b.totalQuantity - a.totalQuantity)
-        .map((entry) => ({
-          sku: entry.sku,
-          name: entry.name,
-          totalQuantity: entry.totalQuantity,
-          totalValue: entry.totalValue,
-          reasons: Array.from(entry.reasons.entries())
-            .sort((a, b) => b[1] - a[1])
-            .map(([reasonLabel]) => reasonLabel)
-            .slice(0, 3),
-        }));
+        .map((entry) => {
+          const normalizedSku = entry.sku !== 'غير متوفر' ? normalizeSku(entry.sku) : '';
+          const salesQuantity = normalizedSku ? salesBySku[normalizedSku] ?? 0 : null;
+          const ratePercentage =
+            salesQuantity && salesQuantity > 0
+              ? Math.round((entry.totalQuantity / salesQuantity) * 100)
+              : null;
+          return {
+            sku: entry.sku,
+            name: entry.name,
+            totalQuantity: entry.totalQuantity,
+            totalValue: entry.totalValue,
+            reasons: Array.from(entry.reasons.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([reasonLabel]) => reasonLabel)
+              .slice(0, 3),
+            salesQuantity,
+            ratePercentage,
+          };
+        });
     },
-    [filteredRequests]
+    [filteredRequests, salesBySku]
   );
 
   const mostRefundedItems = useMemo(() => aggregateItems('return'), [aggregateItems]);
@@ -524,11 +579,23 @@ export default function ReturnsAnalyticsPage() {
               </Button>
             </div>
           </div>
-          {(loading || error) && (
+          {(loading || error || salesError || salesTruncated) && (
             <div className="mt-4 flex flex-col gap-2">
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              {salesError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{salesError}</AlertDescription>
+                </Alert>
+              )}
+              {salesTruncated && (
+                <Alert>
+                  <AlertDescription>
+                    عدد الطلبات في هذه الفترة كبير جداً، تم احتساب المبيعات لأحدث الطلبات فقط وقد تكون نسبة الإرجاع/الاستبدال تقريبية.
+                  </AlertDescription>
                 </Alert>
               )}
               {loading && <LoadingState label="جاري تحميل بيانات المرتجعات..." />}
@@ -702,6 +769,8 @@ export default function ReturnsAnalyticsPage() {
                         <TableHead>المنتج</TableHead>
                         <TableHead>SKU</TableHead>
                         <TableHead>وحدات الإرجاع</TableHead>
+                        <TableHead>المبيعات</TableHead>
+                        <TableHead>نسبة الإرجاع</TableHead>
                         <TableHead>القيمة المستردة</TableHead>
                         <TableHead>أبرز الأسباب</TableHead>
                       </TableRow>
@@ -715,6 +784,34 @@ export default function ReturnsAnalyticsPage() {
                           <TableCell className="font-mono text-sm text-slate-600">{item.sku}</TableCell>
                           <TableCell className="font-semibold text-slate-900">
                             {formatNumber(item.totalQuantity)}
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-600">
+                            {salesLoading ? (
+                              <span className="text-slate-400">...</span>
+                            ) : item.salesQuantity !== null ? (
+                              formatNumber(item.salesQuantity)
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {salesLoading ? (
+                              <span className="text-xs text-slate-400">...</span>
+                            ) : item.ratePercentage !== null ? (
+                              <Badge
+                                className={
+                                  item.ratePercentage >= 20
+                                    ? 'border border-rose-100 bg-rose-50 text-rose-700'
+                                    : item.ratePercentage >= 10
+                                      ? 'border border-amber-100 bg-amber-50 text-amber-700'
+                                      : 'border border-emerald-100 bg-emerald-50 text-emerald-700'
+                                }
+                              >
+                                {item.ratePercentage}‎%
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-slate-400">لا تتوفر بيانات مبيعات</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-sm text-slate-600">
                             {formatCurrency(item.totalValue)}
@@ -799,6 +896,8 @@ export default function ReturnsAnalyticsPage() {
                         <TableHead>المنتج</TableHead>
                         <TableHead>SKU</TableHead>
                         <TableHead>وحدات الاستبدال</TableHead>
+                        <TableHead>المبيعات</TableHead>
+                        <TableHead>نسبة الاستبدال</TableHead>
                         <TableHead>القيمة</TableHead>
                         <TableHead>أبرز الأسباب</TableHead>
                       </TableRow>
@@ -812,6 +911,34 @@ export default function ReturnsAnalyticsPage() {
                           <TableCell className="font-mono text-sm text-slate-600">{item.sku}</TableCell>
                           <TableCell className="font-semibold text-slate-900">
                             {formatNumber(item.totalQuantity)}
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-600">
+                            {salesLoading ? (
+                              <span className="text-slate-400">...</span>
+                            ) : item.salesQuantity !== null ? (
+                              formatNumber(item.salesQuantity)
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {salesLoading ? (
+                              <span className="text-xs text-slate-400">...</span>
+                            ) : item.ratePercentage !== null ? (
+                              <Badge
+                                className={
+                                  item.ratePercentage >= 20
+                                    ? 'border border-rose-100 bg-rose-50 text-rose-700'
+                                    : item.ratePercentage >= 10
+                                      ? 'border border-amber-100 bg-amber-50 text-amber-700'
+                                      : 'border border-emerald-100 bg-emerald-50 text-emerald-700'
+                                }
+                              >
+                                {item.ratePercentage}‎%
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-slate-400">لا تتوفر بيانات مبيعات</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-sm text-slate-600">
                             {formatCurrency(item.totalValue)}

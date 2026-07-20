@@ -82,7 +82,7 @@ const TPL = {
   ORDER_SHIPPED:
     process.env.ZOKO_TPL_ORDER_SHIPPED || "order_shipped_ar",
   ORDER_DELIVERED:
-    process.env.ZOKO_TPL_ORDER_DELIVERED || "order_delivered_ar",
+    process.env.ZOKO_TPL_ORDER_DELIVERED || "order_delivered_ar_new",
   PRODUCTS_UPDATED:
     process.env.ZOKO_TPL_PRODUCTS_UPDATED || "order_products_updated",
   CUSTOMER_LOGIN: process.env.ZOKO_TPL_CUSTOMER_LOGIN || "customer_login",

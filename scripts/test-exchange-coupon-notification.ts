@@ -10,7 +10,7 @@ import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 async function main() {
   const to = process.argv[2] || '+966501466365';
 
-  console.log('Sending exchange_coupon_notification test via Zoko');
+  console.log('Sending exchange_coupon_notification_new test via Zoko');
   console.log('  template:', env.ZOKO_TPL_EXCHANGE_COUPON);
   console.log('  language:', env.WHATSAPP_DEFAULT_LANG);
   console.log('  recipient:', to);

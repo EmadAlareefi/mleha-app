@@ -8,7 +8,7 @@ export const env = {
   ZOKO_TPL_EXCHANGE_COUPON:
     process.env.ZOKO_TPL_EXCHANGE_COUPON ||
     process.env.ZOKO_TPL_ORDER_CONFIRMED || // fall back to any legacy template if provided
-    "exchange_coupon_notification",
+    "exchange_coupon_notification_new",
   ZOKO_TPL_RETURN_ORDER_LABEL_CREATED:
     process.env.ZOKO_TPL_RETURN_ORDER_LABEL_CREATED ||
     "return_order_label_created_ar",
