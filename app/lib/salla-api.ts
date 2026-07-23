@@ -213,10 +213,17 @@ export async function getSallaOrder(
       return null;
     }
 
-    // Fetch full item details
+    // Fetch full item details. The dedicated /orders/items endpoint returns
+    // richer data (images, options, per-item amounts), but it occasionally
+    // returns an empty list for an order that does carry items. In that case
+    // keep the items already embedded in the order-details response instead of
+    // clobbering them with an empty array — otherwise downstream pages (e.g. the
+    // returns form) render "لا توجد منتجات في هذا الطلب" for a valid order.
     const items = await getSallaOrderItems(merchantId, orderId);
-    if (items) {
+    if (items && items.length > 0) {
       response.data.items = items;
+    } else if (!Array.isArray(response.data.items)) {
+      response.data.items = [];
     }
 
     return response.data;
