@@ -190,6 +190,7 @@ type FabricManagementData = {
   suppliers: Supplier[];
   purchaseInvoices: PurchaseInvoice[];
   deliveryNotes: DeliveryNote[];
+  tailors?: Array<{ id: string; name: string; workshopName?: string | null }>;
   tailorFabricBalances: Array<{ fabricId: string; tailorId: string; heldMeters: number }>;
   summary: {
     fabricsCount: number;
@@ -363,6 +364,7 @@ type EditDrawerState =
 const closedDrawer: EditDrawerState = { open: false, kind: null, entity: null };
 
 const initialTailorRequestForm = {
+  tailorId: '',
   fabricId: '',
   requestedLength: '',
   notes: '',
@@ -375,6 +377,7 @@ const initialTailorRequestForm = {
 };
 
 const initialDeliveryRequestForm = {
+  tailorId: '',
   designModelId: '',
   dressCount: '1',
   size: '',
@@ -481,6 +484,15 @@ export default function FabricManagementPage() {
         description: [model.sallaProductName, model.size].filter(Boolean).join(' - ') || undefined,
       })),
     [data?.models]
+  );
+  const tailorOptions = useMemo<SelectOption[]>(
+    () =>
+      (data?.tailors || []).map((tailor) => ({
+        value: tailor.id,
+        label: tailor.name,
+        description: tailor.workshopName || undefined,
+      })),
+    [data?.tailors]
   );
   const tailorBalances = useMemo(
     () =>
@@ -710,12 +722,17 @@ export default function FabricManagementPage() {
   const handleTailorRequestSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const isPurchase = tailorRequestTab === 'purchase';
+    if (!tailorRequestForm.tailorId) {
+      alert('اختر الخياط');
+      return;
+    }
     if (!isPurchase && !tailorRequestForm.fabricId) {
       alert('اختر القماش المطلوب');
       return;
     }
     const ok = await postAction({
       action: 'create-tailor-request',
+      tailorId: tailorRequestForm.tailorId,
       requestType: isPurchase ? 'purchase' : 'stock_request',
       fabricId: isPurchase ? undefined : tailorRequestForm.fabricId,
       requestedLength: tailorRequestForm.requestedLength,
@@ -774,12 +791,20 @@ export default function FabricManagementPage() {
 
   const handleDeliveryRequestSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!deliveryRequestForm.tailorId) {
+      alert('اختر الخياط');
+      return;
+    }
     if (!deliveryRequestForm.designModelId) {
       alert('اختر الموديل');
       return;
     }
+    // Warehouse records the batch and submits it in one step so it reaches the
+    // tailor's approval queue; the tailor's acceptance is what consumes the fabric.
     const ok = await postAction({
-      action: 'create-delivery-request',
+      action: 'create-delivery-note',
+      submit: true,
+      tailorId: deliveryRequestForm.tailorId,
       designModelId: deliveryRequestForm.designModelId,
       dressCount: deliveryRequestForm.dressCount,
       size: deliveryRequestForm.size || undefined,
@@ -813,6 +838,11 @@ export default function FabricManagementPage() {
     !isAdminUser && userServiceKeys.includes('fabric-warehouse') && !userServiceKeys.includes('fabric-management');
   // Both restricted audiences only ever see the two request tabs.
   const isRestrictedView = isWarehouseOnly || isTailorOnly;
+  // Tailors are external contractors: they only approve/reject what the warehouse
+  // recorded for them, and never do data entry. Warehouse + managers do all entry;
+  // admin can do both. This mirrors the API's TAILOR_ALLOWED_ACTIONS + requireApprover.
+  const canApprove = isTailorOnly || isAdminUser;
+  const canEnterData = !isTailorOnly;
 
   const [tab, setTab] = useState<'stock' | 'tailor-requests' | 'models' | 'invoices' | 'delivery-requests' | 'opening-balance'>('stock');
   const [stockBillTab, setStockBillTab] = useState<'fabric' | 'accessory'>('fabric');
@@ -821,7 +851,7 @@ export default function FabricManagementPage() {
   const pendingCount = summary?.pendingRequestsCount || 0;
   const pendingDeliveryCount = (data?.deliveryNotes || []).filter((note) => note.status === 'SUBMITTED').length;
   const allowedTabs = isTailorOnly
-    ? ['tailor-requests', 'delivery-requests', 'models', 'invoices', 'opening-balance']
+    ? ['tailor-requests', 'delivery-requests']
     : isWarehouseOnly
       ? ['tailor-requests', 'delivery-requests', 'opening-balance']
       : ['stock', 'tailor-requests', 'models', 'invoices', 'delivery-requests', 'opening-balance'];
@@ -922,13 +952,15 @@ export default function FabricManagementPage() {
                   طلبات التسليم
                   {pendingDeliveryCount > 0 && <span className="tab-badge">{formatNumber(pendingDeliveryCount)} جديد</span>}
                 </button>
-                {!isWarehouseOnly && (
+                {!isRestrictedView && (
                   <button type="button" className={`tab ${activeTab === 'models' ? 'active' : ''}`} onClick={() => setTab('models')}>الموديلات</button>
                 )}
-                {!isWarehouseOnly && (
+                {!isRestrictedView && (
                   <button type="button" className={`tab ${activeTab === 'invoices' ? 'active' : ''}`} onClick={() => setTab('invoices')}>فواتير الشراء</button>
                 )}
-                <button type="button" className={`tab ${activeTab === 'opening-balance' ? 'active' : ''}`} onClick={() => setTab('opening-balance')}>رصيد افتتاحي</button>
+                {!isTailorOnly && (
+                  <button type="button" className={`tab ${activeTab === 'opening-balance' ? 'active' : ''}`} onClick={() => setTab('opening-balance')}>رصيد افتتاحي</button>
+                )}
               </div>
 
               {/* ═════ المخزون ═════ */}
@@ -993,14 +1025,21 @@ export default function FabricManagementPage() {
               {/* ═════ طلبات الخياطين ═════ */}
               {activeTab === 'tailor-requests' && (
                 <div>
-                  {isTailorOnly && (
-                    <FormAccordionCard marker="ط" title="طلب قماش جديد" tag="طلب">
+                  {canEnterData && (
+                    <FormAccordionCard marker="ط" title="صرف قماش لخياط" tag="صرف" description="سجّل القماش المصروف للخياط — يظهر لديه لاعتماد الاستلام قبل إضافته إلى رصيده.">
                       <div className="subtabs">
-                        <button type="button" className={`subtab ${tailorRequestTab === 'stock' ? 'active' : ''}`} onClick={() => setTailorRequestTab('stock')}>طلب من المخزون</button>
+                        <button type="button" className={`subtab ${tailorRequestTab === 'stock' ? 'active' : ''}`} onClick={() => setTailorRequestTab('stock')}>من المخزون</button>
                         <button type="button" className={`subtab ${tailorRequestTab === 'purchase' ? 'active' : ''}`} onClick={() => setTailorRequestTab('purchase')}>شراء قماش</button>
                       </div>
                       <form onSubmit={handleTailorRequestSubmit}>
                         <div className="grid" style={{ marginBottom: 14 }}>
+                          <DesignSelect
+                            label="الخياط"
+                            value={tailorRequestForm.tailorId}
+                            options={tailorOptions}
+                            onChange={(tailorId) => setTailorRequestForm({ ...tailorRequestForm, tailorId })}
+                            searchable
+                          />
                           {tailorRequestTab === 'stock' ? (
                             <DesignSelect
                               label="القماش"
@@ -1022,7 +1061,7 @@ export default function FabricManagementPage() {
                           <TextInput label={`الكمية المطلوبة (${lengthUnit === 'yard' ? 'ياردة' : 'متر'})`} type="number" value={tailorRequestForm.requestedLength} onChange={(requestedLength) => setTailorRequestForm({ ...tailorRequestForm, requestedLength })} required />
                         </div>
                         <TextAreaField label="ملاحظات" value={tailorRequestForm.notes} onChange={(notes) => setTailorRequestForm({ ...tailorRequestForm, notes })} />
-                        <button className="btn" type="submit" disabled={saving}><PackagePlus /> إرسال الطلب</button>
+                        <button className="btn" type="submit" disabled={saving}><PackagePlus /> تسجيل الصرف</button>
                       </form>
                     </FormAccordionCard>
                   )}
@@ -1032,7 +1071,7 @@ export default function FabricManagementPage() {
                         requests={data?.requests || []}
                         onStatusChange={(requestId, status) => void updateRequestStatus(requestId, status)}
                         saving={saving}
-                        readOnly={isTailorOnly}
+                        readOnly={!canApprove}
                       />
                     </div>
                   </div>
@@ -1042,53 +1081,43 @@ export default function FabricManagementPage() {
               {/* ═════ طلبات التسليم ═════ */}
               {activeTab === 'delivery-requests' && (
                 <div>
-                  {isTailorOnly && (
-                    <>
-                      {tailorBalances.length > 0 && (
-                        <div className="card" style={{ padding: 14, marginBottom: 14 }}>
-                          <div className="section-label" style={{ marginBottom: 8 }}>رصيدك من الأقمشة</div>
-                          {tailorBalances.map((balance) => (
-                            <div key={balance.fabricId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '4px 0' }}>
-                              <span>{balance.fabricName}</span>
-                              <b>{formatDualLength(balance.heldMeters)}</b>
-                            </div>
-                          ))}
+                  {canEnterData && (
+                    <FormAccordionCard marker="ت" title="تسجيل تسليم دفعة" tag="تسليم" description="سجّل الدفعة الجاهزة المستلمة من الخياط — تظهر لديه لاعتماد التسليم، وعند اعتماده يُخصم القماش من رصيده ويُحدَّث مخزون سلة.">
+                      <form onSubmit={handleDeliveryRequestSubmit}>
+                        <div className="grid" style={{ marginBottom: 14 }}>
+                          <DesignSelect
+                            label="الخياط"
+                            value={deliveryRequestForm.tailorId}
+                            options={tailorOptions}
+                            onChange={(tailorId) => setDeliveryRequestForm({ ...deliveryRequestForm, tailorId })}
+                            searchable
+                          />
+                          <DesignSelect
+                            label="الموديل"
+                            value={deliveryRequestForm.designModelId}
+                            options={modelOptions}
+                            onChange={(designModelId) => setDeliveryRequestForm({ ...deliveryRequestForm, designModelId })}
+                            searchable
+                          />
+                          <TextInput label="عدد القطع" type="number" value={deliveryRequestForm.dressCount} onChange={(dressCount) => setDeliveryRequestForm({ ...deliveryRequestForm, dressCount })} required />
+                          <TextInput label="المقاس" value={deliveryRequestForm.size} onChange={(size) => setDeliveryRequestForm({ ...deliveryRequestForm, size })} />
+                          <TextInput label="تكلفة الخياطة" type="number" value={deliveryRequestForm.tailoringCost} onChange={(tailoringCost) => setDeliveryRequestForm({ ...deliveryRequestForm, tailoringCost })} />
+                          <TextInput label="تكلفة التطريز" type="number" value={deliveryRequestForm.embroideryCost} onChange={(embroideryCost) => setDeliveryRequestForm({ ...deliveryRequestForm, embroideryCost })} />
+                          <TextInput label="تكاليف إضافية" type="number" value={deliveryRequestForm.extraCost} onChange={(extraCost) => setDeliveryRequestForm({ ...deliveryRequestForm, extraCost })} />
                         </div>
-                      )}
-                      <FormAccordionCard marker="ت" title="طلب تسليم جديد" tag="تسليم" description="اختر الموديل وعدد القطع الجاهزة — يُرسل الطلب لمراجعة المستودع وقبوله.">
-                        <form onSubmit={handleDeliveryRequestSubmit}>
-                          <div className="grid" style={{ marginBottom: 14 }}>
-                            <DesignSelect
-                              label="الموديل"
-                              value={deliveryRequestForm.designModelId}
-                              options={modelOptions}
-                              onChange={(designModelId) => setDeliveryRequestForm({ ...deliveryRequestForm, designModelId })}
-                              searchable
-                            />
-                            <TextInput label="عدد القطع" type="number" value={deliveryRequestForm.dressCount} onChange={(dressCount) => setDeliveryRequestForm({ ...deliveryRequestForm, dressCount })} required />
-                            <TextInput label="المقاس" value={deliveryRequestForm.size} onChange={(size) => setDeliveryRequestForm({ ...deliveryRequestForm, size })} />
-                            <TextInput label="تكلفة الخياطة" type="number" value={deliveryRequestForm.tailoringCost} onChange={(tailoringCost) => setDeliveryRequestForm({ ...deliveryRequestForm, tailoringCost })} />
-                            <TextInput label="تكلفة التطريز" type="number" value={deliveryRequestForm.embroideryCost} onChange={(embroideryCost) => setDeliveryRequestForm({ ...deliveryRequestForm, embroideryCost })} />
-                            <TextInput label="تكاليف إضافية" type="number" value={deliveryRequestForm.extraCost} onChange={(extraCost) => setDeliveryRequestForm({ ...deliveryRequestForm, extraCost })} />
-                          </div>
-                          <TextAreaField label="ملاحظات" value={deliveryRequestForm.notes} onChange={(notes) => setDeliveryRequestForm({ ...deliveryRequestForm, notes })} />
-                          <button className="btn" type="submit" disabled={saving}><Send /> إرسال طلب التسليم</button>
-                        </form>
-                      </FormAccordionCard>
-                    </>
+                        <TextAreaField label="ملاحظات" value={deliveryRequestForm.notes} onChange={(notes) => setDeliveryRequestForm({ ...deliveryRequestForm, notes })} />
+                        <button className="btn" type="submit" disabled={saving}><Send /> تسجيل التسليم</button>
+                      </form>
+                    </FormAccordionCard>
                   )}
                   <div className="card">
                     <div className="subtab-body">
                       <DeliveryRequestsTable
-                        notes={
-                          isTailorOnly
-                            ? data?.deliveryNotes || []
-                            : (data?.deliveryNotes || []).filter((note) => note.status === 'SUBMITTED')
-                        }
+                        notes={data?.deliveryNotes || []}
                         onAccept={(noteId) => void postAction({ action: 'accept-delivery-note', noteId })}
                         onReject={(noteId, rejectionReason) => void postAction({ action: 'reject-delivery-note', noteId, rejectionReason })}
                         saving={saving}
-                        readOnly={isTailorOnly}
+                        readOnly={!canApprove}
                       />
                     </div>
                   </div>
@@ -1836,17 +1865,21 @@ function RequestsTable({
               <td data-label="التاريخ">{formatDate(request.createdAt)}</td>
               {!readOnly && (
                 <td data-label="إجراء" className="actions-cell">
-                  <div className="td-actions" style={{ flexWrap: 'wrap' }}>
-                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'approved')}>
-                      {request.requestType === 'purchase' ? 'اعتماد وإدخال' : 'موافقة'}
-                    </button>
-                    <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'fulfilled')}>
-                      تم التوريد
-                    </button>
-                    <button type="button" className="tbl-btn del" disabled={saving} onClick={() => onStatusChange(request.id, 'rejected')}>
-                      رفض
-                    </button>
-                  </div>
+                  {request.status === 'fulfilled' || request.status === 'rejected' ? (
+                    <span style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>—</span>
+                  ) : (
+                    <div className="td-actions" style={{ flexWrap: 'wrap' }}>
+                      <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'approved')}>
+                        {request.requestType === 'purchase' ? 'اعتماد وإدخال' : 'موافقة'}
+                      </button>
+                      <button type="button" className="tbl-btn edit" disabled={saving} onClick={() => onStatusChange(request.id, 'fulfilled')}>
+                        تم التوريد
+                      </button>
+                      <button type="button" className="tbl-btn del" disabled={saving} onClick={() => onStatusChange(request.id, 'rejected')}>
+                        رفض
+                      </button>
+                    </div>
+                  )}
                 </td>
               )}
             </tr>
@@ -1912,7 +1945,7 @@ function DeliveryRequestsTable({
                 <td data-label="التكلفة">{formatCurrency(totalCost)}</td>
                 <td data-label="المكونات المستهلكة" style={{ fontSize: '11.5px', color: 'var(--muted-foreground)' }}>{componentsSummary}</td>
                 <td data-label="تاريخ التسليم">{formatDate(note.submittedAt || note.createdAt)}</td>
-                {readOnly ? (
+                {readOnly || note.status !== 'SUBMITTED' ? (
                   <td data-label="الحالة">
                     <span className={`pill ${deliveryStatusPill(note.status).cls}`}>{deliveryStatusPill(note.status).label}</span>
                     {note.status === 'REJECTED' && note.rejectionReason && (
