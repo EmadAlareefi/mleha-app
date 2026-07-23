@@ -8,7 +8,9 @@ import {
 } from '@/app/lib/printnode';
 import { log } from '@/app/lib/logger';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import type { PDFPage } from 'pdf-lib';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { encodeCode128 } from '@/app/lib/barcode-code128';
 
 export const runtime = 'nodejs';
 
@@ -20,12 +22,19 @@ const ORDER_TICKET_SIZE = {
   height: ORDER_TICKET_MM.height * MM_TO_POINTS,
 };
 const ORDER_ANCHOR_MM = { x: 0, yFromTop: 0 };
-const DATE_ANCHOR_MM = { x: 0, yFromTop: 9 };
-const ORDER_FONT_MAX_PT = 14;
+const DATE_ANCHOR_MM = { x: 0, yFromTop: 8 };
+const ORDER_FONT_MAX_PT = 13;
 const ORDER_FONT_MIN_PT = 8;
-const DATE_FONT_MAX_PT = 14;
+const DATE_FONT_MAX_PT = 12;
 const DATE_FONT_MIN_PT = 8;
 const LINE_GAP_MM = 1;
+
+// Code 128 barcode band pinned to the bottom of the label. Kept as wide as the
+// ticket allows (small quiet-zone margins) so the module width stays scannable
+// on the 40x22mm thermal label.
+const BARCODE_MARGIN_MM = 2;
+const BARCODE_BOTTOM_MM = 1.5;
+const BARCODE_HEIGHT_MM = 7;
 
 const EASTERN_DIGIT_MAP: Record<string, string> = {
   '٠': '0',
@@ -48,6 +57,36 @@ const sanitizePrintableText = (input: string) => {
 };
 
 const mmToPoints = (valueMm: number) => valueMm * MM_TO_POINTS;
+
+// Draws `value` as a Code 128 barcode into `page`, filling the given box with
+// black bars. Mirrors the drawBarcode() rectangle loop used on the Salla
+// invoice PDF (app/lib/salla-invoice-pdf.ts) but is self-contained here.
+const drawBarcode = (
+  page: PDFPage,
+  value: string,
+  box: { x: number; y: number; width: number; height: number }
+) => {
+  if (!value) return;
+  const { runs, modules } = encodeCode128(value);
+  if (!modules) return;
+  const moduleWidth = box.width / modules;
+  let cursor = box.x;
+  let isBar = true; // the first run is always a bar (black)
+  for (const run of runs) {
+    const runWidth = run * moduleWidth;
+    if (isBar) {
+      page.drawRectangle({
+        x: cursor,
+        y: box.y,
+        width: runWidth,
+        height: box.height,
+        color: rgb(0, 0, 0),
+      });
+    }
+    cursor += runWidth;
+    isBar = !isBar;
+  }
+};
 
 const DEFAULT_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -115,6 +154,18 @@ async function generateOrderTicketPdf(orderNumber: string, printDate?: string) {
     font,
     color: rgb(0, 0, 0),
   });
+
+  // Barcode band pinned to the bottom edge. Encode the raw (un-spaced) order
+  // number so a scanner reads back the exact reference. Only drawn when we have
+  // a real value to encode.
+  if (safeOrderNumber && safeOrderNumber !== 'UNKNOWN') {
+    drawBarcode(page, safeOrderNumber, {
+      x: mmToPoints(BARCODE_MARGIN_MM),
+      y: mmToPoints(BARCODE_BOTTOM_MM),
+      width: ORDER_TICKET_SIZE.width - mmToPoints(BARCODE_MARGIN_MM) * 2,
+      height: mmToPoints(BARCODE_HEIGHT_MM),
+    });
+  }
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes).toString('base64');
