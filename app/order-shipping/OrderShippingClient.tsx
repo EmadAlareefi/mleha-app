@@ -16,6 +16,7 @@ import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shi
 import { detectMessengerShipments, buildShipToArabicLabel } from '@/app/lib/local-shipping/messenger';
 import { getItemColor, getItemSize } from '@/lib/returns/item-attributes';
 import { detectInternationalOrder } from '@/app/lib/order-destination';
+import { OrderBarcodeScanner } from '@/components/order-shipping/OrderBarcodeScanner';
 
 interface OrderUser {
   id: string;
@@ -1140,11 +1141,11 @@ const getPrepStatusForItem = useCallback(
     }
   }, [currentOrder, fetchAssignmentByQuery, lastSearchTerm, applyShipmentFromAssignment]);
 
-  const handleSearch = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const searchForOrder = useCallback(async (query: string) => {
+    const normalizedQuery = query.trim();
     setSearchFeedback(null);
 
-    if (!searchQuery.trim()) {
+    if (!normalizedQuery) {
       setSearchFeedback({ type: 'error', message: 'يرجى إدخال رقم الطلب أو بيانات البحث.' });
       setCurrentOrder(null);
       applyShipmentFromAssignment(null);
@@ -1156,10 +1157,10 @@ const getPrepStatusForItem = useCallback(
     setShipmentError(null);
 
     try {
-      const assignment = await fetchAssignmentByQuery(searchQuery.trim());
+      const assignment = await fetchAssignmentByQuery(normalizedQuery);
       setCurrentOrder(assignment);
       applyShipmentFromAssignment(assignment);
-      setLastSearchTerm(searchQuery.trim());
+      setLastSearchTerm(normalizedQuery);
       setSearchFeedback({ type: 'success', message: `تم العثور على الطلب #${assignment.orderNumber}.` });
     } catch (error) {
       console.error('Order search failed', error);
@@ -1170,7 +1171,17 @@ const getPrepStatusForItem = useCallback(
     } finally {
       setSearching(false);
     }
+  }, [applyShipmentFromAssignment, fetchAssignmentByQuery]);
+
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void searchForOrder(searchQuery);
   };
+
+  const handleBarcodeDetected = useCallback(async (orderNumber: string) => {
+    setSearchQuery(orderNumber);
+    await searchForOrder(orderNumber);
+  }, [searchForOrder]);
 
 const handleRefreshItems = async () => {
     if (!currentOrder) return;
@@ -1656,6 +1667,12 @@ const handleRefreshItems = async () => {
                 )}
               </div>
             </form>
+            <div className="mt-3">
+              <OrderBarcodeScanner
+                disabled={searching}
+                onDetected={handleBarcodeDetected}
+              />
+            </div>
             {searchFeedback && (
               <Alert className="mt-3" variant={searchFeedback.type === 'error' ? 'destructive' : 'default'}>
                 <AlertDescription>{searchFeedback.message}</AlertDescription>

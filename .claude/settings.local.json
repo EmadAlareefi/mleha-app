@@ -32,7 +32,9 @@
       "Bash(npx tsx *)",
       "Bash(cp /tmp/claude-1000/-mnt-d-dev-mleha-app/981472d0-6b30-4c41-9d47-9496af471fb8/scratchpad/check-dupes.ts /mnt/d/dev/mleha-app/check-dupes.tmp.ts)",
       "Bash(rm -f /mnt/d/dev/mleha-app/check-dupes.tmp.ts)",
-      "mcp__claude_ai_Supabase__execute_sql"
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(node *)",
+      "Bash(cd *)"
     ],
     "deny": [],
     "ask": []

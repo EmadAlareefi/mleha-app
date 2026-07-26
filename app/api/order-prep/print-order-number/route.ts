@@ -9,6 +9,7 @@ import {
 import { log } from '@/app/lib/logger';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { encodeCode128 } from '@/app/lib/barcode-code128';
 
 export const runtime = 'nodejs';
 
@@ -20,12 +21,14 @@ const ORDER_TICKET_SIZE = {
   height: ORDER_TICKET_MM.height * MM_TO_POINTS,
 };
 const ORDER_ANCHOR_MM = { x: 0, yFromTop: 0 };
-const DATE_ANCHOR_MM = { x: 0, yFromTop: 9 };
 const ORDER_FONT_MAX_PT = 14;
 const ORDER_FONT_MIN_PT = 8;
 const DATE_FONT_MAX_PT = 14;
 const DATE_FONT_MIN_PT = 8;
-const LINE_GAP_MM = 1;
+const BARCODE_MARGIN_X_MM = 2;
+const BARCODE_BOTTOM_MM = 4;
+const BARCODE_HEIGHT_MM = 8;
+const DATE_BOTTOM_MM = 0.5;
 
 const EASTERN_DIGIT_MAP: Record<string, string> = {
   '٠': '0',
@@ -72,8 +75,6 @@ async function generateOrderTicketPdf(orderNumber: string, printDate?: string) {
   const page = pdfDoc.addPage([ORDER_TICKET_SIZE.width, ORDER_TICKET_SIZE.height]);
   const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  const lineGap = mmToPoints(LINE_GAP_MM);
-
   const fitFontToWidth = (text: string, maxPt: number, minPt: number) => {
     let size = maxPt;
     const maxWidth = ORDER_TICKET_SIZE.width - mmToPoints(ORDER_ANCHOR_MM.x) - mmToPoints(0.5);
@@ -86,19 +87,13 @@ async function generateOrderTicketPdf(orderNumber: string, printDate?: string) {
   };
 
   const orderMetrics = fitFontToWidth(spacedOrderNumber, ORDER_FONT_MAX_PT, ORDER_FONT_MIN_PT);
-  const dateStartPt = Math.max(
-    DATE_FONT_MIN_PT,
-    Math.min(DATE_FONT_MAX_PT, orderMetrics.size - 4)
-  );
+  const dateStartPt = Math.max(DATE_FONT_MIN_PT, Math.min(DATE_FONT_MAX_PT, 8));
   const dateMetrics = fitFontToWidth(dateLabel, dateStartPt, DATE_FONT_MIN_PT);
 
   const orderX = mmToPoints(ORDER_ANCHOR_MM.x);
   const orderY = ORDER_TICKET_SIZE.height - mmToPoints(ORDER_ANCHOR_MM.yFromTop) - orderMetrics.height;
-  const dateX = mmToPoints(DATE_ANCHOR_MM.x);
-  const preferredDateY = orderY - lineGap - dateMetrics.height;
-  const fallbackDateY =
-    ORDER_TICKET_SIZE.height - mmToPoints(DATE_ANCHOR_MM.yFromTop) - dateMetrics.height;
-  const dateY = Math.max(0, Math.min(preferredDateY, fallbackDateY));
+  const dateX = 0;
+  const dateY = mmToPoints(DATE_BOTTOM_MM);
 
   page.drawText(spacedOrderNumber, {
     x: orderX,
@@ -115,6 +110,32 @@ async function generateOrderTicketPdf(orderNumber: string, printDate?: string) {
     font,
     color: rgb(0, 0, 0),
   });
+
+  const { runs, modules } = encodeCode128(safeOrderNumber);
+  const availableBarcodeWidth =
+    ORDER_TICKET_SIZE.width - mmToPoints(BARCODE_MARGIN_X_MM) * 2;
+  const moduleWidth = availableBarcodeWidth / (modules + 20);
+  const barcodeWidth = moduleWidth * modules;
+  const barcodeX = (ORDER_TICKET_SIZE.width - barcodeWidth) / 2;
+  const barcodeY = mmToPoints(BARCODE_BOTTOM_MM);
+  const barcodeHeight = mmToPoints(BARCODE_HEIGHT_MM);
+  let currentX = barcodeX;
+  let drawBar = true;
+
+  for (const run of runs) {
+    const runWidth = run * moduleWidth;
+    if (drawBar) {
+      page.drawRectangle({
+        x: currentX,
+        y: barcodeY,
+        width: runWidth,
+        height: barcodeHeight,
+        color: rgb(0, 0, 0),
+      });
+    }
+    currentX += runWidth;
+    drawBar = !drawBar;
+  }
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes).toString('base64');

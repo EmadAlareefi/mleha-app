@@ -15,6 +15,14 @@ import {
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { getStatusById } from '@/SALLA_ORDER_STATUSES';
+import {
+  collectPendingVariantEntries,
+  findPendingVariantKey,
+  getPendingVariantKey,
+  normalizeStockSku,
+  resolveProductVariations,
+  type PendingVariantEntrySet,
+} from './variant-pending';
 
 export const runtime = 'nodejs';
 
@@ -146,9 +154,12 @@ export async function POST(request: NextRequest) {
         })
       : [];
 
-    const variantSkuEntries = collectVariantSkuEntries(trimmedProducts);
-    const pendingMap = variantSkuEntries.keys.length
-      ? await loadPendingQuantities(resolved.merchantId, variantSkuEntries)
+    const pendingVariantEntries = collectPendingVariantEntries(
+      trimmedProducts,
+      productVariations
+    );
+    const pendingMap = pendingVariantEntries.keys.length
+      ? await loadPendingQuantities(resolved.merchantId, pendingVariantEntries)
       : {};
 
     const results: StockSearchResult[] = trimmedProducts.map((product) => {
@@ -157,24 +168,14 @@ export async function POST(request: NextRequest) {
         normalizedParentSku &&
         parentLocationRecords.find((record) => record.sku === normalizedParentSku);
 
-      const variationsSource: SallaProductVariation[] =
-        productVariations[product.id] && productVariations[product.id]!.length > 0
-          ? productVariations[product.id]!
-          : (product.variations && product.variations.length > 0
-              ? product.variations
-              : [
-                  {
-                    id: product.id,
-                    name: product.name,
-                    sku: product.sku,
-                    availableQuantity: product.availableQuantity ?? null,
-                    barcode: undefined,
-                  },
-                ]) as SallaProductVariation[];
+      const variationsSource = resolveProductVariations(
+        product,
+        productVariations[product.id]
+      );
 
       const variations = variationsSource.map((variation) => {
-        const normalizedSku = normalizeSku(variation.sku);
-        const pendingQuantity = normalizedSku ? pendingMap[normalizedSku] ?? 0 : 0;
+        const pendingQuantity =
+          pendingMap[getPendingVariantKey(product.id, variation)] ?? 0;
         return {
           id: String(variation.id ?? variation.sku ?? product.id),
           name: variation.name || `متغير ${variation.id ?? variation.sku ?? ''}`,
@@ -221,11 +222,7 @@ export async function POST(request: NextRequest) {
 }
 
 function normalizeSku(input: unknown) {
-  if (typeof input !== 'string') {
-    return '';
-  }
-  const trimmed = input.trim();
-  return trimmed ? trimmed.toUpperCase() : '';
+  return normalizeStockSku(input);
 }
 
 function sanitizeQuantity(value: unknown): number {
@@ -241,40 +238,10 @@ function sanitizeQuantity(value: unknown): number {
   return 0;
 }
 
-function collectVariantSkuEntries(products: SallaProductSummary[]) {
-  const keys: string[] = [];
-  const entries: Array<{ sku: string; tokens: Set<string> }> = [];
-
-  products.forEach((product) => {
-    const variations = Array.isArray(product.variations) ? product.variations : [];
-    if (variations.length === 0 && product.sku) {
-      const normalized = normalizeSku(product.sku);
-      if (normalized) {
-        keys.push(normalized);
-        entries.push({ sku: normalized, tokens: new Set(generateSkuVariants(normalized)) });
-      }
-      return;
-    }
-
-    variations.forEach((variation) => {
-      const normalized = normalizeSku(variation.sku);
-      if (!normalized) {
-        return;
-      }
-      if (!keys.includes(normalized)) {
-        keys.push(normalized);
-        entries.push({ sku: normalized, tokens: new Set(generateSkuVariants(normalized)) });
-      }
-    });
-  });
-
-  return { keys, entries };
-}
-
-async function loadPendingQuantities(merchantId: string, entrySet: {
-  keys: string[];
-  entries: Array<{ sku: string; tokens: Set<string> }>;
-}) {
+async function loadPendingQuantities(
+  merchantId: string,
+  entrySet: PendingVariantEntrySet
+) {
   const result: Record<string, number> = {};
 
   const [assignments, syncedOrders, webhookOrders] = await Promise.all([
@@ -337,13 +304,7 @@ async function loadPendingQuantities(merchantId: string, entrySet: {
   ordersById.forEach((orderData) => {
     const items = extractOrderItems(orderData);
     items.forEach((item: any) => {
-      const normalizedSku = normalizeSku(
-        item?.sku ?? item?.product?.sku ?? item?.variant?.sku ?? item?.product_sku
-      );
-      if (!normalizedSku) {
-        return;
-      }
-      const variantKey = findMatchingSku(normalizedSku, entrySet.entries);
+      const variantKey = findPendingVariantKey(item, entrySet.entries);
       if (!variantKey) {
         return;
       }
@@ -360,10 +321,7 @@ async function loadPendingQuantities(merchantId: string, entrySet: {
 
 async function loadMatchingWebhookOrders(
   merchantId: string,
-  entrySet: {
-    keys: string[];
-    entries: Array<{ sku: string; tokens: Set<string> }>;
-  }
+  entrySet: PendingVariantEntrySet
 ): Promise<PendingOrderSource[]> {
   const cutoff = new Date(Date.now() - WEBHOOK_ORDER_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const latestActiveOrders = await prisma.$queryRaw<
@@ -403,10 +361,7 @@ async function loadMatchingWebhookOrders(
     if (
       !matchingPayloadByOrderId.has(event.orderId) &&
       extractOrderItems(event.rawPayload).some((item: any) => {
-        const sku = normalizeSku(
-          item?.sku ?? item?.product?.sku ?? item?.variant?.sku ?? item?.product_sku
-        );
-        return Boolean(sku && findMatchingSku(sku, entrySet.entries));
+        return Boolean(findPendingVariantKey(item, entrySet.entries));
       })
     ) {
       matchingPayloadByOrderId.set(event.orderId, event.rawPayload);
@@ -582,70 +537,6 @@ const ARABIC_STATUS_TO_SLUG: Record<string, string> = {
   'جاري التجهيز': 'in_progress',
   'جاري التنفيذ': 'in_progress',
 };
-
-function generateSkuVariants(value: string): string[] {
-  const normalized = value.trim().toUpperCase();
-  if (!normalized) {
-    return [];
-  }
-
-  const variants = new Set<string>();
-  variants.add(normalized);
-
-  normalized
-    .split(/[^A-Z0-9]+/)
-    .filter(Boolean)
-    .forEach((segment) => variants.add(segment));
-
-  const withoutTrailingLetters = normalized.replace(/[A-Z]+$/g, '');
-  if (withoutTrailingLetters && withoutTrailingLetters !== normalized) {
-    variants.add(withoutTrailingLetters);
-  }
-
-  const withoutTrailingDigits = normalized.replace(/\d+$/g, '');
-  if (withoutTrailingDigits && withoutTrailingDigits !== normalized) {
-    variants.add(withoutTrailingDigits);
-  }
-
-  return Array.from(variants).filter((sku) => sku.length >= 3);
-}
-
-function findMatchingSku(
-  candidate: string,
-  entries: Array<{ sku: string; tokens: Set<string> }>
-): string | null {
-  for (const entry of entries) {
-    if (entry.sku === candidate) {
-      return entry.sku;
-    }
-  }
-
-  let bestMatch: { sku: string; score: number } | null = null;
-  for (const entry of entries) {
-    if (candidate.includes(entry.sku) || entry.sku.includes(candidate)) {
-      const score = Math.min(entry.sku.length, candidate.length);
-      if (!bestMatch || score > bestMatch.score) {
-        bestMatch = { sku: entry.sku, score };
-      }
-      continue;
-    }
-
-    for (const token of entry.tokens) {
-      if (!token) {
-        continue;
-      }
-      if (token === candidate || candidate.includes(token) || token.includes(candidate)) {
-        const score = token.length;
-        if (!bestMatch || score > bestMatch.score) {
-          bestMatch = { sku: entry.sku, score };
-        }
-        break;
-      }
-    }
-  }
-
-  return bestMatch ? bestMatch.sku : null;
-}
 
 async function loadProductVariations(
   merchantId: string,

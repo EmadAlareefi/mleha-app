@@ -15,6 +15,8 @@
     "sync:erp-orders-range": "node scripts/run-sync-erp-orders-range.js",
     "refunds:import-xlsx": "node scripts/import-invoice-refunds.js",
     "refunds:erp-xlsx": "node --loader ./scripts/ts-alias-loader.mjs ./scripts/import-invoice-refunds-to-erp.mjs",
+    "erp:reverse-delayed": "node --loader ./scripts/ts-alias-loader.mjs ./scripts/reverse-delayed-invoices-to-erp.mjs",
+    "erp:repost-delayed": "node --loader ./scripts/ts-alias-loader.mjs ./scripts/repost-delayed-invoices-to-erp.mjs",
     "refresh:salla-tokens": "node scripts/run-refresh-tokens.js",
     "check:salla-tokens": "node scripts/run-check-token-status.js",
     "db:migrate:supabase": "bash scripts/migrate-neon-to-supabase.sh",
