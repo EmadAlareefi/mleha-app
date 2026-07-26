@@ -437,6 +437,21 @@ export async function POST(request: NextRequest) {
 
     await setUserServiceKeys(user.id, serviceKeys);
 
+    // Tailors (manufacturer accounts) only approve fabric issuances/deliveries the
+    // warehouse records for them. Create their linked Tailor row up front so the
+    // warehouse can pick them from day one, instead of waiting for the tailor's
+    // first fabric-section visit to lazily create it. Defensive: tolerate the
+    // Tailor table not being migrated yet.
+    if (parseUserType(userType) === 'manufacturer') {
+      await prisma.tailor
+        .upsert({
+          where: { orderUserId: user.id },
+          update: {},
+          create: { name: user.name, phone: user.phone || null, isActive: true, orderUserId: user.id },
+        })
+        .catch(() => null);
+    }
+
     let assignedWarehouses: Array<{
       id: string;
       name: string;

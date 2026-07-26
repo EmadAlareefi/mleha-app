@@ -477,6 +477,17 @@ async function requireWarehouseRole(session: any) {
   return roles.includes('warehouse');
 }
 
+// Approvals belong to the tailor the record is about — they are the ones who
+// sign off on what the warehouse entered on their behalf (fabric they received,
+// dress batches they delivered). Admin can always override; warehouse/manager
+// staff do the data entry, not the approving.
+async function requireApprover(access: any, recordTailorId: string) {
+  if (access?.session?.user?.role === 'admin') return true;
+  if (!access?.isTailor) return false;
+  const tailor = await resolveTailorForUser(access.session);
+  return tailor.id === recordTailorId;
+}
+
 async function requireAccess() {
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -656,6 +667,12 @@ export async function GET() {
       .findMany({ where: { isActive: true }, orderBy: { name: 'asc' } })
       .catch(() => [] as Awaited<ReturnType<typeof prisma.supplier.findMany>>);
 
+    // Active tailors, so the warehouse can pick who a fabric issuance or dress
+    // delivery is recorded against (the tailor then approves it).
+    const tailors = await prisma.tailor
+      .findMany({ where: { isActive: true }, orderBy: { name: 'asc' } })
+      .catch(() => [] as Awaited<ReturnType<typeof prisma.tailor.findMany>>);
+
     // Defensive: keep the page working even if PurchaseInvoice isn't migrated yet.
     const purchaseInvoices = await prisma.purchaseInvoice
       .findMany({ include: { items: true }, orderBy: { purchaseDate: 'desc' }, take: 200 })
@@ -819,6 +836,7 @@ export async function GET() {
       suppliers: suppliers.map(serializeSupplier),
       purchaseInvoices: purchaseInvoices.map(serializePurchaseInvoice),
       deliveryNotes: deliveryNotes.map(serializeDeliveryNote),
+      tailors: tailors.map((tailor) => ({ id: tailor.id, name: tailor.name, workshopName: tailor.workshopName })),
       tailorFabricBalances,
       summary: {
         fabricsCount: fabrics.length,
@@ -846,43 +864,29 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const action = body.action;
 
-    // Tailor accounts can only create — their own requests, delivery notes,
-    // purchase bills (recorded in their name) and dress models. They can never
-    // approve/accept anything or edit existing stock.
+    // Tailors are external contractors, not staff, so they never do data entry.
+    // Their only actions are approving/rejecting what the warehouse recorded for
+    // them — the fabric they received and the dress batches they delivered. Every
+    // create/update action is handled by warehouse/manager accounts instead.
     const TAILOR_ALLOWED_ACTIONS = [
-      'create-tailor-request',
-      'create-delivery-request',
-      'create-purchase-bill',
-      'create-model',
-      'update-model',
-      'update-model-status',
-      'fetch-audit',
-      'create-fabric',
-      'create-accessory',
-      'create-supplier',
-      'add-opening-balance',
+      'update-request-status',
+      'accept-delivery-note',
+      'reject-delivery-note',
     ];
     if (access.isTailor && !TAILOR_ALLOWED_ACTIONS.includes(action)) {
       return NextResponse.json({ error: 'لا تملك صلاحية لهذا الإجراء' }, { status: 403 });
     }
 
-    // Tailors may only touch models they created themselves.
-    if (access.isTailor && ['update-model', 'update-model-status', 'fetch-audit'].includes(action)) {
-      const tailor = await resolveTailorForUser(access.session);
-      const targetModelId = String(body.modelId || (body.entityType === 'model' ? body.entityId : '') || '');
-      const target = targetModelId
-        ? await prisma.designModel.findUnique({ where: { id: targetModelId }, select: { createdByTailorId: true } })
-        : null;
-      if (!target || target.createdByTailorId !== tailor.id) {
-        return NextResponse.json({ error: 'لا يمكنك تعديل موديل لم تقم بإنشائه' }, { status: 403 });
-      }
-    }
-
     if (action === 'create-tailor-request') {
-      if (!access.isTailor) {
-        return NextResponse.json({ error: 'هذا الإجراء مخصص لحسابات الخياطين' }, { status: 403 });
+      // Warehouse records fabric issued to a tailor; the tailor approves receipt.
+      const tailorId = String(body.tailorId || '');
+      if (!tailorId) {
+        return NextResponse.json({ error: 'الخياط مطلوب' }, { status: 400 });
       }
-      const tailor = await resolveTailorForUser(access.session);
+      const tailor = await prisma.tailor.findUnique({ where: { id: tailorId } });
+      if (!tailor) {
+        return NextResponse.json({ error: 'الخياط غير موجود' }, { status: 404 });
+      }
       const requestType = body.requestType === 'purchase' ? 'purchase' : 'stock_request';
       const requestedLength = lengthToMeters(body.requestedLength, body.lengthUnit, 'الكمية المطلوبة');
 
@@ -925,56 +929,6 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(serializeRequest(created), { status: 201 });
-    }
-
-    if (action === 'create-delivery-request') {
-      if (!access.isTailor) {
-        return NextResponse.json({ error: 'هذا الإجراء مخصص لحسابات الخياطين' }, { status: 403 });
-      }
-      const tailor = await resolveTailorForUser(access.session);
-      const designModelId = String(body.designModelId || '');
-      const dressCount = Math.max(1, Math.trunc(toNumber(body.dressCount, 1)));
-      if (!designModelId) {
-        return NextResponse.json({ error: 'الموديل مطلوب' }, { status: 400 });
-      }
-      const model = await prisma.designModel.findUnique({ where: { id: designModelId } });
-      if (!model) {
-        return NextResponse.json({ error: 'الموديل غير موجود' }, { status: 404 });
-      }
-      if (model.createdByTailorId !== tailor.id) {
-        return NextResponse.json({ error: 'لا يمكنك التسليم إلا لموديلاتك الخاصة' }, { status: 403 });
-      }
-
-      const snapshot = await buildDeliverySnapshot(model, dressCount);
-      for (const line of snapshot.fabrics) {
-        const balance = await getLedgerBalance(prisma, line.fabricId, 'TAILOR', tailor.id);
-        if (balance < line.meters) {
-          return NextResponse.json(
-            { error: `كمية القماش "${line.name}" المتوفرة لديك غير كافية لهذه الدفعة` },
-            { status: 409 }
-          );
-        }
-      }
-
-      const note = await prisma.deliveryNote.create({
-        data: {
-          noteNumber: `DN-${Date.now().toString(36).toUpperCase()}`,
-          tailorId: tailor.id,
-          designModelId,
-          dressCount,
-          size: body.size ? String(body.size) : model.size,
-          status: 'SUBMITTED',
-          submittedAt: new Date(),
-          tailoringCost: toDecimal(body.tailoringCost ?? model.tailoringCost),
-          embroideryCost: toDecimal(body.embroideryCost ?? model.embroideryCost),
-          extraCost: toDecimal(body.extraCost ?? model.extraCost),
-          componentsConsumed: snapshot,
-          notes: cleanText(body.notes) || null,
-        },
-        include: { tailor: true, designModel: true },
-      });
-
-      return NextResponse.json(serializeDeliveryNote(note), { status: 201 });
     }
 
     if (action === 'create-fabric') {
@@ -1686,6 +1640,22 @@ export async function POST(request: NextRequest) {
 
       const snapshot = await buildDeliverySnapshot(model, dressCount);
 
+      // The warehouse can submit straight away so the note reaches the tailor's
+      // approval queue without a separate step; submitting requires the tailor to
+      // already hold enough fabric (credited when he approved the fabric request).
+      const submitNow = body.submit === true || body.submit === 'true';
+      if (submitNow) {
+        for (const line of snapshot.fabrics || []) {
+          const balance = await getLedgerBalance(prisma, line.fabricId, 'TAILOR', tailorId);
+          if (balance < line.meters) {
+            return NextResponse.json(
+              { error: `كمية القماش "${line.name}" المتوفرة لدى الخياط غير كافية لهذه الدفعة` },
+              { status: 409 }
+            );
+          }
+        }
+      }
+
       const note = await prisma.deliveryNote.create({
         data: {
           noteNumber: `DN-${Date.now().toString(36).toUpperCase()}`,
@@ -1693,7 +1663,8 @@ export async function POST(request: NextRequest) {
           designModelId,
           dressCount,
           size: body.size ? String(body.size) : model.size,
-          status: 'DRAFT',
+          status: submitNow ? 'SUBMITTED' : 'DRAFT',
+          submittedAt: submitNow ? new Date() : null,
           tailoringCost: toDecimal(body.tailoringCost ?? model.tailoringCost),
           embroideryCost: toDecimal(body.embroideryCost ?? model.embroideryCost),
           extraCost: toDecimal(body.extraCost ?? model.extraCost),
@@ -1743,11 +1714,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'accept-delivery-note') {
-      if (!(await requireWarehouseRole(access.session))) {
-        return NextResponse.json({ error: 'قبول التسليم من صلاحيات المستودع فقط' }, { status: 403 });
-      }
       const noteId = String(body.noteId || '');
       if (!noteId) return NextResponse.json({ error: 'مذكرة التسليم مطلوبة' }, { status: 400 });
+      const noteForAuth = await prisma.deliveryNote.findUnique({ where: { id: noteId }, select: { tailorId: true } });
+      if (!noteForAuth) return NextResponse.json({ error: 'مذكرة التسليم غير موجودة' }, { status: 404 });
+      if (!(await requireApprover(access, noteForAuth.tailorId))) {
+        return NextResponse.json({ error: 'اعتماد التسليم من صلاحيات الخياط صاحب الدفعة' }, { status: 403 });
+      }
       const actor = getAuditUser(access.session);
 
       const note = await prisma.$transaction(async (tx) => {
@@ -1832,15 +1805,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'reject-delivery-note') {
-      if (!(await requireWarehouseRole(access.session))) {
-        return NextResponse.json({ error: 'رفض التسليم من صلاحيات المستودع فقط' }, { status: 403 });
-      }
       const noteId = String(body.noteId || '');
       const rejectionReason = cleanText(body.rejectionReason);
       if (!noteId) return NextResponse.json({ error: 'مذكرة التسليم مطلوبة' }, { status: 400 });
 
       const existing = await prisma.deliveryNote.findUnique({ where: { id: noteId } });
       if (!existing) return NextResponse.json({ error: 'مذكرة التسليم غير موجودة' }, { status: 404 });
+      if (!(await requireApprover(access, existing.tailorId))) {
+        return NextResponse.json({ error: 'رفض التسليم من صلاحيات الخياط صاحب الدفعة' }, { status: 403 });
+      }
       if (existing.status !== 'SUBMITTED') {
         return NextResponse.json({ error: 'لا يمكن رفض مذكرة غير مُسلَّمة' }, { status: 409 });
       }
@@ -1902,6 +1875,14 @@ export async function POST(request: NextRequest) {
       const status = String(body.status || '');
       if (!requestId || !['pending', 'approved', 'fulfilled', 'rejected'].includes(status)) {
         return NextResponse.json({ error: 'حالة الطلب غير صالحة' }, { status: 400 });
+      }
+      const requestForAuth = await prisma.tailorFabricRequest.findUnique({
+        where: { id: requestId },
+        select: { tailorId: true },
+      });
+      if (!requestForAuth) return NextResponse.json({ error: 'طلب القماش غير موجود' }, { status: 404 });
+      if (!(await requireApprover(access, requestForAuth.tailorId))) {
+        return NextResponse.json({ error: 'اعتماد الطلب من صلاحيات الخياط صاحب الطلب' }, { status: 403 });
       }
 
       const updatedRequest = await prisma.$transaction(async (tx) => {

@@ -779,7 +779,11 @@ async function fetchOrderDetailWithItems(orderId: string, accessToken: string) {
       const itemsResponse = await fetchSallaWithRetry(itemsUrl, accessToken);
       if (itemsResponse.ok) {
         const itemsData = await itemsResponse.json();
-        detail.items = Array.isArray(itemsData.data) ? itemsData.data : detail.items;
+        // Only replace the embedded items when the dedicated endpoint actually
+        // returned some; an empty array otherwise wipes out valid line items.
+        if (Array.isArray(itemsData.data) && itemsData.data.length > 0) {
+          detail.items = itemsData.data;
+        }
       }
     } catch (itemsError) {
       log.warn('Failed to fetch order items', { orderId, error: itemsError });

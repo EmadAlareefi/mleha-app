@@ -344,6 +344,19 @@ export async function PUT(
 
     await setUserServiceKeys(user.id, serviceKeys);
 
+    // Keep a linked Tailor row for manufacturer accounts so the warehouse can pick
+    // them when recording fabric issuances/deliveries for approval. Defensive:
+    // tolerate the Tailor table not being migrated yet.
+    if (parseUserType(userType) === 'manufacturer') {
+      await prisma.tailor
+        .upsert({
+          where: { orderUserId: user.id },
+          update: {},
+          create: { name: user.name, phone: user.phone || null, isActive: true, orderUserId: user.id },
+        })
+        .catch(() => null);
+    }
+
     let warehouses = warehousesAvailable && (user as any).warehouseAssignments
       ? serializeWarehouses((user as any).warehouseAssignments)
       : [];
