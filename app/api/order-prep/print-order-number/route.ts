@@ -25,7 +25,10 @@ const ORDER_FONT_MAX_PT = 14;
 const ORDER_FONT_MIN_PT = 8;
 const DATE_FONT_MAX_PT = 14;
 const DATE_FONT_MIN_PT = 8;
-const BARCODE_MARGIN_X_MM = 2;
+// Keep the bars well inside the label: printers shift the page slightly, so a
+// narrow barcode with a wide quiet zone survives the drift without being cut.
+const BARCODE_MARGIN_X_MM = 5;
+const BARCODE_MAX_WIDTH_MM = 24;
 const BARCODE_BOTTOM_MM = 4;
 const BARCODE_HEIGHT_MM = 8;
 const DATE_BOTTOM_MM = 0.5;
@@ -114,7 +117,10 @@ async function generateOrderTicketPdf(orderNumber: string, printDate?: string) {
   const { runs, modules } = encodeCode128(safeOrderNumber);
   const availableBarcodeWidth =
     ORDER_TICKET_SIZE.width - mmToPoints(BARCODE_MARGIN_X_MM) * 2;
-  const moduleWidth = availableBarcodeWidth / (modules + 20);
+  const moduleWidth = Math.min(
+    availableBarcodeWidth / (modules + 20),
+    mmToPoints(BARCODE_MAX_WIDTH_MM) / modules
+  );
   const barcodeWidth = moduleWidth * modules;
   const barcodeX = (ORDER_TICKET_SIZE.width - barcodeWidth) / 2;
   const barcodeY = mmToPoints(BARCODE_BOTTOM_MM);
