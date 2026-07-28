@@ -630,17 +630,40 @@ model SallaProductAvailabilityRequest {
   customerEmail     String?
   customerPhone     String
   notes             String?   @db.Text
+  // pending | notifying | notified | failed | cancelled
   status            String    @default("pending")
   requestedBy       String
   requestedByUser   String?
   notifiedAt        DateTime?
   notifiedBy        String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+
+  // Where the request came from: "staff" (typed in on /salla/notify) or
+  // "storefront" (submitted by the injected widget on mleha.com).
+  source      String  @default("staff")
+  customerId  String? // Salla storefront customer id, as claimed by the browser
+  isGuest     Boolean @default(false)
+  pageUrl     String?
+  locale      String?
+  ipHash      String? // salted SHA-256 of the client IP, used only for rate limiting
+  userAgent   String?
+
+  // Delivery bookkeeping for the automatic re-stock notification.
+  notifyChannel  String? // "whatsapp" | "sms"
+  notifyAttempts Int       @default(0)
+  notifyError    String?   @db.Text
+  lastCheckedAt  DateTime? // last stock poll that examined this request
+  backInStockAt  DateTime? // first poll that saw the product back in stock
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([productId, status])
   @@index([customerPhone])
   @@index([createdAt])
+  @@index([source, createdAt])
+  @@index([status, lastCheckedAt])
+  @@index([customerPhone, productId])
+  @@index([ipHash, createdAt])
 }
 
 model ReturnRequest {

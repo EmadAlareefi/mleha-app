@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import {
   createAvailabilityRequest,
+  isAvailabilityRequestStatus,
   listAvailabilityRequests,
 } from '@/app/lib/salla-availability-requests';
 
@@ -24,18 +25,28 @@ function parseProductIds(searchParams: URLSearchParams): number[] {
   return Array.from(ids);
 }
 
+function parseDate(value: string | null): Date | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const productIds = parseProductIds(searchParams);
   const statusParam = searchParams.get('status');
-  const status =
-    statusParam === 'pending' || statusParam === 'notified' || statusParam === 'cancelled'
-      ? statusParam
-      : undefined;
+  const status = isAvailabilityRequestStatus(statusParam) ? statusParam : undefined;
+
+  const sourceParam = searchParams.get('source');
+  const source =
+    sourceParam === 'staff' || sourceParam === 'storefront' ? sourceParam : undefined;
 
   const requests = await listAvailabilityRequests({
     productIds: productIds.length > 0 ? productIds : undefined,
     status,
+    source,
+    from: parseDate(searchParams.get('from')),
+    to: parseDate(searchParams.get('to')),
   });
 
   return NextResponse.json({ success: true, requests });

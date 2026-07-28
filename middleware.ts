@@ -43,6 +43,12 @@ const PUBLIC_PATHS = [
   '/api/webhooks',
   '/api/auth',
   '/api/salla/sync-invoices',
+  // Storefront "notify me" widget: the script itself and the endpoint it posts to.
+  // The endpoint enforces its own origin allowlist and rate limits.
+  '/api/public',
+  '/embed',
+  // Called by Vercel Cron, which carries no session; guarded by CRON_SECRET.
+  '/api/salla/availability-requests/check-stock',
   '/salla/webhook',
   '/logo.png',
   '/manifest.webmanifest',

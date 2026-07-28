@@ -11,7 +11,8 @@ export type SettingKey =
   | 'erp_auto_sync_enabled'
   | 'erp_auto_sync_on_status'
   | 'erp_sync_delay_seconds'
-  | 'zoko_webhook_processing_enabled';
+  | 'zoko_webhook_processing_enabled'
+  | 'availability_auto_notify_enabled';
 
 interface SettingDefinition {
   key: SettingKey;
@@ -39,6 +40,12 @@ const SETTING_DEFINITIONS: SettingDefinition[] = [
     key: 'zoko_webhook_processing_enabled',
     defaultValue: 'true',
     description: 'Process incoming Zoko webhook messages and chat events',
+  },
+  {
+    key: 'availability_auto_notify_enabled',
+    defaultValue: 'true',
+    description:
+      'Automatically send the Zoko WhatsApp back-in-stock template when a requested product returns to stock',
   },
 ];
 
@@ -208,4 +215,12 @@ export async function shouldAutoSyncForStatus(
  */
 export async function isZokoWebhookProcessingEnabled(): Promise<boolean> {
   return await getSettingBoolean('zoko_webhook_processing_enabled');
+}
+
+/**
+ * Kill switch for the automatic back-in-stock WhatsApp notification. When off, the
+ * stock watcher still detects and records returns to stock but sends nothing.
+ */
+export async function isAvailabilityAutoNotifyEnabled(): Promise<boolean> {
+  return await getSettingBoolean('availability_auto_notify_enabled');
 }

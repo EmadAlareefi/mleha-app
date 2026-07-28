@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   SallaPaginationMeta,
@@ -36,13 +37,50 @@ type AvailabilityRequestRecord = {
   customerEmail?: string | null;
   customerPhone: string;
   notes?: string | null;
-  status: 'pending' | 'notified' | 'cancelled';
+  status: 'pending' | 'notifying' | 'notified' | 'failed' | 'cancelled';
   requestedBy: string;
   requestedByUser?: string | null;
   notifiedAt?: string | null;
   notifiedBy?: string | null;
+  source?: 'staff' | 'storefront' | null;
+  isGuest?: boolean | null;
+  notifyChannel?: string | null;
+  notifyAttempts?: number | null;
+  notifyError?: string | null;
+  backInStockAt?: string | null;
   createdAt: string;
   updatedAt?: string;
+};
+
+type AvailabilityStatsResponse = {
+  windowDays: number;
+  totals: {
+    allTime: number;
+    window: number;
+    pending: number;
+    notified: number;
+    failed: number;
+    cancelled: number;
+  };
+  byStatus: Record<string, number>;
+  bySource: Record<string, number>;
+  byAudience: Record<string, number>;
+  daily: Array<{ day: string; total: number; storefront: number; staff: number }>;
+  topProducts: Array<{
+    productId: number;
+    productName: string | null;
+    productSku: string | null;
+    productImageUrl: string | null;
+    total: number;
+    pending: number;
+    notified: number;
+    failed: number;
+  }>;
+  timing: {
+    notifiedCount: number;
+    avgSeconds: number | null;
+    medianSeconds: number | null;
+  };
 };
 
 type NewAvailabilityRequestPayload = {
@@ -128,7 +166,13 @@ export default function SallaNotifyPage() {
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [requestStatusFilter, setRequestStatusFilter] = useState<AvailabilityStatusFilter>('all');
   const [showOnlyWithRequests, setShowOnlyWithRequests] = useState(false);
-  const [activeTab, setActiveTab] = useState<'products' | 'subscribers'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'subscribers' | 'reports'>('products');
+  const [stats, setStats] = useState<AvailabilityStatsResponse | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [statsWindowDays, setStatsWindowDays] = useState(30);
+  const [autoNotifyEnabled, setAutoNotifyEnabled] = useState<boolean | null>(null);
+  const [autoNotifySaving, setAutoNotifySaving] = useState(false);
   const [allRequests, setAllRequests] = useState<AvailabilityRequestRecord[]>([]);
   const [allRequestsLoading, setAllRequestsLoading] = useState(false);
   const [allRequestsError, setAllRequestsError] = useState<string | null>(null);
@@ -360,6 +404,73 @@ export default function SallaNotifyPage() {
       requestStatusFilter === 'all' ? undefined : requestStatusFilter;
     fetchAllAvailabilityRequests(statusFilterParam);
   }, [fetchAllAvailabilityRequests, requestStatusFilter]);
+
+  const fetchStats = useCallback(async (days: number) => {
+    setStatsLoading(true);
+    setStatsError(null);
+    try {
+      const response = await fetch(`/api/salla/availability-requests/stats?days=${days}`, {
+        cache: 'no-store',
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data?.error || 'تعذر تحميل التقارير');
+      }
+      setStats(data as AvailabilityStatsResponse);
+    } catch (err) {
+      setStatsError(err instanceof Error ? err.message : 'تعذر تحميل التقارير');
+      setStats(null);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  const fetchAutoNotify = useCallback(async () => {
+    try {
+      const response = await fetch('/api/salla/availability-requests/auto-notify', {
+        cache: 'no-store',
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setAutoNotifyEnabled(Boolean(data.enabled));
+      }
+    } catch {
+      // The toggle is a convenience; failing to read it must not break the tab.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status !== 'authenticated' || activeTab !== 'reports') {
+      return;
+    }
+    fetchStats(statsWindowDays);
+    fetchAutoNotify();
+  }, [status, activeTab, statsWindowDays, fetchStats, fetchAutoNotify]);
+
+  const handleToggleAutoNotify = useCallback(
+    async (next: boolean) => {
+      setAutoNotifySaving(true);
+      const previous = autoNotifyEnabled;
+      setAutoNotifyEnabled(next);
+      try {
+        const response = await fetch('/api/salla/availability-requests/auto-notify', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: next }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data?.error || 'تعذر حفظ الإعداد');
+        }
+      } catch (err) {
+        setAutoNotifyEnabled(previous);
+        setStatsError(err instanceof Error ? err.message : 'تعذر حفظ الإعداد');
+      } finally {
+        setAutoNotifySaving(false);
+      }
+    },
+    [autoNotifyEnabled]
+  );
 
   const visibleProducts = useMemo(() => {
     if (!showOnlyWithRequests) {
@@ -811,12 +922,23 @@ export default function SallaNotifyPage() {
   const totalPages = pagination?.totalPages ?? 1;
   const totalProducts = pagination?.total ?? products.length;
   const totalSubscribers = filteredAllRequests.length;
-  const displayedCount = activeTab === 'products' ? visibleProducts.length : totalSubscribers;
+  const displayedCount =
+    activeTab === 'products'
+      ? visibleProducts.length
+      : activeTab === 'reports'
+      ? stats?.totals.window ?? 0
+      : totalSubscribers;
   const summaryLabel =
-    activeTab === 'products' ? 'عدد المنتجات المعروضة' : 'عدد المشتركين المعروضين';
+    activeTab === 'products'
+      ? 'عدد المنتجات المعروضة'
+      : activeTab === 'reports'
+      ? `الطلبات خلال ${formatNumber(statsWindowDays)} يوم`
+      : 'عدد المشتركين المعروضين';
   const summarySubtext =
     activeTab === 'products'
       ? `من أصل ${formatNumber(totalProducts)}`
+      : activeTab === 'reports'
+      ? `الإجمالي التاريخي: ${formatNumber(stats?.totals.allTime ?? 0)}`
       : `إجمالي السجلات: ${formatNumber(allRequests.length)}`;
   const selectedCount = selectedRequestIds.size;
   const allSelected =
@@ -860,6 +982,14 @@ export default function SallaNotifyPage() {
                       onClick={() => setActiveTab('subscribers')}
                     >
                       قائمة المشتركين
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={activeTab === 'reports' ? 'default' : 'outline'}
+                      className="rounded-2xl px-6 py-3 text-sm"
+                      onClick={() => setActiveTab('reports')}
+                    >
+                      التقارير
                     </Button>
                   </div>
                 </div>
@@ -927,13 +1057,42 @@ export default function SallaNotifyPage() {
                     </div>
                   )}
                 </form>
-              ) : (
+              ) : activeTab === 'subscribers' ? (
                 <div className="space-y-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-slate-700">
                   <p>اعرض كل المشتركين وحددهم لإرسال رسالة نصية عبر مسجات لهم دفعة واحدة.</p>
                   <p>استخدم فلاتر الحالة أو اسم المنتج لتضييق القائمة.</p>
                 </div>
+              ) : (
+                <div className="flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-slate-700 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <p>تابع الطلب على المنتجات غير المتوفرة ونتائج إشعارات واتساب التلقائية.</p>
+                    <p className="text-xs text-slate-500">
+                      تشمل الطلبات المسجلة من الموقع ومن فريق المتجر.
+                    </p>
+                  </div>
+                  <div className="w-full md:w-56">
+                    <label
+                      htmlFor="stats-window"
+                      className="mb-2 block text-xs font-semibold text-slate-600"
+                    >
+                      الفترة الزمنية
+                    </label>
+                    <NativeSelect
+                      id="stats-window"
+                      value={String(statsWindowDays)}
+                      onChange={(event) => setStatsWindowDays(Number(event.target.value))}
+                    >
+                      <NativeSelectOption value="7">آخر 7 أيام</NativeSelectOption>
+                      <NativeSelectOption value="30">آخر 30 يوم</NativeSelectOption>
+                      <NativeSelectOption value="90">آخر 90 يوم</NativeSelectOption>
+                      <NativeSelectOption value="365">آخر سنة</NativeSelectOption>
+                    </NativeSelect>
+                  </div>
+                </div>
               )}
-              <div className="grid gap-3 md:grid-cols-2">
+              <div
+                className={`grid gap-3 md:grid-cols-2 ${activeTab === 'reports' ? 'hidden' : ''}`}
+              >
                 <div>
                   <label
                     htmlFor="request-status-filter"
@@ -950,7 +1109,9 @@ export default function SallaNotifyPage() {
                   >
                     <NativeSelectOption value="all">جميع الحالات</NativeSelectOption>
                     <NativeSelectOption value="pending">بانتظار التوفر</NativeSelectOption>
+                    <NativeSelectOption value="notifying">جاري الإرسال</NativeSelectOption>
                     <NativeSelectOption value="notified">تم إشعار العميل</NativeSelectOption>
+                    <NativeSelectOption value="failed">فشل الإرسال</NativeSelectOption>
                     <NativeSelectOption value="cancelled">ملغي</NativeSelectOption>
                   </NativeSelect>
                   <p className="mt-1 text-xs text-slate-500">
@@ -1084,6 +1245,16 @@ export default function SallaNotifyPage() {
               />
             ))}
           </section>
+        ) : activeTab === 'reports' ? (
+          <AvailabilityReports
+            stats={stats}
+            loading={statsLoading}
+            error={statsError}
+            autoNotifyEnabled={autoNotifyEnabled}
+            autoNotifySaving={autoNotifySaving}
+            onToggleAutoNotify={handleToggleAutoNotify}
+            onRefresh={() => fetchStats(statsWindowDays)}
+          />
         ) : (
           <section className="space-y-4">
             <Card className="border border-slate-100 shadow-lg shadow-slate-200/40">
@@ -1172,6 +1343,7 @@ export default function SallaNotifyPage() {
                           </TableHead>
                           <TableHead>العميل</TableHead>
                           <TableHead>الطلب</TableHead>
+                          <TableHead>المصدر</TableHead>
                           <TableHead>الحالة</TableHead>
                           <TableHead>التوفر</TableHead>
                           <TableHead>تاريخ الطلب</TableHead>
@@ -1188,9 +1360,12 @@ export default function SallaNotifyPage() {
                             request.requestedSize || request.variationName || request.productSku || 'غير محدد';
                           const statusLabelMap: Record<AvailabilityRequestRecord['status'], string> = {
                             pending: 'بانتظار التوفر',
+                            notifying: 'جاري الإرسال',
                             notified: 'تم إشعار العميل',
+                            failed: 'فشل الإرسال',
                             cancelled: 'ملغي',
                           };
+                          const isStorefront = request.source === 'storefront';
                           const stockInfo = subscriberStockMap[request.productId];
                           const hasStock = stockInfo?.hasStock;
                           return (
@@ -1212,9 +1387,37 @@ export default function SallaNotifyPage() {
                                 <p className="text-xs text-slate-500">المقاس: {sizeLabel}</p>
                               </TableCell>
                               <TableCell>
-                                <Badge variant={request.status === 'notified' ? 'default' : request.status === 'cancelled' ? 'secondary' : 'outline'}>
+                                <Badge variant={isStorefront ? 'default' : 'outline'}>
+                                  {isStorefront ? 'الموقع' : 'فريق المتجر'}
+                                </Badge>
+                                {isStorefront && (
+                                  <p className="mt-1 text-[11px] text-slate-400">
+                                    {request.isGuest ? 'زائر' : 'عميل مسجّل'}
+                                  </p>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    request.status === 'notified'
+                                      ? 'default'
+                                      : request.status === 'failed'
+                                      ? 'destructive'
+                                      : request.status === 'cancelled'
+                                      ? 'secondary'
+                                      : 'outline'
+                                  }
+                                >
                                   {statusLabelMap[request.status]}
                                 </Badge>
+                                {request.status === 'failed' && request.notifyError && (
+                                  <p
+                                    className="mt-1 max-w-[220px] truncate text-[11px] text-red-500"
+                                    title={request.notifyError}
+                                  >
+                                    {request.notifyError}
+                                  </p>
+                                )}
                               </TableCell>
                               <TableCell>
                                 {hasStock ? (
@@ -1244,6 +1447,331 @@ export default function SallaNotifyPage() {
         )}
       </div>
     </AppPageShell>
+  );
+}
+
+function formatDuration(seconds: number | null | undefined) {
+  if (seconds == null || Number.isNaN(seconds)) {
+    return '—';
+  }
+  if (seconds < 60) {
+    return `${Math.round(seconds)} ثانية`;
+  }
+  const minutes = seconds / 60;
+  if (minutes < 60) {
+    return `${Math.round(minutes)} دقيقة`;
+  }
+  const hours = minutes / 60;
+  if (hours < 48) {
+    return `${hours.toFixed(1)} ساعة`;
+  }
+  return `${(hours / 24).toFixed(1)} يوم`;
+}
+
+type StatTileProps = {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: 'default' | 'warning' | 'success' | 'danger';
+};
+
+function StatTile({ label, value, hint, tone = 'default' }: StatTileProps) {
+  const toneClass =
+    tone === 'success'
+      ? 'text-emerald-600'
+      : tone === 'danger'
+      ? 'text-red-600'
+      : tone === 'warning'
+      ? 'text-amber-600'
+      : 'text-slate-900';
+
+  return (
+    <Card className="border border-slate-100 shadow-none">
+      <CardContent className="p-5">
+        <p className="text-sm text-slate-500">{label}</p>
+        <p className={`mt-2 text-3xl font-semibold ${toneClass}`}>{value}</p>
+        {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Horizontal magnitude bar. No chart library is used anywhere in this app. */
+function MagnitudeBar({ value, max }: { value: number; max: number }) {
+  const width = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+      <div className="h-full rounded-full bg-indigo-500" style={{ width: `${width}%` }} />
+    </div>
+  );
+}
+
+type AvailabilityReportsProps = {
+  stats: AvailabilityStatsResponse | null;
+  loading: boolean;
+  error: string | null;
+  autoNotifyEnabled: boolean | null;
+  autoNotifySaving: boolean;
+  onToggleAutoNotify: (next: boolean) => void;
+  onRefresh: () => void;
+};
+
+function AvailabilityReports({
+  stats,
+  loading,
+  error,
+  autoNotifyEnabled,
+  autoNotifySaving,
+  onToggleAutoNotify,
+  onRefresh,
+}: AvailabilityReportsProps) {
+  const maxDaily = useMemo(
+    () => (stats ? Math.max(1, ...stats.daily.map((row) => row.total)) : 1),
+    [stats]
+  );
+  const maxProduct = useMemo(
+    () => (stats ? Math.max(1, ...stats.topProducts.map((row) => row.total)) : 1),
+    [stats]
+  );
+
+  const storefrontCount = stats?.bySource?.storefront ?? 0;
+  const staffCount = stats?.bySource?.staff ?? 0;
+  const sourceTotal = storefrontCount + staffCount;
+
+  return (
+    <section className="space-y-4">
+      <Card className="border border-slate-100 shadow-lg shadow-slate-200/40">
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle className="text-xl text-slate-900">الإشعار التلقائي عبر واتساب</CardTitle>
+            <CardDescription className="text-sm">
+              عند التفعيل، يرسل النظام قالب واتساب تلقائياً لكل عميل ينتظر منتجاً فور عودته
+              للمخزون.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={onRefresh}
+              disabled={loading}
+            >
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              تحديث
+            </Button>
+            <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-white/80 px-4 py-2 text-sm text-slate-700">
+              <Switch
+                checked={autoNotifyEnabled === true}
+                onCheckedChange={(checked) => onToggleAutoNotify(checked === true)}
+                disabled={autoNotifyEnabled === null || autoNotifySaving}
+                aria-label="تفعيل الإشعار التلقائي"
+              />
+              {autoNotifyEnabled === null
+                ? 'جارٍ التحميل…'
+                : autoNotifyEnabled
+                ? 'مفعّل'
+                : 'متوقف'}
+            </label>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {loading && !stats ? (
+        <Card>
+          <CardContent className="p-6">
+            <LoadingState label="جاري تحميل التقارير..." />
+          </CardContent>
+        </Card>
+      ) : !stats ? (
+        <Card className="border-slate-100 shadow-none">
+          <CardContent className="py-10">
+            <EmptyState title="لا توجد بيانات لعرضها" />
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              label="بانتظار التوفر"
+              value={formatNumber(stats.totals.pending)}
+              hint="عملاء ما زالوا ينتظرون"
+              tone="warning"
+            />
+            <StatTile
+              label="تم إشعارهم"
+              value={formatNumber(stats.totals.notified)}
+              hint={`متوسط زمن الإشعار: ${formatDuration(stats.timing.avgSeconds)}`}
+              tone="success"
+            />
+            <StatTile
+              label="فشل الإرسال"
+              value={formatNumber(stats.totals.failed)}
+              hint="تحتاج متابعة يدوية"
+              tone={stats.totals.failed > 0 ? 'danger' : 'default'}
+            />
+            <StatTile
+              label="وسيط زمن الإشعار"
+              value={formatDuration(stats.timing.medianSeconds)}
+              hint={`من ${formatNumber(stats.timing.notifiedCount)} إشعار`}
+            />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="border border-slate-100 shadow-none">
+              <CardHeader>
+                <CardTitle className="text-lg text-slate-900">مصدر الطلبات</CardTitle>
+                <CardDescription className="text-sm">
+                  كم طلباً جاء من الموقع مقابل تسجيل فريق المتجر.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">من الموقع</span>
+                    <span className="text-slate-500">
+                      {formatNumber(storefrontCount)}
+                      {sourceTotal > 0 &&
+                        ` (${Math.round((storefrontCount / sourceTotal) * 100)}%)`}
+                    </span>
+                  </div>
+                  <MagnitudeBar value={storefrontCount} max={Math.max(1, sourceTotal)} />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">من فريق المتجر</span>
+                    <span className="text-slate-500">
+                      {formatNumber(staffCount)}
+                      {sourceTotal > 0 && ` (${Math.round((staffCount / sourceTotal) * 100)}%)`}
+                    </span>
+                  </div>
+                  <MagnitudeBar value={staffCount} max={Math.max(1, sourceTotal)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 text-sm">
+                  <div>
+                    <p className="text-slate-500">عملاء مسجّلون</p>
+                    <p className="text-xl font-semibold text-slate-900">
+                      {formatNumber(stats.byAudience?.identified ?? 0)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">زوّار</p>
+                    <p className="text-xl font-semibold text-slate-900">
+                      {formatNumber(stats.byAudience?.guest ?? 0)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-slate-100 shadow-none">
+              <CardHeader>
+                <CardTitle className="text-lg text-slate-900">حجم الطلبات اليومي</CardTitle>
+                <CardDescription className="text-sm">
+                  آخر {formatNumber(stats.windowDays)} يوم.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {stats.daily.length === 0 ? (
+                  <EmptyState title="لا توجد طلبات في هذه الفترة" />
+                ) : (
+                  <div className="max-h-80 space-y-2 overflow-y-auto pl-1">
+                    {stats.daily
+                      .slice()
+                      .reverse()
+                      .map((row) => (
+                        <div key={row.day} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-mono text-slate-500">{row.day}</span>
+                            <span className="text-slate-700">
+                              {formatNumber(row.total)}
+                              <span className="text-slate-400">
+                                {' '}
+                                ({formatNumber(row.storefront)} من الموقع)
+                              </span>
+                            </span>
+                          </div>
+                          <MagnitudeBar value={row.total} max={maxDaily} />
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="border border-slate-100 shadow-lg shadow-slate-200/40">
+            <CardHeader>
+              <CardTitle className="text-xl text-slate-900">المنتجات الأكثر طلباً</CardTitle>
+              <CardDescription className="text-sm">
+                رتّب أولويات إعادة التوريد حسب عدد العملاء المنتظرين.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {stats.topProducts.length === 0 ? (
+                <EmptyState title="لا توجد طلبات في هذه الفترة" />
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>المنتج</TableHead>
+                        <TableHead className="w-40">الإجمالي</TableHead>
+                        <TableHead>بانتظار التوفر</TableHead>
+                        <TableHead>تم الإشعار</TableHead>
+                        <TableHead>فشل</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {stats.topProducts.map((product) => (
+                        <TableRow key={product.productId}>
+                          <TableCell>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {product.productName || `منتج ${product.productId}`}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {product.productSku || `#${product.productId}`}
+                            </p>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {formatNumber(product.total)}
+                              </span>
+                              <MagnitudeBar value={product.total} max={maxProduct} />
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{formatNumber(product.pending)}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{formatNumber(product.notified)}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {product.failed > 0 ? (
+                              <Badge variant="destructive">{formatNumber(product.failed)}</Badge>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -1742,7 +2270,9 @@ function AvailabilityRequestCard({
 }: AvailabilityRequestCardProps) {
   const statusLabelMap: Record<AvailabilityRequestRecord['status'], string> = {
     pending: 'بانتظار التوفر',
+    notifying: 'جاري الإرسال',
     notified: 'تم إشعار العميل',
+    failed: 'فشل الإرسال',
     cancelled: 'ملغي',
   };
 

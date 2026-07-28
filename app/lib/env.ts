@@ -14,6 +14,10 @@ export const env = {
     "return_order_label_created_ar",
   ZOKO_TPL_ASSIGNED_WELCOME:
     process.env.ZOKO_TPL_ASSIGNED_WELCOME || "assigned_welcome_ar",
+  // Back-in-stock template. Positional args: 1 customer name, 2 product label
+  // (name + size/variant), 3 product link. Must exist and be approved in Zoko.
+  ZOKO_TPL_PRODUCT_BACK_IN_STOCK:
+    process.env.ZOKO_TPL_PRODUCT_BACK_IN_STOCK || "product_back_in_stock_ar",
   ZOKO_DEBUG_PHONE: process.env.ZOKO_DEBUG_PHONE || process.env.ZOKO_TEST_PHONE || "",
   MSEGAT_API_URL: process.env.MSEGAT_API_URL || "https://www.msegat.com/gw/sendsms.php",
   MSEGAT_USERNAME: process.env.MSEGAT_USERNAME,

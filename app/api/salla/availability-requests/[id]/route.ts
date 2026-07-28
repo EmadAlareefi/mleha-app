@@ -3,15 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import {
-  AvailabilityRequestStatus,
+  isAvailabilityRequestStatus,
   updateAvailabilityRequestStatus,
 } from '@/app/lib/salla-availability-requests';
 
 export const runtime = 'nodejs';
-
-function isValidStatus(value: any): value is AvailabilityRequestStatus {
-  return value === 'pending' || value === 'notified' || value === 'cancelled';
-}
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -32,7 +28,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const body = await request.json().catch(() => null);
   const status = body?.status;
 
-  if (!isValidStatus(status)) {
+  if (!isAvailabilityRequestStatus(status)) {
     return NextResponse.json(
       { success: false, error: 'حالة الطلب غير صحيحة' },
       { status: 400 }
