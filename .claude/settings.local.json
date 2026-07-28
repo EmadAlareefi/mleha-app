@@ -34,7 +34,18 @@
       "Bash(rm -f /mnt/d/dev/mleha-app/check-dupes.tmp.ts)",
       "mcp__claude_ai_Supabase__execute_sql",
       "Bash(node *)",
-      "Bash(cd *)"
+      "Bash(cd *)",
+      "PowerShell(git -C D:\\\\dev\\\\mleha-app diff --stat)",
+      "PowerShell(git -C D:\\\\dev\\\\mleha-app status --short)",
+      "PowerShell(git -C D:\\\\dev\\\\martina-nextjs fetch origin claude/product-links-404-wx5s5l 2>&1)",
+      "PowerShell(git -C D:\\\\dev\\\\martina-nextjs log --oneline -6 origin/claude/product-links-404-wx5s5l)",
+      "Bash(sed \"s#'../../../../../../../D:/dev/mleha-app/app/lib/barcode-code128'#'./app/lib/barcode-code128.ts'#\" \"/c/Users/Admin/AppData/Local/Temp/claude/D--dev-mleha-app/c449e808-fc54-4098-928b-140b5836d8b2/scratchpad/verify-barcode.ts\")",
+      "Bash(node .barcode-verify.mts)",
+      "Bash(cp \"/c/Users/Admin/AppData/Local/Temp/claude/D--dev-mleha-app/c449e808-fc54-4098-928b-140b5836d8b2/scratchpad/preview.mts\" .preview.mts)",
+      "Bash(node .preview.mts 123456789 \"/c/Users/Admin/AppData/Local/Temp/claude/D--dev-mleha-app/c449e808-fc54-4098-928b-140b5836d8b2/scratchpad/label-9digit.svg\")",
+      "Bash(node .preview.mts 1234567890 \"/c/Users/Admin/AppData/Local/Temp/claude/D--dev-mleha-app/c449e808-fc54-4098-928b-140b5836d8b2/scratchpad/label-10digit.svg\")",
+      "Bash(npx tsc *)",
+      "Bash(echo \"exit:$?\")"
     ],
     "deny": [],
     "ask": []

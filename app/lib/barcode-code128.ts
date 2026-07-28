@@ -23,6 +23,7 @@ const PATTERNS: string[] = [
   '114131', '311141', '411131', '211412', '211214', '211232', '2331112',
 ];
 
+const CODE_C = 99;
 const START_B = 104;
 const START_C = 105;
 const STOP = 106;
@@ -34,13 +35,23 @@ const STOP = 106;
  */
 export function encodeCode128(value: string): { runs: number[]; modules: number } {
   const codes: number[] = [];
-  const isAllDigits = value.length >= 2 && /^\d+$/.test(value) && value.length % 2 === 0;
+  const isAllDigits = value.length >= 2 && /^\d+$/.test(value);
 
   if (isAllDigits) {
-    // Code set C: encode pairs of digits.
-    codes.push(START_C);
-    for (let i = 0; i < value.length; i += 2) {
-      codes.push(Number(value.slice(i, i + 2)));
+    // Code set C packs two digits per symbol, so it is roughly half as wide as
+    // code set B. An odd-length value starts in code set B for the leading
+    // digit and then switches to C, which still beats encoding it all in B.
+    let pairs = value;
+    if (value.length % 2 === 0) {
+      codes.push(START_C);
+    } else {
+      codes.push(START_B);
+      codes.push(value.charCodeAt(0) - 32);
+      codes.push(CODE_C);
+      pairs = value.slice(1);
+    }
+    for (let i = 0; i < pairs.length; i += 2) {
+      codes.push(Number(pairs.slice(i, i + 2)));
     }
   } else {
     // Code set B: each ASCII char maps to value (charCode - 32).

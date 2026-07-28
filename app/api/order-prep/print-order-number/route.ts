@@ -25,12 +25,20 @@ const ORDER_FONT_MAX_PT = 14;
 const ORDER_FONT_MIN_PT = 8;
 const DATE_FONT_MAX_PT = 14;
 const DATE_FONT_MIN_PT = 8;
-// Keep the bars well inside the label: printers shift the page slightly, so a
-// narrow barcode with a wide quiet zone survives the drift without being cut.
-const BARCODE_MARGIN_X_MM = 5;
-const BARCODE_MAX_WIDTH_MM = 24;
-const BARCODE_BOTTOM_MM = 4;
-const BARCODE_HEIGHT_MM = 8;
+// The label printer is a 203dpi thermal head, so a printed dot is ~0.125mm.
+// Snapping the barcode module to a whole number of dots keeps every bar edge on
+// the print grid; otherwise the head rounds each bar independently and the
+// bar/space ratios drift enough to defeat phone cameras.
+const PRINTER_DPI = 203;
+const DOT_MM = 25.4 / PRINTER_DPI;
+// Widest bar area we allow, so at least ~6mm of quiet zone stays on each side
+// of the 40mm label even if the printer nudges the page sideways.
+const BARCODE_MAX_WIDTH_MM = 28;
+// Below two dots per module the bars are too fine for a phone camera to
+// resolve, so readability wins over the width budget above.
+const BARCODE_MIN_MODULE_DOTS = 2;
+const BARCODE_BOTTOM_MM = 3.8;
+const BARCODE_HEIGHT_MM = 11;
 const DATE_BOTTOM_MM = 0.5;
 
 const EASTERN_DIGIT_MAP: Record<string, string> = {
@@ -115,14 +123,16 @@ async function generateOrderTicketPdf(orderNumber: string, printDate?: string) {
   });
 
   const { runs, modules } = encodeCode128(safeOrderNumber);
-  const availableBarcodeWidth =
-    ORDER_TICKET_SIZE.width - mmToPoints(BARCODE_MARGIN_X_MM) * 2;
-  const moduleWidth = Math.min(
-    availableBarcodeWidth / (modules + 20),
-    mmToPoints(BARCODE_MAX_WIDTH_MM) / modules
+  const dotWidth = mmToPoints(DOT_MM);
+  const moduleDots = Math.max(
+    BARCODE_MIN_MODULE_DOTS,
+    Math.floor(BARCODE_MAX_WIDTH_MM / (modules * DOT_MM))
   );
+  const moduleWidth = dotWidth * moduleDots;
   const barcodeWidth = moduleWidth * modules;
-  const barcodeX = (ORDER_TICKET_SIZE.width - barcodeWidth) / 2;
+  // Start on a dot boundary too, so the snapped module widths stay aligned.
+  const barcodeX =
+    Math.round((ORDER_TICKET_SIZE.width - barcodeWidth) / 2 / dotWidth) * dotWidth;
   const barcodeY = mmToPoints(BARCODE_BOTTOM_MM);
   const barcodeHeight = mmToPoints(BARCODE_HEIGHT_MM);
   let currentX = barcodeX;
