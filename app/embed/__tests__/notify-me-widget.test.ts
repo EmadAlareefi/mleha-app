@@ -273,11 +273,32 @@ test('matches the live Selia product option markup', async () => {
     variationName: 'M',
   });
   assert.equal(helpers.isRegistered('1379647441', '125665688'), true);
+  storage.set(
+    'mleha-notify-registration:v1:1379647441:1553425047',
+    JSON.stringify({
+      productId: '1379647441',
+      variationId: '1553425047',
+      variationName: 'S',
+      registeredAt: Date.now() - 1_000,
+    })
+  );
 
   input.checked = false;
   helpers.restoreRegisteredSoldOutOption({ id: '1379647441' });
   helpers.normalizeSoldOutOptions();
   assert.equal(input.checked, true);
+  assert.equal(secondInput.checked, false);
+
+  // Selia may briefly clear the radio group while redrawing it. Restoration is
+  // deliberately one-time so that redraw cannot jump back to an older saved
+  // size after the customer makes a new choice.
+  input.checked = false;
+  secondInput.checked = false;
+  helpers.restoreRegisteredSoldOutOption({ id: '1379647441' });
+  assert.equal(input.checked, false);
+  assert.equal(secondInput.checked, false);
+
+  input.checked = true;
 
   let prevented = 0;
   helpers.preventSoldOutCartSubmission({

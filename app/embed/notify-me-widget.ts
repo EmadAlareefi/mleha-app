@@ -292,6 +292,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   var selectedSoldOutOption = null;
+  var registrationRestoreAttempted = false;
   var REGISTRATION_STORAGE_PREFIX = 'mleha-notify-registration:v1:';
 
   function registrationStorageKey(productId, variationId) {
@@ -398,6 +399,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     var label = target.closest('.s-product-options-grid-mode label');
     if (!label) { return; }
 
+    // From this point on, the customer's explicit choice must win. In
+    // particular, do not let a later Selia redraw restore an older registered
+    // size after the customer has selected a different one.
+    registrationRestoreAttempted = true;
+
     if (!label.classList.contains('s-product-options-option-stock-out')) {
       selectedSoldOutOption = null;
       schedule();
@@ -497,9 +503,15 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   function restoreRegisteredSoldOutOption(product) {
-    if (selectedSoldOutOption) { return; }
+    if (selectedSoldOutOption || registrationRestoreAttempted) { return; }
 
     var options = document.querySelectorAll('.s-product-options-option-stock-out');
+    // Options can arrive after the first product markup. Wait until they exist
+    // before considering restoration complete, then never repeat it during
+    // this page load.
+    if (!options.length) { return; }
+    registrationRestoreAttempted = true;
+
     var best = null;
     for (var i = 0; i < options.length; i++) {
       var input = options[i].querySelector('input[type="radio"],input[type="checkbox"]');

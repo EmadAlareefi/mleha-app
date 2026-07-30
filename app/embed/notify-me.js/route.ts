@@ -20,7 +20,10 @@ export async function GET() {
     headers: {
       'Content-Type': 'application/javascript; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
+      // Always revalidate so storefront tabs do not keep an older widget after
+      // a selection bug has been fixed. Conditional requests still make this
+      // inexpensive when the source has not changed.
+      'Cache-Control': 'public, max-age=0, must-revalidate',
       'X-Content-Type-Options': 'nosniff',
     },
   });
