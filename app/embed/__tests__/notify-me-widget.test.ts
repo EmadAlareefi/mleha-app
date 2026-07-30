@@ -31,6 +31,7 @@ test('matches the live Selia product option markup', async () => {
       normalizeSoldOutOptions: normalizeSoldOutOptions,
       preventSoldOutCartSubmission: preventSoldOutCartSubmission,
       restoreRegisteredSoldOutOption: restoreRegisteredSoldOutOption,
+      selectOnlyRadioOption: selectOnlyRadioOption,
       submit: submit
     };})();`
   );
@@ -45,8 +46,10 @@ test('matches the live Selia product option markup', async () => {
     disabled: true,
     name: 'options[1542296633]',
     tagName: 'INPUT',
+    type: 'radio',
     value: '1909331672',
-    closest: () => optionLabel,
+    closest: (selector: string) =>
+      selector === 'salla-product-options' ? productOptions : optionLabel,
     getAttribute: () => null,
     removeAttribute: (name: string) => {
       if (name === 'disabled') input.disabled = false;
@@ -62,6 +65,39 @@ test('matches the live Selia product option markup', async () => {
       selector.includes('input') ? input : selector.includes('grid-mode-span') ? visibleLabel : null,
   };
 
+  const secondVisibleLabel = {
+    classList: classList('s-product-options-grid-mode-span', 's-product-options-disabled'),
+    textContent: 'S - نفدت الكمية',
+  };
+
+  const secondInput = {
+    checked: false,
+    disabled: true,
+    name: 'options[1542296633]',
+    tagName: 'INPUT',
+    type: 'radio',
+    value: '669120479',
+    closest: (selector: string) =>
+      selector === 'salla-product-options' ? productOptions : secondOptionLabel,
+    getAttribute: () => null,
+    removeAttribute: (name: string) => {
+      if (name === 'disabled') secondInput.disabled = false;
+    },
+  };
+
+  const secondOptionLabel = {
+    classList: classList(
+      's-product-options-disabled',
+      's-product-options-option-stock-out'
+    ),
+    querySelector: (selector: string) =>
+      selector.includes('input')
+        ? secondInput
+        : selector.includes('grid-mode-span')
+          ? secondVisibleLabel
+          : null,
+  };
+
   const liveOptions = [
     {
       id: 1542296633,
@@ -72,6 +108,12 @@ test('matches the live Selia product option markup', async () => {
           name: 'M',
           is_out: true,
           skus_availability: { '125665688': false },
+        },
+        {
+          id: 669120479,
+          name: 'S',
+          is_out: true,
+          skus_availability: { '1553425047': false },
         },
         {
           id: 1135293913,
@@ -89,7 +131,10 @@ test('matches the live Selia product option markup', async () => {
       if (name === 'product-id') return '1379647441';
       return null;
     },
-    querySelectorAll: () => (input.checked ? [input] : []),
+    querySelectorAll: (selector: string) => {
+      if (selector === 'input[type="radio"]') return [input, secondInput];
+      return [input, secondInput].filter((item) => item.checked);
+    },
   };
 
   const hiddenId = { value: '1379647441' };
@@ -116,7 +161,9 @@ test('matches the live Selia product option markup', async () => {
     title: '',
     addEventListener: () => undefined,
     querySelectorAll: (selector: string) =>
-      selector === '.s-product-options-option-stock-out' ? [optionLabel] : [],
+      selector === '.s-product-options-option-stock-out'
+        ? [optionLabel, secondOptionLabel]
+        : [],
     querySelector: (selector: string) => {
       if (selector === '#product-form' || selector === 'form.product-form') return productForm;
       if (
@@ -185,6 +232,7 @@ test('matches the live Selia product option markup', async () => {
       target?: { closest: (selector: string) => unknown };
     }) => void;
     restoreRegisteredSoldOutOption: (product: { id: string }) => void;
+    selectOnlyRadioOption: (input: { checked: boolean }) => void;
     submit: (
       payload: Record<string, unknown>,
       onDone: (done: boolean, duplicate: boolean) => void
@@ -204,8 +252,13 @@ test('matches the live Selia product option markup', async () => {
   assert.equal(input.disabled, false);
   assert.equal(optionLabel.classList.contains('s-product-options-disabled'), false);
   assert.equal(visibleLabel.classList.contains('s-product-options-disabled'), false);
+  assert.equal(secondVisibleLabel.textContent, 'S');
 
-  input.checked = true;
+  secondInput.checked = true;
+  helpers.selectOnlyRadioOption(input);
+  assert.equal(input.checked, true);
+  assert.equal(secondInput.checked, false);
+
   assert.equal(helpers.isSoldOut(), true);
   assert.deepEqual(helpers.getSelectedVariant(), {
     id: '125665688',

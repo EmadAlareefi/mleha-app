@@ -342,6 +342,30 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       String(input.value || '') === selectedSoldOutOption.value;
   }
 
+  function selectOnlyRadioOption(input) {
+    if (!input) { return; }
+    if (String(input.type || '').toLowerCase() !== 'radio') {
+      input.checked = true;
+      return;
+    }
+
+    var component = typeof input.closest === 'function' &&
+      input.closest('salla-product-options');
+    component = component || document.querySelector('#product-form salla-product-options') ||
+      document.querySelector('salla-product-options');
+
+    if (component) {
+      var radios = component.querySelectorAll('input[type="radio"]');
+      for (var i = 0; i < radios.length; i++) {
+        if (radios[i] !== input && String(radios[i].name || '') === String(input.name || '')) {
+          radios[i].checked = false;
+        }
+      }
+    }
+
+    input.checked = true;
+  }
+
   // Keep unavailable choices visually consistent with available choices and
   // remove the stock suffix from what the customer sees. Selia disables these
   // radios, so make them selectable for this widget while retaining the stock-out
@@ -358,7 +382,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       if (input) {
         input.disabled = false;
         input.removeAttribute('disabled');
-        if (selectedOptionMatches(input)) { input.checked = true; }
+        if (selectedOptionMatches(input)) { selectOnlyRadioOption(input); }
       }
 
       var current = String(visibleLabel.textContent || '').replace(/\s+/g, ' ').trim();
@@ -391,7 +415,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     // Checking a radio programmatically also clears another choice in its group.
     // Re-apply once after Selia's own click handler has finished in case it
     // redraws the options from its stock data.
-    input.checked = true;
+    selectOnlyRadioOption(input);
     setTimeout(function () {
       normalizeSoldOutOptions();
       schedule();
@@ -498,7 +522,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       name: String(best.input.name || ''),
       value: String(best.input.value || '')
     };
-    best.input.checked = true;
+    selectOnlyRadioOption(best.input);
   }
 
   function getSelectedVariant() {
