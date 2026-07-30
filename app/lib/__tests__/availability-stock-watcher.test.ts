@@ -1,12 +1,19 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { NextRequest } from 'next/server';
 import {
   isRequestSatisfied,
   runAvailabilityStockCheck,
   type ProductAvailability,
   type WatcherDeps,
 } from '../availability-stock-watcher';
+import {
+  extractAvailabilityProductEvent,
+  extractAvailabilityProductId,
+} from '../availability-product-webhook';
+import { normalizeE164Phone } from '../phone';
 import type { AvailabilityRequestRecord } from '../salla-availability-requests';
+import { POST as productAvailabilityWebhook } from '../../api/webhooks/salla/product-availability/route';
 
 function makeRequest(
   overrides: Partial<AvailabilityRequestRecord> = {}
@@ -53,6 +60,7 @@ function availability(overrides: Partial<ProductAvailability> = {}): ProductAvai
     found: true,
     productQuantity: 0,
     variantQuantities: {},
+    variantQuantitiesByName: {},
     ...overrides,
   };
 }
@@ -77,6 +85,39 @@ describe('isRequestSatisfied', () => {
 
     const theirSize = availability({ variantQuantities: { '55': 2 } });
     assert.equal(isRequestSatisfied(request, theirSize), true);
+  });
+
+  it('falls back from storefront combination id to a unique variant name', () => {
+    const request = makeRequest({
+      variationId: '1553425047',
+      variationName: 'S',
+      requestedSize: 'S',
+    });
+
+    assert.equal(
+      isRequestSatisfied(
+        request,
+        availability({
+          variantQuantities: { '1850087317': 2 },
+          variantQuantitiesByName: { s: 2 },
+        })
+      ),
+      true
+    );
+  });
+
+  it('does not override an exact out-of-stock id with a name fallback', () => {
+    const request = makeRequest({ variationId: '55', variationName: 'S' });
+    assert.equal(
+      isRequestSatisfied(
+        request,
+        availability({
+          variantQuantities: { '55': 0 },
+          variantQuantitiesByName: { s: 3 },
+        })
+      ),
+      false
+    );
   });
 
   it('treats an unknown or missing product as unavailable', () => {
@@ -111,6 +152,7 @@ describe('runAvailabilityStockCheck', () => {
       },
       markChecked: async () => {},
       markBackInStock: async () => {},
+      recoverStaleClaims: async () => 0,
       autoNotifyEnabled: async () => true,
       ...overrides,
     };
@@ -164,10 +206,22 @@ describe('runAvailabilityStockCheck', () => {
     assert.deepEqual(failed, [{ id: 'req-1', error: 'Zoko error 400' }]);
   });
 
-  it('releases the claim when a send is skipped rather than failed', async () => {
+  it('counts an unusable phone as a bounded failure instead of retrying forever', async () => {
     const result = await runAvailabilityStockCheck({
       deps: makeDeps({
         notify: async () => ({ status: 'skipped' as const, reason: 'missing_phone' }),
+      }),
+    });
+
+    assert.deepEqual(released, []);
+    assert.deepEqual(failed, [{ id: 'req-1', error: 'missing_phone' }]);
+    assert.equal(result.failed, 1);
+  });
+
+  it('releases a transiently skipped send for a later retry', async () => {
+    const result = await runAvailabilityStockCheck({
+      deps: makeDeps({
+        notify: async () => ({ status: 'skipped' as const, reason: 'zoko_not_configured' }),
       }),
     });
 
@@ -204,12 +258,51 @@ describe('runAvailabilityStockCheck', () => {
   });
 
   it('reports what a dry run would send without sending it', async () => {
-    const result = await runAvailabilityStockCheck({ dryRun: true, deps: makeDeps() });
+    let recoveryCalls = 0;
+    const result = await runAvailabilityStockCheck({
+      dryRun: true,
+      deps: makeDeps({
+        recoverStaleClaims: async () => {
+          recoveryCalls += 1;
+          return 2;
+        },
+      }),
+    });
 
     assert.deepEqual(notified, []);
+    assert.equal(recoveryCalls, 0);
     assert.equal(result.dryRun, true);
     assert.equal(result.backInStock, 1);
     assert.equal(result.skipped, 1);
+  });
+
+  it('recovers stale claims before loading pending requests', async () => {
+    const result = await runAvailabilityStockCheck({
+      deps: makeDeps({ recoverStaleClaims: async () => 38 }),
+    });
+
+    assert.equal(result.recoveredStale, 38);
+  });
+
+  it('limits a webhook-triggered check to the requested product', async () => {
+    const checked: number[] = [];
+    const result = await runAvailabilityStockCheck({
+      productIds: [200],
+      deps: makeDeps({
+        listPending: async () => [
+          makeRequest({ id: 'req-1', productId: 100 }),
+          makeRequest({ id: 'req-2', productId: 200 }),
+        ],
+        loadAvailability: async (productId) => {
+          checked.push(productId);
+          return availability({ productId, productQuantity: 1 });
+        },
+      }),
+    });
+
+    assert.deepEqual(checked, [200]);
+    assert.deepEqual(notified, ['req-2']);
+    assert.equal(result.productsChecked, 1);
   });
 
   it('handles several customers waiting on different sizes of one product', async () => {
@@ -231,5 +324,71 @@ describe('runAvailabilityStockCheck', () => {
     assert.equal(result.backInStock, 1);
     assert.equal(result.products.length, 1);
     assert.equal(result.products[0].waiting, 2);
+  });
+});
+
+describe('product availability webhook parsing', () => {
+  it('extracts supported event and nested product id', () => {
+    const payload = {
+      event: 'product.updated',
+      data: { product: { id: 1379647441 } },
+    };
+    assert.equal(extractAvailabilityProductEvent(payload), 'product.updated');
+    assert.equal(extractAvailabilityProductId(payload), 1379647441);
+  });
+
+  it('rejects a missing or invalid product id', () => {
+    assert.equal(extractAvailabilityProductId({ event: 'product.updated', data: {} }), null);
+  });
+
+  it('uses the parent product id for variant events', () => {
+    assert.equal(
+      extractAvailabilityProductId({
+        event: 'product.variant.updated',
+        data: { id: 1850087317, product_id: 1379647441 },
+      }),
+      1379647441
+    );
+  });
+
+  it('rejects webhook requests without the configured custom secret', async () => {
+    const previous = process.env.SALLA_PRODUCT_WEBHOOK_SECRET;
+    process.env.SALLA_PRODUCT_WEBHOOK_SECRET = 'test-product-webhook-secret';
+    try {
+      const response = await productAvailabilityWebhook(
+        new NextRequest('https://app.mleha.com/api/webhooks/salla/product-availability', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            event: 'product.updated',
+            data: { id: 1379647441 },
+          }),
+        })
+      );
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), {
+        success: false,
+        error: 'unauthorized',
+      });
+    } finally {
+      if (previous == null) {
+        delete process.env.SALLA_PRODUCT_WEBHOOK_SECRET;
+      } else {
+        process.env.SALLA_PRODUCT_WEBHOOK_SECRET = previous;
+      }
+    }
+  });
+});
+
+describe('availability phone normalization', () => {
+  it('normalizes supported Saudi input shapes', () => {
+    assert.equal(normalizeE164Phone('0501234567'), '+966501234567');
+    assert.equal(normalizeE164Phone('501234567'), '+966501234567');
+    assert.equal(normalizeE164Phone('+966501234567'), '+966501234567');
+  });
+
+  it('rejects malformed Saudi and non-E.164 values', () => {
+    assert.equal(normalizeE164Phone('+05511928411'), '');
+    assert.equal(normalizeE164Phone('123'), '');
   });
 });

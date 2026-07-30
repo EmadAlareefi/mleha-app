@@ -13,6 +13,7 @@ import {
   markRequestNotified,
   markRequestsBackInStock,
   markRequestsChecked,
+  recoverStaleNotificationClaims,
   releaseClaimedRequest,
   type AvailabilityRequestRecord,
 } from '@/app/lib/salla-availability-requests';
@@ -35,6 +36,8 @@ export type ProductAvailability = {
   productQuantity: number | null;
   /** Variant id -> remaining quantity, for requests tied to a specific size. */
   variantQuantities: Record<string, number | null>;
+  /** Unique normalized variant name -> quantity; safe fallback for storefront IDs. */
+  variantQuantitiesByName: Record<string, number | null>;
 };
 
 export type WatcherDeps = {
@@ -47,6 +50,7 @@ export type WatcherDeps = {
   markFailed: (id: string, error: string) => Promise<unknown>;
   markChecked: (ids: string[]) => Promise<void>;
   markBackInStock: (ids: string[]) => Promise<void>;
+  recoverStaleClaims: () => Promise<number>;
   autoNotifyEnabled: () => Promise<boolean>;
 };
 
@@ -71,8 +75,17 @@ export type WatcherRunResult = {
   sent: number;
   failed: number;
   skipped: number;
+  recoveredStale: number;
   products: WatcherProductSummary[];
 };
+
+export function normalizeVariantName(value: string | null | undefined): string {
+  return String(value || '')
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('ar');
+}
 
 /**
  * Decides whether a single request's specific product/variant is purchasable again.
@@ -84,7 +97,7 @@ export type WatcherRunResult = {
  * variants stands in for it, which is what getSallaProductLiveStats already does.
  */
 export function isRequestSatisfied(
-  request: Pick<AvailabilityRequestRecord, 'variationId'>,
+  request: Pick<AvailabilityRequestRecord, 'variationId' | 'variationName' | 'requestedSize'>,
   availability: ProductAvailability
 ): boolean {
   if (!availability.found) {
@@ -92,8 +105,25 @@ export function isRequestSatisfied(
   }
 
   if (request.variationId) {
-    const quantity = availability.variantQuantities[String(request.variationId)];
-    return typeof quantity === 'number' && quantity > 0;
+    const variationId = String(request.variationId);
+    if (Object.prototype.hasOwnProperty.call(availability.variantQuantities, variationId)) {
+      const quantity = availability.variantQuantities[variationId];
+      return typeof quantity === 'number' && quantity > 0;
+    }
+
+    // Salla storefront option markup exposes SKU-combination ids, while the
+    // Admin API exposes different variant ids. Fall back only to a unique exact
+    // label match; ambiguous labels are deliberately omitted from the map.
+    const labels = [request.variationName, request.requestedSize]
+      .map(normalizeVariantName)
+      .filter(Boolean);
+    for (const label of labels) {
+      if (Object.prototype.hasOwnProperty.call(availability.variantQuantitiesByName, label)) {
+        const quantity = availability.variantQuantitiesByName[label];
+        return typeof quantity === 'number' && quantity > 0;
+      }
+    }
+    return false;
   }
 
   return typeof availability.productQuantity === 'number' && availability.productQuantity > 0;
@@ -121,12 +151,26 @@ async function loadAvailabilityFromSalla(
   const stats = await getSallaProductLiveStats(merchantId, productId);
 
   const variantQuantities: Record<string, number | null> = {};
+  const variantQuantitiesByName: Record<string, number | null> = {};
+  const ambiguousVariantNames = new Set<string>();
   if (stats.found) {
     try {
       const variations = await getSallaProductVariations(merchantId, productId);
       for (const variation of variations) {
         if (variation.id != null) {
           variantQuantities[String(variation.id)] = variation.availableQuantity ?? null;
+        }
+        const nameKey = normalizeVariantName(variation.name);
+        if (nameKey) {
+          if (
+            ambiguousVariantNames.has(nameKey) ||
+            Object.prototype.hasOwnProperty.call(variantQuantitiesByName, nameKey)
+          ) {
+            delete variantQuantitiesByName[nameKey];
+            ambiguousVariantNames.add(nameKey);
+          } else {
+            variantQuantitiesByName[nameKey] = variation.availableQuantity ?? null;
+          }
         }
       }
     } catch (error) {
@@ -143,6 +187,7 @@ async function loadAvailabilityFromSalla(
     found: stats.found,
     productQuantity: stats.remainingQuantity,
     variantQuantities,
+    variantQuantitiesByName,
   };
 }
 
@@ -157,12 +202,13 @@ export function createDefaultWatcherDeps(merchantId: string): WatcherDeps {
     markFailed: (id, error) => markRequestFailed({ id, error }),
     markChecked: markRequestsChecked,
     markBackInStock: markRequestsBackInStock,
+    recoverStaleClaims: recoverStaleNotificationClaims,
     autoNotifyEnabled: isAvailabilityAutoNotifyEnabled,
   };
 }
 
 export async function runAvailabilityStockCheck(
-  options: { dryRun?: boolean; deps?: WatcherDeps } = {}
+  options: { dryRun?: boolean; productIds?: number[]; deps?: WatcherDeps } = {}
 ): Promise<WatcherRunResult> {
   const dryRun = options.dryRun === true;
 
@@ -176,7 +222,15 @@ export async function runAvailabilityStockCheck(
   }
 
   const autoNotifyEnabled = await deps.autoNotifyEnabled();
-  const pending = await deps.listPending();
+  const recoveredStale = dryRun ? 0 : await deps.recoverStaleClaims();
+  const requestedProductIds = new Set(
+    (options.productIds || []).filter((id) => Number.isInteger(id) && id > 0)
+  );
+  const allPending = await deps.listPending();
+  const pending =
+    requestedProductIds.size > 0
+      ? allPending.filter((request) => requestedProductIds.has(request.productId))
+      : allPending;
   const grouped = groupByProduct(pending);
 
   const result: WatcherRunResult = {
@@ -188,6 +242,7 @@ export async function runAvailabilityStockCheck(
     sent: 0,
     failed: 0,
     skipped: 0,
+    recoveredStale,
     products: [],
   };
 
@@ -237,10 +292,11 @@ export async function runAvailabilityStockCheck(
       continue;
     }
 
-    const claimedIds = new Set(await deps.claim(satisfied.map((request) => request.id)));
-
     for (const request of satisfied) {
-      if (!claimedIds.has(request.id)) {
+      // Claim immediately before this send. Claiming a whole product batch at
+      // once left dozens of rows stranded when an invocation was interrupted.
+      const claimedIds = await deps.claim([request.id]);
+      if (!claimedIds.includes(request.id)) {
         // Another run already owns this one.
         summary.skipped += 1;
         result.skipped += 1;
@@ -254,9 +310,15 @@ export async function runAvailabilityStockCheck(
           summary.sent += 1;
           result.sent += 1;
         } else if (outcome.status === 'skipped') {
-          await deps.release(request.id);
-          summary.skipped += 1;
-          result.skipped += 1;
+          if (outcome.reason === 'missing_phone') {
+            await deps.markFailed(request.id, 'missing_phone');
+            summary.failed += 1;
+            result.failed += 1;
+          } else {
+            await deps.release(request.id);
+            summary.skipped += 1;
+            result.skipped += 1;
+          }
         } else {
           await deps.markFailed(request.id, outcome.error || 'UNKNOWN_ERROR');
           summary.failed += 1;
@@ -283,6 +345,7 @@ export async function runAvailabilityStockCheck(
     backInStock: result.backInStock,
     sent: result.sent,
     failed: result.failed,
+    recoveredStale: result.recoveredStale,
   });
 
   return result;

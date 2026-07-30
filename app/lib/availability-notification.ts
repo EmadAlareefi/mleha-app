@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { env } from '@/app/lib/env';
 import { log } from '@/app/lib/logger';
-import { normalizeKSA } from '@/app/lib/phone';
+import { normalizeE164Phone } from '@/app/lib/phone';
 import { sendWhatsAppTemplate } from '@/app/lib/zoko';
 import {
   buildAvailabilityMessageParts,
@@ -75,8 +75,8 @@ async function recordMessageLog(input: {
 export async function sendAvailabilityNotification(
   request: AvailabilityRequestRecord
 ): Promise<AvailabilityNotificationResult> {
-  const recipient = normalizeKSA(request.customerPhone);
-  if (!recipient || recipient.length < 8) {
+  const recipient = normalizeE164Phone(request.customerPhone);
+  if (!recipient) {
     log.warn('Skipping availability notification: unusable phone number', {
       requestId: request.id,
     });

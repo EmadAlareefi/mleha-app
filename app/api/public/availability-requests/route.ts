@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
-import { normalizeKSA } from '@/app/lib/phone';
+import { normalizeE164Phone } from '@/app/lib/phone';
 import { corsJson, corsPreflight, resolveAllowedOrigin } from '@/app/lib/public-cors';
 import {
   createAvailabilityRequest,
@@ -49,38 +49,6 @@ function readString(value: unknown, maxLength = MAX_TEXT_LENGTH): string | null 
   const trimmed = value.trim();
   if (trimmed.length === 0) return null;
   return trimmed.slice(0, maxLength);
-}
-
-/**
- * Accepts a Saudi mobile in any of the shapes customers type (05…, 5…, 9665…,
- * +9665…) and anything else that looks like a plausible international number,
- * since the store does ship abroad. Returns E.164 or null.
- */
-function normalizePhone(raw: string): string | null {
-  // normalizeKSA() only recognises the local form when it carries the leading
-  // zero, so a bare 9-digit Saudi mobile ("512223344") would come back as
-  // "+512223344" — a number nothing can deliver to. Salla's own customer object
-  // frequently stores the mobile in exactly that shape, with the country code
-  // held separately, so add it back before delegating. Fixed here rather than in
-  // the shared helper, which returns/Zoko/SMS all depend on.
-  let candidate = raw.trim();
-  const digitsOnly = candidate.replace(/\D/g, '');
-  if (!candidate.startsWith('+') && /^5\d{8}$/.test(digitsOnly)) {
-    candidate = `966${digitsOnly}`;
-  }
-
-  const normalized = normalizeKSA(candidate);
-  if (!normalized || !normalized.startsWith('+')) {
-    return null;
-  }
-
-  const digits = normalized.slice(1);
-  if (digits.startsWith('966')) {
-    // Saudi mobile numbers are 9 digits starting with 5 after the country code.
-    return /^9665\d{8}$/.test(digits) ? normalized : null;
-  }
-
-  return /^\d{8,15}$/.test(digits) ? normalized : null;
 }
 
 async function isRateLimited(ipHash: string | null, phone: string): Promise<boolean> {
@@ -137,7 +105,7 @@ export async function POST(request: NextRequest) {
   }
 
   const rawPhone = readString((body as Record<string, unknown>).customerPhone, 32);
-  const phone = rawPhone ? normalizePhone(rawPhone) : null;
+  const phone = rawPhone ? normalizeE164Phone(rawPhone) : null;
   if (!phone) {
     return corsJson(
       { success: false, error: 'رقم الجوال غير صحيح، يرجى إدخال رقم صحيح' },

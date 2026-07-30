@@ -45,6 +45,7 @@ export type AvailabilityRequestSource = 'staff' | 'storefront';
 
 /** How many times we retry a failed notification before parking the request. */
 export const MAX_NOTIFY_ATTEMPTS = 3;
+export const STALE_NOTIFICATION_CLAIM_MS = 30 * 60 * 1000;
 
 export type CreateAvailabilityRequestInput = {
   productId: number;
@@ -290,6 +291,30 @@ export async function releaseClaimedRequest(id: string): Promise<void> {
     where: { id, status: 'notifying' },
     data: { status: 'pending' },
   });
+}
+
+/**
+ * Recover claims left behind when a serverless invocation is interrupted.
+ *
+ * Claims are now taken immediately before each individual send, limiting the
+ * uncertain window to one request. This recovery prevents an interrupted row
+ * from remaining invisible to every future watcher run.
+ */
+export async function recoverStaleNotificationClaims(
+  staleBefore = new Date(Date.now() - STALE_NOTIFICATION_CLAIM_MS)
+): Promise<number> {
+  const result = await prisma.sallaProductAvailabilityRequest.updateMany({
+    where: {
+      status: 'notifying',
+      updatedAt: { lt: staleBefore },
+    },
+    data: {
+      status: 'pending',
+      notifyError: 'Recovered stale notification claim before send confirmation',
+    },
+  });
+
+  return result.count;
 }
 
 export async function markRequestNotified(input: {
