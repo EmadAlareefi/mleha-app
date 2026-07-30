@@ -75,9 +75,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     '.mleha-nm__msg--err{background:var(--nm-err-soft);color:var(--nm-err);}',
     '.mleha-nm__who{font-size:13px;color:var(--nm-muted);margin-top:8px;}',
     '.mleha-nm__who b{color:var(--nm-ink);font-weight:600;direction:ltr;display:inline-block;}',
-    /* Selia dims unavailable variant labels with opacity:.5. Keep Salla's
-       stock-out class for its behavior, but present every size consistently. */
-    '.s-product-options-option-stock-out{opacity:1!important;}'
+    /* Selia applies its disabled opacity to both the label and its inner div.
+       Keep the stock-out marker for detection, but make every size consistent. */
+    '.s-product-options-option-stock-out,',
+    '.s-product-options-option-stock-out .s-product-options-disabled{opacity:1!important;}',
+    '.s-product-options-option-stock-out .s-product-options-grid-mode-span{cursor:pointer!important;}'
   ].join('');
 
   function injectStyles() {
@@ -137,9 +139,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
   function isSingleProductPage() {
     var slug = sallaConfig('page.slug') || sallaConfig('page.type');
-    if (slug === 'single-product' || slug === 'product') { return true; }
-    if (document.querySelector('salla-add-product-button')) { return true; }
-    if (document.querySelector('[data-product-id]')) { return true; }
+    if (slug === 'single-product' || slug === 'product' || slug === 'product.single') {
+      return true;
+    }
+    if (document.querySelector('#product-form')) { return true; }
+    if (document.querySelector('salla-product-options[product-id]')) { return true; }
     return !!productIdFromUrl();
   }
 
@@ -149,9 +153,17 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   function getProduct() {
-    var el = document.querySelector('[data-product-id]');
-    var id = (el && el.getAttribute('data-product-id')) ||
-      sallaConfig('page.id') ||
+    var form = document.querySelector('#product-form') ||
+      document.querySelector('form.product-form');
+    var el = form && form.querySelector('[data-product-id]');
+    var hiddenId = form && form.querySelector('input[name="id"]');
+    var productOptions = document.querySelector(
+      '#product-form salla-product-options[product-id],salla-product-options[product-id]'
+    );
+    var id = sallaConfig('page.id') ||
+      (hiddenId && hiddenId.value) ||
+      (productOptions && productOptions.getAttribute('product-id')) ||
+      (el && el.getAttribute('data-product-id')) ||
       productIdFromUrl();
     if (!id) { return null; }
 
@@ -163,7 +175,8 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     return {
       id: String(id),
       name: String(name || '').trim().slice(0, 250),
-      sku: (el && el.getAttribute('data-product-sku')) || '',
+      sku: (el && el.getAttribute('data-product-sku')) ||
+        String((document.querySelector('.product-sku') || {}).textContent || '').trim(),
       image: metaContent('og:image') || ''
     };
   }
@@ -189,7 +202,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   function addToCartButton() {
-    return document.querySelector('salla-add-product-button') ||
+    // Scope the first lookup to the main product form. Product recommendation
+    // cards further down the page also contain add-product buttons.
+    return document.querySelector('#product-form salla-add-product-button') ||
+      document.querySelector('.product-form salla-add-product-button') ||
+      document.querySelector('salla-add-product-button') ||
       document.querySelector('[data-add-to-cart]') ||
       document.querySelector('button.add-to-cart') ||
       document.querySelector('form.product-form button[type="submit"]');
@@ -198,8 +215,18 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   // Themes disagree on how they express "sold out", so check several signals and
   // treat any one of them as decisive.
   function isSoldOut() {
+    // An unavailable Selia option selected specifically for notification is the
+    // strongest signal. The product itself can still be in stock in another size.
+    if (document.querySelector(
+      '.s-product-options-option-stock-out input[type="radio"]:checked,' +
+      '.s-product-options-option-stock-out input[type="checkbox"]:checked'
+    )) { return true; }
+
+    var productRoot = document.querySelector('#product-form') ||
+      document.querySelector('form.product-form') ||
+      document;
     for (var i = 0; i < SOLD_OUT_SELECTORS.length; i++) {
-      if (document.querySelector(SOLD_OUT_SELECTORS[i])) { return true; }
+      if (productRoot.querySelector(SOLD_OUT_SELECTORS[i])) { return true; }
     }
 
     var btn = addToCartButton();
@@ -239,14 +266,32 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     return label.replace(/[\s\-–—|(),]+$/, '').trim();
   }
 
+  var selectedSoldOutOption = null;
+
+  function selectedOptionMatches(input) {
+    if (!selectedSoldOutOption || !input) { return false; }
+    return String(input.name || '') === selectedSoldOutOption.name &&
+      String(input.value || '') === selectedSoldOutOption.value;
+  }
+
   // Keep unavailable choices visually consistent with available choices and
-  // remove the stock suffix from what the customer sees. Only the visible text
-  // node is changed; the input value and Salla's stock-out class remain intact.
+  // remove the stock suffix from what the customer sees. Selia disables these
+  // radios, so make them selectable for this widget while retaining the stock-out
+  // class that prevents us from ever treating the choice as purchasable.
   function normalizeSoldOutOptions() {
     var options = document.querySelectorAll('.s-product-options-option-stock-out');
     for (var i = 0; i < options.length; i++) {
+      var input = options[i].querySelector('input[type="radio"],input[type="checkbox"]');
       var visibleLabel = options[i].querySelector('.s-product-options-grid-mode-span');
       if (!visibleLabel) { continue; }
+
+      options[i].classList.remove('s-product-options-disabled');
+      visibleLabel.classList.remove('s-product-options-disabled');
+      if (input) {
+        input.disabled = false;
+        input.removeAttribute('disabled');
+        if (selectedOptionMatches(input)) { input.checked = true; }
+      }
 
       var current = String(visibleLabel.textContent || '').replace(/\s+/g, ' ').trim();
       var cleaned = cleanVariantLabel(current);
@@ -254,9 +299,113 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     }
   }
 
+  function handleOptionClick(event) {
+    var target = event.target;
+    if (!target || typeof target.closest !== 'function') { return; }
+
+    var label = target.closest('.s-product-options-grid-mode label');
+    if (!label) { return; }
+
+    if (!label.classList.contains('s-product-options-option-stock-out')) {
+      selectedSoldOutOption = null;
+      schedule();
+      return;
+    }
+
+    var input = label.querySelector('input[type="radio"],input[type="checkbox"]');
+    if (!input) { return; }
+
+    selectedSoldOutOption = {
+      name: String(input.name || ''),
+      value: String(input.value || '')
+    };
+
+    // Checking a radio programmatically also clears another choice in its group.
+    // Re-apply once after Selia's own click handler has finished in case it
+    // redraws the options from its stock data.
+    input.checked = true;
+    setTimeout(function () {
+      normalizeSoldOutOptions();
+      schedule();
+    }, 0);
+  }
+
+  function preventSoldOutCartSubmission(event) {
+    if (!document.querySelector(
+      '.s-product-options-option-stock-out input[type="radio"]:checked,' +
+      '.s-product-options-option-stock-out input[type="checkbox"]:checked'
+    )) { return; }
+
+    // The unavailable input is enabled only so it can identify the requested
+    // size. It must never be allowed through Salla's add-to-cart submission.
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === 'function') {
+      event.stopImmediatePropagation();
+    }
+    schedule();
+  }
+
+  function parseSallaProductOptions() {
+    var component = document.querySelector('#product-form salla-product-options') ||
+      document.querySelector('salla-product-options');
+    if (!component) { return { component: null, options: [] }; }
+
+    try {
+      var parsed = JSON.parse(component.getAttribute('options') || '[]');
+      return { component: component, options: Array.isArray(parsed) ? parsed : [] };
+    } catch (error) {
+      debug('could not parse Salla product options', error);
+      return { component: component, options: [] };
+    }
+  }
+
+  function findOptionDetail(options, value) {
+    for (var i = 0; i < options.length; i++) {
+      var details = Array.isArray(options[i].details) ? options[i].details : [];
+      for (var j = 0; j < details.length; j++) {
+        if (String(details[j].id) === String(value)) { return details[j]; }
+      }
+    }
+    return null;
+  }
+
+  // Selia's input value is an option-value id (for example, the id for "M").
+  // The stock watcher needs the actual SKU/variation id. Each selected option
+  // exposes compatible variation ids through details[].skus_availability; the
+  // intersection is the exact variation represented by the selected combination.
+  function resolveSallaVariationId(input) {
+    var parsed = parseSallaProductOptions();
+    if (!parsed.component || parsed.options.length === 0) { return ''; }
+
+    var selected = parsed.component.querySelectorAll(
+      'input[type="radio"]:checked,input[type="checkbox"]:checked,select option:checked'
+    );
+    if (selected.length === 0 && input) { selected = [input]; }
+
+    var candidates = null;
+    for (var i = 0; i < selected.length; i++) {
+      var detail = findOptionDetail(parsed.options, selected[i].value);
+      if (!detail || !detail.skus_availability) { continue; }
+
+      var ids = Object.keys(detail.skus_availability);
+      if (candidates === null) {
+        candidates = ids;
+      } else {
+        candidates = candidates.filter(function (id) { return ids.indexOf(id) !== -1; });
+      }
+    }
+
+    return candidates && candidates.length === 1 ? String(candidates[0]) : '';
+  }
+
   function getSelectedVariant() {
     var input = document.querySelector('input[name="option_id"]:checked') ||
       document.querySelector('select[name="option_id"]') ||
+      document.querySelector(
+        '#product-form salla-product-options input[type="radio"]:checked,' +
+        '#product-form salla-product-options input[type="checkbox"]:checked'
+      ) ||
       document.querySelector('[data-variant-id]');
     if (!input) { return { id: '', name: '', size: '' }; }
 
@@ -267,14 +416,22 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       source = input.options[input.selectedIndex] || input;
     }
 
+    var resolvedSallaId = resolveSallaVariationId(input);
     var id = source.getAttribute('data-variant-id') ||
       input.getAttribute('data-variant-id') ||
+      resolvedSallaId ||
       source.value || input.value || '';
 
     var label = source.getAttribute('data-variant-name') ||
       input.getAttribute('data-variant-name') ||
       input.getAttribute('aria-label') || '';
 
+    if (!label && input.tagName !== 'SELECT' && typeof input.closest === 'function') {
+      var optionLabel = input.closest('label');
+      var visibleLabel = optionLabel &&
+        optionLabel.querySelector('.s-product-options-grid-mode-span');
+      if (visibleLabel) { label = visibleLabel.textContent || ''; }
+    }
     if (!label && source !== input) { label = source.textContent || ''; }
     if (!label && input.tagName !== 'SELECT') { label = input.value || ''; }
 
@@ -286,6 +443,8 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
   var container = null;
   var state = { busy: false, done: false };
+  var hiddenCartButton = null;
+  var hiddenCartButtonDisplay = '';
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -498,8 +657,21 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     if (container && container.parentNode) {
       container.parentNode.removeChild(container);
     }
+    if (hiddenCartButton) {
+      hiddenCartButton.style.display = hiddenCartButtonDisplay;
+    }
+    hiddenCartButton = null;
+    hiddenCartButtonDisplay = '';
     container = null;
     state = { busy: false, done: false };
+  }
+
+  function hideCartButton() {
+    var btn = addToCartButton();
+    if (!btn || btn === hiddenCartButton) { return; }
+    hiddenCartButton = btn;
+    hiddenCartButtonDisplay = btn.style.display || '';
+    btn.style.display = 'none';
   }
 
   function render() {
@@ -511,11 +683,14 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
     if (!isSoldOut()) {
       // Switching back to an in-stock variant should take the widget away again.
-      if (container && !state.done) { teardown(); }
+      if (container) { teardown(); }
       return;
     }
 
-    if (container) { return; }
+    if (container) {
+      hideCartButton();
+      return;
+    }
 
     container = el('div', 'mleha-nm');
     container.setAttribute('dir', 'rtl');
@@ -528,6 +703,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     }
 
     mountPoint().appendChild(container);
+    hideCartButton();
     debug('widget mounted', product, customer ? 'logged-in' : 'guest');
   }
 
@@ -566,6 +742,13 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       observer.observe(document.body, { childList: true, subtree: true, attributes: true,
         attributeFilter: ['disabled', 'aria-disabled', 'class'] });
     } catch (e) { debug('observer failed', e); }
+
+    document.addEventListener('click', handleOptionClick, true);
+    var productForm = document.querySelector('#product-form') ||
+      document.querySelector('form.product-form');
+    if (productForm) {
+      productForm.addEventListener('submit', preventSoldOutCartSubmission, true);
+    }
   }
 
   if (document.readyState === 'loading') {
