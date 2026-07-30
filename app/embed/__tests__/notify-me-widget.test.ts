@@ -17,7 +17,7 @@ function classList(...initial: string[]): ClassListStub {
   };
 }
 
-test('matches the live Selia product option markup', () => {
+test('matches the live Selia product option markup', async () => {
   const exposedSource = NOTIFY_ME_WIDGET_SOURCE.replace(
     /\}\)\(\);\s*$/,
     `window.__mlehaWidgetTest = {
@@ -30,7 +30,8 @@ test('matches the live Selia product option markup', () => {
       rememberRegistration: rememberRegistration,
       normalizeSoldOutOptions: normalizeSoldOutOptions,
       preventSoldOutCartSubmission: preventSoldOutCartSubmission,
-      restoreRegisteredSoldOutOption: restoreRegisteredSoldOutOption
+      restoreRegisteredSoldOutOption: restoreRegisteredSoldOutOption,
+      submit: submit
     };})();`
   );
 
@@ -181,8 +182,13 @@ test('matches the live Selia product option markup', () => {
       preventDefault: () => void;
       stopImmediatePropagation: () => void;
       stopPropagation: () => void;
+      target?: { closest: (selector: string) => unknown };
     }) => void;
     restoreRegisteredSoldOutOption: (product: { id: string }) => void;
+    submit: (
+      payload: Record<string, unknown>,
+      onDone: (done: boolean, duplicate: boolean) => void
+    ) => void;
   };
 
   assert.equal(helpers.isSingleProductPage(), true);
@@ -230,6 +236,42 @@ test('matches the live Selia product option markup', () => {
   });
   assert.equal(prevented, 1);
 
+  let widgetSubmitPrevented = 0;
+  helpers.preventSoldOutCartSubmission({
+    preventDefault: () => {
+      widgetSubmitPrevented += 1;
+    },
+    stopImmediatePropagation: () => undefined,
+    stopPropagation: () => undefined,
+    target: {
+      closest: (selector: string) => (selector === '.mleha-nm' ? {} : null),
+    },
+  });
+  assert.equal(widgetSubmitPrevented, 0);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    json: async () => ({ success: true, duplicate: true }),
+    ok: true,
+    status: 200,
+  })) as unknown as typeof fetch;
+  try {
+    const duplicateResult = await new Promise<{ done: boolean; duplicate: boolean }>((resolve) => {
+      helpers.submit(
+        {
+          productId: '1379647441',
+          requestedSize: 'M',
+          variationId: '125665688',
+          variationName: 'M',
+        },
+        (done, duplicate) => resolve({ done, duplicate })
+      );
+    });
+    assert.deepEqual(duplicateResult, { done: true, duplicate: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
   assert.equal(helpers.cleanVariantLabel('XL - نفذت الكمية'), 'XL');
   assert.match(
     NOTIFY_ME_WIDGET_SOURCE,
@@ -237,4 +279,8 @@ test('matches the live Selia product option markup', () => {
   );
   assert.match(NOTIFY_ME_WIDGET_SOURCE, /سنرسل الإشعار عبر واتساب على الرقم/);
   assert.match(NOTIFY_ME_WIDGET_SOURCE, /mleha-nm__registered/);
+  assert.doesNotMatch(NOTIFY_ME_WIDGET_SOURCE, /left:-9999px/);
+  assert.match(NOTIFY_ME_WIDGET_SOURCE, /clip:rect\(0,0,0,0\)!important/);
+  assert.match(NOTIFY_ME_WIDGET_SOURCE, /var panel = el\('div', 'mleha-nm__panel'\)/);
+  assert.match(NOTIFY_ME_WIDGET_SOURCE, /submitBtn\.type = 'button'/);
 });

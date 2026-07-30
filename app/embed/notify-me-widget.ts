@@ -62,16 +62,19 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     '.mleha-nm__btn:hover{opacity:.92;transform:translateY(-1px);}',
     '.mleha-nm__btn:disabled{opacity:.6;cursor:default;transform:none;}',
     '.mleha-nm__bell{width:17px;height:17px;flex:0 0 auto;}',
-    '.mleha-nm__panel{margin-top:10px;padding:14px;border:1px solid var(--nm-line);',
-    'border-radius:12px;background:#fdf9f8;}',
-    '.mleha-nm__row{margin-bottom:10px;}',
+    '.mleha-nm__panel{width:100%;max-width:100%;min-width:0;margin-top:10px;padding:14px;',
+    'border:1px solid var(--nm-line);border-radius:12px;background:#fdf9f8;overflow:hidden;}',
+    '.mleha-nm__row{width:100%;min-width:0;margin-bottom:10px;}',
     '.mleha-nm__label{display:block;margin-bottom:5px;font-size:13px;color:var(--nm-ink);font-weight:500;}',
-    '.mleha-nm__input{width:100%;padding:11px 12px;border:1px solid var(--nm-line);',
+    '.mleha-nm__input{display:block;width:100%;max-width:100%;min-width:0;padding:11px 12px;',
+    'border:1px solid var(--nm-line);',
     'border-radius:10px;font-size:15px;font-family:inherit;background:#fff;color:var(--nm-ink);',
     'direction:ltr;text-align:right;}',
     '.mleha-nm__input:focus{outline:2px solid var(--nm-soft);outline-offset:1px;border-color:var(--nm-rose);}',
     '.mleha-nm__input--name{direction:rtl;}',
-    '.mleha-nm__hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;}',
+    '.mleha-nm__hp{position:absolute!important;width:1px!important;height:1px!important;',
+    'padding:0!important;margin:-1px!important;overflow:hidden!important;',
+    'clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;}',
     '.mleha-nm__note{font-size:12px;color:var(--nm-muted);margin-top:8px;}',
     '.mleha-nm__msg{margin-top:10px;padding:11px 13px;border-radius:10px;font-size:14px;}',
     '.mleha-nm__msg--ok{background:var(--nm-ok-soft);color:var(--nm-ok);}',
@@ -94,6 +97,9 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     'border-radius:999px;background:#fff;color:var(--nm-ok);border:1px solid #cfe3d7;',
     'font-size:12px;font-weight:700;direction:ltr;}',
     '.mleha-nm__registered-body{font-size:12px;line-height:1.55;color:var(--nm-muted);}',
+    '@media(max-width:480px){.mleha-nm{max-width:100%;overflow:hidden;}',
+    '.mleha-nm__panel{padding:12px;}.mleha-nm__input{font-size:16px;}',
+    '.mleha-nm__who,.mleha-nm__registered{padding:11px 12px;gap:9px;}}',
     /* Selia applies its disabled opacity to both the label and its inner div.
        Keep the stock-out marker for detection, but make every size consistent. */
     '.s-product-options-option-stock-out,',
@@ -393,6 +399,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   function preventSoldOutCartSubmission(event) {
+    var target = event.target;
+    if (target && typeof target.closest === 'function' && target.closest('.mleha-nm')) {
+      return;
+    }
+
     if (!document.querySelector(
       '.s-product-options-option-stock-out input[type="radio"]:checked,' +
       '.s-product-options-option-stock-out input[type="checkbox"]:checked'
@@ -597,6 +608,15 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     container.appendChild(card);
   }
 
+  function showRegisteredAfterSubmit() {
+    if (!container) { return; }
+    var message = container.querySelector('.mleha-nm__msg');
+    if (message && message.parentNode) { message.parentNode.removeChild(message); }
+    if (!container.querySelector('.mleha-nm__registered')) {
+      renderRegistered(getSelectedVariant());
+    }
+  }
+
   function submit(payload, onDone) {
     fetch(ENDPOINT, {
       method: 'POST',
@@ -617,11 +637,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       } else {
         showMessage('err', (result.data && result.data.error) || TEXT.error);
       }
-      onDone(state.done);
+      onDone(state.done, !!(result.data && result.data.duplicate));
     }).catch(function (error) {
       debug('submit failed', error);
       showMessage('err', TEXT.error);
-      onDone(false);
+      onDone(false, false);
     });
   }
 
@@ -666,6 +686,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
           button.parentNode.removeChild(button);
           var who = container.querySelector('.mleha-nm__who');
           if (who) { who.parentNode.removeChild(who); }
+          showRegisteredAfterSubmit();
         } else {
           button.disabled = false;
           button.lastChild.textContent = TEXT.button;
@@ -692,7 +713,12 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     trigger.appendChild(bellIcon());
     trigger.appendChild(el('span', null, TEXT.button));
 
-    var panel = el('form', 'mleha-nm__panel');
+    // This widget is mounted inside Salla's product <form>. Use a grouped div
+    // rather than nesting another form, which causes mobile browsers and Salla's
+    // cart submit interception to swallow this button.
+    var panel = el('div', 'mleha-nm__panel');
+    panel.setAttribute('role', 'group');
+    panel.setAttribute('aria-label', TEXT.button);
     panel.style.display = 'none';
 
     var phoneRow = el('div', 'mleha-nm__row');
@@ -727,7 +753,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     honeypot.setAttribute('aria-hidden', 'true');
 
     var submitBtn = el('button', 'mleha-nm__btn');
-    submitBtn.type = 'submit';
+    submitBtn.type = 'button';
     submitBtn.appendChild(el('span', null, TEXT.submit));
 
     panel.appendChild(phoneRow);
@@ -742,8 +768,8 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       phoneInput.focus();
     });
 
-    panel.addEventListener('submit', function (event) {
-      event.preventDefault();
+    function handleGuestSubmit(event) {
+      if (event) { event.preventDefault(); }
       if (state.busy || state.done) { return; }
 
       var phone = phoneInput.value.replace(/[^\d+]/g, '');
@@ -765,10 +791,19 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
         state.busy = false;
         if (done) {
           panel.parentNode.removeChild(panel);
+          if (trigger.parentNode) { trigger.parentNode.removeChild(trigger); }
+          showRegisteredAfterSubmit();
         } else {
           submitBtn.disabled = false;
           submitBtn.firstChild.textContent = TEXT.submit;
         }
+      });
+    }
+
+    submitBtn.addEventListener('click', handleGuestSubmit);
+    [phoneInput, nameInput].forEach(function (input) {
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') { handleGuestSubmit(event); }
       });
     });
 
