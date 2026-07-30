@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { log } from "@/app/lib/logger";
-import { notifyChatAssigned } from "@/app/lib/zoko-assignment-notification";
 
 type AnyRecord = Record<string, any>;
 
@@ -297,7 +296,7 @@ async function persistAssignment(event: NormalizedZokoAssignmentEvent) {
     });
   }
 
-  const chat = await prisma.zokoChat.upsert({
+  await prisma.zokoChat.upsert({
     where: { id: event.chatId },
     create: {
       id: event.chatId,
@@ -317,10 +316,6 @@ async function persistAssignment(event: NormalizedZokoAssignmentEvent) {
     event.eventAt.toISOString(),
   ].join(":");
 
-  const existingAssignment = await prisma.zokoChatAssignment.findUnique({
-    where: { id: assignmentId },
-  });
-
   await prisma.zokoChatAssignment.upsert({
     where: {
       id: assignmentId,
@@ -337,14 +332,7 @@ async function persistAssignment(event: NormalizedZokoAssignmentEvent) {
       rawPayload: event.payload,
     },
   });
-
-  if (!existingAssignment && event.status === "assigned") {
-    await notifyChatAssigned({
-      chatId: event.chatId,
-      customerPhone: chat.platformSenderId,
-      agentName: event.agent?.name,
-    });
-  }
+  // Assignment welcome messages are temporarily disabled.
 }
 
 async function persistClosure(event: NormalizedZokoClosureEvent) {
