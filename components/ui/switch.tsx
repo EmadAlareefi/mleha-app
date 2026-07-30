@@ -8,12 +8,14 @@ import { cn } from "@/lib/utils"
 function Switch({
   className,
   size = "default",
+  dir = "ltr",
   ...props
 }: React.ComponentProps<typeof SwitchPrimitive.Root> & {
   size?: "sm" | "default"
 }) {
   return (
     <SwitchPrimitive.Root
+      dir={dir}
       data-slot="switch"
       data-size={size}
       className={cn(
