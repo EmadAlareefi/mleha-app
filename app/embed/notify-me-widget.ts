@@ -41,7 +41,10 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     submit: 'سجّلني',
     invalidPhone: 'يرجى إدخال رقم جوال صحيح.',
     consent: 'سنستخدم رقمك لإبلاغك عند توفر هذا المنتج فقط.',
-    loggedInAs: 'سنرسل الإشعار على'
+    loggedInAs: 'سنرسل الإشعار عبر واتساب على الرقم',
+    registeredTitle: 'أنت مسجّل بالفعل لهذا المقاس',
+    registeredProductTitle: 'أنت مسجّل بالفعل لهذا المنتج',
+    registeredBody: 'سنبلغك عبر واتساب فور توفره.'
   };
 
   /* ---------- styles ---------- */
@@ -73,8 +76,24 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     '.mleha-nm__msg{margin-top:10px;padding:11px 13px;border-radius:10px;font-size:14px;}',
     '.mleha-nm__msg--ok{background:var(--nm-ok-soft);color:var(--nm-ok);}',
     '.mleha-nm__msg--err{background:var(--nm-err-soft);color:var(--nm-err);}',
-    '.mleha-nm__who{font-size:13px;color:var(--nm-muted);margin-top:8px;}',
-    '.mleha-nm__who b{color:var(--nm-ink);font-weight:600;direction:ltr;display:inline-block;}',
+    '.mleha-nm__who,.mleha-nm__registered{display:flex;align-items:center;gap:11px;',
+    'margin-top:10px;padding:12px 14px;border:1px solid var(--nm-line);border-radius:12px;',
+    'background:linear-gradient(135deg,#fdf9f8,#f8eeec);box-shadow:0 4px 14px rgba(125,47,43,.06);}',
+    '.mleha-nm__who-icon,.mleha-nm__registered-icon{display:flex;align-items:center;',
+    'justify-content:center;width:38px;height:38px;flex:0 0 38px;border-radius:11px;',
+    'background:var(--nm-rose);color:#fff;}',
+    '.mleha-nm__who-copy,.mleha-nm__registered-copy{min-width:0;display:flex;',
+    'flex-direction:column;gap:1px;}',
+    '.mleha-nm__who-title{font-size:12px;line-height:1.5;color:var(--nm-muted);}',
+    '.mleha-nm__who-phone{font-size:15px;line-height:1.45;color:var(--nm-ink);',
+    'font-weight:700;direction:ltr;text-align:right;display:inline-block;}',
+    '.mleha-nm__registered{border-color:#d9e9df;background:linear-gradient(135deg,#f8fcfa,#edf7f1);}',
+    '.mleha-nm__registered-icon{background:var(--nm-ok);}',
+    '.mleha-nm__registered-title{font-size:14px;line-height:1.55;color:var(--nm-ink);font-weight:700;}',
+    '.mleha-nm__registered-size{display:inline-flex;margin-inline-start:5px;padding:1px 8px;',
+    'border-radius:999px;background:#fff;color:var(--nm-ok);border:1px solid #cfe3d7;',
+    'font-size:12px;font-weight:700;direction:ltr;}',
+    '.mleha-nm__registered-body{font-size:12px;line-height:1.55;color:var(--nm-muted);}',
     /* Selia applies its disabled opacity to both the label and its inner div.
        Keep the stock-out marker for detection, but make every size consistent. */
     '.s-product-options-option-stock-out,',
@@ -267,6 +286,49 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   var selectedSoldOutOption = null;
+  var REGISTRATION_STORAGE_PREFIX = 'mleha-notify-registration:v1:';
+
+  function registrationStorageKey(productId, variationId) {
+    return REGISTRATION_STORAGE_PREFIX + String(productId) + ':' +
+      String(variationId || 'product');
+  }
+
+  function readRegistration(productId, variationId) {
+    try {
+      var raw = window.localStorage &&
+        window.localStorage.getItem(registrationStorageKey(productId, variationId));
+      if (!raw) { return null; }
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+      debug('could not read notify registration', error);
+      return null;
+    }
+  }
+
+  function rememberRegistration(payload) {
+    try {
+      if (!window.localStorage) { return; }
+      window.localStorage.setItem(
+        registrationStorageKey(payload.productId, payload.variationId),
+        JSON.stringify({
+          productId: String(payload.productId || ''),
+          variationId: String(payload.variationId || ''),
+          variationName: String(payload.variationName || payload.requestedSize || ''),
+          registeredAt: Date.now()
+        })
+      );
+    } catch (error) {
+      // Private browsing and strict storage policies can reject localStorage.
+      // Registration still succeeded on the server, so never surface this as an
+      // error to the customer.
+      debug('could not remember notify registration', error);
+    }
+  }
+
+  function isRegistered(productId, variationId) {
+    return !!readRegistration(productId, variationId);
+  }
 
   function selectedOptionMatches(input) {
     if (!selectedSoldOutOption || !input) { return false; }
@@ -374,11 +436,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   // The stock watcher needs the actual SKU/variation id. Each selected option
   // exposes compatible variation ids through details[].skus_availability; the
   // intersection is the exact variation represented by the selected combination.
-  function resolveSallaVariationId(input) {
+  function resolveSallaVariationId(input, onlyInput) {
     var parsed = parseSallaProductOptions();
     if (!parsed.component || parsed.options.length === 0) { return ''; }
 
-    var selected = parsed.component.querySelectorAll(
+    var selected = onlyInput && input ? [input] : parsed.component.querySelectorAll(
       'input[type="radio"]:checked,input[type="checkbox"]:checked,select option:checked'
     );
     if (selected.length === 0 && input) { selected = [input]; }
@@ -397,6 +459,35 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     }
 
     return candidates && candidates.length === 1 ? String(candidates[0]) : '';
+  }
+
+  function restoreRegisteredSoldOutOption(product) {
+    if (selectedSoldOutOption) { return; }
+
+    var options = document.querySelectorAll('.s-product-options-option-stock-out');
+    var best = null;
+    for (var i = 0; i < options.length; i++) {
+      var input = options[i].querySelector('input[type="radio"],input[type="checkbox"]');
+      if (!input) { continue; }
+
+      var variationId = resolveSallaVariationId(input, true);
+      if (!variationId) { continue; }
+
+      var registration = readRegistration(product.id, variationId);
+      if (!registration) { continue; }
+
+      var registeredAt = Number(registration.registeredAt) || 0;
+      if (!best || registeredAt > best.registeredAt) {
+        best = { input: input, registeredAt: registeredAt };
+      }
+    }
+
+    if (!best) { return; }
+    selectedSoldOutOption = {
+      name: String(best.input.name || ''),
+      value: String(best.input.value || '')
+    };
+    best.input.checked = true;
   }
 
   function getSelectedVariant() {
@@ -445,6 +536,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   var state = { busy: false, done: false };
   var hiddenCartButton = null;
   var hiddenCartButtonDisplay = '';
+  var renderedSelectionKey = '';
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -470,6 +562,41 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     return span;
   }
 
+  function cardIcon(className, kind) {
+    var span = el('span', className);
+    if (kind === 'check') {
+      span.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">' +
+        '<path d="M20 6 9 17l-5-5"/></svg>';
+    } else {
+      span.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">' +
+        '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 9.3 9.3 0 0 1-4-.9L3 21l1.8-4.8A8.5 8.5 0 1 1 21 11.5Z"/>' +
+        '<path d="M8.7 8.2c.3 3 2.1 4.8 5.1 5.1"/></svg>';
+    }
+    return span;
+  }
+
+  function renderRegistered(variant) {
+    var card = el('div', 'mleha-nm__registered');
+    card.setAttribute('role', 'status');
+    card.appendChild(cardIcon('mleha-nm__registered-icon', 'check'));
+
+    var copy = el('div', 'mleha-nm__registered-copy');
+    var title = el(
+      'div',
+      'mleha-nm__registered-title',
+      variant.id ? TEXT.registeredTitle : TEXT.registeredProductTitle
+    );
+    if (variant.name) {
+      title.appendChild(el('span', 'mleha-nm__registered-size', variant.name));
+    }
+    copy.appendChild(title);
+    copy.appendChild(el('div', 'mleha-nm__registered-body', TEXT.registeredBody));
+    card.appendChild(copy);
+    container.appendChild(card);
+  }
+
   function submit(payload, onDone) {
     fetch(ENDPOINT, {
       method: 'POST',
@@ -483,6 +610,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     }).then(function (result) {
       if (result.ok && result.data && result.data.success) {
         state.done = true;
+        rememberRegistration(payload);
         showMessage('ok', result.data.duplicate ? TEXT.duplicate : TEXT.success);
       } else if (result.status === 429) {
         showMessage('err', TEXT.rateLimited);
@@ -549,8 +677,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
     if (customer.phone) {
       var who = el('div', 'mleha-nm__who');
-      who.appendChild(document.createTextNode(TEXT.loggedInAs + ' '));
-      who.appendChild(el('b', null, customer.phone));
+      who.appendChild(cardIcon('mleha-nm__who-icon', 'whatsapp'));
+      var copy = el('div', 'mleha-nm__who-copy');
+      copy.appendChild(el('span', 'mleha-nm__who-title', TEXT.loggedInAs));
+      copy.appendChild(el('b', 'mleha-nm__who-phone', customer.phone));
+      who.appendChild(copy);
       container.appendChild(who);
     }
   }
@@ -662,6 +793,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     }
     hiddenCartButton = null;
     hiddenCartButtonDisplay = '';
+    renderedSelectionKey = '';
     container = null;
     state = { busy: false, done: false };
   }
@@ -680,6 +812,14 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
     injectStyles();
     normalizeSoldOutOptions();
+    restoreRegisteredSoldOutOption(product);
+    normalizeSoldOutOptions();
+
+    var variant = getSelectedVariant();
+    var selectionKey = product.id + ':' + String(variant.id || 'product');
+    if (container && renderedSelectionKey !== selectionKey) {
+      teardown();
+    }
 
     if (!isSoldOut()) {
       // Switching back to an in-stock variant should take the widget away again.
@@ -694,17 +834,22 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
     container = el('div', 'mleha-nm');
     container.setAttribute('dir', 'rtl');
+    renderedSelectionKey = selectionKey;
 
-    var customer = getCustomer();
-    if (customer && customer.phone) {
-      renderLoggedIn(product, customer);
+    if (isRegistered(product.id, variant.id)) {
+      renderRegistered(variant);
     } else {
-      renderGuestForm(product);
+      var customer = getCustomer();
+      if (customer && customer.phone) {
+        renderLoggedIn(product, customer);
+      } else {
+        renderGuestForm(product);
+      }
     }
 
     mountPoint().appendChild(container);
     hideCartButton();
-    debug('widget mounted', product, customer ? 'logged-in' : 'guest');
+    debug('widget mounted', product, isRegistered(product.id, variant.id) ? 'registered' : 'new');
   }
 
   /* ---------- lifecycle ---------- */

@@ -26,8 +26,11 @@ test('matches the live Selia product option markup', () => {
       getSelectedVariant: getSelectedVariant,
       isSingleProductPage: isSingleProductPage,
       isSoldOut: isSoldOut,
+      isRegistered: isRegistered,
+      rememberRegistration: rememberRegistration,
       normalizeSoldOutOptions: normalizeSoldOutOptions,
-      preventSoldOutCartSubmission: preventSoldOutCartSubmission
+      preventSoldOutCartSubmission: preventSoldOutCartSubmission,
+      restoreRegisteredSoldOutOption: restoreRegisteredSoldOutOption
     };})();`
   );
 
@@ -140,8 +143,13 @@ test('matches the live Selia product option markup', () => {
     },
   };
 
+  const storage = new Map<string, string>();
   const windowStub = {
     location: { pathname: '/ar/7337-french-dress-with-lace-detailing' },
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    },
     salla: {
       config: {
         get: (path: string) => {
@@ -161,12 +169,20 @@ test('matches the live Selia product option markup', () => {
     getSelectedVariant: () => { id: string; name: string; size: string };
     isSingleProductPage: () => boolean;
     isSoldOut: () => boolean;
+    isRegistered: (productId: string, variationId: string) => boolean;
+    rememberRegistration: (payload: {
+      productId: string;
+      requestedSize: string;
+      variationId: string;
+      variationName: string;
+    }) => void;
     normalizeSoldOutOptions: () => void;
     preventSoldOutCartSubmission: (event: {
       preventDefault: () => void;
       stopImmediatePropagation: () => void;
       stopPropagation: () => void;
     }) => void;
+    restoreRegisteredSoldOutOption: (product: { id: string }) => void;
   };
 
   assert.equal(helpers.isSingleProductPage(), true);
@@ -191,6 +207,19 @@ test('matches the live Selia product option markup', () => {
     size: 'M',
   });
 
+  helpers.rememberRegistration({
+    productId: '1379647441',
+    requestedSize: 'M',
+    variationId: '125665688',
+    variationName: 'M',
+  });
+  assert.equal(helpers.isRegistered('1379647441', '125665688'), true);
+
+  input.checked = false;
+  helpers.restoreRegisteredSoldOutOption({ id: '1379647441' });
+  helpers.normalizeSoldOutOptions();
+  assert.equal(input.checked, true);
+
   let prevented = 0;
   helpers.preventSoldOutCartSubmission({
     preventDefault: () => {
@@ -206,4 +235,6 @@ test('matches the live Selia product option markup', () => {
     NOTIFY_ME_WIDGET_SOURCE,
     /s-product-options-option-stock-out \.s-product-options-disabled\{opacity:1!important/
   );
+  assert.match(NOTIFY_ME_WIDGET_SOURCE, /سنرسل الإشعار عبر واتساب على الرقم/);
+  assert.match(NOTIFY_ME_WIDGET_SOURCE, /mleha-nm__registered/);
 });
