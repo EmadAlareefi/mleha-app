@@ -74,7 +74,10 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     '.mleha-nm__msg--ok{background:var(--nm-ok-soft);color:var(--nm-ok);}',
     '.mleha-nm__msg--err{background:var(--nm-err-soft);color:var(--nm-err);}',
     '.mleha-nm__who{font-size:13px;color:var(--nm-muted);margin-top:8px;}',
-    '.mleha-nm__who b{color:var(--nm-ink);font-weight:600;direction:ltr;display:inline-block;}'
+    '.mleha-nm__who b{color:var(--nm-ink);font-weight:600;direction:ltr;display:inline-block;}',
+    /* Selia dims unavailable variant labels with opacity:.5. Keep Salla's
+       stock-out class for its behavior, but present every size consistently. */
+    '.s-product-options-option-stock-out{opacity:1!important;}'
   ].join('');
 
   function injectStyles() {
@@ -219,13 +222,36 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   // requested size and read back to the customer in the WhatsApp message.
   function cleanVariantLabel(raw) {
     var label = String(raw || '').replace(/\s+/g, ' ').trim();
-    var parts = label.split(/\s*[—–|(]\s*/);
-    if (parts.length > 1) {
-      var head = parts[0].trim();
-      var tail = parts.slice(1).join(' ');
-      if (head && textLooksSoldOut(tail)) { label = head; }
+
+    // Cut at the stock phrase instead of relying on one separator. The live
+    // Selia theme currently uses an ASCII hyphen ("M - نفدت الكمية"), while
+    // other themes use an en/em dash, a pipe, or parentheses.
+    var lowered = label.toLowerCase();
+    var soldOutAt = -1;
+    for (var i = 0; i < SOLD_OUT_WORDS.length; i++) {
+      var wordAt = lowered.indexOf(SOLD_OUT_WORDS[i].toLowerCase());
+      if (wordAt !== -1 && (soldOutAt === -1 || wordAt < soldOutAt)) {
+        soldOutAt = wordAt;
+      }
     }
+
+    if (soldOutAt !== -1) { label = label.slice(0, soldOutAt); }
     return label.replace(/[\s\-–—|(),]+$/, '').trim();
+  }
+
+  // Keep unavailable choices visually consistent with available choices and
+  // remove the stock suffix from what the customer sees. Only the visible text
+  // node is changed; the input value and Salla's stock-out class remain intact.
+  function normalizeSoldOutOptions() {
+    var options = document.querySelectorAll('.s-product-options-option-stock-out');
+    for (var i = 0; i < options.length; i++) {
+      var visibleLabel = options[i].querySelector('.s-product-options-grid-mode-span');
+      if (!visibleLabel) { continue; }
+
+      var current = String(visibleLabel.textContent || '').replace(/\s+/g, ' ').trim();
+      var cleaned = cleanVariantLabel(current);
+      if (cleaned && cleaned !== current) { visibleLabel.textContent = cleaned; }
+    }
   }
 
   function getSelectedVariant() {
@@ -480,6 +506,9 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     var product = getProduct();
     if (!product) { debug('no product on page'); return; }
 
+    injectStyles();
+    normalizeSoldOutOptions();
+
     if (!isSoldOut()) {
       // Switching back to an in-stock variant should take the widget away again.
       if (container && !state.done) { teardown(); }
@@ -488,7 +517,6 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
     if (container) { return; }
 
-    injectStyles();
     container = el('div', 'mleha-nm');
     container.setAttribute('dir', 'rtl');
 
