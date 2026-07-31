@@ -41,12 +41,15 @@ export type ProductAvailability = {
 };
 
 export type WatcherDeps = {
-  listPending: () => Promise<AvailabilityRequestRecord[]>;
-  loadAvailability: (productId: number) => Promise<ProductAvailability>;
+  listPending: (productIds?: number[]) => Promise<AvailabilityRequestRecord[]>;
+  loadAvailability: (
+    productId: number,
+    requests?: AvailabilityRequestRecord[]
+  ) => Promise<ProductAvailability>;
   notify: (request: AvailabilityRequestRecord) => Promise<AvailabilityNotificationResult>;
   claim: (ids: string[]) => Promise<string[]>;
   release: (id: string) => Promise<void>;
-  markNotified: (id: string) => Promise<unknown>;
+  markNotified: (id: string, providerMessageId?: string) => Promise<unknown>;
   markFailed: (id: string, error: string) => Promise<unknown>;
   markChecked: (ids: string[]) => Promise<void>;
   markBackInStock: (ids: string[]) => Promise<void>;
@@ -94,7 +97,7 @@ export function normalizeVariantName(value: string | null | undefined): string {
  * a dress being back in size L does nothing for someone waiting on size S. A
  * request with no variant falls back to product-level stock, and when Salla reports
  * no product-level quantity (the usual case for variable products) the sum of the
- * variants stands in for it, which is what getSallaProductLiveStats already does.
+ * variants loaded by the watcher stands in for it.
  */
 export function isRequestSatisfied(
   request: Pick<AvailabilityRequestRecord, 'variationId' | 'variationName' | 'requestedSize'>,
@@ -146,46 +149,57 @@ function groupByProduct(
 
 async function loadAvailabilityFromSalla(
   merchantId: string,
-  productId: number
+  productId: number,
+  requests: AvailabilityRequestRecord[] = []
 ): Promise<ProductAvailability> {
-  const stats = await getSallaProductLiveStats(merchantId, productId);
+  // The watcher needs both product and variant stock. Disable the stats helper's
+  // own variant fallback so each product makes exactly one variants request.
+  const stats = await getSallaProductLiveStats(merchantId, productId, {
+    includeVariantFallback: false,
+    strict: true,
+  });
 
   const variantQuantities: Record<string, number | null> = {};
   const variantQuantitiesByName: Record<string, number | null> = {};
   const ambiguousVariantNames = new Set<string>();
-  if (stats.found) {
-    try {
-      const variations = await getSallaProductVariations(merchantId, productId);
-      for (const variation of variations) {
-        if (variation.id != null) {
-          variantQuantities[String(variation.id)] = variation.availableQuantity ?? null;
-        }
-        const nameKey = normalizeVariantName(variation.name);
-        if (nameKey) {
-          if (
-            ambiguousVariantNames.has(nameKey) ||
-            Object.prototype.hasOwnProperty.call(variantQuantitiesByName, nameKey)
-          ) {
-            delete variantQuantitiesByName[nameKey];
-            ambiguousVariantNames.add(nameKey);
-          } else {
-            variantQuantitiesByName[nameKey] = variation.availableQuantity ?? null;
-          }
-        }
+  const needsVariantData =
+    stats.remainingQuantity == null || requests.some((request) => Boolean(request.variationId));
+  const variations =
+    stats.found && needsVariantData
+      ? await getSallaProductVariations(merchantId, productId)
+      : [];
+  for (const variation of variations) {
+    if (variation.id != null) {
+      variantQuantities[String(variation.id)] = variation.availableQuantity ?? null;
+    }
+    const nameKey = normalizeVariantName(variation.name);
+    if (nameKey) {
+      if (
+        ambiguousVariantNames.has(nameKey) ||
+        Object.prototype.hasOwnProperty.call(variantQuantitiesByName, nameKey)
+      ) {
+        delete variantQuantitiesByName[nameKey];
+        ambiguousVariantNames.add(nameKey);
+      } else {
+        variantQuantitiesByName[nameKey] = variation.availableQuantity ?? null;
       }
-    } catch (error) {
-      // A variant lookup failure must not read as "everything is in stock".
-      log.warn('Could not load variants while checking availability', {
-        productId,
-        error: error instanceof Error ? error.message : error,
-      });
+    }
+  }
+
+  let productQuantity = stats.remainingQuantity;
+  if (productQuantity == null) {
+    const knownQuantities = variations
+      .map((variation) => variation.availableQuantity)
+      .filter((quantity): quantity is number => typeof quantity === 'number');
+    if (knownQuantities.length > 0) {
+      productQuantity = knownQuantities.reduce((sum, quantity) => sum + quantity, 0);
     }
   }
 
   return {
     productId,
     found: stats.found,
-    productQuantity: stats.remainingQuantity,
+    productQuantity,
     variantQuantities,
     variantQuantitiesByName,
   };
@@ -194,11 +208,18 @@ async function loadAvailabilityFromSalla(
 export function createDefaultWatcherDeps(merchantId: string): WatcherDeps {
   return {
     listPending: listPendingRequestsForWatcher,
-    loadAvailability: (productId) => loadAvailabilityFromSalla(merchantId, productId),
+    loadAvailability: (productId, requests) =>
+      loadAvailabilityFromSalla(merchantId, productId, requests),
     notify: sendAvailabilityNotification,
     claim: claimRequestsForNotification,
     release: releaseClaimedRequest,
-    markNotified: (id) => markRequestNotified({ id, channel: 'whatsapp', actorName: 'auto' }),
+    markNotified: (id, providerMessageId) =>
+      markRequestNotified({
+        id,
+        channel: 'whatsapp',
+        actorName: 'auto',
+        providerMessageId,
+      }),
     markFailed: (id, error) => markRequestFailed({ id, error }),
     markChecked: markRequestsChecked,
     markBackInStock: markRequestsBackInStock,
@@ -226,11 +247,9 @@ export async function runAvailabilityStockCheck(
   const requestedProductIds = new Set(
     (options.productIds || []).filter((id) => Number.isInteger(id) && id > 0)
   );
-  const allPending = await deps.listPending();
-  const pending =
-    requestedProductIds.size > 0
-      ? allPending.filter((request) => requestedProductIds.has(request.productId))
-      : allPending;
+  const pending = await deps.listPending(
+    requestedProductIds.size > 0 ? Array.from(requestedProductIds) : undefined
+  );
   const grouped = groupByProduct(pending);
 
   const result: WatcherRunResult = {
@@ -260,7 +279,7 @@ export async function runAvailabilityStockCheck(
 
     let availability: ProductAvailability;
     try {
-      availability = await deps.loadAvailability(productId);
+      availability = await deps.loadAvailability(productId, requests);
       result.productsChecked += 1;
     } catch (error) {
       // Salla was unreachable for this product. Leave every request exactly as it
@@ -272,7 +291,9 @@ export async function runAvailabilityStockCheck(
     }
 
     summary.found = availability.found;
-    await deps.markChecked(requests.map((request) => request.id));
+    if (!dryRun) {
+      await deps.markChecked(requests.map((request) => request.id));
+    }
 
     const satisfied = requests.filter((request) => isRequestSatisfied(request, availability));
     summary.backInStock = satisfied.length;
@@ -283,7 +304,9 @@ export async function runAvailabilityStockCheck(
       continue;
     }
 
-    await deps.markBackInStock(satisfied.map((request) => request.id));
+    if (!dryRun) {
+      await deps.markBackInStock(satisfied.map((request) => request.id));
+    }
 
     if (dryRun || !autoNotifyEnabled) {
       summary.skipped += satisfied.length;
@@ -306,7 +329,7 @@ export async function runAvailabilityStockCheck(
       try {
         const outcome = await deps.notify(request);
         if (outcome.status === 'sent') {
-          await deps.markNotified(request.id);
+          await deps.markNotified(request.id, outcome.zokoMsgId);
           summary.sent += 1;
           result.sent += 1;
         } else if (outcome.status === 'skipped') {

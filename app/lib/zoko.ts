@@ -1,6 +1,8 @@
 import { env } from "./env";
 import { withBackoff } from "./retry";
 
+const ZOKO_REQUEST_TIMEOUT_MS = 15_000;
+
 export interface SendTemplateArgs {
   to: string; // recipient phone
   templateId: string; // your approved template ID
@@ -24,6 +26,7 @@ async function postData(url: string, data: any) {
       apikey: env.ZOKO_API_KEY!, // <-- use apikey header
     },
     body: JSON.stringify(data),
+    signal: AbortSignal.timeout(ZOKO_REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) {
     const text = await response.text();

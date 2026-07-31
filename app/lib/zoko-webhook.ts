@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { log } from "@/app/lib/logger";
+import { buildAvailabilityDeliveryUpdate } from "@/app/lib/availability-delivery";
 
 type AnyRecord = Record<string, any>;
 
@@ -71,7 +72,7 @@ export function normalizeZokoEvent(input: unknown): NormalizedZokoEvent | null {
 
   if (!eventName) return null;
 
-  if (MESSAGE_EVENTS.has(eventName)) {
+  if (MESSAGE_EVENTS.has(eventName) || eventName.startsWith("message:")) {
     const chatId = getChatId(payload);
     const messageId = typeof payload.id === "string" ? payload.id : null;
     if (!chatId || !messageId) return null;
@@ -278,6 +279,17 @@ async function persistMessage(event: NormalizedZokoMessageEvent) {
       payload: event.payload,
     },
   });
+
+  const deliveryUpdate = buildAvailabilityDeliveryUpdate(
+    event.deliveryStatus,
+    event.platformTimestamp ?? new Date()
+  );
+  if (deliveryUpdate) {
+    await prisma.sallaProductAvailabilityRequest.updateMany({
+      where: { providerMessageId: event.messageId },
+      data: deliveryUpdate,
+    });
+  }
 }
 
 async function persistAssignment(event: NormalizedZokoAssignmentEvent) {

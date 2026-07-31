@@ -13,7 +13,15 @@ const FORCED_REFRESH_INTERVAL_MS = 10 * 24 * 60 * 60 * 1000; // Force refresh ev
 const SALLA_CA_BUNDLE_PATH =
   process.env.SALLA_CA_BUNDLE_PATH || path.join(/* turbopackIgnore: true */ process.cwd(), 'certs/salla-chain.pem');
 
-type SallaRequestOptions = UndiciRequestInit & { dispatcher?: Dispatcher };
+type SallaRequestOptions = UndiciRequestInit & {
+  dispatcher?: Dispatcher;
+  /**
+   * Most legacy callers render an empty state when Salla is unavailable. Critical
+   * workflows (such as back-in-stock notifications) need to distinguish an outage
+   * from a genuine "not found" response so they can retry without losing time.
+   */
+  throwOnError?: boolean;
+};
 
 const SALLA_REQUEST_TIMEOUT_MS = 15000;
 
@@ -328,6 +336,9 @@ export async function sallaMakeRequest<T>(
 
   if (!accessToken) {
     log.error('No valid access token available', { merchantId, endpoint });
+    if (options?.throwOnError) {
+      throw new Error(`No valid Salla access token for ${endpoint}`);
+    }
     return null;
   }
 
@@ -337,7 +348,12 @@ export async function sallaMakeRequest<T>(
     const url = endpoint.startsWith('/') ? `${baseUrl}${endpoint}` : `${baseUrl}/${endpoint}`;
 
     const requestOptions: SallaRequestOptions = options ?? {};
-    const { dispatcher: requestDispatcher, signal: callerSignal, ...restOptions } = requestOptions;
+    const {
+      dispatcher: requestDispatcher,
+      signal: callerSignal,
+      throwOnError,
+      ...restOptions
+    } = requestOptions;
     const dispatcher = requestDispatcher ?? getSallaDispatcher() ?? undefined;
 
     // Cap each request so a single slow upstream call can't stall the whole flow.
@@ -365,12 +381,18 @@ export async function sallaMakeRequest<T>(
         status: response.status,
         error: errorText
       });
+      if (throwOnError) {
+        throw new Error(`Salla API ${response.status} for ${endpoint}: ${errorText.slice(0, 500)}`);
+      }
       return null;
     }
 
     return await response.json() as T;
   } catch (error) {
     log.error('Error making Salla API request', { merchantId, endpoint, error });
+    if (options?.throwOnError) {
+      throw error instanceof Error ? error : new Error(`Salla request failed for ${endpoint}`);
+    }
     return null;
   }
 }

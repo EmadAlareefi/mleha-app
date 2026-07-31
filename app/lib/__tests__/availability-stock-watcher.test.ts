@@ -13,6 +13,7 @@ import {
 } from '../availability-product-webhook';
 import { normalizeE164Phone } from '../phone';
 import type { AvailabilityRequestRecord } from '../salla-availability-requests';
+import { buildAvailabilityMessageParts } from '../salla-availability-requests';
 import { POST as productAvailabilityWebhook } from '../../api/webhooks/salla/product-availability/route';
 
 function makeRequest(
@@ -259,6 +260,8 @@ describe('runAvailabilityStockCheck', () => {
 
   it('reports what a dry run would send without sending it', async () => {
     let recoveryCalls = 0;
+    let checkedCalls = 0;
+    let backInStockCalls = 0;
     const result = await runAvailabilityStockCheck({
       dryRun: true,
       deps: makeDeps({
@@ -266,11 +269,19 @@ describe('runAvailabilityStockCheck', () => {
           recoveryCalls += 1;
           return 2;
         },
+        markChecked: async () => {
+          checkedCalls += 1;
+        },
+        markBackInStock: async () => {
+          backInStockCalls += 1;
+        },
       }),
     });
 
     assert.deepEqual(notified, []);
     assert.equal(recoveryCalls, 0);
+    assert.equal(checkedCalls, 0);
+    assert.equal(backInStockCalls, 0);
     assert.equal(result.dryRun, true);
     assert.equal(result.backInStock, 1);
     assert.equal(result.skipped, 1);
@@ -286,13 +297,14 @@ describe('runAvailabilityStockCheck', () => {
 
   it('limits a webhook-triggered check to the requested product', async () => {
     const checked: number[] = [];
+    let listedProductIds: number[] | undefined;
     const result = await runAvailabilityStockCheck({
       productIds: [200],
       deps: makeDeps({
-        listPending: async () => [
-          makeRequest({ id: 'req-1', productId: 100 }),
-          makeRequest({ id: 'req-2', productId: 200 }),
-        ],
+        listPending: async (productIds) => {
+          listedProductIds = productIds;
+          return [makeRequest({ id: 'req-2', productId: 200 })];
+        },
         loadAvailability: async (productId) => {
           checked.push(productId);
           return availability({ productId, productQuantity: 1 });
@@ -301,6 +313,7 @@ describe('runAvailabilityStockCheck', () => {
     });
 
     assert.deepEqual(checked, [200]);
+    assert.deepEqual(listedProductIds, [200]);
     assert.deepEqual(notified, ['req-2']);
     assert.equal(result.productsChecked, 1);
   });
@@ -385,10 +398,35 @@ describe('availability phone normalization', () => {
     assert.equal(normalizeE164Phone('0501234567'), '+966501234567');
     assert.equal(normalizeE164Phone('501234567'), '+966501234567');
     assert.equal(normalizeE164Phone('+966501234567'), '+966501234567');
+    assert.equal(normalizeE164Phone('٠٥٠١٢٣٤٥٦٧'), '+966501234567');
   });
 
   it('rejects malformed Saudi and non-E.164 values', () => {
     assert.equal(normalizeE164Phone('+05511928411'), '');
     assert.equal(normalizeE164Phone('123'), '');
+  });
+});
+
+describe('availability notification product link', () => {
+  it('uses the captured canonical storefront URL and removes tracking parameters', () => {
+    const parts = buildAvailabilityMessageParts(
+      makeRequest({
+        productId: 1379647441,
+        pageUrl:
+          'https://mleha.com/ar/7337-french-dress-with-lace-detailing?from=search-bar#size',
+      })
+    );
+
+    assert.equal(
+      parts.productLink,
+      'https://mleha.com/ar/7337-french-dress-with-lace-detailing'
+    );
+  });
+
+  it('uses a valid Salla product-id fallback for legacy requests', () => {
+    const parts = buildAvailabilityMessageParts(
+      makeRequest({ productId: 1379647441, pageUrl: null })
+    );
+    assert.equal(parts.productLink, 'https://mleha.com/ar/p1379647441');
   });
 });

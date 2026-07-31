@@ -1,6 +1,12 @@
+function normalizeNumerals(value: string): string {
+  return value
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)));
+}
+
 // Normalize KSA numbers → E.164 (+966xxxxxxxxx)
 export function normalizeKSA(msisdn?: string | number | null): string {
-  const raw = msisdn == null ? "" : String(msisdn);
+  const raw = msisdn == null ? "" : normalizeNumerals(String(msisdn));
   let p = raw.replace(/\D/g, "");
   if (!p) return p;
   if (p.startsWith("00966")) p = p.replace(/^00966/, "966");

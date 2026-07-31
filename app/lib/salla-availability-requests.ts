@@ -31,6 +31,10 @@ const availabilityRequestSelect = {
   notifyError: true,
   lastCheckedAt: true,
   backInStockAt: true,
+  providerMessageId: true,
+  deliveryStatus: true,
+  deliveredAt: true,
+  deliveryFailedAt: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -231,6 +235,10 @@ export async function updateAvailabilityRequestStatus(
     data.notifiedBy = null;
     data.notifyError = null;
     data.notifyAttempts = 0;
+    data.providerMessageId = null;
+    data.deliveryStatus = null;
+    data.deliveredAt = null;
+    data.deliveryFailedAt = null;
   }
 
   return prisma.sallaProductAvailabilityRequest.update({
@@ -321,7 +329,17 @@ export async function markRequestNotified(input: {
   id: string;
   channel: 'whatsapp' | 'sms';
   actorName?: string | null;
+  providerMessageId?: string | null;
 }): Promise<AvailabilityRequestRecord> {
+  const providerMessage = input.providerMessageId
+    ? await prisma.zokoMessage.findUnique({
+        where: { id: input.providerMessageId },
+        select: { deliveryStatus: true, platformTimestamp: true, createdAt: true },
+      })
+    : null;
+  const providerStatus = providerMessage?.deliveryStatus?.trim().toLowerCase() || 'accepted';
+  const delivered = providerStatus === 'delivered' || providerStatus === 'read';
+
   return prisma.sallaProductAvailabilityRequest.update({
     where: { id: input.id },
     data: {
@@ -330,6 +348,15 @@ export async function markRequestNotified(input: {
       notifiedBy: input.actorName ?? 'auto',
       notifyChannel: input.channel,
       notifyError: null,
+      providerMessageId: input.providerMessageId ?? null,
+      deliveryStatus: providerStatus,
+      ...(delivered
+        ? {
+            deliveredAt:
+              providerMessage?.platformTimestamp ?? providerMessage?.createdAt ?? new Date(),
+            deliveryFailedAt: null,
+          }
+        : {}),
     },
     select: availabilityRequestSelect,
   });
@@ -387,9 +414,14 @@ export async function markRequestsBackInStock(ids: string[]): Promise<void> {
   });
 }
 
-export async function listPendingRequestsForWatcher(): Promise<AvailabilityRequestRecord[]> {
+export async function listPendingRequestsForWatcher(
+  productIds?: number[]
+): Promise<AvailabilityRequestRecord[]> {
   return prisma.sallaProductAvailabilityRequest.findMany({
-    where: { status: 'pending' },
+    where: {
+      status: 'pending',
+      ...(productIds && productIds.length > 0 ? { productId: { in: productIds } } : {}),
+    },
     orderBy: { createdAt: 'asc' },
     select: availabilityRequestSelect,
   });
@@ -403,6 +435,29 @@ export type AvailabilityMessageParts = {
   /** Canonical storefront link to the product. */
   productLink: string;
 };
+
+function getAvailabilityProductLink(request: AvailabilityRequestRecord): string {
+  if (request.pageUrl) {
+    try {
+      const url = new URL(request.pageUrl);
+      const hostname = url.hostname.toLowerCase();
+      if (
+        url.protocol === 'https:' &&
+        (hostname === 'mleha.com' || hostname === 'www.mleha.com')
+      ) {
+        url.search = '';
+        url.hash = '';
+        return url.toString();
+      }
+    } catch {
+      // Fall through to the stable product-id route for legacy or malformed rows.
+    }
+  }
+
+  return request.productId
+    ? `https://mleha.com/ar/p${request.productId}`
+    : 'https://mleha.com/ar';
+}
 
 /**
  * The three pieces both channels need: the SMS body below is assembled from them,
@@ -424,9 +479,7 @@ export function buildAvailabilityMessageParts(
   return {
     customerName: request.customerFirstName?.trim() || 'عميلنا العزيز',
     productLabel: `${productName}${extraInfo ? ` (${extraInfo})` : ''}`,
-    productLink: request.productId
-      ? `https://mleha.com/ar/products/p${request.productId}`
-      : 'https://mleha.com/ar',
+    productLink: getAvailabilityProductLink(request),
   };
 }
 

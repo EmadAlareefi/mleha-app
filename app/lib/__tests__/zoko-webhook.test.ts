@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeZokoEvent } from "../zoko-webhook";
+import { buildAvailabilityDeliveryUpdate } from "../availability-delivery";
 
 describe("normalizeZokoEvent", () => {
   it("normalizes outgoing store messages", () => {
@@ -80,5 +81,42 @@ describe("normalizeZokoEvent", () => {
   it("returns null for unsupported events", () => {
     const normalized = normalizeZokoEvent({ event: "unknown", id: "1" });
     assert.equal(normalized, null);
+  });
+
+  it("normalizes message delivery updates for later reconciliation", () => {
+    const normalized = normalizeZokoEvent({
+      event: "message:status:update",
+      id: "provider-message-1",
+      customerId: "chat-1",
+      direction: "FROM_STORE",
+      deliveryStatus: "delivered",
+      platformTimestamp: "2026-07-31T12:00:00Z",
+    });
+
+    assert.ok(normalized && normalized.kind === "message");
+    assert.equal(normalized.messageId, "provider-message-1");
+    assert.equal(normalized.deliveryStatus, "delivered");
+  });
+});
+
+describe("buildAvailabilityDeliveryUpdate", () => {
+  it("records delivery and read states as delivered", () => {
+    const eventAt = new Date("2026-07-31T12:00:00Z");
+    assert.deepEqual(buildAvailabilityDeliveryUpdate("delivered", eventAt), {
+      deliveryStatus: "delivered",
+      deliveredAt: eventAt,
+      deliveryFailedAt: null,
+      notifyError: null,
+    });
+    assert.equal(buildAvailabilityDeliveryUpdate("read", eventAt)?.deliveredAt, eventAt);
+  });
+
+  it("records terminal provider failures separately from API acceptance", () => {
+    const eventAt = new Date("2026-07-31T12:00:00Z");
+    assert.deepEqual(buildAvailabilityDeliveryUpdate("undelivered", eventAt), {
+      deliveryStatus: "failed",
+      deliveryFailedAt: eventAt,
+      notifyError: "Zoko delivery undelivered",
+    });
   });
 });

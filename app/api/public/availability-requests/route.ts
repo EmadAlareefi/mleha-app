@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
@@ -174,6 +175,17 @@ export async function POST(request: NextRequest) {
 
     return corsJson({ success: true, requestId: created.id }, { origin });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const duplicate = await findDuplicatePendingRequest({
+        productId,
+        variationId,
+        customerPhone: phone,
+      }).catch(() => null);
+      if (duplicate) {
+        return corsJson({ success: true, duplicate: true }, { origin });
+      }
+    }
+
     log.error('Failed to store storefront availability request', {
       productId,
       error: error instanceof Error ? error.message : error,

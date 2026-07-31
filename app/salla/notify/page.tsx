@@ -48,6 +48,10 @@ type AvailabilityRequestRecord = {
   notifyAttempts?: number | null;
   notifyError?: string | null;
   backInStockAt?: string | null;
+  providerMessageId?: string | null;
+  deliveryStatus?: string | null;
+  deliveredAt?: string | null;
+  deliveryFailedAt?: string | null;
   createdAt: string;
   updatedAt?: string;
 };
@@ -98,6 +102,29 @@ type ActionResult = { success: true } | { success: false; error: string };
 
 type AvailabilityStatusFilter = 'all' | AvailabilityRequestRecord['status'];
 type SubscriberAvailabilityFilter = 'all' | 'available' | 'unavailable';
+
+function availabilityRequestStatusLabel(request: AvailabilityRequestRecord): string {
+  const deliveryStatus = request.deliveryStatus?.toLowerCase();
+  if (request.status === 'notified') {
+    if (request.notifyChannel === 'whatsapp' || request.providerMessageId) {
+      if (deliveryStatus === 'delivered' || deliveryStatus === 'read') {
+        return deliveryStatus === 'read' ? 'تمت القراءة' : 'تم التسليم عبر واتساب';
+      }
+      if (deliveryStatus === 'failed') {
+        return 'تعذر تسليم واتساب';
+      }
+      return 'قُبل الإرسال لدى واتساب';
+    }
+    return 'تم إشعار العميل';
+  }
+
+  return {
+    pending: 'بانتظار التوفر',
+    notifying: 'جاري الإرسال',
+    failed: 'فشل الإرسال',
+    cancelled: 'ملغي',
+  }[request.status];
+}
 
 type SubscriberProductOption = {
   id: number;
@@ -1358,13 +1385,6 @@ export default function SallaNotifyPage() {
                             .trim();
                           const sizeLabel =
                             request.requestedSize || request.variationName || request.productSku || 'غير محدد';
-                          const statusLabelMap: Record<AvailabilityRequestRecord['status'], string> = {
-                            pending: 'بانتظار التوفر',
-                            notifying: 'جاري الإرسال',
-                            notified: 'تم إشعار العميل',
-                            failed: 'فشل الإرسال',
-                            cancelled: 'ملغي',
-                          };
                           const isStorefront = request.source === 'storefront';
                           const stockInfo = subscriberStockMap[request.productId];
                           const hasStock = stockInfo?.hasStock;
@@ -1399,7 +1419,9 @@ export default function SallaNotifyPage() {
                               <TableCell>
                                 <Badge
                                   variant={
-                                    request.status === 'notified'
+                                    request.deliveryStatus === 'failed'
+                                      ? 'destructive'
+                                      : request.status === 'notified'
                                       ? 'default'
                                       : request.status === 'failed'
                                       ? 'destructive'
@@ -1408,9 +1430,9 @@ export default function SallaNotifyPage() {
                                       : 'outline'
                                   }
                                 >
-                                  {statusLabelMap[request.status]}
+                                  {availabilityRequestStatusLabel(request)}
                                 </Badge>
-                                {request.status === 'failed' && request.notifyError && (
+                                {request.notifyError && (
                                   <p
                                     className="mt-1 max-w-[220px] truncate text-[11px] text-red-500"
                                     title={request.notifyError}
@@ -2268,14 +2290,6 @@ function AvailabilityRequestCard({
   onSendMessage,
   onMarkNotified,
 }: AvailabilityRequestCardProps) {
-  const statusLabelMap: Record<AvailabilityRequestRecord['status'], string> = {
-    pending: 'بانتظار التوفر',
-    notifying: 'جاري الإرسال',
-    notified: 'تم إشعار العميل',
-    failed: 'فشل الإرسال',
-    cancelled: 'ملغي',
-  };
-
   const fullName = [request.customerFirstName, request.customerLastName]
     .filter((part) => part && part.trim().length > 0)
     .join(' ')
@@ -2319,8 +2333,18 @@ function AvailabilityRequestCard({
           <p className="text-sm font-semibold text-slate-900">{fullName || 'عميل'}</p>
           <p className="text-xs text-slate-500">المقاس المطلوب: {sizeLabel}</p>
         </div>
-        <Badge variant={request.status === 'notified' ? 'default' : request.status === 'cancelled' ? 'secondary' : 'outline'}>
-          {statusLabelMap[request.status]}
+        <Badge
+          variant={
+            request.deliveryStatus === 'failed'
+              ? 'destructive'
+              : request.status === 'notified'
+                ? 'default'
+                : request.status === 'cancelled'
+                  ? 'secondary'
+                  : 'outline'
+          }
+        >
+          {availabilityRequestStatusLabel(request)}
         </Badge>
       </div>
       <div className="mt-2 space-y-1 text-xs text-slate-600">
@@ -2337,8 +2361,13 @@ function AvailabilityRequestCard({
         </p>
         {request.status === 'notified' && request.notifiedAt && (
           <p className="text-emerald-700">
-            تم إشعار العميل بتاريخ {formatDate(request.notifiedAt)} بواسطة{' '}
+            قُبل الإرسال بتاريخ {formatDate(request.notifiedAt)} بواسطة{' '}
             {request.notifiedBy || 'عضو الفريق'}
+          </p>
+        )}
+        {request.deliveredAt && (
+          <p className="text-emerald-700">
+            تم تسليم الرسالة عبر واتساب بتاريخ {formatDate(request.deliveredAt)}
           </p>
         )}
       </div>

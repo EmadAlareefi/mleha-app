@@ -27,6 +27,8 @@ test('matches the live Selia product option markup', async () => {
       isSingleProductPage: isSingleProductPage,
       isSoldOut: isSoldOut,
       isRegistered: isRegistered,
+      hasUsablePhone: hasUsablePhone,
+      normalizePhoneInput: normalizePhoneInput,
       rememberRegistration: rememberRegistration,
       normalizeSoldOutOptions: normalizeSoldOutOptions,
       preventSoldOutCartSubmission: preventSoldOutCartSubmission,
@@ -131,7 +133,7 @@ test('matches the live Selia product option markup', async () => {
       if (name === 'product-id') return '1379647441';
       return null;
     },
-    querySelectorAll: (selector: string) => {
+    querySelectorAll: (selector: string): typeof input[] => {
       if (selector === 'input[type="radio"]') return [input, secondInput];
       return [input, secondInput].filter((item) => item.checked);
     },
@@ -151,7 +153,8 @@ test('matches the live Selia product option markup', async () => {
     style: { display: '' },
     textContent: 'إضافة للسلة',
     getAttribute: () => null,
-    hasAttribute: () => false,
+    disabled: false,
+    hasAttribute: (name: string) => name === 'disabled' && cartButton.disabled,
   };
 
   const meta = (content: string) => ({ getAttribute: () => content });
@@ -196,6 +199,7 @@ test('matches the live Selia product option markup', async () => {
     location: { pathname: '/ar/7337-french-dress-with-lace-detailing' },
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
+      removeItem: (key: string) => storage.delete(key),
       setItem: (key: string, value: string) => storage.set(key, value),
     },
     salla: {
@@ -218,6 +222,8 @@ test('matches the live Selia product option markup', async () => {
     isSingleProductPage: () => boolean;
     isSoldOut: () => boolean;
     isRegistered: (productId: string, variationId: string) => boolean;
+    hasUsablePhone: (value: string) => boolean;
+    normalizePhoneInput: (value: string) => string;
     rememberRegistration: (payload: {
       productId: string;
       requestedSize: string;
@@ -254,6 +260,12 @@ test('matches the live Selia product option markup', async () => {
   assert.equal(visibleLabel.classList.contains('s-product-options-disabled'), false);
   assert.equal(secondVisibleLabel.textContent, 'S');
 
+  // A required option can disable add-to-cart before the customer chooses a
+  // size; disabled alone must not turn an available product into "sold out".
+  cartButton.disabled = true;
+  assert.equal(helpers.isSoldOut(), false);
+  cartButton.disabled = false;
+
   secondInput.checked = true;
   helpers.selectOnlyRadioOption(input);
   assert.equal(input.checked, true);
@@ -273,6 +285,12 @@ test('matches the live Selia product option markup', async () => {
     variationName: 'M',
   });
   assert.equal(helpers.isRegistered('1379647441', '125665688'), true);
+  storage.set(
+    'mleha-notify-registration:v1:1379647441:expired',
+    JSON.stringify({ registeredAt: Date.now() - 25 * 60 * 60 * 1000 })
+  );
+  assert.equal(helpers.isRegistered('1379647441', 'expired'), false);
+  assert.equal(storage.has('mleha-notify-registration:v1:1379647441:expired'), false);
   storage.set(
     'mleha-notify-registration:v1:1379647441:1553425047',
     JSON.stringify({
@@ -347,6 +365,9 @@ test('matches the live Selia product option markup', async () => {
   }
 
   assert.equal(helpers.cleanVariantLabel('XL - نفذت الكمية'), 'XL');
+  assert.equal(helpers.normalizePhoneInput('٠٥٠ ١٢٣ ٤٥٦٧'), '0501234567');
+  assert.equal(helpers.hasUsablePhone('+966501234567'), true);
+  assert.equal(helpers.hasUsablePhone('+9660501234567'), false);
   assert.match(
     NOTIFY_ME_WIDGET_SOURCE,
     /s-product-options-option-stock-out \.s-product-options-disabled\{opacity:1!important/

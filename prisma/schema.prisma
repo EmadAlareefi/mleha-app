@@ -23,19 +23,22 @@ model WebhookEvent {
 }
 
 model MessageLog {
-  id           String   @id @default(cuid())
-  orderId      String?
-  toPhone      String
-  channel      String // "whatsapp"
-  templateName String?
-  body         String?  @db.Text // body can be long; TEXT avoids length limits
-  zokoMsgId    String?
-  status       String // "sent" | "failed"
-  error        String?  @db.Text // store full error safely
-  createdAt    DateTime @default(now())
+  id                    String   @id @default(cuid())
+  orderId               String?
+  availabilityRequestId String?
+  toPhone               String
+  channel               String // "whatsapp"
+  templateName          String?
+  body                  String?  @db.Text // body can be long; TEXT avoids length limits
+  zokoMsgId             String?
+  status                String // "sent" | "failed"
+  error                 String?  @db.Text // store full error safely
+  createdAt             DateTime @default(now())
 
   @@index([createdAt])
   @@index([orderId])
+  @@index([availabilityRequestId])
+  @@index([zokoMsgId])
 }
 
 model WebhookLog {
@@ -639,20 +642,24 @@ model SallaProductAvailabilityRequest {
 
   // Where the request came from: "staff" (typed in on /salla/notify) or
   // "storefront" (submitted by the injected widget on mleha.com).
-  source      String  @default("staff")
-  customerId  String? // Salla storefront customer id, as claimed by the browser
-  isGuest     Boolean @default(false)
-  pageUrl     String?
-  locale      String?
-  ipHash      String? // salted SHA-256 of the client IP, used only for rate limiting
-  userAgent   String?
+  source     String  @default("staff")
+  customerId String? // Salla storefront customer id, as claimed by the browser
+  isGuest    Boolean @default(false)
+  pageUrl    String?
+  locale     String?
+  ipHash     String? // salted SHA-256 of the client IP, used only for rate limiting
+  userAgent  String?
 
   // Delivery bookkeeping for the automatic re-stock notification.
-  notifyChannel  String? // "whatsapp" | "sms"
-  notifyAttempts Int       @default(0)
-  notifyError    String?   @db.Text
-  lastCheckedAt  DateTime? // last stock poll that examined this request
-  backInStockAt  DateTime? // first poll that saw the product back in stock
+  notifyChannel     String? // "whatsapp" | "sms"
+  notifyAttempts    Int       @default(0)
+  notifyError       String?   @db.Text
+  lastCheckedAt     DateTime? // last stock poll that examined this request
+  backInStockAt     DateTime? // first poll that saw the product back in stock
+  providerMessageId String?   @unique
+  deliveryStatus    String? // accepted | sent | delivered | read | failed
+  deliveredAt       DateTime?
+  deliveryFailedAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

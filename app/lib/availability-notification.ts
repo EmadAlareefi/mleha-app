@@ -27,13 +27,9 @@ export interface AvailabilityNotificationResult {
 
 const TEMPLATE_ID = env.ZOKO_TPL_PRODUCT_BACK_IN_STOCK;
 
-function collectRecipients(to: string): string[] {
-  const recipients = new Set<string>([to]);
+function getDebugRecipient(to: string): string | null {
   const debugPhone = env.ZOKO_DEBUG_PHONE?.replace(/\s/g, '');
-  if (debugPhone) {
-    recipients.add(debugPhone);
-  }
-  return Array.from(recipients);
+  return debugPhone && debugPhone !== to ? debugPhone : null;
 }
 
 function extractZokoMessageId(response: unknown): string | undefined {
@@ -46,6 +42,7 @@ function extractZokoMessageId(response: unknown): string | undefined {
 }
 
 async function recordMessageLog(input: {
+  availabilityRequestId: string;
   toPhone: string;
   body: string;
   status: 'sent' | 'failed';
@@ -56,6 +53,7 @@ async function recordMessageLog(input: {
     await prisma.messageLog.create({
       data: {
         toPhone: input.toPhone,
+        availabilityRequestId: input.availabilityRequestId,
         channel: 'whatsapp',
         templateName: TEMPLATE_ID,
         body: input.body,
@@ -97,49 +95,76 @@ export async function sendAvailabilityNotification(
   const templateArgs = [parts.customerName, parts.productLabel, parts.productLink];
   const lang = request.locale === 'en' ? 'en' : env.WHATSAPP_DEFAULT_LANG || 'ar';
 
-  const recipients = collectRecipients(recipient);
-  let lastError: string | undefined;
-  let zokoMsgId: string | undefined;
-  let anySent = false;
+  let customerResponse: unknown;
+  try {
+    customerResponse = await sendWhatsAppTemplate({
+      to: recipient,
+      templateId: TEMPLATE_ID,
+      lang,
+      args: templateArgs,
+    });
+    await recordMessageLog({
+      availabilityRequestId: request.id,
+      toPhone: recipient,
+      body: readableBody,
+      status: 'sent',
+      zokoMsgId: extractZokoMessageId(customerResponse),
+    });
+    log.info('Availability notification accepted by Zoko', {
+      requestId: request.id,
+      to: recipient,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+    await recordMessageLog({
+      availabilityRequestId: request.id,
+      toPhone: recipient,
+      body: readableBody,
+      status: 'failed',
+      error: message,
+    });
+    log.error('Failed to send availability notification via Zoko', {
+      requestId: request.id,
+      to: recipient,
+      error: message,
+    });
+    return { status: 'failed', error: message };
+  }
 
-  for (const to of recipients) {
+  // A debug copy is observability only. It must never decide whether the
+  // customer's request was sent or which provider message tracks delivery.
+  const debugRecipient = getDebugRecipient(recipient);
+  if (debugRecipient) {
     try {
       const response = await sendWhatsAppTemplate({
-        to,
+        to: debugRecipient,
         templateId: TEMPLATE_ID,
         lang,
         args: templateArgs,
       });
-
-      anySent = true;
-      zokoMsgId = zokoMsgId ?? extractZokoMessageId(response);
       await recordMessageLog({
-        toPhone: to,
+        availabilityRequestId: request.id,
+        toPhone: debugRecipient,
         body: readableBody,
         status: 'sent',
         zokoMsgId: extractZokoMessageId(response),
       });
-
-      log.info('Availability notification sent via Zoko', { requestId: request.id, to });
     } catch (error) {
-      lastError = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
       await recordMessageLog({
-        toPhone: to,
+        availabilityRequestId: request.id,
+        toPhone: debugRecipient,
         body: readableBody,
         status: 'failed',
-        error: lastError,
+        error: message,
       });
-      log.error('Failed to send availability notification via Zoko', {
+      log.warn('Availability debug copy failed', {
         requestId: request.id,
-        to,
-        error: lastError,
+        to: debugRecipient,
+        error: message,
       });
     }
   }
 
-  if (!anySent) {
-    return { status: 'failed', error: lastError || 'UNKNOWN_ERROR' };
-  }
-
-  return { status: 'sent', zokoMsgId };
+  return { status: 'sent', zokoMsgId: extractZokoMessageId(customerResponse) };
 }

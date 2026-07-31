@@ -135,15 +135,38 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     return undefined;
   }
 
+  function normalizePhoneInput(value) {
+    return String(value || '')
+      .replace(/[٠-٩]/g, function (digit) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)); })
+      .replace(/[۰-۹]/g, function (digit) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)); })
+      .replace(/[^\d+]/g, '');
+  }
+
+  function hasUsablePhone(value) {
+    var cleaned = normalizePhoneInput(value);
+    var digits = cleaned.replace(/\D/g, '');
+    if (/^05\d{8}$/.test(digits) || /^5\d{8}$/.test(digits)) { return true; }
+    if (digits.indexOf('966') === 0 || digits.indexOf('00966') === 0) {
+      return /^(?:00966|966)5\d{8}$/.test(digits);
+    }
+    return cleaned.charAt(0) === '+' && /^[1-9]\d{7,14}$/.test(digits);
+  }
+
   // The logged-in customer, as reported by the storefront. Treated as a
   // convenience prefill only — the server never trusts it as proof of identity.
   function getCustomer() {
     var user = sallaConfig('user') || sallaStorage('user') || window.salla_user;
     if (!user || typeof user !== 'object') { return null; }
     var phone = user.mobile || user.phone || user.mobile_number || '';
-    if (user.mobile_code && phone && String(phone).indexOf('+') !== 0 &&
-        String(phone).indexOf(String(user.mobile_code)) !== 0) {
-      phone = String(user.mobile_code) + String(phone);
+    if (user.mobile_code && phone && String(phone).indexOf('+') !== 0) {
+      var countryCode = String(user.mobile_code).replace(/\D/g, '');
+      var localPhone = normalizePhoneInput(phone).replace(/\D/g, '');
+      if (localPhone.indexOf(countryCode) === 0) {
+        phone = '+' + localPhone;
+      } else {
+        if (localPhone.charAt(0) === '0') { localPhone = localPhone.slice(1); }
+        phone = '+' + countryCode + localPhone;
+      }
     }
     if (!user.id && !phone) { return null; }
     return {
@@ -256,7 +279,6 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
     var btn = addToCartButton();
     if (btn) {
-      if (btn.hasAttribute('disabled') || btn.getAttribute('aria-disabled') === 'true') { return true; }
       if (textLooksSoldOut(btn.textContent)) { return true; }
     }
 
@@ -294,6 +316,10 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   var selectedSoldOutOption = null;
   var registrationRestoreAttempted = false;
   var REGISTRATION_STORAGE_PREFIX = 'mleha-notify-registration:v1:';
+  // A pending server request still suppresses duplicates after this expires. A
+  // short browser TTL lets the same customer subscribe again after a later
+  // sell-out and avoids blocking another person on a shared device forever.
+  var REGISTRATION_TTL_MS = 24 * 60 * 60 * 1000;
 
   function registrationStorageKey(productId, variationId) {
     return REGISTRATION_STORAGE_PREFIX + String(productId) + ':' +
@@ -306,7 +332,13 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
         window.localStorage.getItem(registrationStorageKey(productId, variationId));
       if (!raw) { return null; }
       var parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : null;
+      if (!parsed || typeof parsed !== 'object') { return null; }
+      var registeredAt = Number(parsed.registeredAt) || 0;
+      if (!registeredAt || Date.now() - registeredAt > REGISTRATION_TTL_MS) {
+        window.localStorage.removeItem(registrationStorageKey(productId, variationId));
+        return null;
+      }
+      return parsed;
     } catch (error) {
       debug('could not read notify registration', error);
       return null;
@@ -654,16 +686,22 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   function submit(payload, onDone) {
-    fetch(ENDPOINT, {
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var timeout = controller ? setTimeout(function () { controller.abort(); }, 12000) : null;
+    var options = {
       method: 'POST',
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }).then(function (response) {
+    };
+    if (controller) { options.signal = controller.signal; }
+
+    fetch(ENDPOINT, options).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (data) {
         return { ok: response.ok, status: response.status, data: data };
       });
     }).then(function (result) {
+      if (timeout) { clearTimeout(timeout); }
       if (result.ok && result.data && result.data.success) {
         state.done = true;
         rememberRegistration(payload);
@@ -675,6 +713,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       }
       onDone(state.done, !!(result.data && result.data.duplicate));
     }).catch(function (error) {
+      if (timeout) { clearTimeout(timeout); }
       debug('submit failed', error);
       showMessage('err', TEXT.error);
       onDone(false, false);
@@ -743,7 +782,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     }
   }
 
-  function renderGuestForm(product) {
+  function renderGuestForm(product, customer) {
     var trigger = el('button', 'mleha-nm__btn');
     trigger.type = 'button';
     trigger.appendChild(bellIcon());
@@ -775,6 +814,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     nameInput.type = 'text';
     nameInput.name = 'customer-name';
     nameInput.placeholder = TEXT.namePlaceholder;
+    if (customer && customer.firstName) { nameInput.value = customer.firstName; }
     nameLabel.setAttribute('for', 'mleha-nm-name');
     nameInput.id = 'mleha-nm-name';
     nameRow.appendChild(nameLabel);
@@ -808,7 +848,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       if (event) { event.preventDefault(); }
       if (state.busy || state.done) { return; }
 
-      var phone = phoneInput.value.replace(/[^\d+]/g, '');
+      var phone = normalizePhoneInput(phoneInput.value);
       if (phone.replace(/\D/g, '').length < 9) {
         showMessage('err', TEXT.invalidPhone);
         return;
@@ -821,6 +861,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       var payload = basePayload(product);
       payload.customerPhone = phone;
       payload.customerFirstName = nameInput.value.trim();
+      if (customer) {
+        payload.customerLastName = customer.lastName;
+        payload.customerEmail = customer.email;
+        payload.customerId = customer.id;
+      }
       payload.company = honeypot.value;
 
       submit(payload, function (done) {
@@ -911,10 +956,10 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
       renderRegistered(variant);
     } else {
       var customer = getCustomer();
-      if (customer && customer.phone) {
+      if (customer && hasUsablePhone(customer.phone)) {
         renderLoggedIn(product, customer);
       } else {
-        renderGuestForm(product);
+        renderGuestForm(product, customer);
       }
     }
 

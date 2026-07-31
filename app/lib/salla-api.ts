@@ -672,17 +672,23 @@ export type SallaProductLiveStats = {
  */
 export async function getSallaProductLiveStats(
   merchantId: string,
-  productId: string | number
+  productId: string | number,
+  options: { includeVariantFallback?: boolean; strict?: boolean } = {}
 ): Promise<SallaProductLiveStats> {
   const numericId = typeof productId === 'number' ? productId : safeNumber(productId) ?? 0;
+  const includeVariantFallback = options.includeVariantFallback !== false;
 
   const response = await sallaMakeRequest<{ success?: boolean; data?: Record<string, any> }>(
     merchantId,
-    `/products/${productId}`
+    `/products/${productId}`,
+    options.strict ? { throwOnError: true } : undefined
   );
 
   const data = response?.data;
   if (!data) {
+    if (options.strict) {
+      throw new Error(`Salla product ${productId} returned no data`);
+    }
     return { productId: numericId, found: false, remainingQuantity: null, soldQuantity: null };
   }
 
@@ -690,7 +696,7 @@ export async function getSallaProductLiveStats(
   let remainingQuantity = product.availableQuantity ?? null;
 
   // Variable products usually carry no product-level quantity — sum the variants instead.
-  if (remainingQuantity == null) {
+  if (remainingQuantity == null && includeVariantFallback) {
     try {
       const variations = await getSallaProductVariations(merchantId, productId);
       const known = variations.filter((variation) => typeof variation.availableQuantity === 'number');
