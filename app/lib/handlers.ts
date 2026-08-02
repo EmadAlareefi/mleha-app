@@ -1,4 +1,4 @@
-import { normalizeKSA } from "@/app/lib/phone";
+import { normalizePhoneWithDialCode } from "@/app/lib/phone";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "@/app/lib/zoko";
 import { env } from "@/app/lib/env";
 import { log } from "@/app/lib/logger";
@@ -106,6 +106,23 @@ function getCustomerName(customer: AnyObj): string {
     customer?.full_name ||
     customer?.customer_name ||
     "عميلنا"
+  );
+}
+
+function getCustomerPhone(customer: AnyObj): string {
+  return normalizePhoneWithDialCode(
+    customer?.mobile ?? customer?.phone ?? "",
+    customer?.mobile_code ??
+      customer?.mobileCode ??
+      customer?.phone_code ??
+      customer?.phoneCode ??
+      customer?.dial_code ??
+      customer?.dialCode ??
+      customer?.calling_code ??
+      customer?.callingCode ??
+      customer?.country_code ??
+      customer?.countryCode ??
+      ""
   );
 }
 
@@ -561,7 +578,7 @@ export async function process_salla_order_status_updated(
     return { success: true, skipped: "no_status" };
   }
   const customer = order?.customer ?? order?.customer_info ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const orderNumber = getOrderNumber(order) || orderId;
   const customerName = getCustomerName(customer);
   const reviewLink =
@@ -619,7 +636,7 @@ export async function process_salla_order_created(
 ) {
   const order: AnyObj = data?.order ?? data ?? {};
   const customer = order?.customer ?? order?.customer_info ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const customerName = getCustomerName(customer);
   const orderNumber =
     getOrderNumber(order) || String(order?.id ?? order?.order_id ?? "");
@@ -645,7 +662,7 @@ export async function update_refunded_quantity(data: AnyObj) {
   const order: AnyObj = data?.order ?? data ?? {};
   const orderId = String(order?.id ?? order?.order_id ?? "");
   const customer = order?.customer ?? order?.customer_info ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   if (!phone) return { success: true, skipped: "no_phone" };
 
   // Minimal args (customize to your template's placeholders)
@@ -655,7 +672,7 @@ export async function update_refunded_quantity(data: AnyObj) {
 
 export async function process_customer_login(data: AnyObj) {
   const customer = data?.customer ?? data ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const firstName =
     customer?.first_name || customer?.firstName || customer?.name || "";
   if (!phone) return { success: true, skipped: "no_phone" };
@@ -669,7 +686,7 @@ export async function process_salla_shipment_created(data: AnyObj, meta?: Webhoo
   const order: AnyObj = data?.order ?? data ?? {};
   const orderId = String(order?.id ?? order?.order_id ?? "");
   const customer = order?.customer ?? order?.customer_info ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const customerName = getCustomerName(customer);
   const orderNumber = getOrderNumber(order) || orderId;
   const { carrier, trackingNumber, trackingLink } = getShipmentDetails(order, data);
@@ -720,7 +737,7 @@ export async function process_salla_shipment_created(data: AnyObj, meta?: Webhoo
 export async function process_abandoned_cart(data: AnyObj) {
   const cart = data?.cart ?? data ?? {};
   const customer = cart?.customer ?? data?.customer ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const firstName =
     customer?.first_name || customer?.firstName || customer?.name || "";
   const link = cart?.url || cart?.link || data?.link || "";
@@ -735,7 +752,7 @@ export async function process_abandoned_cart(data: AnyObj) {
 export async function process_abandoned_cart_purchased(data: AnyObj) {
   const cart = data?.cart ?? data ?? {};
   const customer = cart?.customer ?? data?.customer ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const firstName =
     customer?.first_name || customer?.firstName || customer?.name || "";
 
@@ -749,7 +766,7 @@ export async function process_abandoned_cart_purchased(data: AnyObj) {
 export async function process_abandoned_cart_status_changed(data: AnyObj) {
   const cart = data?.cart ?? data ?? {};
   const customer = cart?.customer ?? data?.customer ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const status = String(cart?.status || data?.status || "");
   if (!phone) return { success: true, skipped: "no_phone" };
 
@@ -761,7 +778,7 @@ export async function process_abandoned_cart_status_changed(data: AnyObj) {
 export async function process_abandoned_cart_update(data: AnyObj) {
   const cart = data?.cart ?? data ?? {};
   const customer = cart?.customer ?? data?.customer ?? {};
-  const phone = normalizeKSA(customer?.mobile ?? customer?.phone ?? "");
+  const phone = getCustomerPhone(customer);
   const itemsCount =
     (Array.isArray(cart?.items) && cart.items.length) || data?.items_count || 0;
 

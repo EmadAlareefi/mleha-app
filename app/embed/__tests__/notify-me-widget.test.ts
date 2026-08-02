@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { NOTIFY_ME_WIDGET_SOURCE } from '../notify-me-widget';
+import {
+  NOTIFY_ME_WIDGET_LOADER_SOURCE,
+  NOTIFY_ME_WIDGET_SOURCE,
+} from '../notify-me-widget';
 
 type ClassListStub = {
   add: (...names: string[]) => void;
@@ -378,4 +381,87 @@ test('matches the live Selia product option markup', async () => {
   assert.match(NOTIFY_ME_WIDGET_SOURCE, /clip:rect\(0,0,0,0\)!important/);
   assert.match(NOTIFY_ME_WIDGET_SOURCE, /var panel = el\('div', 'mleha-nm__panel'\)/);
   assert.match(NOTIFY_ME_WIDGET_SOURCE, /submitBtn\.type = 'button'/);
+  assert.doesNotMatch(NOTIFY_ME_WIDGET_SOURCE, /observer\.observe\(document\.body/);
+});
+
+test('loader fetches the runtime only on an explicit single-product page', () => {
+  function run(pageType: string) {
+    const appended: Array<Record<string, unknown>> = [];
+    const loader = {
+      getAttribute: (name: string) => {
+        if (name === 'src') return 'https://app.mleha.com/embed/notify-me.js';
+        if (name === 'data-api') return 'https://app.mleha.com';
+        return null;
+      },
+    };
+    const documentStub = {
+      currentScript: loader,
+      readyState: 'complete',
+      head: { appendChild: (node: Record<string, unknown>) => appended.push(node) },
+      documentElement: { appendChild: (node: Record<string, unknown>) => appended.push(node) },
+      querySelector: () => loader,
+      createElement: () => ({
+        setAttribute(name: string, value: string) {
+          (this as Record<string, unknown>)[name] = value;
+        },
+      }),
+      addEventListener: () => undefined,
+    };
+    const windowStub = {
+      location: { href: 'https://mleha.com/ar/example' },
+      salla: { config: { get: () => pageType } },
+    } as Record<string, unknown>;
+
+    new Function('window', 'document', 'URL', 'setTimeout', NOTIFY_ME_WIDGET_LOADER_SOURCE)(
+      windowStub,
+      documentStub,
+      URL,
+      setTimeout
+    );
+    return appended;
+  }
+
+  assert.equal(run('home').length, 0);
+  assert.equal(run('category').length, 0);
+  const productScripts = run('product.single');
+  assert.equal(productScripts.length, 1);
+  assert.equal(productScripts[0].src, 'https://app.mleha.com/embed/notify-me-runtime.js');
+  assert.equal(productScripts[0].async, true);
+});
+
+test('loader reads Salla native page objects', () => {
+  const appended: Array<Record<string, unknown>> = [];
+  const loader = {
+    getAttribute: (name: string) =>
+      name === 'src' ? 'https://app.mleha.com/embed/notify-me.js' : null,
+  };
+  const documentStub = {
+    currentScript: loader,
+    readyState: 'complete',
+    head: { appendChild: (node: Record<string, unknown>) => appended.push(node) },
+    documentElement: { appendChild: (node: Record<string, unknown>) => appended.push(node) },
+    querySelector: () => loader,
+    createElement: () => ({
+      setAttribute(name: string, value: string) {
+        (this as Record<string, unknown>)[name] = value;
+      },
+    }),
+    addEventListener: () => undefined,
+  };
+  const windowStub = {
+    location: { href: 'https://mleha.com/ar/product' },
+    salla: {
+      config: {
+        get: (key: string) => (key === 'page' ? { id: 123, slug: 'product.single' } : undefined),
+      },
+    },
+  } as Record<string, unknown>;
+
+  new Function('window', 'document', 'URL', 'setTimeout', NOTIFY_ME_WIDGET_LOADER_SOURCE)(
+    windowStub,
+    documentStub,
+    URL,
+    setTimeout
+  );
+  assert.equal(appended.length, 1);
 });

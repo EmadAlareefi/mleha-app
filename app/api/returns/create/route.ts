@@ -10,6 +10,7 @@ import {
 } from '@/app/lib/returns/salla-return-tracking';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
+import { normalizePhoneWithDialCode } from '@/app/lib/phone';
 import {
   buildMissingReturnFeeRateMessage,
   getReturnFeeQuoteForOrder,
@@ -498,7 +499,17 @@ export async function POST(request: NextRequest) {
         customerId: order.customer.id.toString(),
         customerName: `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim(),
         customerEmail: order.customer.email ? String(order.customer.email) : '',
-        customerPhone: order.customer.mobile ? String(order.customer.mobile) : '',
+        customerPhone: normalizePhoneWithDialCode(
+          order.customer.mobile ?? order.customer.phone,
+          order.customer.mobile_code ??
+            order.customer.mobileCode ??
+            order.customer.phone_code ??
+            order.customer.phoneCode ??
+            order.customer.dial_code ??
+            order.customer.dialCode ??
+            order.customer.country_code ??
+            order.customer.countryCode,
+        ),
 
         type: body.type,
         status: 'pending_review',

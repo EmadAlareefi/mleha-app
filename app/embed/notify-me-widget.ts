@@ -1,6 +1,76 @@
 /**
- * Source of the "أبلغني عند التوفر" widget injected into mleha.com single-product
- * pages. Served verbatim by app/embed/notify-me.js/route.ts.
+ * Tiny loader served by app/embed/notify-me.js/route.ts. Salla may place the
+ * custom-code tag in a global layout, so this loader must stay cheap and only
+ * fetch the actual widget after Salla explicitly identifies a single-product
+ * page. The runtime is injected with `async` so it cannot hold DOMContentLoaded.
+ */
+export const NOTIFY_ME_WIDGET_LOADER_SOURCE = String.raw`
+(function () {
+  'use strict';
+
+  if (window.__mlehaNotifyLoader) { return; }
+  window.__mlehaNotifyLoader = true;
+
+  var loader = document.currentScript ||
+    document.querySelector('script[src*="/embed/notify-me.js"]');
+  var loaderSrc = loader && loader.getAttribute('src') || '';
+  var configuredBase = loader && loader.getAttribute('data-api') || '';
+  var base = configuredBase.replace(/\/+$/, '');
+  if (!base && loaderSrc) {
+    try { base = new URL(loaderSrc, window.location.href).origin; }
+    catch (error) { return; }
+  }
+  if (!base) { return; }
+
+  function declaredPageType() {
+    try {
+      if (window.salla && window.salla.config && typeof window.salla.config.get === 'function') {
+        var page = window.salla.config.get('page') || {};
+        return window.salla.config.get('page.slug') ||
+          window.salla.config.get('page.type') || page.slug || page.type || null;
+      }
+    } catch (error) { /* Salla may still be starting */ }
+    return null;
+  }
+
+  function isSingleProductType(value) {
+    var type = String(value || '').toLowerCase();
+    return type === 'single-product' || type === 'product' || type === 'product.single';
+  }
+
+  var attempts = 0;
+  function loadOnProductPage() {
+    var pageType = declaredPageType();
+    if (!pageType) {
+      attempts += 1;
+      if (attempts < 4) { setTimeout(loadOnProductPage, attempts * 150); }
+      return;
+    }
+    if (!isSingleProductType(pageType) || window.__mlehaNotifyRuntimeLoading) { return; }
+
+    window.__mlehaNotifyRuntimeLoading = true;
+    var runtime = document.createElement('script');
+    runtime.src = base + '/embed/notify-me-runtime.js';
+    runtime.async = true;
+    runtime.setAttribute('data-api', configuredBase || base);
+    if (loader && loader.getAttribute('data-debug')) {
+      runtime.setAttribute('data-debug', loader.getAttribute('data-debug'));
+    }
+    runtime.onerror = function () { window.__mlehaNotifyRuntimeLoading = false; };
+    (document.head || document.documentElement).appendChild(runtime);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadOnProductPage, { once: true });
+  } else {
+    loadOnProductPage();
+  }
+})();
+`;
+
+/**
+ * Source of the "أبلغني عند التوفر" widget runtime for mleha.com single-product
+ * pages. Served verbatim by app/embed/notify-me-runtime.js/route.ts.
  *
  * Kept here as a template string (rather than inside the route file) so it stays
  * reviewable in one place. It runs inside the Salla storefront, so it must be
@@ -186,13 +256,11 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
   }
 
   function isSingleProductPage() {
-    var slug = sallaConfig('page.slug') || sallaConfig('page.type');
-    if (slug === 'single-product' || slug === 'product' || slug === 'product.single') {
-      return true;
-    }
-    if (document.querySelector('#product-form')) { return true; }
-    if (document.querySelector('salla-product-options[product-id]')) { return true; }
-    return !!productIdFromUrl();
+    var page = sallaConfig('page') || {};
+    var slug = String(
+      sallaConfig('page.slug') || sallaConfig('page.type') || page.slug || page.type || ''
+    ).toLowerCase();
+    return slug === 'single-product' || slug === 'product' || slug === 'product.single';
   }
 
   function metaContent(name) {
@@ -208,7 +276,8 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     var productOptions = document.querySelector(
       '#product-form salla-product-options[product-id],salla-product-options[product-id]'
     );
-    var id = sallaConfig('page.id') ||
+    var page = sallaConfig('page') || {};
+    var id = sallaConfig('page.id') || page.id ||
       (hiddenId && hiddenId.value) ||
       (productOptions && productOptions.getAttribute('product-id')) ||
       (el && el.getAttribute('data-product-id')) ||
@@ -972,7 +1041,10 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
   var scheduled = null;
   function schedule() {
-    if (scheduled) { clearTimeout(scheduled); }
+    // Throttle rather than repeatedly postponing. A theme animation may mutate
+    // several times per frame; continuously resetting this timer can starve the
+    // render indefinitely and keep the main thread busy.
+    if (scheduled) { return; }
     scheduled = setTimeout(function () {
       scheduled = null;
       try { render(); } catch (error) { debug('render failed', error); }
@@ -985,7 +1057,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     schedule();
 
     // Variant switching swaps stock state without a page load, so re-evaluate on
-    // Salla's own events and on DOM changes around the add-to-cart area.
+    // Salla's own events and narrowly-scoped product DOM changes.
     var events = [
       'product::variant.changed',
       'variant::changed',
@@ -1000,8 +1072,13 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
 
     try {
       var observer = new MutationObserver(schedule);
-      observer.observe(document.body, { childList: true, subtree: true, attributes: true,
-        attributeFilter: ['disabled', 'aria-disabled', 'class'] });
+      var productRoot = document.querySelector('#product-form') ||
+        document.querySelector('form.product-form') ||
+        document.querySelector('salla-product-options[product-id]');
+      if (productRoot) {
+        observer.observe(productRoot, { childList: true, subtree: true, attributes: true,
+          attributeFilter: ['disabled', 'aria-disabled', 'class'] });
+      }
     } catch (e) { debug('observer failed', e); }
 
     document.addEventListener('click', handleOptionClick, true);

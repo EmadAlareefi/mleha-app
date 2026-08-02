@@ -19,6 +19,7 @@ import {
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { extractItemsFromWebhookPayload, upsertSallaOrderItems } from '@/app/lib/salla-order-items';
+import { normalizePhoneWithDialCode } from '@/app/lib/phone';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   success: boolean;
@@ -55,6 +56,19 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
 
   const customer = extractCustomer(order);
   const customerName = buildCustomerName(customer);
+  const customerMobile = normalizePhoneWithDialCode(
+    customer?.mobile ?? customer?.phone ?? order.customer_mobile ?? order.customer_phone,
+    customer?.mobile_code ??
+      customer?.mobileCode ??
+      customer?.phone_code ??
+      customer?.phoneCode ??
+      customer?.dial_code ??
+      customer?.dialCode ??
+      customer?.country_code ??
+      customer?.countryCode ??
+      order.customer_mobile_code ??
+      order.customer_phone_code
+  );
   const amounts = extractAmounts(order);
   const currency = extractCurrency(order);
   const dates = extractDates(order);
@@ -103,9 +117,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       totalAmount: amounts.total ?? undefined,
       customerId: normalizers.id(customer?.id ?? order.customer_id) ?? undefined,
       customerName: customerName ?? undefined,
-      customerMobile: normalizers.string(
-        customer?.mobile ?? customer?.phone ?? order.customer_mobile ?? order.customer_phone
-      ) ?? undefined,
+      customerMobile: customerMobile || undefined,
       customerEmail: normalizers.string(customer?.email ?? order.customer_email) ?? undefined,
       customerCity: normalizers.string(
         customer?.city ?? order.shipping_address?.city ?? order.billing_address?.city
@@ -139,9 +151,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       totalAmount: amounts.total ?? undefined,
       customerId: normalizers.id(customer?.id ?? order.customer_id) ?? undefined,
       customerName: customerName ?? undefined,
-      customerMobile: normalizers.string(
-        customer?.mobile ?? customer?.phone ?? order.customer_mobile ?? order.customer_phone
-      ) ?? undefined,
+      customerMobile: customerMobile || undefined,
       customerEmail: normalizers.string(customer?.email ?? order.customer_email) ?? undefined,
       customerCity: normalizers.string(
         customer?.city ?? order.shipping_address?.city ?? order.billing_address?.city
