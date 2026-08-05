@@ -40,6 +40,15 @@ export interface SallaOrder {
     last_name: string;
     name?: string;
     mobile: string;
+    phone?: string;
+    mobile_code?: string | number;
+    mobileCode?: string | number;
+    phone_code?: string | number;
+    phoneCode?: string | number;
+    dial_code?: string | number;
+    dialCode?: string | number;
+    country_code?: string | number;
+    countryCode?: string | number;
     email: string;
     city?: string;
     full_name?: string;
