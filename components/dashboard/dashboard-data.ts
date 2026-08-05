@@ -37,6 +37,7 @@ import {
   Scale,
   Satellite,
   Scissors,
+  Star,
 } from 'lucide-react';
 import {
   serviceDefinitions,
@@ -138,6 +139,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   'salla-products': 'store',
   'salla-manufacturer-links': 'store',
   'salla-notify': 'store',
+  'salla-product-reviews': 'store',
   'delivery-agent-tasks': 'agents',
   'my-deliveries': 'agents',
   'agents-live-monitor': 'agents',
@@ -191,6 +193,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'salla-products': ShoppingBag,
   'salla-manufacturer-links': Factory,
   'salla-notify': Bell,
+  'salla-product-reviews': Star,
   expenses: Wallet,
   'fabric-management': Scissors,
   'fabric-tailor-hub': Scissors,

@@ -47,12 +47,16 @@ export async function GET(request: NextRequest) {
     const perPage = parseNumber(searchParams.get('perPage'), 100);
     const skuInput = searchParams.get('sku');
     const sku = skuInput && skuInput.trim().length > 0 ? skuInput.trim() : undefined;
+    const keywordInput = searchParams.get('keyword');
+    const keyword = keywordInput && keywordInput.trim().length > 0
+      ? keywordInput.trim().slice(0, 120)
+      : undefined;
     const requestedStatus = searchParams.get('status') || undefined;
     const allowedStatuses = new Set(['hidden', 'sale', 'out']);
     const status = requestedStatus && allowedStatuses.has(requestedStatus) ? requestedStatus : undefined;
     const fetchAll = searchParams.get('all') === '1' || searchParams.get('all') === 'true';
 
-    if (!sku && fetchAll) {
+    if (!sku && !keyword && fetchAll) {
       const { products, total, complete, debug } = await listAllSallaProducts(resolved.merchantId, {
         status,
       });
@@ -114,6 +118,7 @@ export async function GET(request: NextRequest) {
       page,
       perPage,
       status,
+      keyword,
     });
 
     return NextResponse.json({

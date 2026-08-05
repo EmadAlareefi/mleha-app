@@ -44,7 +44,10 @@ export function resolveAllowedOrigin(request: NextRequest): string | null {
   return getAllowedOrigins().includes(normalizeOrigin(origin)) ? origin : null;
 }
 
-export function corsHeaders(origin: string | null): Record<string, string> {
+export function corsHeaders(
+  origin: string | null,
+  allowedMethods = 'POST, OPTIONS'
+): Record<string, string> {
   const headers: Record<string, string> = {
     // Always vary on Origin: the response body is shared but these headers are not,
     // and a cache that ignores this would hand one store's headers to another origin.
@@ -53,7 +56,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 
   if (origin) {
     headers['Access-Control-Allow-Origin'] = origin;
-    headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS';
+    headers['Access-Control-Allow-Methods'] = allowedMethods;
     headers['Access-Control-Allow-Headers'] = 'content-type';
     headers['Access-Control-Max-Age'] = '86400';
   }
@@ -63,19 +66,22 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 
 export function corsJson(
   body: unknown,
-  init: { status?: number; origin: string | null }
+  init: { status?: number; origin: string | null; allowedMethods?: string }
 ): NextResponse {
   return NextResponse.json(body, {
     status: init.status ?? 200,
-    headers: corsHeaders(init.origin),
+    headers: corsHeaders(init.origin, init.allowedMethods),
   });
 }
 
 /** Standard preflight response for an allowlisted public endpoint. */
-export function corsPreflight(request: NextRequest): NextResponse {
+export function corsPreflight(
+  request: NextRequest,
+  allowedMethods = 'POST, OPTIONS'
+): NextResponse {
   const origin = resolveAllowedOrigin(request);
   return new NextResponse(null, {
     status: origin ? 204 : 403,
-    headers: corsHeaders(origin),
+    headers: corsHeaders(origin, allowedMethods),
   });
 }

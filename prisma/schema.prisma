@@ -673,6 +673,32 @@ model SallaProductAvailabilityRequest {
   @@index([ipHash, createdAt])
 }
 
+model SallaProductReview {
+  id              String   @id @default(cuid())
+  productId       String
+  productName     String
+  productSku      String?
+  productImageUrl String?
+  reviewerName    String
+  reviewerCity    String
+  body            String   @db.Text
+  rating          Int      @default(5)
+  isPublished     Boolean  @default(true)
+
+  createdById       String?
+  createdByName     String?
+  createdByUsername String?
+  updatedById       String?
+  updatedByName     String?
+  updatedByUsername String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId, isPublished, createdAt])
+  @@index([createdAt])
+}
+
 model ReturnRequest {
   id            String  @id @default(cuid())
   merchantId    String // Salla merchant ID

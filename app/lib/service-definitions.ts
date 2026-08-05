@@ -450,6 +450,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
+    key: 'salla-product-reviews',
+    title: 'تقييمات المنتجات',
+    description: 'إنشاء وإدارة تقييمات مخصصة لصفحات منتجات مليحة',
+    icon: '⭐',
+    href: '/salla/product-reviews',
+    color: 'from-amber-500 to-rose-500',
+    defaultRoles: ['admin', 'store_manager'],
+    grantsRoles: ['store_manager'],
+  },
+  {
     key: 'salla-purchase-requests',
     title: 'طلبات الشراء',
     description: 'طلب شراء منتجات سلة ومتابعة الطلبات قيد الشراء',
