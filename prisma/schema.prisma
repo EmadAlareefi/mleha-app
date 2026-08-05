@@ -682,6 +682,7 @@ model SallaProductReview {
   reviewerName    String
   reviewerCity    String
   body            String   @db.Text
+  reviewImageData String?   @db.Text
   rating          Int      @default(5)
   isPublished     Boolean  @default(true)
 

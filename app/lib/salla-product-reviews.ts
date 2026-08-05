@@ -9,7 +9,10 @@ const LIMITS = {
   reviewerName: 80,
   reviewerCity: 100,
   body: 1000,
+  reviewImageData: 1_500_000,
 } as const;
+
+const REVIEW_IMAGE_DATA_PATTERN = /^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/]+={0,2}$/i;
 
 export type ProductReviewCreateInput = {
   productId: string;
@@ -19,6 +22,7 @@ export type ProductReviewCreateInput = {
   reviewerName: string;
   reviewerCity: string;
   body: string;
+  reviewImageData: string | null;
   rating: number;
 };
 
@@ -56,6 +60,17 @@ export function parseRating(value: unknown): number {
   return rating;
 }
 
+export function parseReviewImageData(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string') throw new Error('صورة التقييم غير صالحة');
+  const imageData = value.trim();
+  if (imageData.length > LIMITS.reviewImageData) throw new Error('حجم صورة التقييم كبير جداً');
+  if (!REVIEW_IMAGE_DATA_PATTERN.test(imageData)) {
+    throw new Error('صيغة صورة التقييم غير مدعومة');
+  }
+  return imageData;
+}
+
 export function parseProductReviewCreate(value: unknown): ProductReviewCreateInput {
   if (!value || typeof value !== 'object') throw new Error('بيانات التقييم غير صالحة');
   const input = value as Record<string, unknown>;
@@ -70,6 +85,7 @@ export function parseProductReviewCreate(value: unknown): ProductReviewCreateInp
     reviewerName: requiredText(input.reviewerName, 'اسم المقيّمة', LIMITS.reviewerName),
     reviewerCity: requiredText(input.reviewerCity, 'المدينة', LIMITS.reviewerCity),
     body: requiredText(input.body, 'نص التقييم', LIMITS.body),
+    reviewImageData: parseReviewImageData(input.reviewImageData),
     rating: parseRating(input.rating),
   };
 }

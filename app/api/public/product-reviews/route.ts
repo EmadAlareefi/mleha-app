@@ -31,11 +31,20 @@ export async function GET(request: NextRequest) {
         reviewerCity: true,
         body: true,
         rating: true,
+        reviewImageData: true,
+        createdAt: true,
       },
     });
 
+    const publicReviews = reviews.map(({ reviewImageData, ...review }) => ({
+      ...review,
+      reviewImageUrl: reviewImageData
+        ? `${request.nextUrl.origin}/api/public/product-reviews/${encodeURIComponent(review.id)}/image`
+        : null,
+    }));
+
     return NextResponse.json(
-      { success: true, reviews },
+      { success: true, reviews: publicReviews },
       {
         headers: {
           ...corsHeaders(origin, ALLOWED_METHODS),

@@ -4,6 +4,7 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import {
   parseRating,
+  parseReviewImageData,
   parseReviewText,
   PRODUCT_REVIEW_SERVICE_KEY,
 } from '@/app/lib/salla-product-reviews';
@@ -34,6 +35,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if ('reviewerName' in input) data.reviewerName = parseReviewText(input.reviewerName, 'reviewerName');
     if ('reviewerCity' in input) data.reviewerCity = parseReviewText(input.reviewerCity, 'reviewerCity');
     if ('body' in input) data.body = parseReviewText(input.body, 'body');
+    if ('reviewImageData' in input) data.reviewImageData = parseReviewImageData(input.reviewImageData);
     if ('rating' in input) data.rating = parseRating(input.rating);
     if ('isPublished' in input) {
       if (typeof input.isPublished !== 'boolean') throw new Error('حالة النشر غير صالحة');

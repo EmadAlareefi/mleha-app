@@ -81,3 +81,10 @@ test('runtime renders review values without HTML assignment', () => {
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('.innerHTML'), false);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('textContent = text'), true);
 });
+
+test('runtime uses a layout that remains responsive when mounted in a hidden tab', () => {
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("create('salla-slider'"), false);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("create('div', 'mleha-pr__track')"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('display:flex;flex-direction:column'), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('review.reviewImageUrl'), true);
+});

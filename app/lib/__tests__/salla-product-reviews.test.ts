@@ -5,6 +5,7 @@ import {
   parseProductId,
   parseProductReviewCreate,
   parseRating,
+  parseReviewImageData,
 } from '../salla-product-reviews';
 
 test('accepts exact digit-string Salla ids without numeric precision loss', () => {
@@ -22,6 +23,7 @@ test('validates and trims a bulk review row', () => {
       reviewerName: ' ريم ',
       reviewerCity: ' جدة ',
       body: ' جميل جداً ',
+      reviewImageData: 'data:image/png;base64,YWJjZA==',
       rating: 5,
     }),
     {
@@ -32,6 +34,7 @@ test('validates and trims a bulk review row', () => {
       reviewerName: 'ريم',
       reviewerCity: 'جدة',
       body: 'جميل جداً',
+      reviewImageData: 'data:image/png;base64,YWJjZA==',
       rating: 5,
     }
   );
@@ -53,4 +56,6 @@ test('rejects invalid ratings and unsafe image protocols', () => {
     }),
     /رابط صورة المنتج/
   );
+  assert.equal(parseReviewImageData(null), null);
+  assert.throws(() => parseReviewImageData('data:image/svg+xml;base64,PHN2Zz4='), /غير مدعومة/);
 });

@@ -79,6 +79,7 @@ export type ProductReviewDraft = {
   reviewerName: string;
   reviewerCity: string;
   body: string;
+  reviewImageData: string | null;
   rating: number;
 };
 
@@ -114,6 +115,7 @@ export function generateProductReviewDrafts(
         reviewerName: randomReviewPreset('reviewerName', random),
         reviewerCity: randomReviewPreset('reviewerCity', random),
         body: PRODUCT_REVIEW_PHRASES[(phraseOffset + index) % PRODUCT_REVIEW_PHRASES.length],
+        reviewImageData: null,
         rating: 5,
       };
     });
