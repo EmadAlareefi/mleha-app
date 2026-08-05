@@ -102,13 +102,13 @@ const REASON_LABELS: Record<string, string> = {
   changed_mind: 'تغيير في الرأي',
   other: 'أخرى',
 };
-const numberFormatter = new Intl.NumberFormat('ar-SA');
-const currencyFormatter = new Intl.NumberFormat('ar-SA', {
+const numberFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn');
+const currencyFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', {
   style: 'currency',
   currency: 'SAR',
   maximumFractionDigits: 0,
 });
-const dateFormatter = new Intl.DateTimeFormat('ar-SA', {
+const dateFormatter = new Intl.DateTimeFormat('ar-SA-u-nu-latn', {
   calendar: 'gregory',
   year: 'numeric',
   month: 'short',
