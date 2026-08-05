@@ -139,13 +139,12 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
     style.id = STYLE_ID;
     style.textContent = [
       '.mleha-pr{direction:rtl;text-align:right;margin:0 0 1.5rem;font-family:inherit;}',
-      '.mleha-pr *{box-sizing:border-box;}',
-      '.mleha-pr__container{width:100%;max-width:100%;}',
-      '.mleha-pr salla-slider{display:block;width:100%;}',
-      '.mleha-pr__review{height:100%;padding:2px;}',
-      '.mleha-pr__card{position:relative;}',
-      '.mleha-pr__city{margin-inline-start:.35rem;}',
+      '.mleha-pr,.mleha-pr *{box-sizing:border-box;}',
+      '.mleha-pr__review{display:block;opacity:1!important;transform:none!important;}',
+      '.mleha-pr__city{display:block;margin-top:.15rem;color:var(--color-text-muted,#777);font-size:.82rem;}',
+      '.mleha-pr__rating{display:flex;gap:.3rem;color:#fbbf24;font-size:1rem;}',
       '.mleha-pr__star--empty{opacity:.22;}',
+      '.mleha-pr__body{margin:0;white-space:pre-wrap;}',
       '.mleha-pr__photo-link{display:inline-block;margin-top:.75rem;border-radius:.45rem;line-height:0;}',
       '.mleha-pr__photo{width:5.25rem;height:5.25rem;border:1px solid var(--color-grey-200,#e5e7eb);border-radius:.45rem;object-fit:cover;}'
     ].join('');
@@ -153,34 +152,41 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
   }
 
   function buildReviewCard(review) {
-    var slide = create('div', 'review mleha-pr__review');
-    var card = create('div', 'mleha-pr__card flex flex-col justify-between h-full w-full p-[1.4rem] bg-store-bg-secondary rounded-md shadow-[rgba(50,_50,_105,_0.15)_0px_2px_5px_0px,_rgba(0,_0,_0,_0.05)_0px_1px_1px_0px]');
-    var copy = create('div', 'relative text-store-text-secondary break-words');
-    var body = create('p', 'leading-6 text-sm mb-2 mt-2.5 md:mt-4 text-store-text-primary', String(review.body || ''));
-    var person = create('div', 'flex items-center mt-6 -mx-2');
-    var avatar = create('img', 'object-cover mx-2 rounded-full w-14 h-14');
-    var meta = create('div', 'mx-2');
-    var name = create('h4', 'text-base text-store-text-primary mb-2');
-    var nameText = create('span', 'review-name', String(review.reviewerName || ''));
-    var cityText = create('span', 'review-city mleha-pr__city', String(review.reviewerCity || ''));
-    var rating = create('div', 'w-full comment__rating text-xs mb-2.5 rtl:space-x-reverse space-x-1');
-    var quote = create('i', 'sicon-quote -scale-y-100 -scale-x-100 absolute top-4 end-4 text-3xl opacity-10 text-store-text-secondary');
+    var item = create('article', 's-comments-item mleha-pr__review');
+    var wrapper = create('div', 's-comments-item-wrapper');
+    var inner = create('div', 's-comments-item-inner s-comments-flex-1');
+    var avatarWrap = create('div', 's-comments-item-avatar');
+    var avatar = create('img', 's-comments-item-avatar-img');
+    var column = create('div', 's-comments-flex-1');
+    var userWrap = create('div', 's-comments-item-user-wrapper');
+    var userInfo = create('div', 's-comments-item-user-info');
+    var name = create('h3', 's-comments-item-user-info-name-with-margin', String(review.reviewerName || ''));
+    var city = create('span', 'mleha-pr__city', String(review.reviewerCity || ''));
+    var timestamp = create('p', 's-comments-item-timestamp s-ltr', formatReviewDate(review.createdAt));
+    var ratingRow = create('div', 'flex flex-row gap-4 mt-2 mb-4');
+    var rating = create('div', 'comment__rating mleha-pr__rating');
+    var content = create('div', 's-comments-item-content');
+    var body = create('p', 'mleha-pr__body', String(review.body || ''));
     var stars = Math.max(1, Math.min(5, Number(review.rating) || 5));
 
     avatar.src = AVATAR;
     avatar.alt = String(review.reviewerName || '') + ' - ' + String(review.reviewerCity || '');
     avatar.loading = 'lazy';
-    name.appendChild(nameText);
-    name.appendChild(cityText);
+    if (review.createdAt) { timestamp.setAttribute('datetime', String(review.createdAt)); }
 
     for (var index = 1; index <= 5; index += 1) {
-      var star = create('i', 'sicon-star2 inline-block text-amber-400' + (index > stars ? ' mleha-pr__star--empty' : ''));
+      var star = create('i', 'sicon-star2' + (index > stars ? ' mleha-pr__star--empty' : ''));
       star.setAttribute('aria-hidden', 'true');
       rating.appendChild(star);
     }
     rating.setAttribute('aria-label', stars + ' من 5');
 
-    copy.appendChild(body);
+    userInfo.appendChild(name);
+    userInfo.appendChild(city);
+    userWrap.appendChild(userInfo);
+    userWrap.appendChild(timestamp);
+    ratingRow.appendChild(rating);
+    content.appendChild(body);
     if (review.reviewImageUrl) {
       var photoLink = create('a', 'mleha-pr__photo-link');
       var photo = create('img', 'mleha-pr__photo');
@@ -191,35 +197,33 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
       photo.alt = 'صورة مرفقة من ' + String(review.reviewerName || 'العميلة');
       photo.loading = 'lazy';
       photoLink.appendChild(photo);
-      copy.appendChild(photoLink);
+      content.appendChild(photoLink);
     }
-    meta.appendChild(name);
-    meta.appendChild(rating);
-    person.appendChild(avatar);
-    person.appendChild(meta);
-    card.appendChild(copy);
-    card.appendChild(person);
-    card.appendChild(quote);
-    slide.appendChild(card);
-    return slide;
+    avatarWrap.appendChild(avatar);
+    column.appendChild(userWrap);
+    column.appendChild(ratingRow);
+    column.appendChild(content);
+    inner.appendChild(avatarWrap);
+    inner.appendChild(column);
+    wrapper.appendChild(inner);
+    item.appendChild(wrapper);
+    return item;
   }
 
-  function buildSection(reviews) {
-    var section = create('section', 'mleha-pr s-block s-block--custom-reviews relative');
-    var container = create('div', 'container mx-auto mleha-pr__container');
-    var slider = create('salla-slider', 'reviews-slider s-scrollbar-slider');
-    var items = create('div');
-    section.id = SECTION_ID;
-    slider.id = 'mleha-product-reviews-slider';
-    slider.setAttribute('type', 'carousel');
-    slider.setAttribute('slider-config', JSON.stringify({ autoplay: true, spacebetween: 30 }));
-    slider.setAttribute('show-controls', 'false');
-    items.setAttribute('slot', 'items');
-    reviews.forEach(function (review) { items.appendChild(buildReviewCard(review)); });
-    slider.appendChild(items);
-    container.appendChild(slider);
-    section.appendChild(container);
-    return section;
+  function formatReviewDate(value) {
+    if (!value) { return ''; }
+    try {
+      return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+        day: 'numeric', month: 'numeric', year: 'numeric'
+      }).format(new Date(value));
+    } catch (error) { return ''; }
+  }
+
+  function buildReviewList(reviews) {
+    var list = create('div', 'mleha-pr mleha-pr__native-list');
+    list.id = SECTION_ID;
+    reviews.forEach(function (review) { list.appendChild(buildReviewCard(review)); });
+    return list;
   }
 
   function isVisible(element) {
@@ -228,15 +232,24 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
   }
 
   function mount(reviews) {
-    if (!reviews.length || document.getElementById(SECTION_ID)) { return true; }
-    var target = document.querySelector('#single-product-details #reviews, #reviews');
-    if (!target || !isVisible(target)) { return false; }
+    if (!reviews.length) { return true; }
+    var host = document.querySelector('#single-product-details #reviews salla-comments, #reviews salla-comments');
+    if (!host || !isVisible(host)) { return false; }
+    var existing = document.getElementById(SECTION_ID);
+    if (existing && host.contains(existing)) { return true; }
+    if (existing) { existing.remove(); }
+    var container = host.querySelector('.s-comments-container');
+    if (!container) { return false; }
+
     injectStyles();
-    target.insertBefore(buildSection(reviews), target.firstChild || null);
-    setTimeout(function () {
-      try { window.dispatchEvent(new Event('resize')); }
-      catch (error) { /* layout refresh is best effort */ }
-    }, 100);
+    var list = buildReviewList(reviews);
+    var nativeItem = container.querySelector('salla-comment-item');
+    if (nativeItem && nativeItem.parentElement) {
+      nativeItem.parentElement.insertBefore(list, nativeItem);
+    } else {
+      var emptyState = container.querySelector('.s-comments-empty, .s-comments-empty-state');
+      container.insertBefore(list, emptyState || null);
+    }
     return true;
   }
 
@@ -254,7 +267,7 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
 
     function tryMount() {
       frame = 0;
-      if (mount(reviews)) { cleanup(); }
+      mount(reviews);
     }
 
     function scheduleMount() {
@@ -267,13 +280,15 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
     window.addEventListener('resize', scheduleMount);
     if (window.MutationObserver && document.documentElement) {
       observer = new MutationObserver(scheduleMount);
-      observer.observe(document.documentElement, {
+      var watchRoot = document.querySelector('#single-product-details #reviews, #reviews') || document.documentElement;
+      observer.observe(watchRoot, {
         childList: true,
         subtree: true,
         attributes: true,
         attributeFilter: ['class', 'style', 'hidden']
       });
     }
+    window.addEventListener('pagehide', cleanup, { once: true });
     scheduleMount();
   }
 

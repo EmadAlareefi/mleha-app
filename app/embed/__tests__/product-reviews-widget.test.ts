@@ -83,9 +83,11 @@ test('runtime renders review values without HTML assignment', () => {
 });
 
 test('runtime uses a layout that remains responsive when mounted in a hidden tab', () => {
-  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("create('salla-slider', 'reviews-slider s-scrollbar-slider')"), true);
-  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("items.setAttribute('slot', 'items')"), true);
-  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('!isVisible(target)'), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("#reviews salla-comments"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("host.querySelector('.s-comments-container')"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("container.querySelector('salla-comment-item')"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("create('article', 's-comments-item mleha-pr__review')"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('!isVisible(host)'), true);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("attributeFilter: ['class', 'style', 'hidden']"), true);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('review.reviewImageUrl'), true);
 });
