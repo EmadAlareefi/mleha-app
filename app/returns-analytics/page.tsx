@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { endOfDay, endOfMonth, startOfDay, startOfMonth } from 'date-fns';
+import { arSA } from 'date-fns/locale';
+import type { DateRange } from 'react-day-picker';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -13,8 +16,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Table,
   TableBody,
@@ -26,14 +30,13 @@ import {
 import {
   ArrowDownRight,
   BarChart3,
+  CalendarDays,
   Filter,
   RefreshCcw,
   Search,
   TrendingUp,
 } from 'lucide-react';
 import { STATUS_COLORS, STATUS_LABELS } from '@/app/lib/returns/status';
-
-type TimeframeKey = '7d' | '30d' | '90d';
 
 interface ReturnItem {
   id: string;
@@ -89,12 +92,6 @@ interface ReportRow {
   createdAt: string;
 }
 
-const TIMEFRAME_CONFIG: Record<TimeframeKey, { label: string; days: number }> = {
-  '7d': { label: 'آخر ٧ أيام', days: 7 },
-  '30d': { label: 'آخر ٣٠ يوماً', days: 30 },
-  '90d': { label: 'آخر ٩٠ يوماً', days: 90 },
-};
-
 const ITEMS_PAGE_SIZE = 10;
 
 const FALLBACK_REASON = 'أسباب غير مصنفة';
@@ -112,6 +109,8 @@ const currencyFormatter = new Intl.NumberFormat('ar-SA', {
   maximumFractionDigits: 0,
 });
 const dateFormatter = new Intl.DateTimeFormat('ar-SA', {
+  calendar: 'gregory',
+  year: 'numeric',
   month: 'short',
   day: 'numeric',
 });
@@ -172,7 +171,10 @@ const formatNumber = (value: number) => numberFormatter.format(Math.round(value)
 const formatDate = (value: string) => dateFormatter.format(new Date(value));
 
 export default function ReturnsAnalyticsPage() {
-  const [timeframe, setTimeframe] = useState<TimeframeKey>('30d');
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const today = new Date();
+    return { from: startOfMonth(today), to: endOfMonth(today) };
+  });
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [searchSku, setSearchSku] = useState('');
   const [refundedItemsPage, setRefundedItemsPage] = useState(1);
@@ -219,14 +221,34 @@ export default function ReturnsAnalyticsPage() {
     loadRequests();
   }, [loadRequests]);
 
+  const dateRangeMeta = useMemo(() => {
+    const from = dateRange.from || new Date();
+    const to = dateRange.to || from;
+    const startDate = startOfDay(from <= to ? from : to);
+    const endDate = endOfDay(from <= to ? to : from);
+    const durationMs = endDate.getTime() - startDate.getTime() + 1;
+    const previousEndMs = startDate.getTime() - 1;
+    return {
+      startDate,
+      endDate,
+      startMs: startDate.getTime(),
+      endMs: endDate.getTime(),
+      previousStartMs: previousEndMs - durationMs + 1,
+      previousEndMs,
+    };
+  }, [dateRange]);
+
   useEffect(() => {
     let cancelled = false;
     const loadSales = async () => {
       setSalesError('');
       setSalesLoading(true);
       try {
-        const days = TIMEFRAME_CONFIG[timeframe].days;
-        const response = await fetch(`/api/returns/sales-by-sku?days=${days}`);
+        const params = new URLSearchParams({
+          from: dateRangeMeta.startDate.toISOString(),
+          to: dateRangeMeta.endDate.toISOString(),
+        });
+        const response = await fetch(`/api/returns/sales-by-sku?${params.toString()}`);
         const data = await response.json();
         if (!response.ok || !data.success) {
           throw new Error(data.error || 'تعذر جلب بيانات المبيعات');
@@ -251,17 +273,16 @@ export default function ReturnsAnalyticsPage() {
     return () => {
       cancelled = true;
     };
-  }, [timeframe]);
+  }, [dateRangeMeta]);
 
-  const timeframeMeta = useMemo(() => {
-    const durationMs = TIMEFRAME_CONFIG[timeframe].days * 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    return {
-      durationMs,
-      startMs: now - durationMs,
-      previousStartMs: now - durationMs * 2,
-    };
-  }, [timeframe]);
+  const dateRangeLabel = useMemo(() => {
+    if (dateRangeMeta.startDate.toDateString() === dateRangeMeta.endDate.toDateString()) {
+      return formatDate(dateRangeMeta.startDate.toISOString());
+    }
+    return `${formatDate(dateRangeMeta.startDate.toISOString())} – ${formatDate(
+      dateRangeMeta.endDate.toISOString()
+    )}`;
+  }, [dateRangeMeta]);
 
   const timeframeRequests = useMemo(() => {
     return returnRequests.filter((request) => {
@@ -269,9 +290,9 @@ export default function ReturnsAnalyticsPage() {
       if (Number.isNaN(createdAt)) {
         return false;
       }
-      return createdAt >= timeframeMeta.startMs;
+      return createdAt >= dateRangeMeta.startMs && createdAt <= dateRangeMeta.endMs;
     });
-  }, [returnRequests, timeframeMeta]);
+  }, [returnRequests, dateRangeMeta]);
 
   const previousRequests = useMemo(() => {
     return returnRequests.filter((request) => {
@@ -279,9 +300,12 @@ export default function ReturnsAnalyticsPage() {
       if (Number.isNaN(createdAt)) {
         return false;
       }
-      return createdAt >= timeframeMeta.previousStartMs && createdAt < timeframeMeta.startMs;
+      return (
+        createdAt >= dateRangeMeta.previousStartMs &&
+        createdAt <= dateRangeMeta.previousEndMs
+      );
     });
-  }, [returnRequests, timeframeMeta]);
+  }, [returnRequests, dateRangeMeta]);
 
   const reasonStats = useMemo<ReasonStat[]>(() => {
     const currentCounts = new Map<string, number>();
@@ -548,25 +572,40 @@ export default function ReturnsAnalyticsPage() {
               <p className="text-xs uppercase tracking-[0.35em] text-slate-400">تقرير الملخص</p>
               <h1 className="text-2xl font-semibold text-slate-900">لوحة تحليل المرتجعات</h1>
               <p className="mt-1 text-sm text-slate-500">
-                {`تعرض هذه الصفحة أداء المرتجعات والاستبدالات لـ ${
-                  TIMEFRAME_CONFIG[timeframe].label
-                }. ${reasonSummaryText}.`}
+                {`تعرض هذه الصفحة أداء المرتجعات والاستبدالات للفترة ${dateRangeLabel}. ${reasonSummaryText}.`}
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="text-sm text-slate-500">
                 <p className="font-medium text-slate-700">الفترة الزمنية</p>
-                <p>{TIMEFRAME_CONFIG[timeframe].label}</p>
+                <p>{dateRangeLabel}</p>
               </div>
-              <NativeSelect
-                value={timeframe}
-                onChange={(event) => setTimeframe(event.target.value as TimeframeKey)}
-                className="w-full sm:w-44"
-              >
-                <option value="7d">آخر ٧ أيام</option>
-                <option value="30d">آخر ٣٠ يوماً</option>
-                <option value="90d">آخر ٩٠ يوماً</option>
-              </NativeSelect>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-start font-normal sm:w-auto"
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                    {dateRangeLabel}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0">
+                  <Calendar
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={(range) => {
+                      if (range?.from) {
+                        setDateRange(range);
+                      }
+                    }}
+                    defaultMonth={dateRange.from}
+                    numberOfMonths={2}
+                    locale={arSA}
+                  />
+                </PopoverContent>
+              </Popover>
               <Button
                 type="button"
                 variant="outline"

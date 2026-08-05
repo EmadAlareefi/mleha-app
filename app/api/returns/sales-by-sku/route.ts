@@ -56,15 +56,33 @@ export async function GET(request: NextRequest) {
     }
     const merchantId = resolved.merchantId;
 
+    const fromParam = searchParams.get('from');
+    const toParam = searchParams.get('to');
+    const parsedFrom = fromParam ? new Date(fromParam) : null;
+    const parsedTo = toParam ? new Date(toParam) : null;
+    const hasValidRange =
+      parsedFrom &&
+      parsedTo &&
+      !Number.isNaN(parsedFrom.getTime()) &&
+      !Number.isNaN(parsedTo.getTime()) &&
+      parsedFrom <= parsedTo;
+
     const daysParam = Number.parseInt(searchParams.get('days') || '30', 10);
     const days = Number.isFinite(daysParam) && daysParam > 0 ? daysParam : 30;
-    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const startDate = hasValidRange
+      ? parsedFrom
+      : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const endDate = hasValidRange ? parsedTo : null;
 
     // Gross sales (return-rate denominator): every non-canceled order counts,
     // even ones later returned — otherwise a 100%-returned SKU would divide
     // by a near-zero "net sales" figure instead of showing a 100% rate.
     const ordersInRange = await prisma.sallaOrder.findMany({
-      where: { merchantId, placedAt: { gte: startDate }, statusSlug: { not: 'canceled' } },
+      where: {
+        merchantId,
+        placedAt: { gte: startDate, ...(endDate ? { lte: endDate } : {}) },
+        statusSlug: { not: 'canceled' },
+      },
       select: { orderId: true },
     });
     const orderIdsInRange = ordersInRange.map((o) => o.orderId);
