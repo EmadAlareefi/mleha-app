@@ -684,6 +684,7 @@ model SallaProductReview {
   body            String   @db.Text
   reviewImageData String?   @db.Text
   rating          Int      @default(5)
+  isVerifiedPurchase Boolean @default(false)
   isPublished     Boolean  @default(true)
 
   createdById       String?

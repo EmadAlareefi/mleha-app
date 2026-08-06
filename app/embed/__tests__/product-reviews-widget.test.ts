@@ -72,9 +72,11 @@ test('runtime resolves the exact DOM product id before Salla config', () => {
   const helpers = windowStub.__mlehaProductReviewsTest as {
     getProductId: () => string;
     isSingleProductPage: () => boolean;
+    formatReviewDate: (value: string) => string;
   };
   assert.equal(helpers.isSingleProductPage(), true);
   assert.equal(helpers.getProductId(), '3014694887033630745');
+  assert.equal(helpers.formatReviewDate('2026-08-05T12:00:00.000Z'), '5/8/2026');
 });
 
 test('runtime renders review values without HTML assignment', () => {
@@ -87,6 +89,10 @@ test('runtime uses a layout that remains responsive when mounted in a hidden tab
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("host.querySelector('.s-comments-container')"), true);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("container.querySelector('salla-comment-item')"), true);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("create('article', 's-comments-item mleha-pr__review')"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("'s-comments-item-rated-widget', 'تم التقييم'"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('if (review.isVerifiedPurchase)'), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("'s-comments-item-has-order-check-text'"), true);
+  assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('mleha-pr__city'), false);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('!isVisible(host)'), true);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes("attributeFilter: ['class', 'style', 'hidden']"), true);
   assert.equal(PRODUCT_REVIEWS_WIDGET_SOURCE.includes('review.reviewImageUrl'), true);

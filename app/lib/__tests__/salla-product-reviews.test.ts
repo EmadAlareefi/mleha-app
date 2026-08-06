@@ -6,6 +6,7 @@ import {
   parseProductReviewCreate,
   parseRating,
   parseReviewImageData,
+  parseVerifiedPurchase,
 } from '../salla-product-reviews';
 
 test('accepts exact digit-string Salla ids without numeric precision loss', () => {
@@ -25,6 +26,7 @@ test('validates and trims a bulk review row', () => {
       body: ' جميل جداً ',
       reviewImageData: 'data:image/png;base64,YWJjZA==',
       rating: 5,
+      isVerifiedPurchase: true,
     }),
     {
       productId: '123',
@@ -36,6 +38,7 @@ test('validates and trims a bulk review row', () => {
       body: 'جميل جداً',
       reviewImageData: 'data:image/png;base64,YWJjZA==',
       rating: 5,
+      isVerifiedPurchase: true,
     }
   );
   assert.equal(MAX_PRODUCT_REVIEWS_PER_BATCH, 100);
@@ -58,4 +61,6 @@ test('rejects invalid ratings and unsafe image protocols', () => {
   );
   assert.equal(parseReviewImageData(null), null);
   assert.throws(() => parseReviewImageData('data:image/svg+xml;base64,PHN2Zz4='), /غير مدعومة/);
+  assert.equal(parseVerifiedPurchase(undefined), false);
+  assert.throws(() => parseVerifiedPurchase('true'), /حالة الشراء/);
 });

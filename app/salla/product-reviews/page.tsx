@@ -24,6 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -52,6 +53,7 @@ type ManagedReview = {
   body: string;
   reviewImageData?: string | null;
   rating: number;
+  isVerifiedPurchase: boolean;
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
@@ -541,6 +543,15 @@ export default function ProductReviewsPage() {
                       </div>
                       <Textarea value={draft.body} maxLength={1000} onChange={(event) => updateDraft(draft.draftId, { body: event.target.value })} />
                     </div>
+                    <div className="flex items-center gap-2 lg:col-span-4">
+                      <Checkbox
+                        id={`verified-purchase-${draft.draftId}`}
+                        checked={draft.isVerifiedPurchase}
+                        onCheckedChange={(checked) => updateDraft(draft.draftId, { isVerifiedPurchase: checked === true })}
+                      />
+                      <Label htmlFor={`verified-purchase-${draft.draftId}`}>قام بالشراء</Label>
+                      <span className="text-xs text-muted-foreground">يظهر بجانب التقييم عند تحديده</span>
+                    </div>
                     <div className="lg:col-span-4">
                       <ReviewImageInput
                         value={draft.reviewImageData}
@@ -639,6 +650,7 @@ function ManagedReviewCard({
   const [body, setBody] = useState(review.body);
   const [reviewImageData, setReviewImageData] = useState(review.reviewImageData ?? null);
   const [rating, setRating] = useState(review.rating);
+  const [isVerifiedPurchase, setIsVerifiedPurchase] = useState(review.isVerifiedPurchase);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -660,7 +672,14 @@ function ManagedReviewCard({
     }
   };
 
-  const save = () => patchReview({ reviewerName, reviewerCity, body, reviewImageData, rating });
+  const save = () => patchReview({
+    reviewerName,
+    reviewerCity,
+    body,
+    reviewImageData,
+    rating,
+    isVerifiedPurchase,
+  });
 
   const remove = async () => {
     if (!window.confirm('سيتم حذف هذا التقييم نهائياً. هل تريد المتابعة؟')) return;
@@ -695,6 +714,16 @@ function ManagedReviewCard({
           <div className="space-y-2"><Label>التقييم</Label><NativeSelect value={String(rating)} onChange={(event) => setRating(Number(event.target.value))} className="w-full">{[5, 4, 3, 2, 1].map((value) => <NativeSelectOption key={value} value={value}>{value} نجوم</NativeSelectOption>)}</NativeSelect></div>
         </div>
         <div className="space-y-2"><Label>نص التقييم</Label><Textarea value={body} maxLength={1000} onChange={(event) => setBody(event.target.value)} /></div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`managed-verified-purchase-${review.id}`}
+            checked={isVerifiedPurchase}
+            onCheckedChange={(checked) => setIsVerifiedPurchase(checked === true)}
+            disabled={busy}
+          />
+          <Label htmlFor={`managed-verified-purchase-${review.id}`}>قام بالشراء</Label>
+          <span className="text-xs text-muted-foreground">يظهر بجانب التقييم عند تحديده</span>
+        </div>
         <ReviewImageInput value={reviewImageData} onChange={setReviewImageData} disabled={busy} />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex flex-wrap justify-between gap-2">

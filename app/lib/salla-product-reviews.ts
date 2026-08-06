@@ -24,6 +24,7 @@ export type ProductReviewCreateInput = {
   body: string;
   reviewImageData: string | null;
   rating: number;
+  isVerifiedPurchase: boolean;
 };
 
 function requiredText(value: unknown, label: string, maxLength: number): string {
@@ -71,6 +72,12 @@ export function parseReviewImageData(value: unknown): string | null {
   return imageData;
 }
 
+export function parseVerifiedPurchase(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value !== 'boolean') throw new Error('حالة الشراء غير صالحة');
+  return value;
+}
+
 export function parseProductReviewCreate(value: unknown): ProductReviewCreateInput {
   if (!value || typeof value !== 'object') throw new Error('بيانات التقييم غير صالحة');
   const input = value as Record<string, unknown>;
@@ -87,6 +94,7 @@ export function parseProductReviewCreate(value: unknown): ProductReviewCreateInp
     body: requiredText(input.body, 'نص التقييم', LIMITS.body),
     reviewImageData: parseReviewImageData(input.reviewImageData),
     rating: parseRating(input.rating),
+    isVerifiedPurchase: parseVerifiedPurchase(input.isVerifiedPurchase),
   };
 }
 

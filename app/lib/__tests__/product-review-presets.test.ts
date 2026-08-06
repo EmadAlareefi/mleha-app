@@ -19,6 +19,7 @@ test('generates the requested editable reviews for every selected product', () =
   assert.equal(drafts.filter((draft) => draft.productId === '10').length, 3);
   assert.equal(drafts.filter((draft) => draft.productId === '20').length, 3);
   assert.equal(drafts.every((draft) => draft.rating === 5), true);
+  assert.equal(drafts.every((draft) => draft.isVerifiedPurchase === false), true);
   assert.equal(new Set(drafts.slice(0, 3).map((draft) => draft.body)).size, 3);
 });
 

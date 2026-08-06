@@ -141,9 +141,9 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
       '.mleha-pr{direction:rtl;text-align:right;margin:0 0 1.5rem;font-family:inherit;}',
       '.mleha-pr,.mleha-pr *{box-sizing:border-box;}',
       '.mleha-pr__review{display:block;opacity:1!important;transform:none!important;}',
-      '.mleha-pr__city{display:block;margin-top:.15rem;color:var(--color-text-muted,#777);font-size:.82rem;}',
       '.mleha-pr__rating{display:flex;gap:.3rem;color:#fbbf24;font-size:1rem;}',
       '.mleha-pr__star--empty{opacity:.22;}',
+      '.mleha-pr__purchase-check{display:inline-grid;place-items:center;width:1.25rem;height:1.25rem;border-radius:999px;background:#fbbf24;color:#111;font-size:.75rem;font-weight:700;line-height:1;}',
       '.mleha-pr__body{margin:0;white-space:pre-wrap;}',
       '.mleha-pr__photo-link{display:inline-block;margin-top:.75rem;border-radius:.45rem;line-height:0;}',
       '.mleha-pr__photo{width:5.25rem;height:5.25rem;border:1px solid var(--color-grey-200,#e5e7eb);border-radius:.45rem;object-fit:cover;}'
@@ -161,7 +161,8 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
     var userWrap = create('div', 's-comments-item-user-wrapper');
     var userInfo = create('div', 's-comments-item-user-info');
     var name = create('h3', 's-comments-item-user-info-name-with-margin', String(review.reviewerName || ''));
-    var city = create('span', 'mleha-pr__city', String(review.reviewerCity || ''));
+    var status = create('div', 's-comments-flex');
+    var rated = create('span', 's-comments-item-rated-widget', 'تم التقييم');
     var timestamp = create('p', 's-comments-item-timestamp s-ltr', formatReviewDate(review.createdAt));
     var ratingRow = create('div', 'flex flex-row gap-4 mt-2 mb-4');
     var rating = create('div', 'comment__rating mleha-pr__rating');
@@ -170,7 +171,7 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
     var stars = Math.max(1, Math.min(5, Number(review.rating) || 5));
 
     avatar.src = AVATAR;
-    avatar.alt = String(review.reviewerName || '') + ' - ' + String(review.reviewerCity || '');
+    avatar.alt = String(review.reviewerName || '');
     avatar.loading = 'lazy';
     if (review.createdAt) { timestamp.setAttribute('datetime', String(review.createdAt)); }
 
@@ -182,7 +183,23 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
     rating.setAttribute('aria-label', stars + ' من 5');
 
     userInfo.appendChild(name);
-    userInfo.appendChild(city);
+    if (review.isVerifiedPurchase) {
+      var purchaseCheck = create(
+        'span',
+        's-comments-item-has-order-check-icon mleha-pr__purchase-check',
+        '✓'
+      );
+      var purchaseText = create(
+        'span',
+        's-comments-item-has-order-check-text',
+        'قام بالشراء،'
+      );
+      purchaseCheck.setAttribute('aria-hidden', 'true');
+      status.appendChild(purchaseCheck);
+      status.appendChild(purchaseText);
+    }
+    status.appendChild(rated);
+    userInfo.appendChild(status);
     userWrap.appendChild(userInfo);
     userWrap.appendChild(timestamp);
     ratingRow.appendChild(rating);
@@ -213,9 +230,9 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
   function formatReviewDate(value) {
     if (!value) { return ''; }
     try {
-      return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
-        day: 'numeric', month: 'numeric', year: 'numeric'
-      }).format(new Date(value));
+      var date = new Date(value);
+      if (isNaN(date.getTime())) { return ''; }
+      return date.getDate() + '/' + (date.getMonth() + 1) + '/' + date.getFullYear();
     } catch (error) { return ''; }
   }
 
@@ -318,7 +335,8 @@ export const PRODUCT_REVIEWS_WIDGET_SOURCE = String.raw`
     window.__mlehaProductReviewsTest = {
       getProductId: getProductId,
       isSingleProductPage: isSingleProductPage,
-      buildReviewCard: buildReviewCard
+      buildReviewCard: buildReviewCard,
+      formatReviewDate: formatReviewDate
     };
     return;
   }

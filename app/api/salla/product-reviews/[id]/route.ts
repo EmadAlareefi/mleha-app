@@ -6,6 +6,7 @@ import {
   parseRating,
   parseReviewImageData,
   parseReviewText,
+  parseVerifiedPurchase,
   PRODUCT_REVIEW_SERVICE_KEY,
 } from '@/app/lib/salla-product-reviews';
 import { prisma } from '@/lib/prisma';
@@ -37,6 +38,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if ('body' in input) data.body = parseReviewText(input.body, 'body');
     if ('reviewImageData' in input) data.reviewImageData = parseReviewImageData(input.reviewImageData);
     if ('rating' in input) data.rating = parseRating(input.rating);
+    if ('isVerifiedPurchase' in input) {
+      data.isVerifiedPurchase = parseVerifiedPurchase(input.isVerifiedPurchase);
+    }
     if ('isPublished' in input) {
       if (typeof input.isPublished !== 'boolean') throw new Error('حالة النشر غير صالحة');
       data.isPublished = input.isPublished;

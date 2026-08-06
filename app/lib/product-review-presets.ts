@@ -81,6 +81,7 @@ export type ProductReviewDraft = {
   body: string;
   reviewImageData: string | null;
   rating: number;
+  isVerifiedPurchase: boolean;
 };
 
 function pick<T>(values: readonly T[], random: () => number): T {
@@ -117,6 +118,7 @@ export function generateProductReviewDrafts(
         body: PRODUCT_REVIEW_PHRASES[(phraseOffset + index) % PRODUCT_REVIEW_PHRASES.length],
         reviewImageData: null,
         rating: 5,
+        isVerifiedPurchase: false,
       };
     });
   });

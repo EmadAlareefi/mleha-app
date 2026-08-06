@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         reviewerCity: true,
         body: true,
         rating: true,
+        isVerifiedPurchase: true,
         reviewImageData: true,
         createdAt: true,
       },
