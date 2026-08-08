@@ -222,24 +222,28 @@ export async function POST(request: NextRequest) {
         hasLabelUrl: !!shipmentUrl,
       });
 
-      const returnLabelNotification = await maybeNotifyReturnLabelCreated({
-        merchantId,
-        orderId: resolvedOrderId,
-        orderNumber: referenceId || resolvedOrderId,
-        labelUrl: shipmentUrl,
-        trackingNumber: trackingNumberValue,
-        shipmentData: data,
-        source: 'salla-shipment-created-webhook',
-      });
-
-      if (returnLabelNotification.status !== 'skipped') {
-        log.info('Return label notification result from shipment webhook', {
-          referenceId,
+      // Only the shipment-create events carry a freshly issued label; order.updated
+      // payloads are re-deliveries of order state and must not trigger a re-send.
+      if (!isOrderUpdatedEvent) {
+        const returnLabelNotification = await maybeNotifyReturnLabelCreated({
+          merchantId,
           orderId: resolvedOrderId,
-          result: returnLabelNotification.status,
-          reason: returnLabelNotification.reason,
-          returnRequestId: returnLabelNotification.returnRequestId,
+          orderNumber: referenceId || resolvedOrderId,
+          labelUrl: shipmentUrl,
+          trackingNumber: trackingNumberValue,
+          shipmentData: data,
+          source: 'salla-shipment-created-webhook',
         });
+
+        if (returnLabelNotification.status !== 'skipped') {
+          log.info('Return label notification result from shipment webhook', {
+            referenceId,
+            orderId: resolvedOrderId,
+            result: returnLabelNotification.status,
+            reason: returnLabelNotification.reason,
+            returnRequestId: returnLabelNotification.returnRequestId,
+          });
+        }
       }
     } catch (dbError) {
       log.error('Failed to store shipment in database', {
