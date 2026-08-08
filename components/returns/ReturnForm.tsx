@@ -83,7 +83,10 @@ interface Order {
       currency?: string;
     };
   };
-  customer: {
+  // Withheld from the public /api/orders/lookup response, which is what the
+  // customer-facing returns page uses. Nothing in this component reads it;
+  // /api/returns/create re-fetches the order server-side for customer details.
+  customer?: {
     id: number;
     first_name: string;
     last_name: string;

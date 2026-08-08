@@ -673,6 +673,25 @@ model SallaProductAvailabilityRequest {
   @@index([ipHash, createdAt])
 }
 
+/// One row per anonymous order lookup, used only to rate limit
+/// `GET /api/orders/lookup`. Order numbers are sequential, so without a budget
+/// the endpoint can be walked to enumerate the store's orders. Counted in the
+/// database rather than in memory because each serverless instance would
+/// otherwise keep its own private counter.
+model PublicOrderLookupAttempt {
+  id         String   @id @default(cuid())
+  ipHash     String // salted SHA-256 of the client IP, used only for rate limiting
+  merchantId String?
+  /// Normalized reference that was requested, kept for abuse triage.
+  reference  String?
+  /// False when the lookup found nothing — enumeration is almost entirely misses.
+  found      Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([ipHash, createdAt])
+  @@index([createdAt])
+}
+
 model SallaProductReview {
   id              String   @id @default(cuid())
   productId       String

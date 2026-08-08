@@ -1,10 +1,10 @@
-import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { normalizeE164Phone } from '@/app/lib/phone';
 import { corsJson, corsPreflight, resolveAllowedOrigin } from '@/app/lib/public-cors';
+import { getClientIp, hashIp } from '@/app/lib/public-request';
 import {
   createAvailabilityRequest,
   findDuplicatePendingRequest,
@@ -30,20 +30,6 @@ const MAX_REQUESTS_PER_PHONE = 5;
 const MAX_TEXT_LENGTH = 250;
 const MAX_NOTES_LENGTH = 500;
 const MAX_URL_LENGTH = 500;
-
-function hashIp(ip: string | null): string | null {
-  if (!ip) return null;
-  const salt = process.env.NEXTAUTH_SECRET || process.env.CRON_SECRET || 'mleha-notify';
-  return crypto.createHash('sha256').update(`${salt}:${ip}`).digest('hex');
-}
-
-function getClientIp(request: NextRequest): string | null {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    null
-  );
-}
 
 function readString(value: unknown, maxLength = MAX_TEXT_LENGTH): string | null {
   if (typeof value !== 'string') return null;

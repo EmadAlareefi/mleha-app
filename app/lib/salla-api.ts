@@ -1,6 +1,11 @@
 import { sallaMakeRequest } from './salla-oauth';
 import { log } from './logger';
-import { normalizeKSA } from './phone';
+import { normalizeKSA, normalizeE164Phone } from './phone';
+import {
+  findOrderMatchingReference,
+  normalizeOrderReference,
+  orderMatchesReference,
+} from './salla-order-reference';
 
 // Salla API Types
 export interface SallaOrder {
@@ -384,47 +389,75 @@ export async function getSallaOrderDeliveredDate(
 }
 
 /**
- * Fetches a specific order by reference ID (order number) from Salla
+ * Fetches a specific order by reference ID (order number) from Salla.
+ *
+ * Salla's `?reference_id=` filter is typed as an integer and is silently
+ * dropped when it cannot parse the value, in which case the endpoint answers
+ * with the store's whole order list, newest first. Trusting `data[0]` therefore
+ * returned the store's latest order for any unparseable input. Every candidate
+ * is now re-checked locally against the requested reference, so a dropped or
+ * changed upstream filter yields a miss rather than an unrelated customer's
+ * order. Returns null unless the order genuinely carries `referenceId`.
  */
 export async function getSallaOrderByReference(
   merchantId: string,
   referenceId: string
 ): Promise<SallaOrder | null> {
+  const wanted = normalizeOrderReference(referenceId);
+  if (!wanted) {
+    // Not a possible reference number — refuse before spending an upstream call.
+    log.warn('Rejected malformed order reference', { merchantId });
+    return null;
+  }
+
   try {
     // First, search by reference_id to get the order ID
     const searchResponse = await sallaMakeRequest<SallaOrdersResponse>(
       merchantId,
-      `/orders?reference_id=${encodeURIComponent(referenceId)}`
+      `/orders?reference_id=${encodeURIComponent(wanted)}`
     );
 
     if (!searchResponse || !searchResponse.success || !searchResponse.data || searchResponse.data.length === 0) {
-      log.warn('Order not found by reference', { merchantId, referenceId });
+      log.warn('Order not found by reference', { merchantId, referenceId: wanted });
       return null;
     }
 
-    const orderId = searchResponse.data[0].id;
+    const match = findOrderMatchingReference(searchResponse.data, wanted);
+
+    if (!match) {
+      // Salla answered, but with orders that are not the one asked for — the
+      // signature of an ignored filter. Treat it as not found.
+      log.warn('Salla returned no order matching the requested reference', {
+        merchantId,
+        referenceId: wanted,
+        returnedCount: searchResponse.data.length,
+      });
+      return null;
+    }
+
+    const orderId = match.id;
 
     // Now fetch the complete order details by ID (includes full item info with prices)
-    log.info('Fetching full order details', { merchantId, orderId, referenceId });
     const fullOrder = await getSallaOrder(merchantId, orderId.toString());
 
     if (!fullOrder) {
       log.error('Failed to fetch full order details', { merchantId, orderId });
-      return searchResponse.data[0]; // Fallback to search result
+      // The search hit is already verified, so falling back to it is safe.
+      return match;
     }
 
-    // Log the actual response structure for debugging
-    log.info('Salla order fetched successfully', {
-      merchantId,
-      referenceId,
-      orderId,
-      itemsCount: fullOrder.items?.length,
-      firstItemKeys: fullOrder.items?.[0] ? Object.keys(fullOrder.items[0]) : []
-    });
+    if (!orderMatchesReference(fullOrder, wanted)) {
+      log.error('Full order details did not match the requested reference', {
+        merchantId,
+        orderId,
+        referenceId: wanted,
+      });
+      return null;
+    }
 
     return fullOrder;
   } catch (error) {
-    log.error('Error fetching Salla order by reference', { merchantId, referenceId, error });
+    log.error('Error fetching Salla order by reference', { merchantId, referenceId: wanted, error });
     return null;
   }
 }
@@ -450,62 +483,107 @@ export async function updateSallaOrder(
 }
 
 /**
- * Fetches recent orders for a specific customer
+ * Fetches recent orders for a specific customer.
+ *
+ * Like the other `/orders?<filter>=` helpers here, the returned rows are
+ * re-checked against the requested customer — Salla drops filters it cannot
+ * parse and answers with the store's newest orders instead.
  */
 export async function getCustomerOrders(
   merchantId: string,
   customerId: string,
   limit: number = 10
 ): Promise<SallaOrder[]> {
+  const wanted = String(customerId || '').trim();
+  if (!/^\d+$/.test(wanted)) {
+    log.warn('Rejected malformed customer id', { merchantId });
+    return [];
+  }
+
   try {
     const response = await sallaMakeRequest<SallaOrdersResponse>(
       merchantId,
-      `/orders?customer=${customerId}&per_page=${limit}&sort_by=created&sort=desc`
+      `/orders?customer=${encodeURIComponent(wanted)}&per_page=${limit}&sort_by=created&sort=desc`
     );
 
     if (!response || !response.success) {
-      log.error('Failed to fetch customer orders', { merchantId, customerId });
+      log.error('Failed to fetch customer orders', { merchantId, customerId: wanted });
       return [];
     }
 
-    return response.data || [];
+    return (response.data || []).filter(
+      (order) => String(order?.customer?.id ?? '') === wanted
+    );
   } catch (error) {
-    log.error('Error fetching customer orders', { merchantId, customerId, error });
+    log.error('Error fetching customer orders', { merchantId, customerId: wanted, error });
     return [];
   }
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** True when `order` really belongs to the email or phone that was searched for. */
+function orderMatchesContact(order: SallaOrder, contact: string): boolean {
+  const customer = order?.customer;
+  if (!customer) {
+    return false;
+  }
+
+  if (EMAIL_PATTERN.test(contact)) {
+    return (customer.email || '').trim().toLowerCase() === contact.trim().toLowerCase();
+  }
+
+  const wanted = normalizeE164Phone(contact);
+  if (!wanted) {
+    return false;
+  }
+
+  return [customer.mobile, customer.phone].some(
+    (value) => value && normalizeE164Phone(value) === wanted
+  );
+}
+
 /**
- * Fetches orders by customer email or phone
+ * Fetches orders by customer email or phone.
+ *
+ * Salla's `?email=` / `?mobile=` filters share the failure mode documented on
+ * `getSallaOrderByReference`: an unparseable value is dropped and the endpoint
+ * answers with the store's newest orders instead. Every row is therefore
+ * re-checked against the requested contact before being returned, so a dropped
+ * filter yields an empty result rather than 20 unrelated customers' orders.
  */
 export async function findOrdersByCustomerContact(
   merchantId: string,
   emailOrPhone: string
 ): Promise<SallaOrder[]> {
-  try {
-    // Try searching by email first
-    let response = await sallaMakeRequest<SallaOrdersResponse>(
-      merchantId,
-      `/orders?email=${encodeURIComponent(emailOrPhone)}&per_page=20&sort_by=created&sort=desc`
-    );
+  const contact = (emailOrPhone || '').trim();
+  const isEmail = EMAIL_PATTERN.test(contact);
+  const isPhone = !isEmail && normalizeE164Phone(contact).length >= 8;
 
-    if (response && response.success && response.data && response.data.length > 0) {
-      return response.data;
-    }
-
-    // Try searching by phone if email didn't work
-    response = await sallaMakeRequest<SallaOrdersResponse>(
-      merchantId,
-      `/orders?mobile=${encodeURIComponent(emailOrPhone)}&per_page=20&sort_by=created&sort=desc`
-    );
-
-    if (response && response.success) {
-      return response.data || [];
-    }
-
+  if (!isEmail && !isPhone) {
+    log.warn('Rejected malformed customer contact', { merchantId });
     return [];
+  }
+
+  const verify = (orders: SallaOrder[] | undefined) =>
+    (orders || []).filter((order) => orderMatchesContact(order, contact));
+
+  try {
+    if (isEmail) {
+      const response = await sallaMakeRequest<SallaOrdersResponse>(
+        merchantId,
+        `/orders?email=${encodeURIComponent(contact)}&per_page=20&sort_by=created&sort=desc`
+      );
+      return response && response.success ? verify(response.data) : [];
+    }
+
+    const response = await sallaMakeRequest<SallaOrdersResponse>(
+      merchantId,
+      `/orders?mobile=${encodeURIComponent(contact)}&per_page=20&sort_by=created&sort=desc`
+    );
+    return response && response.success ? verify(response.data) : [];
   } catch (error) {
-    log.error('Error finding orders by contact', { merchantId, emailOrPhone, error });
+    log.error('Error finding orders by contact', { merchantId, error });
     return [];
   }
 }

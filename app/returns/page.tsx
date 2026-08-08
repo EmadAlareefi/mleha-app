@@ -7,6 +7,7 @@ import { ErrorDialog } from '@/components/ui/error-dialog';
 import ReturnForm from '@/components/returns/ReturnForm';
 import SuccessScreen from '@/components/returns/SuccessScreen';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
+import { isInternationalOrder } from '@/lib/returns/order-country';
 
 // Configuration - Replace with your actual merchant info
 const MERCHANT_CONFIG = {
@@ -32,120 +33,6 @@ const buildWhatsappSupportAction = (orderNumber?: string) => {
 };
 
 type Step = 'lookup' | 'existing' | 'form' | 'success';
-
-const SAUDI_COUNTRY_CODES = new Set(['SA', 'SAU', 'KSA']);
-const SAUDI_COUNTRY_KEYWORDS_EN = [
-  'saudi',
-  'saudi arabia',
-  'kingdom of saudi arabia',
-  'ksa',
-];
-const SAUDI_COUNTRY_KEYWORDS_AR = [
-  'السعودية',
-  'السعوديه',
-  'المملكة العربية السعودية',
-  'المملكه العربيه السعوديه',
-];
-const COUNTRY_FIELD_KEYS = [
-  'country',
-  'country_code',
-  'countryCode',
-  'country_en',
-  'country_ar',
-  'countryArabic',
-  'countryEnglish',
-  'country_name',
-  'countryName',
-  'countryNameEn',
-  'countryNameAr',
-];
-
-const normalizeCountryString = (value: unknown): string | undefined => {
-  if (value === null || value === undefined) {
-    return undefined;
-  }
-  const str = String(value).trim();
-  return str || undefined;
-};
-
-const isSaudiCountryValue = (value: unknown): boolean => {
-  const str = normalizeCountryString(value);
-  if (!str) {
-    return false;
-  }
-
-  const lettersOnly = str.replace(/[^A-Za-z]/g, '').toUpperCase();
-  if (lettersOnly && SAUDI_COUNTRY_CODES.has(lettersOnly)) {
-    return true;
-  }
-
-  const lower = str.toLowerCase();
-  if (SAUDI_COUNTRY_KEYWORDS_EN.some(keyword => lower.includes(keyword))) {
-    return true;
-  }
-
-  const arabicOnly = str.replace(/[^ء-ي]/g, '');
-  if (arabicOnly && SAUDI_COUNTRY_KEYWORDS_AR.some(keyword => arabicOnly.includes(keyword.replace(/\s+/g, '')))) {
-    return true;
-  }
-
-  return false;
-};
-
-const collectCountryCandidates = (source: unknown): string[] => {
-  if (!source || typeof source !== 'object') {
-    return [];
-  }
-  const candidates: string[] = [];
-  for (const key of COUNTRY_FIELD_KEYS) {
-    const value = (source as Record<string, unknown>)[key];
-    if (typeof value === 'string' && value.trim()) {
-      candidates.push(value);
-    }
-  }
-  return candidates;
-};
-
-const isInternationalOrder = (order: any): boolean => {
-  if (!order || typeof order !== 'object') {
-    return false;
-  }
-
-  const addressCandidates: string[] = [
-    ...collectCountryCandidates(order.shipping_address),
-    ...collectCountryCandidates(order.shipping?.pickup_address),
-    ...collectCountryCandidates(order.shipping),
-    ...collectCountryCandidates(order.billing_address),
-  ];
-
-  const fallbackCandidates: string[] = [];
-  if (order.customer && typeof order.customer === 'object') {
-    fallbackCandidates.push(
-      order.customer.country,
-      order.customer.country_en,
-      order.customer.country_ar,
-    );
-  }
-
-  const candidateValues = addressCandidates.length > 0 ? addressCandidates : fallbackCandidates;
-
-  for (const candidate of candidateValues) {
-    if (!candidate) {
-      continue;
-    }
-
-    if (isSaudiCountryValue(candidate)) {
-      return false;
-    }
-
-    const normalized = normalizeCountryString(candidate);
-    if (normalized) {
-      return true;
-    }
-  }
-
-  return false;
-};
 
 const normalizeStatusString = (value: unknown): string | undefined => {
   if (typeof value !== 'string') {
@@ -315,7 +202,10 @@ export default function ReturnsPage() {
         return;
       }
 
-      if (isInternationalOrder(orderData.order)) {
+      // The lookup response no longer carries addresses, so the flag is
+      // computed server-side; the local check stays as a fallback for a
+      // response served by an older deployment.
+      if (orderData.order?.isInternational ?? isInternationalOrder(orderData.order)) {
         setErrorDetails({
           title: 'طلب دولي',
           message: 'الطلبات الدولية خارج السعودية غير قابلة للإرجاع أو الاستبدال.',
