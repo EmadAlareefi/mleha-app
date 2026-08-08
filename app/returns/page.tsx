@@ -102,6 +102,7 @@ const formatReturnMoney = (value: number | string, currency?: string | null) => 
 export default function ReturnsPage() {
   const [step, setStep] = useState<Step>('lookup');
   const [orderNumber, setOrderNumber] = useState('');
+  const [customerMobile, setCustomerMobile] = useState('');
   const [order, setOrder] = useState<any>(null);
   const [returnRequest, setReturnRequest] = useState<any>(null);
   const [existingReturns, setExistingReturns] = useState<any[]>([]);
@@ -182,7 +183,7 @@ export default function ReturnsPage() {
     try {
       // First, lookup the order
       const orderResponse = await fetch(
-        `/api/orders/lookup?merchantId=${MERCHANT_CONFIG.merchantId}&orderNumber=${encodeURIComponent(orderNumber)}`
+        `/api/orders/lookup?merchantId=${MERCHANT_CONFIG.merchantId}&orderNumber=${encodeURIComponent(orderNumber)}&mobile=${encodeURIComponent(customerMobile)}`
       );
 
       const orderData = await orderResponse.json();
@@ -333,6 +334,7 @@ export default function ReturnsPage() {
   const handleReset = () => {
     setStep('lookup');
     setOrderNumber('');
+    setCustomerMobile('');
     setOrder(null);
     setReturnRequest(null);
     setExistingReturns([]);
@@ -399,7 +401,7 @@ export default function ReturnsPage() {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">طلب إرجاع أو استبدال</h1>
           <p className="text-gray-600">
-            يرجى إدخال رقم الطلب للبدء في عملية الإرجاع أو الاستبدال
+            يرجى إدخال رقم الطلب ورقم الجوال للبدء في عملية الإرجاع أو الاستبدال
           </p>
         </div>
 
@@ -426,6 +428,27 @@ export default function ReturnsPage() {
                 </p>
               </div>
 
+              <div>
+                <label htmlFor="customerMobile" className="block text-sm font-medium mb-2">
+                  رقم الجوال
+                </label>
+                <input
+                  id="customerMobile"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  value={customerMobile}
+                  onChange={(e) => setCustomerMobile(e.target.value)}
+                  placeholder="05XXXXXXXX"
+                  className="w-full px-4 py-3 border rounded-lg text-lg"
+                  required
+                  disabled={loading}
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  رقم الجوال المستخدم عند إنشاء الطلب، للتأكد من أن الطلب يخصك
+                </p>
+              </div>
+
               {error && (
                 <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
                   {error}
@@ -434,7 +457,7 @@ export default function ReturnsPage() {
 
               <Button
                 type="submit"
-                disabled={loading || !orderNumber.trim()}
+                disabled={loading || !orderNumber.trim() || !customerMobile.trim()}
                 className="w-full py-6 text-lg"
               >
                 {loading ? 'جاري البحث...' : 'البحث عن الطلب'}
@@ -628,6 +651,7 @@ export default function ReturnsPage() {
                 city: MERCHANT_CONFIG.city,
               }}
               windowExpiredProductIds={windowExpiredProductIds}
+              customerMobile={customerMobile}
               onSuccess={handleReturnSuccess}
             />
           </div>

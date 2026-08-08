@@ -7,6 +7,10 @@ import { log } from '@/app/lib/logger';
 import { normalizeOrderReference } from '@/app/lib/salla-order-reference';
 import { getClientIp, hashIp } from '@/app/lib/public-request';
 import { isInternationalOrder } from '@/lib/returns/order-country';
+import {
+  isPhoneProofRequired,
+  orderBelongsToPhone,
+} from '@/app/lib/returns/customer-phone';
 import { toPublicOrderView } from '@/app/lib/returns/public-order-view';
 import {
   buildMissingReturnFeeRateMessage,
@@ -18,7 +22,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/orders/lookup?merchantId=XXX&orderNumber=YYY
+ * GET /api/orders/lookup?merchantId=XXX&orderNumber=YYY&mobile=05XXXXXXXX
  * or
  * GET /api/orders/lookup?merchantId=XXX&contact=email@example.com  (staff only)
  *
@@ -29,9 +33,11 @@ export const dynamic = 'force-dynamic';
  *  - the order number is validated here and re-verified against the order that
  *    comes back (see `salla-order-reference.ts`), so an unparseable value can
  *    no longer be answered with the store's most recent order;
+ *  - anonymous callers must supply the order customer's mobile, since order
+ *    numbers are sequential and knowing one otherwise proves nothing. Staff
+ *    sessions are exempt, and `RETURNS_REQUIRE_PHONE=false` disables it;
  *  - anonymous callers get a trimmed order carrying no customer details, and a
- *    per-IP budget weighted towards misses, since sequential order numbers are
- *    otherwise walkable;
+ *    per-IP budget weighted towards misses;
  *  - the `contact` lookup, which lists a customer's orders from their email or
  *    phone, requires a session.
  *
@@ -102,6 +108,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const merchantId = searchParams.get('merchantId');
     const orderNumber = searchParams.get('orderNumber');
+    const mobile = searchParams.get('mobile');
     const contact = searchParams.get('contact');
 
     if (!merchantId) {
@@ -131,18 +138,27 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const order = await getSallaOrderByReference(merchantId, reference);
+      // Anonymous callers must prove the order is theirs. A missing parameter
+      // is answered plainly — it says nothing about which orders exist — but a
+      // wrong number gets the same 404 as an unknown order, so the response
+      // cannot be used to test numbers against a known order.
+      const requirePhoneProof = !isStaff && isPhoneProofRequired();
 
-      if (ipHash) {
-        await recordLookupAttempt({
-          ipHash,
-          merchantId,
-          reference,
-          found: Boolean(order),
-        });
+      if (requirePhoneProof && !mobile?.trim()) {
+        return jsonNoStore({ error: 'رقم الجوال مطلوب للتحقق من الطلب' }, 400);
       }
 
-      if (!order) {
+      const order = await getSallaOrderByReference(merchantId, reference);
+      const ownsOrder = !requirePhoneProof || orderBelongsToPhone(order, mobile);
+      const found = Boolean(order) && ownsOrder;
+
+      if (ipHash) {
+        // A phone mismatch counts as a miss: guessing numbers against a known
+        // order is exactly what the miss budget is meant to slow down.
+        await recordLookupAttempt({ ipHash, merchantId, reference, found });
+      }
+
+      if (!order || !ownsOrder) {
         return jsonNoStore(NOT_FOUND_BODY, 404);
       }
 

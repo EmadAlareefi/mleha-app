@@ -4,6 +4,11 @@ import { getSallaOrder } from '@/app/lib/salla-api';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { getOrderOptionsTotal, getOriginalShippingFee } from '@/lib/returns/fees';
+import { resolveReturnItems } from '@/lib/returns/resolve-return-items';
+import {
+  isPhoneProofRequired,
+  orderBelongsToPhone,
+} from '@/app/lib/returns/customer-phone';
 import {
   extractGeneratedReturnTrackingNumber,
   extractGeneratedReturnTrackingNumbers,
@@ -29,13 +34,15 @@ export const runtime = 'nodejs';
 const CREATE_RETURN_POLICY_ACTION = 'create_return_policy';
 
 interface ReturnItemRequest {
+  /**
+   * Salla order-item id. The only key that maps a submitted line back to the
+   * order unambiguously: `productId` can repeat across lines of the same
+   * product in different variants, and the browser falls back to the item id
+   * when Salla omits the product object, so the two id spaces overlap.
+   */
+  orderItemId: number | string;
   productId: string;
-  productName: string;
-  productSku?: string;
-  variantId?: string;
-  variantName?: string;
   quantity: number;
-  price: number;
 }
 
 interface CreateReturnRequest {
@@ -45,6 +52,8 @@ interface CreateReturnRequest {
   reason: string;
   reasonDetails?: string;
   items: ReturnItemRequest[];
+  /** Proof the requester owns the order; see `RETURNS_REQUIRE_PHONE`. */
+  customerMobile?: string;
 
   // Merchant/warehouse address for return shipment destination
   merchantName: string;
@@ -166,10 +175,49 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const selectedProductIds = body.items.map((item) => item.productId).filter(Boolean);
+    // Proof the requester owns this order. The lookup endpoint applies the same
+    // check, but this route takes a raw order id and is reachable on its own.
+    if (isPhoneProofRequired() && !orderBelongsToPhone(order, body.customerMobile)) {
+      log.warn('Rejected return request without matching customer mobile', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+      });
+
+      return NextResponse.json(
+        { error: 'رقم الجوال لا يطابق الطلب' },
+        { status: 403 }
+      );
+    }
+
+    // Match every submitted line back to the order, and price it from the
+    // order. Nothing in the request body influences the refund.
+    const resolution = resolveReturnItems(order, body.items);
+
+    if (!resolution.ok) {
+      log.warn('Rejected return request line', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        orderItemId: resolution.orderItemId,
+        reason: resolution.reason,
+      });
+
+      return NextResponse.json(
+        {
+          error:
+            resolution.reason === 'unknown_item'
+              ? 'أحد المنتجات المحددة غير موجود في هذا الطلب'
+              : 'الكمية المطلوبة غير صحيحة',
+        },
+        { status: 400 }
+      );
+    }
+
+    const resolvedItems = resolution.items;
+
+    const selectedProductIds = resolvedItems.map((item) => item.productId).filter(Boolean);
     const selectedCategoriesByProductId = await getCategoryNamesByProductId(body.merchantId, selectedProductIds);
     const outletProductIds = getOutletProductIds(selectedCategoriesByProductId);
-    const outletItem = body.items.find((item) => outletProductIds.has(item.productId));
+    const outletItem = resolvedItems.find((item) => outletProductIds.has(item.productId));
     if (outletItem && body.type === 'return') {
       log.warn('Rejected return request for outlet category item', {
         merchantId: body.merchantId,
@@ -190,7 +238,7 @@ export async function POST(request: NextRequest) {
     }
 
     const discountedProductIds = getDiscountedProductIds(selectedCategoriesByProductId);
-    const discountedItem = body.items.find((item) => discountedProductIds.has(item.productId));
+    const discountedItem = resolvedItems.find((item) => discountedProductIds.has(item.productId));
     if (discountedItem) {
       log.warn('Rejected return request for discounted category item', {
         merchantId: body.merchantId,
@@ -244,7 +292,7 @@ export async function POST(request: NextRequest) {
       selectedCategoriesByProductId,
     });
 
-    const expiredItem = body.items.find((item) => {
+    const expiredItem = resolvedItems.find((item) => {
       const evaluation = selectedWindowEvaluations[item.productId];
       return evaluation && !evaluation.eligible;
     });
@@ -289,7 +337,8 @@ export async function POST(request: NextRequest) {
     const orderReference = String(order.reference_id || order.id);
 
     // Calculate total items amount
-    const totalItemsAmount = body.items.reduce(
+    // Priced from the order, never from the request body.
+    const totalItemsAmount = resolvedItems.reduce(
       (sum, item) => sum + item.price * item.quantity,
       0
     );
@@ -537,7 +586,7 @@ export async function POST(request: NextRequest) {
         feeExchangeRateSource: feeQuote.exchangeRateSource,
 
         items: {
-          create: body.items.map(item => ({
+          create: resolvedItems.map(item => ({
             productId: item.productId,
             productName: item.productName,
             productSku: item.productSku,

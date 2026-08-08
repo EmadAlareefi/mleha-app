@@ -70,7 +70,32 @@ NEXT_PUBLIC_MERCHANT_LOGO=/logo.png
 
 # Optional: SAR per one unit of order currency when Salla does not provide a rate
 RETURN_FEE_SAR_RATES_JSON='{"USD":3.75,"AED":1.021}'
+
+# Optional: require the customer's mobile as proof they own the order.
+# Defaults to enabled; set to exactly "false" to turn it off.
+RETURNS_REQUIRE_PHONE=true
 ```
+
+### Customer verification (`RETURNS_REQUIRE_PHONE`)
+
+`/returns` is public and Salla order numbers are sequential, so an order number
+alone proves nothing. When this is enabled — the default — the customer must
+also enter the mobile number on the order, and both `/api/orders/lookup` and
+`/api/returns/create` check it against the order's customer before returning or
+storing anything.
+
+- Saudi numbers are accepted in any of `05XXXXXXXX`, `5XXXXXXXX`, `+966…` and
+  `00966…`, including Arabic-Indic digits.
+- International customers are matched using the dial code Salla stores
+  separately from the local number.
+- A wrong number returns the same "order not found" response as an unknown order
+  number and counts against the per-IP rate limit, so the endpoint cannot be
+  used to test numbers against a known order.
+- Staff sessions are exempt, so internal tools that look orders up are unaffected.
+- An order with no phone number on file can never be matched. Those customers
+  have to go through support — that is deliberate, so verification fails closed.
+
+Set `RETURNS_REQUIRE_PHONE=false` to restore the old order-number-only flow.
 
 ### How to Get the Credentials
 
@@ -96,15 +121,25 @@ RETURN_FEE_SAR_RATES_JSON='{"USD":3.75,"AED":1.021}'
 
 ### 1. Order Lookup
 ```
-GET /api/orders/lookup?merchantId=XXX&orderNumber=ORD-123
+GET /api/orders/lookup?merchantId=XXX&orderNumber=251263484&mobile=05XXXXXXXX
 ```
-Fetches order details from Salla by order number.
+Fetches order details from Salla by order number. `mobile` is required for
+anonymous callers unless `RETURNS_REQUIRE_PHONE=false`; staff sessions are
+exempt and also receive the full order rather than the trimmed public view.
+
+Responses: `404` for an unknown order number **and** for a mobile that does not
+match, `400` when `mobile` is missing, `429` once the per-IP budget is spent.
 
 ### 2. Create Return Request
 ```
 POST /api/returns/create
 ```
 Creates a return request and SMSA shipment.
+
+Items are identified by `orderItemId` (the Salla order-item id). The server
+looks each line up on the order and derives the product name, SKU, variant and
+**price** from Salla — prices are never taken from the request. A line that is
+not on the order, or a quantity above what was ordered, is rejected with `400`.
 
 **Request Body:**
 ```json
@@ -114,12 +149,12 @@ Creates a return request and SMSA shipment.
   "type": "return",
   "reason": "defective",
   "reasonDetails": "Optional details",
+  "customerMobile": "05XXXXXXXX",
   "items": [
     {
+      "orderItemId": 987654,
       "productId": "123",
-      "productName": "Product Name",
-      "quantity": 1,
-      "price": 100
+      "quantity": 1
     }
   ],
   "merchantName": "Store Name",

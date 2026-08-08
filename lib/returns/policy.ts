@@ -4,6 +4,7 @@ import { getSallaProduct, getSallaOrderDeliveredDate, type SallaOrderItem } from
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { detectShipmentCompany } from '@/lib/shipment-detector';
 import { extractOrderDate } from '@/lib/returns/order-date';
+import { getOrderItemProductId } from '@/lib/returns/order-item-id';
 import {
   EVENING_DRESS_CATEGORY,
   isEveningDressCategory,
@@ -281,25 +282,6 @@ export const resolveReturnDeliveryDate = async (
     source: orderDate.source ? `order.${orderDate.source}` : undefined,
     fallbackCandidates: orderDate.candidates,
   };
-};
-
-const getOrderItemProductId = (item: AnyRecord): string | null => {
-  const candidates = [
-    item.product_id,
-    item.productId,
-    item.productID,
-    item.product?.id,
-    item.product?.product_id,
-    item.product?.productId,
-  ];
-
-  for (const candidate of candidates) {
-    if (candidate !== null && candidate !== undefined && String(candidate).trim()) {
-      return String(candidate).trim();
-    }
-  }
-
-  return null;
 };
 
 export const getCategoryNamesForProductIds = async (

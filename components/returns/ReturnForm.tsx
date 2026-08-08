@@ -11,6 +11,7 @@ import {
   type ReturnFeeQuote,
 } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
+import { getOrderItemUnitPrice } from '@/lib/returns/item-price';
 import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
 
 interface OrderItem {
@@ -112,6 +113,8 @@ interface ReturnFormProps {
     city: string;
   };
   windowExpiredProductIds?: string[];
+  /** Echoed back to /api/returns/create as proof the order belongs to this customer. */
+  customerMobile?: string;
   onSuccess: (result: any) => void;
 }
 
@@ -177,7 +180,7 @@ const getOrderItemProductIdWithFallback = (item: OrderItem, fallback?: number | 
   return fallbackValue ?? String(item.id);
 };
 
-export default function ReturnForm({ order, merchantId, merchantInfo, windowExpiredProductIds, onSuccess }: ReturnFormProps) {
+export default function ReturnForm({ order, merchantId, merchantInfo, windowExpiredProductIds, customerMobile, onSuccess }: ReturnFormProps) {
   const [type, setType] = useState<'return' | 'exchange'>('return');
   const [reason, setReason] = useState('');
   const [reasonDetails, setReasonDetails] = useState('');
@@ -215,25 +218,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     const equivalent = sarEquivalent ?? quote.processingFeeSar;
     return `${formatted} (يعادل ${equivalent.toFixed(2)} ر.س)`;
   };
-  const getNumericValue = (value: unknown): number => {
-    if (typeof value === 'number') {
-      return Number.isFinite(value) ? value : 0;
-    }
-    if (typeof value === 'string') {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-    return 0;
-  };
-  const getItemDiscountAmount = (item?: OrderItem) =>
-    item ? getNumericValue(item.amounts?.total_discount?.amount) : 0;
-  const calculateItemPrice = (item?: OrderItem) => {
-    if (!item) return 0;
-    const priceWithoutTax = getNumericValue(item.amounts?.price_without_tax?.amount);
-    const taxAmount = getNumericValue(item.amounts?.tax?.amount?.amount);
-    const discountAmount = getItemDiscountAmount(item);
-    return priceWithoutTax + taxAmount - discountAmount;
-  };
+  // Shared with /api/returns/create, which recomputes this server-side and
+  // treats its own result as authoritative — so the estimate shown here and the
+  // refund that gets stored cannot drift apart.
+  const calculateItemPrice = (item?: OrderItem) => getOrderItemUnitPrice(item);
   const discountedCategoryItemIds = useMemo(() => {
     const ids = new Set<number>();
     order.items?.forEach((item) => {
@@ -452,25 +440,19 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     setLoading(true);
 
     try {
+      // Only identifiers and quantities are sent. The server looks each line up
+      // on the order by `orderItemId` and derives the name, SKU, variant and
+      // price from Salla, so nothing here can influence the refund amount.
       const items = Array.from(selectedItems.entries()).map(([itemId, quantity]) => {
         const orderItem = order.items?.find((item) => item.id === itemId);
         if (!orderItem) throw new Error('Item not found');
 
-        // Safely extract product ID with fallbacks
-        const productId = getOrderItemProductIdWithFallback(orderItem, itemId);
-        const variantId = orderItem.variant?.id;
-
-        // Calculate price: (price without tax + tax) - discount
-        const price = calculateItemPrice(orderItem);
-
         return {
-          productId,
-          productName: orderItem.name || orderItem.product?.name || 'منتج',
-          productSku: orderItem.sku || orderItem.product?.sku,
-          variantId: variantId ? String(variantId) : undefined,
-          variantName: orderItem.variant?.name,
+          orderItemId: orderItem.id,
+          // Still sent as a fallback for order shapes that carry no product
+          // object, which the server cannot resolve an id from on its own.
+          productId: getOrderItemProductIdWithFallback(orderItem, itemId),
           quantity,
-          price: Number(price) || 0,
         };
       });
 
@@ -486,6 +468,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
           reason,
           reasonDetails: (reason === 'other' || reason === 'defective' || reason === 'wrong_item') ? reasonDetails : undefined,
           items,
+          customerMobile,
           merchantName: merchantInfo.name,
           merchantPhone: merchantInfo.phone,
           merchantAddress: merchantInfo.address,
