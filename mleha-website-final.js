@@ -1,3 +1,8 @@
+/*
+ * MLEHA — FINAL SALLA WEBSITE JAVASCRIPT
+ * Paste this entire file into the Salla website custom JavaScript field.
+ * Hosted product widgets: notify-me, product reviews, and size guide.
+ */
 (function () {
   'use strict';
 

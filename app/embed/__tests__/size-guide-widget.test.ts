@@ -68,3 +68,11 @@ test('runtime is database-backed and does not contain the Google Sheet URL or un
   assert.doesNotMatch(SIZE_GUIDE_WIDGET_SOURCE, /docs\.google\.com\/spreadsheets/);
   assert.doesNotMatch(SIZE_GUIDE_WIDGET_SOURCE, /innerHTML/);
 });
+
+test('drawer isolates the Salla option UI and uses an idempotent compensated scroll lock', () => {
+  assert.match(SIZE_GUIDE_WIDGET_SOURCE, /options\.insertAdjacentElement\('beforebegin', trigger\)/);
+  assert.match(SIZE_GUIDE_WIDGET_SOURCE, /event\.stopPropagation\(\)/);
+  assert.match(SIZE_GUIDE_WIDGET_SOURCE, /window\.innerWidth - root\.clientWidth/);
+  assert.match(SIZE_GUIDE_WIDGET_SOURCE, /if \(!overlay \|\| !drawer \|\| state\.isOpen\) \{ return; \}/);
+  assert.doesNotMatch(SIZE_GUIDE_WIDGET_SOURCE, /backdrop-filter/);
+});

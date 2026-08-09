@@ -77,7 +77,16 @@ export const SIZE_GUIDE_WIDGET_SOURCE = String.raw`
     SHOULDER:'محيط الكتف',CHEST:'محيط الصدر',WAIST:'محيط الخصر',HIP:'الورك'
   };
   var COLORS = { CHEST:'#9d3d38', WAIST:'#b5894e' };
-  var state = { guide:null, sku:'', user:{}, bestIndex:-1, previousOverflow:'', previousFocus:null };
+  var state = {
+    guide:null,
+    sku:'',
+    user:{},
+    bestIndex:-1,
+    isOpen:false,
+    previousOverflow:'',
+    previousPaddingRight:'',
+    previousFocus:null
+  };
 
   function debug() {
     if (!DEBUG) { return; }
@@ -201,11 +210,11 @@ export const SIZE_GUIDE_WIDGET_SOURCE = String.raw`
     style.textContent = [
       '.mleha-sg{--sg-wine:#9d3d38;--sg-wine-dark:#7d2f2b;--sg-cream:#eeddc7;--sg-soft:#f8f0e8;--sg-line:#ddd0c4;--sg-brown:#452e1e;--sg-muted:#8a7f74;direction:rtl;font-family:inherit}',
       '.mleha-sg *{box-sizing:border-box}',
-      '#mlhcTrigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;background:#fdf6f5;border:0;color:#9d3d38;border-radius:10px;padding:10px 14px;font:600 13px/1.4 inherit;cursor:pointer;margin-inline-start:10px}',
+      '#mlhcTrigger{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin:0 0 16px;padding:11px 14px;background:#fdf6f5;border:0;color:#9d3d38;border-radius:10px;font:600 13px/1.4 inherit;cursor:pointer}',
       '#mlhcTrigger:hover{background:#9d3d38;color:#fff}',
-      '.mleha-sg__overlay{position:fixed;inset:0;background:rgba(100,100,100,.22);backdrop-filter:blur(8px);z-index:99998;opacity:0;visibility:hidden;transition:.25s}',
-      '.mleha-sg__overlay.is-open{opacity:1;visibility:visible}',
-      '.mleha-sg__drawer{position:fixed;z-index:99999;background:#fafafa;display:flex;flex-direction:column;transition:transform .3s cubic-bezier(.25,.46,.45,.94);outline:0}',
+      '.mleha-sg__overlay{position:fixed;inset:0;background:rgba(42,32,28,.42);z-index:99998;opacity:0;visibility:hidden;transition:opacity .25s ease,visibility 0s linear .25s;will-change:opacity}',
+      '.mleha-sg__overlay.is-open{opacity:1;visibility:visible;transition-delay:0s}',
+      '.mleha-sg__drawer{position:fixed;z-index:99999;background:#fafafa;display:flex;flex-direction:column;transition:transform .3s cubic-bezier(.25,.46,.45,.94);will-change:transform;outline:0}',
       '@media(min-width:700px){.mleha-sg__drawer{top:0;left:0;width:440px;height:100vh;border-radius:0 16px 16px 0;transform:translateX(-100%);box-shadow:4px 0 30px rgba(0,0,0,.15)}.mleha-sg__drawer.is-open{transform:translateX(0)}}',
       '@media(max-width:699px){.mleha-sg__drawer{left:0;right:0;bottom:0;height:90vh;border-radius:18px 18px 0 0;transform:translateY(100%);box-shadow:0 -4px 30px rgba(0,0,0,.15)}.mleha-sg__drawer.is-open{transform:translateY(0)}}',
       '.mleha-sg__head{position:relative;flex:none;padding:20px;background:linear-gradient(160deg,#e8d8c4,#eee2d4);border-bottom:1px solid var(--sg-line)}',
@@ -261,23 +270,54 @@ export const SIZE_GUIDE_WIDGET_SOURCE = String.raw`
     table.appendChild(tbody); container.appendChild(table);
   }
 
+  function lockPageScroll() {
+    if (state.isOpen) { return; }
+    var body = document.body;
+    var root = document.documentElement;
+    state.previousOverflow = body.style.overflow;
+    state.previousPaddingRight = body.style.paddingRight;
+
+    // Removing the browser scrollbar changes the viewport width. Compensate
+    // for that width before locking so Salla's layout does not jump or flash.
+    var scrollbarWidth = Math.max(0, window.innerWidth - root.clientWidth);
+    if (scrollbarWidth > 0) {
+      var currentPadding = 0;
+      try { currentPadding = parseFloat(window.getComputedStyle(body).paddingRight) || 0; }
+      catch (error) {}
+      body.style.paddingRight = currentPadding + scrollbarWidth + 'px';
+    }
+    body.style.overflow = 'hidden';
+    state.isOpen = true;
+  }
+
+  function unlockPageScroll() {
+    if (!state.isOpen) { return; }
+    document.body.style.overflow = state.previousOverflow;
+    document.body.style.paddingRight = state.previousPaddingRight;
+    state.isOpen = false;
+  }
+
   function closeDrawer() {
     var overlay = document.querySelector('.mleha-sg__overlay');
     var drawer = document.querySelector('.mleha-sg__drawer');
-    if (!drawer || !drawer.classList.contains('is-open')) { return; }
-    overlay.classList.remove('is-open'); drawer.classList.remove('is-open');
+    if (!drawer || !state.isOpen) { return; }
+    if (overlay) { overlay.classList.remove('is-open'); }
+    drawer.classList.remove('is-open');
     drawer.setAttribute('aria-hidden', 'true');
-    document.body.style.overflow = state.previousOverflow;
+    unlockPageScroll();
     if (state.previousFocus && typeof state.previousFocus.focus === 'function') { state.previousFocus.focus(); }
   }
 
-  function openDrawer() {
+  function openDrawer(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     var overlay = document.querySelector('.mleha-sg__overlay');
     var drawer = document.querySelector('.mleha-sg__drawer');
-    if (!overlay || !drawer) { return; }
+    if (!overlay || !drawer || state.isOpen) { return; }
     state.previousFocus = document.activeElement;
-    state.previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    lockPageScroll();
     overlay.classList.add('is-open'); drawer.classList.add('is-open'); drawer.setAttribute('aria-hidden', 'false');
     var close = drawer.querySelector('.mleha-sg__close'); if (close) { close.focus(); }
   }
@@ -341,7 +381,10 @@ export const SIZE_GUIDE_WIDGET_SOURCE = String.raw`
 
     var trigger = create('button', 'mleha-sg__trigger', '📏 اعرفي مقاسك');
     trigger.id = TRIGGER_ID; trigger.type = 'button'; trigger.addEventListener('click', openDrawer);
-    if (label) { label.appendChild(trigger); } else { options.insertAdjacentElement('beforebegin', trigger); }
+    // Do not nest this button inside Salla's option label. Label click handlers
+    // can select/re-render an option and repeatedly disturb the page scrollbar.
+    if (options) { options.insertAdjacentElement('beforebegin', trigger); }
+    else if (label) { label.insertAdjacentElement('afterend', trigger); }
 
     var root = create('div', 'mleha-sg');
     var overlay = create('div', 'mleha-sg__overlay'); overlay.addEventListener('click', closeDrawer);
