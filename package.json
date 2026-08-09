@@ -28,6 +28,7 @@
     "test:returns-pricing": "node --test --import tsx lib/returns/__tests__/item-price.test.ts lib/returns/__tests__/resolve-return-items.test.ts",
     "test:returns-phone": "node --test --import tsx app/lib/__tests__/returns-customer-phone.test.ts",
     "test:product-reviews": "node --test --import tsx app/lib/__tests__/product-review-presets.test.ts app/lib/__tests__/salla-product-reviews.test.ts app/embed/__tests__/product-reviews-widget.test.ts",
+    "test:size-guides": "node --test --import tsx app/lib/__tests__/salla-size-guides.test.ts app/embed/__tests__/size-guide-widget.test.ts",
     "check:delivered-dates": "node --import tsx scripts/check-delivered-dates.ts",
     "cleanup:erp-2026": "node scripts/run-remove-2026-erp-invoices.js",
     "backfill:fabric-stock-grand-total": "node --import tsx scripts/backfill-fabric-stock-grand-total.ts"

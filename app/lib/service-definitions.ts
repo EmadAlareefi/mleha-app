@@ -460,6 +460,18 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
+    key: 'salla-size-guides',
+    title: 'أدلة المقاسات',
+    description: 'استيراد وتحرير ونشر جداول المقاسات وحاسبة المقاس',
+    icon: '📐',
+    href: '/salla/size-guides',
+    color: 'from-rose-500 to-amber-500',
+    // Explicitly assigned to store staff; admins bypass service checks.
+    defaultRoles: ['admin'],
+    grantsRoles: ['store_manager'],
+    assignable: true,
+  },
+  {
     key: 'salla-purchase-requests',
     title: 'طلبات الشراء',
     description: 'طلب شراء منتجات سلة ومتابعة الطلبات قيد الشراء',

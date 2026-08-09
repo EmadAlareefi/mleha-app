@@ -720,6 +720,44 @@ model SallaProductReview {
   @@index([createdAt])
 }
 
+/// Draft/published size-chart data used by the injected Salla storefront widget.
+/// Chart rows stay as JSON because their display values may be numbers, ranges,
+/// dashes, or Arabic notes; server-side validation derives numeric fit values.
+model SallaSizeGuide {
+  id              String   @id @default(cuid())
+  sku             String
+  skuKey          String   @unique
+  productId       String?  @unique
+  productName     String?
+  productImageUrl String?
+
+  draftData       Json
+  publishedData   Json?
+  validationIssues Json?
+  hasIssues       Boolean  @default(false)
+
+  sourceFileName String?
+  lastImportedAt DateTime?
+
+  createdById       String?
+  createdByName     String?
+  createdByUsername String?
+  updatedById       String?
+  updatedByName     String?
+  updatedByUsername String?
+  publishedById       String?
+  publishedByName     String?
+  publishedByUsername String?
+  publishedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hasIssues, updatedAt])
+  @@index([publishedAt])
+  @@index([updatedAt])
+}
+
 model ReturnRequest {
   id            String  @id @default(cuid())
   merchantId    String // Salla merchant ID

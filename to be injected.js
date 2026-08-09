@@ -1,4 +1,50 @@
 (function () {
+  'use strict';
+
+  if (window.__mlehaHostedWidgetLoaders) return;
+  window.__mlehaHostedWidgetLoaders = true;
+  window.__mlehaHostedSizeGuide = true;
+
+  var API_BASE = 'https://app.mleha.com';
+  var WIDGETS = [
+    { id: 'mleha-notify-me-loader', src: API_BASE + '/embed/notify-me.js' },
+    { id: 'mleha-product-reviews-loader', src: API_BASE + '/embed/product-reviews.js' },
+    { id: 'mleha-size-guide-loader', src: API_BASE + '/embed/size-guide.js' }
+  ];
+
+  function isSingleProductPage() {
+    try {
+      if (window.salla && window.salla.url && typeof window.salla.url.is_page === 'function' && window.salla.url.is_page('product.single')) return true;
+      var config = window.salla && window.salla.config;
+      var page = config && typeof config.get === 'function' ? config.get('page') || {} : {};
+      var slug = page.slug || (config && typeof config.get === 'function' ? config.get('page.slug') || config.get('page.type') : '') || '';
+      return ['product.single', 'single-product', 'product'].includes(String(slug).toLowerCase());
+    } catch (error) { return false; }
+  }
+
+  function loadWidgets() {
+    if (!isSingleProductPage()) return;
+    WIDGETS.forEach(function (widget) {
+      if (document.getElementById(widget.id)) return;
+      var script = document.createElement('script');
+      script.id = widget.id;
+      script.src = widget.src;
+      script.setAttribute('data-api', API_BASE);
+      script.async = true;
+      (document.head || document.documentElement).appendChild(script);
+    });
+  }
+
+  function start() {
+    if (window.salla && typeof window.salla.onReady === 'function') window.salla.onReady(loadWidgets);
+    else window.addEventListener('salla::created', loadWidgets, { once: true });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+})();
+
+(function () {
 'use strict';
 
 if (window.__mlehaStorefrontBundleLoaded) return;
@@ -1905,6 +1951,8 @@ onReady(function moveProductIconsUnderViewers() {
    ═══════════════════════════════════════════════════════════ */
 
 (function setupSizeGuideHeading() {
+  // The hosted size-guide runtime owns placement when its loader is enabled.
+  if (window.__mlehaHostedSizeGuide) return;
   function alignSizeGuideWithOptions() {
     const productInfo = document.querySelector('.product-single .product-single__info');
     if (!productInfo) return false;
@@ -2233,6 +2281,8 @@ onReady(function moveProductIconsUnderViewers() {
 
 (function(){
 'use strict';
+// Retained only as an emergency rollback copy; the hosted runtime is authoritative.
+if(window.__mlehaHostedSizeGuide) return;
 if(window._mlhcLoaded) return;
 window._mlhcLoaded = true;
 
