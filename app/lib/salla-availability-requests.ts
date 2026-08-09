@@ -460,8 +460,8 @@ function getAvailabilityProductLink(request: AvailabilityRequestRecord): string 
 }
 
 /**
- * The three pieces both channels need: the SMS body below is assembled from them,
- * and they map 1:1 onto the positional arguments of the Zoko WhatsApp template.
+ * The pieces used to build the readable notification log/SMS body. The Zoko
+ * WhatsApp template only receives the product link.
  */
 export function buildAvailabilityMessageParts(
   request: AvailabilityRequestRecord

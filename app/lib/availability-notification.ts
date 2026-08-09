@@ -92,7 +92,7 @@ export async function sendAvailabilityNotification(
   // The SMS body is the closest readable rendering of what the template says —
   // stored on the log row so the team can see what a customer received.
   const readableBody = buildAvailabilityNotificationMessage(request);
-  const templateArgs = [parts.customerName, parts.productLabel, parts.productLink];
+  const templateArgs = [parts.productLink];
   const lang = request.locale === 'en' ? 'en' : env.WHATSAPP_DEFAULT_LANG || 'ar';
 
   let customerResponse: unknown;
