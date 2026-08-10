@@ -450,6 +450,17 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
+    key: 'notify-script-editor',
+    title: 'محرر سكربت أبلغني',
+    description: 'تحرير ومراجعة ونشر سكربت واجهة أبلغني عند التوفر',
+    icon: '💻',
+    href: '/developer/notify-me',
+    color: 'from-slate-600 to-indigo-600',
+    defaultRoles: ['admin'],
+    grantsRoles: [],
+    assignable: true,
+  },
+  {
     key: 'salla-product-reviews',
     title: 'تقييمات المنتجات',
     description: 'إنشاء وإدارة تقييمات مخصصة لصفحات منتجات مليحة',

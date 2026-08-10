@@ -861,6 +861,42 @@ model Settings {
   @@index([key])
 }
 
+/// Singleton draft/live state for the developer-managed storefront runtime.
+/// The repository source remains the fail-safe when no script has been published.
+model NotifyMeScriptState {
+  id                     String   @id
+  draftSource            String   @db.Text
+  draftVersion           Int      @default(1)
+  draftChecksum          String
+  draftUpdatedById       String?
+  draftUpdatedByName     String?
+  draftUpdatedByUsername String?
+  publishedSource        String?  @db.Text
+  publishedVersion       Int      @default(0)
+  publishedChecksum      String?
+  publishedById          String?
+  publishedByName        String?
+  publishedByUsername    String?
+  publishedAt            DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+/// Immutable audit history. Restoring a revision copies it to the draft and
+/// still requires a separate publish action.
+model NotifyMeScriptRevision {
+  id                  String   @id @default(cuid())
+  version             Int      @unique
+  source              String   @db.Text
+  checksum            String
+  publishedById       String?
+  publishedByName     String?
+  publishedByUsername String?
+  publishedAt         DateTime @default(now())
+
+  @@index([publishedAt])
+}
+
 model LocalShipment {
   id          String @id @default(cuid())
   merchantId  String // Salla merchant ID
