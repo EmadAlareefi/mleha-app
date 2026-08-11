@@ -14,7 +14,7 @@ import {
 import { extractSallaSizeOptions, reconcileSizeGuideRows } from '../salla-size-guide-products';
 import { isSizeGuideProductFamilySku, productMatchesSizeGuideRows } from '../salla-size-guide-links';
 
-const HEADERS = ['  ', 'SALLA_PRODUCT_ID', 'Size', 'CHEST', 'WAIST', 'HIP', 'SHOULDER', 'LENGTH', 'SLEEVE', 'BLOUSE_LEN', 'SKIRT_LEN'];
+const HEADERS = ['  ', 'SALLA_PRODUCT_ID', 'Size', 'CHEST', 'WAIST', 'LENGTH', 'BLOUSE_LEN', 'SKIRT_LEN'];
 
 function workbook(rows: unknown[][]) {
   const book = XLSX.utils.book_new();
@@ -24,8 +24,8 @@ function workbook(rows: unknown[][]) {
 
 test('imports the data worksheet and treats a blank first header as SKU', () => {
   const result = parseSizeGuideImport(workbook([
-    ['7049', '203892285', 'S', '36', '28', '', '', '57', '', '', ''],
-    ['7049', '203892285', 'M', '38', '30', '', '', '57', '', '', ''],
+    ['7049', '203892285', 'S', '36', '28', '57', '', ''],
+    ['7049', '203892285', 'M', '38', '30', '57', '', ''],
   ]), 'sizes.xlsx');
 
   assert.equal(result.sheetName, 'data');
@@ -34,12 +34,16 @@ test('imports the data worksheet and treats a blank first header as SKU', () => 
   assert.equal(result.guides[0].sku, '7049');
   assert.equal(result.guides[0].productId, '203892285');
   assert.equal(result.guides[0].data.rows[1].CHEST, '38');
+  assert.equal(result.summary.warnings, 0);
+  assert.equal(result.guides[0].data.rows[0].HIP, '');
+  assert.equal(result.guides[0].data.rows[0].SHOULDER, '');
+  assert.equal(result.guides[0].data.rows[0].SLEEVE, '');
 });
 
 test('preserves leading zero SKUs as distinct guides', () => {
   const result = parseSizeGuideImport(workbook([
-    ['66', '1001', 'S', '30', '26', '', '', '', '', '', ''],
-    ['0066', '1002', 'S', '32', '28', '', '', '', '', '', ''],
+    ['66', '1001', 'S', '30', '26', '', '', ''],
+    ['0066', '1002', 'S', '32', '28', '', '', ''],
   ]), 'sizes.xlsx');
 
   assert.deepEqual(result.guides.map((guide) => guide.skuKey), ['66', '0066']);
@@ -50,7 +54,7 @@ test('preserves an Excel numeric SKU when its cell format contains leading zeroe
   const book = XLSX.utils.book_new();
   const sheet = XLSX.utils.aoa_to_sheet([
     HEADERS,
-    [98, '1001', 'S', '30', '26', '', '', '', '', '', ''],
+    [98, '1001', 'S', '30', '26', '', '', ''],
   ]);
   sheet.A2.z = '0000';
   XLSX.utils.book_append_sheet(book, sheet, 'data');
@@ -116,8 +120,8 @@ test('matches only explicit SKU families with the same ordered Salla sizes', () 
 
 test('accepts prototype CSV headers and preserves the Salla product identity', () => {
   const csv = [
-    'sku,salla_product_id,name,size,chest,waist,hip,shoulder,length,sleeve,blouse,skirt',
-    '7490,203892285,فستان,S,34,27,37,17.9,52,,,',
+    'sku,salla_product_id,name,size,chest,waist,length,blouse,skirt',
+    '7490,203892285,فستان,S,34,27,52,,',
   ].join('\n');
   const result = parseSizeGuideImport(Buffer.from(csv), 'sizes.csv');
   assert.equal(result.guides[0].productId, '203892285');

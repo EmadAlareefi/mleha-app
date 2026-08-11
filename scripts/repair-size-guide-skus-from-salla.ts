@@ -2,7 +2,6 @@ import { resolveSallaMerchantId } from '../app/api/salla/products/merchant';
 import { listAllSallaProducts, type SallaProductSummary } from '../app/lib/salla-api';
 import {
   isSizeGuideProductFamilySku,
-  productMatchesSizeGuideRows,
   sizeGuideProductLinkData,
   type LinkableSallaProduct,
 } from '../app/lib/salla-size-guide-links';
@@ -34,7 +33,6 @@ function loadGuides() {
       productId: true,
       productName: true,
       productImageUrl: true,
-      draftData: true,
       productLinks: { select: { productId: true } },
     },
     orderBy: { updatedAt: 'desc' },
@@ -140,16 +138,11 @@ async function main() {
 
   const familyLinks: PlannedProductLink[] = [];
   const familyPrimaryProducts = new Map<string, LinkableSallaProduct>();
-  const familySizeMismatches: Array<{ guide: Guide; sku: string }> = [];
   guides.forEach((guide) => {
     const candidates = products
       .filter((product) => isSizeGuideProductFamilySku(guide.sku, product.sku))
       .sort((left, right) => left.sku.localeCompare(right.sku, 'en'));
     candidates.forEach((product) => {
-      if (!productMatchesSizeGuideRows(product, guide.draftData)) {
-        familySizeMismatches.push({ guide, sku: product.sku });
-        return;
-      }
       const exactGuide = guidesBySkuKey.get(sizeGuideSkuKey(product.sku));
       const legacyOwner = guidesByProductId.get(String(product.id));
       const linkedOwner = linkedProductOwners.get(String(product.id));
@@ -176,7 +169,6 @@ async function main() {
     familyLinks: familyLinks.length,
     familyGuides: new Set(familyLinks.map((item) => item.guide.id)).size,
     familyPrimaryProducts: familyPrimaryProducts.size,
-    familySizeMismatches: familySizeMismatches.length,
     alreadyCurrent,
     unmatched: unmatched.length,
     ambiguous: ambiguous.length,
@@ -204,10 +196,6 @@ async function main() {
       guideSku: item.guide.sku,
       productId: item.product.id,
       productSku: item.product.sku,
-    })),
-    familySizeMismatches: familySizeMismatches.slice(0, SAMPLE_LIMIT).map((item) => ({
-      guideSku: item.guide.sku,
-      productSku: item.sku,
     })),
   }, null, 2));
 

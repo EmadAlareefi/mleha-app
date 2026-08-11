@@ -14,6 +14,8 @@ export const SIZE_GUIDE_FIELDS = [
   'SKIRT_LEN',
 ] as const;
 
+export const OPTIONAL_SIZE_GUIDE_FIELDS = ['HIP', 'SHOULDER', 'SLEEVE'] as const;
+
 export const SIZE_GUIDE_FIT_FIELDS = ['CHEST', 'WAIST'] as const;
 
 export type SizeGuideField = (typeof SIZE_GUIDE_FIELDS)[number];
@@ -299,7 +301,9 @@ export function parseSizeGuideImport(buffer: Buffer, fileName: string): SizeGuid
   required.forEach((field) => {
     if (!headers.includes(field)) throw new Error(`العمود ${field} غير موجود`);
   });
-  SIZE_GUIDE_FIELDS.forEach((field) => {
+  SIZE_GUIDE_FIELDS.filter(
+    (field) => !(OPTIONAL_SIZE_GUIDE_FIELDS as readonly string[]).includes(field)
+  ).forEach((field) => {
     if (!headers.includes(field)) throw new Error(`العمود ${field} غير موجود`);
   });
 
