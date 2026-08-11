@@ -203,18 +203,6 @@ export function validateSizeGuideDocument(value: unknown): ValidatedSizeGuide {
       const key = row.size.toUpperCase();
       labels.set(key, [...(labels.get(key) || []), rowNumber]);
     }
-
-    SIZE_GUIDE_FIELDS.forEach((field) => {
-      if (row[field] && numericMeasurement(row[field]) == null) {
-        issues.push({
-          severity: 'warning',
-          code: 'display_only_measurement',
-          message: `${FIELD_LABELS[field]} في مقاس ${row.size || rowNumber} سيظهر كنص ولن يدخل في الحساب`,
-          row: rowNumber,
-          field,
-        });
-      }
-    });
   });
 
   labels.forEach((rowNumbers, label) => {

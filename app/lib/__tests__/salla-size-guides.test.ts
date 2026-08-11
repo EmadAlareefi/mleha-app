@@ -65,7 +65,7 @@ test('preserves an Excel numeric SKU when its cell format contains leading zeroe
   assert.equal(result.guides[0].skuKey, '0098');
 });
 
-test('blocks duplicated and non-monotonic fit rows while retaining display-only text', () => {
+test('blocks duplicated and non-monotonic fit rows without warning about display-only text', () => {
   const duplicate = validateSizeGuideDocument({ rows: [
     { size: 'S', CHEST: '36', WAIST: '28', HIP: '-', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
     { size: 'S', CHEST: '34', WAIST: '30', HIP: 'ملاحظة', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
@@ -74,7 +74,7 @@ test('blocks duplicated and non-monotonic fit rows while retaining display-only 
   assert.equal(duplicate.canPublish, false);
   assert.ok(duplicate.issues.some((issue) => issue.code === 'duplicate_size'));
   assert.ok(duplicate.issues.some((issue) => issue.code === 'non_monotonic_measurement'));
-  assert.ok(duplicate.issues.some((issue) => issue.code === 'display_only_measurement'));
+  assert.equal(duplicate.issues.some((issue) => issue.code === 'display_only_measurement'), false);
   assert.equal(duplicate.data.rows[1].HIP, 'ملاحظة');
   assert.equal(numericMeasurement('-'), null);
 });
