@@ -1,7 +1,7 @@
 import type { SallaProductOption, SallaProductSummary } from './salla-api';
 import type { SizeGuideRow } from './salla-size-guides';
 
-export const SIZE_OPTION_ALIASES = ['المقاس', 'مقاس', 'size', 'sizes'] as const;
+export const SIZE_OPTION_ALIASES = ['المقاس', 'المقاسات', 'مقاس', 'size', 'sizes'] as const;
 
 export type NormalizedSallaSizeOption = {
   id: string;

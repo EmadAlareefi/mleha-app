@@ -6,7 +6,6 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 import {
   parseSizeGuideDocument,
   sizeGuideAudit,
-  sizeGuideSkuKey,
   SIZE_GUIDE_SERVICE_KEY,
 } from '@/app/lib/salla-size-guides';
 import {
@@ -49,8 +48,6 @@ export async function POST(_request: Request, context: RouteContext) {
     const guide = await prisma.sallaSizeGuide.update({
       where: { id },
       data: {
-        sku: product.sku,
-        skuKey: sizeGuideSkuKey(product.sku),
         productName: product.name,
         productImageUrl: product.imageUrl,
         draftData: validated.data as unknown as Prisma.InputJsonValue,

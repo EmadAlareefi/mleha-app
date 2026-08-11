@@ -57,6 +57,12 @@ type ManagedGuide = {
   productId?: string | null;
   productName?: string | null;
   productImageUrl?: string | null;
+  productLinks?: Array<{
+    productId: string;
+    sku: string;
+    productName?: string | null;
+    productImageUrl?: string | null;
+  }>;
   draftData: SizeGuideDocument;
   validationIssues?: SizeGuideIssue[] | null;
   hasIssues: boolean;
@@ -134,6 +140,10 @@ function dateLabel(value: string) {
 
 function percent(value: number, total: number) {
   return total ? Math.round((value / total) * 100) : 0;
+}
+
+function linkedProductCount(guide: ManagedGuide) {
+  return guide.productLinks?.length || (guide.productId ? 1 : 0);
 }
 
 export default function SizeGuidesPage() {
@@ -520,11 +530,11 @@ export default function SizeGuidesPage() {
                 {loading ? <tr><td colSpan={6} className="py-14 text-center"><Loader2 className="mx-auto size-5 animate-spin" /></td></tr> : guides.length === 0 ? <tr><td colSpan={6} className="py-14 text-center text-[#8C8474]">لا توجد نتائج مطابقة.</td></tr> : guides.map((guide) => (
                   <tr key={guide.id} className="border-t border-[#F0E8D8] hover:bg-[#FDFBF6]">
                     <td className="px-3 py-3 text-center max-md:hidden"><Checkbox checked={selected.has(guide.id)} onCheckedChange={(checked) => setSelected((current) => { const next = new Set(current); if (checked === true) next.add(guide.id); else next.delete(guide.id); return next; })} /></td>
-                    <td className="px-3 py-3"><div className="flex flex-wrap items-center gap-1.5 font-bold" dir="ltr"><span>{guide.sku}</span><span className={`rounded-full px-2 py-0.5 text-[10px] ${guide.productId ? 'bg-[#E7EFFA] text-[#3E6DB0]' : 'bg-[#F0EEE9] text-[#8C8474]'}`}>{guide.productId ? 'مربوط بسلة' : 'غير مربوط'}</span>{guide.hasIssues && <span className="text-[10px] text-[#D14B4B]">⚠ يحتاج مراجعة</span>}</div><div className="mt-1 text-xs text-[#8C8474]">{guide.productName || 'بدون اسم'}{guide.productId ? ` · سلة #${guide.productId}` : ''}</div></td>
+                    <td className="px-3 py-3"><div className="flex flex-wrap items-center gap-1.5 font-bold" dir="ltr"><span>{guide.sku}</span><span className={`rounded-full px-2 py-0.5 text-[10px] ${linkedProductCount(guide) ? 'bg-[#E7EFFA] text-[#3E6DB0]' : 'bg-[#F0EEE9] text-[#8C8474]'}`}>{linkedProductCount(guide) ? `${linkedProductCount(guide)} منتج سلة` : 'غير مربوط'}</span>{guide.hasIssues && <span className="text-[10px] text-[#D14B4B]">⚠ يحتاج مراجعة</span>}</div><div className="mt-1 text-xs text-[#8C8474]">{guide.productLinks?.length ? guide.productLinks.map((link) => link.sku).join(' · ') : guide.productName || 'بدون اسم'}</div></td>
                     <td className="px-3 py-3 text-center"><span className="inline-block min-w-9 rounded-full bg-[#EFE7D7] px-2 py-1 font-bold text-[#63563C]">{guide.draftData?.rows?.length || 0}</span></td>
                     <td className="px-3 py-3 text-center"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${guide.publishedAt ? 'bg-[#E4F3EA] text-[#2F9E6B]' : guide.hasIssues ? 'bg-[#FBE7E7] text-[#D14B4B]' : 'bg-[#F6ECD6] text-[#A9812F]'}`}>{guide.publishedAt ? 'منشور' : guide.hasIssues ? 'مراجعة' : 'مسودة'}</span></td>
                     <td className="whitespace-nowrap px-3 py-3 text-xs text-[#8C8474] max-md:hidden">{dateLabel(guide.updatedAt)}</td>
-                    <td className="px-3 py-3"><div className="flex justify-end gap-1"><Button size="sm" variant="outline" title="تعديل" disabled={actionId === guide.id} onClick={() => void openEdit(guide)}><Pencil className="size-4" /><span className="max-sm:hidden">تعديل</span></Button>{guide.publishedAt ? <Button size="sm" variant="outline" title="إلغاء النشر" disabled={actionId === guide.id} onClick={() => void guideAction(guide, 'unpublish')}><EyeOff className="size-4" /></Button> : <Button size="sm" className="bg-[#2F9E6B] hover:bg-[#277f58]" disabled={actionId === guide.id || Boolean(guide.validationIssues?.some((issue) => issue.severity === 'error')) || !guide.productId} onClick={() => void guideAction(guide, 'publish')}><Send className="size-4" /><span className="max-sm:hidden">نشر</span></Button>}<Button size="sm" variant="ghost" title="حذف" disabled={actionId === guide.id} onClick={() => void guideAction(guide, 'delete')}><Trash2 className="size-4 text-[#D14B4B]" /></Button></div></td>
+                    <td className="px-3 py-3"><div className="flex justify-end gap-1"><Button size="sm" variant="outline" title="تعديل" disabled={actionId === guide.id} onClick={() => void openEdit(guide)}><Pencil className="size-4" /><span className="max-sm:hidden">تعديل</span></Button>{guide.publishedAt ? <Button size="sm" variant="outline" title="إلغاء النشر" disabled={actionId === guide.id} onClick={() => void guideAction(guide, 'unpublish')}><EyeOff className="size-4" /></Button> : <Button size="sm" className="bg-[#2F9E6B] hover:bg-[#277f58]" disabled={actionId === guide.id || Boolean(guide.validationIssues?.some((issue) => issue.severity === 'error')) || !linkedProductCount(guide)} onClick={() => void guideAction(guide, 'publish')}><Send className="size-4" /><span className="max-sm:hidden">نشر</span></Button>}<Button size="sm" variant="ghost" title="حذف" disabled={actionId === guide.id} onClick={() => void guideAction(guide, 'delete')}><Trash2 className="size-4 text-[#D14B4B]" /></Button></div></td>
                   </tr>
                 ))}
               </tbody>

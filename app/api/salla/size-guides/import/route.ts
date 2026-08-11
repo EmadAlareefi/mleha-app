@@ -5,6 +5,7 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { reconcileSizeGuideRows } from '@/app/lib/salla-size-guide-products';
+import { sizeGuideProductLinkData } from '@/app/lib/salla-size-guide-links';
 import { loadSallaSizeGuideProduct } from '@/app/lib/salla-size-guide-server';
 import {
   differsOnlyBySkuZeroPadding,
@@ -173,19 +174,22 @@ export async function POST(request: NextRequest) {
     const merchant = await resolveSallaMerchantId();
     if (!merchant.merchantId) throw new Error(merchant.error);
     const prepared = await prepareGuides(merchant.merchantId, result.guides);
-    const existingLinks = await prisma.sallaSizeGuide.findMany({
-      where: {
-        OR: [
-          { productId: { in: prepared.map((guide) => guide.productId) } },
-          { skuKey: { in: prepared.map((guide) => guide.skuKey) } },
-        ],
-      },
-      select: { productId: true, skuKey: true },
-    });
+    const productIds = prepared.map((guide) => guide.productId);
+    const [existingLegacyLinks, existingProductLinks] = await Promise.all([
+      prisma.sallaSizeGuide.findMany({
+        where: { productId: { in: productIds } },
+        select: { productId: true, skuKey: true },
+      }),
+      prisma.sallaSizeGuideProductLink.findMany({
+        where: { productId: { in: productIds } },
+        select: { productId: true, guide: { select: { skuKey: true } } },
+      }),
+    ]);
     prepared.forEach((guide) => {
-      const conflict = existingLinks.some((existing) =>
-        (existing.productId === guide.productId && existing.skuKey !== guide.skuKey) ||
-        (existing.skuKey === guide.skuKey && Boolean(existing.productId) && existing.productId !== guide.productId)
+      const conflict = existingLegacyLinks.some((existing) =>
+        existing.productId === guide.productId && existing.skuKey !== guide.skuKey
+      ) || existingProductLinks.some((existing) =>
+        existing.productId === guide.productId && existing.guide.skuKey !== guide.skuKey
       );
       if (!conflict) return;
       guide.issues = [{
@@ -227,6 +231,12 @@ export async function POST(request: NextRequest) {
     const importedAt = new Date();
     const committable = importable;
     const operations = committable.map((guide) => {
+      const productLink = sizeGuideProductLinkData({
+        id: guide.productId,
+        sku: guide.sku,
+        name: guide.productName || guide.sku,
+        imageUrl: guide.productImageUrl,
+      });
       const common = {
         sku: guide.sku,
         productId: guide.productId,
@@ -257,11 +267,22 @@ export async function POST(request: NextRequest) {
           ...common,
           ...publish,
           skuKey: guide.skuKey,
+          productLinks: { create: productLink },
           createdById: audit.id,
           createdByName: audit.name,
           createdByUsername: audit.username,
         },
-        update: { ...common, ...publish },
+        update: {
+          ...common,
+          ...publish,
+          productLinks: {
+            upsert: {
+              where: { productId: guide.productId },
+              create: productLink,
+              update: productLink,
+            },
+          },
+        },
       });
     });
 

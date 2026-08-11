@@ -14,6 +14,7 @@ import {
   validateDocumentAgainstSallaProduct,
 } from '@/app/lib/salla-size-guide-server';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
+import { sizeGuideProductLinkData } from '@/app/lib/salla-size-guide-links';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -64,13 +65,20 @@ export async function GET(request: NextRequest) {
             { sku: { contains: query, mode: 'insensitive' } },
             { productId: { contains: query, mode: 'insensitive' } },
             { productName: { contains: query, mode: 'insensitive' } },
+            { productLinks: { some: {
+              OR: [
+                { productId: { contains: query, mode: 'insensitive' } },
+                { sku: { contains: query, mode: 'insensitive' } },
+                { productName: { contains: query, mode: 'insensitive' } },
+              ],
+            } } },
           ],
         }
       : {}),
     ...(link === 'linked'
-      ? { productId: { not: null } }
+      ? { productLinks: { some: {} } }
       : link === 'unlinked'
-        ? { productId: null }
+        ? { productId: null, productLinks: { none: {} } }
         : {}),
   };
 
@@ -80,10 +88,11 @@ export async function GET(request: NextRequest) {
       orderBy: [{ hasIssues: 'desc' }, { updatedAt: 'desc' }],
       skip: (page - 1) * perPage,
       take: perPage,
+      include: { productLinks: { orderBy: { sku: 'asc' } } },
     }),
     prisma.sallaSizeGuide.count({ where }),
     prisma.sallaSizeGuide.count(),
-    prisma.sallaSizeGuide.count({ where: { productId: { not: null } } }),
+    prisma.sallaSizeGuide.count({ where: { productLinks: { some: {} } } }),
     prisma.sallaSizeGuide.count({ where: { publishedAt: { not: null } } }),
     prisma.sallaSizeGuide.count({ where: { publishedAt: null } }),
     prisma.sallaSizeGuide.count({ where: { hasIssues: true } }),
@@ -123,6 +132,7 @@ export async function POST(request: NextRequest) {
       ? String((input.data as Record<string, unknown>).sallaSizeOptionId || '') || null
       : null;
     const product = await loadSallaSizeGuideProduct(merchant.merchantId, { productId, optionId });
+    const productLink = sizeGuideProductLinkData(product);
     const validated = validateDocumentAgainstSallaProduct(input.data, product);
     const audit = sizeGuideAudit(session.user);
 
@@ -133,6 +143,7 @@ export async function POST(request: NextRequest) {
         productId: product.id,
         productName: product.name,
         productImageUrl: product.imageUrl,
+        productLinks: { create: productLink },
         draftData: json(validated.data),
         validationIssues: json(validated.issues),
         hasIssues: validated.issues.length > 0,
@@ -143,6 +154,7 @@ export async function POST(request: NextRequest) {
         updatedByName: audit.name,
         updatedByUsername: audit.username,
       },
+      include: { productLinks: { orderBy: { sku: 'asc' } } },
     });
     return NextResponse.json({ success: true, guide, canPublish: validated.canPublish }, { status: 201 });
   } catch (error) {

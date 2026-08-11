@@ -37,7 +37,14 @@ export async function GET(request: NextRequest) {
   }
 
   let guide = productId
-    ? await prisma.sallaSizeGuide.findUnique({ where: { productId } })
+    ? await prisma.sallaSizeGuide.findFirst({
+        where: {
+          OR: [
+            { productId },
+            { productLinks: { some: { productId } } },
+          ],
+        },
+      })
     : null;
   let explicitUnpublished = Boolean(guide && !guide.publishedAt);
   if (explicitUnpublished) guide = null;
@@ -70,14 +77,21 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const matchedProductLink = productId
+    ? await prisma.sallaSizeGuideProductLink.findUnique({
+        where: { productId },
+        select: { productName: true },
+      })
+    : null;
+
   return NextResponse.json(
     {
       success: true,
       guide: {
         id: guide.id,
         sku: guide.sku,
-        productId: guide.productId,
-        productName: guide.productName,
+        productId: productId || guide.productId,
+        productName: matchedProductLink?.productName || guide.productName,
         data: guide.publishedData,
         publishedAt: guide.publishedAt,
       },

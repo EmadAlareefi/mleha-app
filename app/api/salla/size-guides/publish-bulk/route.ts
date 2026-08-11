@@ -11,7 +11,6 @@ import {
 import {
   parseSizeGuideDocument,
   sizeGuideAudit,
-  sizeGuideSkuKey,
   SIZE_GUIDE_SERVICE_KEY,
 } from '@/app/lib/salla-size-guides';
 import { prisma } from '@/lib/prisma';
@@ -55,8 +54,6 @@ export async function POST(request: NextRequest) {
         await prisma.sallaSizeGuide.update({
           where: { id: guide.id },
           data: {
-            sku: product.sku,
-            skuKey: sizeGuideSkuKey(product.sku),
             productName: product.name,
             productImageUrl: product.imageUrl,
             draftData: validated.data as unknown as Prisma.InputJsonValue,

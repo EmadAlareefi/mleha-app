@@ -12,6 +12,7 @@ import {
   validateSizeGuideDocument,
 } from '../salla-size-guides';
 import { extractSallaSizeOptions, reconcileSizeGuideRows } from '../salla-size-guide-products';
+import { isSizeGuideProductFamilySku, productMatchesSizeGuideRows } from '../salla-size-guide-links';
 
 const HEADERS = ['  ', 'SALLA_PRODUCT_ID', 'Size', 'CHEST', 'WAIST', 'HIP', 'SHOULDER', 'LENGTH', 'SLEEVE', 'BLOUSE_LEN', 'SKIRT_LEN'];
 
@@ -87,6 +88,30 @@ test('numeric SKU candidates bridge legacy values that lost leading zeroes', () 
   assert.equal(sizeGuideSkuCandidates('001-11').includes('111'), false);
   assert.equal(differsOnlyBySkuZeroPadding('98', '0098'), true);
   assert.equal(differsOnlyBySkuZeroPadding('98', '0099'), false);
+});
+
+test('matches only explicit SKU families with the same ordered Salla sizes', () => {
+  const product = {
+    id: 1,
+    sku: '7615-05',
+    name: 'Family product',
+    options: [{
+      id: 10,
+      name: 'المقاسات',
+      values: ['S', 'M', 'L'].map((name, index) => ({ id: index, name })),
+    }],
+  };
+  const document = validateSizeGuideDocument({ rows: [
+    { size: 'S', CHEST: '30', WAIST: '', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
+    { size: 'M', CHEST: '32', WAIST: '', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
+    { size: 'L', CHEST: '34', WAIST: '', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
+  ] }).data;
+
+  assert.equal(isSizeGuideProductFamilySku('7615', '7615-05'), true);
+  assert.equal(isSizeGuideProductFamilySku('7615', '76150-05'), false);
+  assert.equal(isSizeGuideProductFamilySku('7615', '7615'), false);
+  assert.equal(productMatchesSizeGuideRows(product, document), true);
+  assert.equal(productMatchesSizeGuideRows({ ...product, options: [{ ...product.options[0], values: [{ id: 1, name: 'S' }] }] }, document), false);
 });
 
 test('accepts prototype CSV headers and preserves the Salla product identity', () => {

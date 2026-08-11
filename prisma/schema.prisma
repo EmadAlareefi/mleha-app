@@ -730,6 +730,7 @@ model SallaSizeGuide {
   productId       String?  @unique
   productName     String?
   productImageUrl String?
+  productLinks    SallaSizeGuideProductLink[]
 
   draftData       Json
   publishedData   Json?
@@ -756,6 +757,24 @@ model SallaSizeGuide {
   @@index([hasIssues, updatedAt])
   @@index([publishedAt])
   @@index([updatedAt])
+}
+
+model SallaSizeGuideProductLink {
+  id              String @id @default(cuid())
+  guideId         String
+  productId       String @unique
+  sku             String
+  skuKey          String
+  productName     String?
+  productImageUrl String?
+
+  guide SallaSizeGuide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([guideId])
+  @@index([skuKey])
 }
 
 model ReturnRequest {

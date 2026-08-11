@@ -14,6 +14,10 @@ import {
   validateDocumentAgainstSallaProduct,
 } from '@/app/lib/salla-size-guide-server';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
+import {
+  isSizeGuideProductFamilySku,
+  sizeGuideProductLinkData,
+} from '@/app/lib/salla-size-guide-links';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -38,7 +42,10 @@ function productId(value: unknown): string {
 export async function GET(_request: NextRequest, context: RouteContext) {
   if (!(await authorize())) return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
   const { id } = await context.params;
-  const guide = await prisma.sallaSizeGuide.findUnique({ where: { id } });
+  const guide = await prisma.sallaSizeGuide.findUnique({
+    where: { id },
+    include: { productLinks: { orderBy: { sku: 'asc' } } },
+  });
   return guide
     ? NextResponse.json({ success: true, guide })
     : NextResponse.json({ error: 'دليل المقاسات غير موجود' }, { status: 404 });
@@ -53,7 +60,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') throw new Error('بيانات التحديث غير صالحة');
     const input = body as Record<string, unknown>;
-    const existing = await prisma.sallaSizeGuide.findUnique({ where: { id } });
+    const existing = await prisma.sallaSizeGuide.findUnique({
+      where: { id },
+      include: { productLinks: true },
+    });
     if (!existing) return NextResponse.json({ error: 'دليل المقاسات غير موجود' }, { status: 404 });
     const data: Prisma.SallaSizeGuideUpdateInput = {};
     const targetProductId = productId('productId' in input ? input.productId : existing.productId);
@@ -68,12 +78,27 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       optionId,
     });
     const validated = validateDocumentAgainstSallaProduct(rawDocument, product);
+    const link = sizeGuideProductLinkData(product);
+    const selectedLink = existing.productLinks.find((entry) => entry.productId === product.id);
+    const preserveFamilySku = Boolean(
+      selectedLink && (
+        existing.productLinks.length > 1 ||
+        isSizeGuideProductFamilySku(existing.sku, selectedLink.sku)
+      )
+    );
 
-    data.sku = product.sku;
-    data.skuKey = sizeGuideSkuKey(product.sku);
+    data.sku = preserveFamilySku ? existing.sku : product.sku;
+    data.skuKey = preserveFamilySku ? existing.skuKey : sizeGuideSkuKey(product.sku);
     data.productId = product.id;
     data.productName = product.name;
     data.productImageUrl = product.imageUrl;
+    data.productLinks = {
+      upsert: {
+        where: { productId: product.id },
+        create: link,
+        update: link,
+      },
+    };
     data.draftData = json(validated.data);
     data.validationIssues = json(validated.issues);
     data.hasIssues = validated.issues.length > 0;
@@ -82,7 +107,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     data.updatedById = audit.id;
     data.updatedByName = audit.name;
     data.updatedByUsername = audit.username;
-    const guide = await prisma.sallaSizeGuide.update({ where: { id }, data });
+    const guide = await prisma.sallaSizeGuide.update({
+      where: { id },
+      data,
+      include: { productLinks: { orderBy: { sku: 'asc' } } },
+    });
     return NextResponse.json({ success: true, guide, canPublish: validated.canPublish });
   } catch (error) {
     return NextResponse.json(
