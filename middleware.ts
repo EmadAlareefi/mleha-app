@@ -174,6 +174,10 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     ],
   ],
   [
+    'marketing-campaigns',
+    [/^\/marketing(\/.*)?$/, /^\/api\/marketing(\/.*)?$/],
+  ],
+  [
     'notify-script-editor',
     [
       /^\/developer\/notify-me(\/.*)?$/,

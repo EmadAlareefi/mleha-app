@@ -450,6 +450,16 @@ const serviceDefinitionsData = [
     grantsRoles: ['store_manager'],
   },
   {
+    key: 'marketing-campaigns',
+    title: 'حملات واتساب',
+    description: 'إنشاء مجموعات العملاء وإرسال قوالب زوكو التسويقية بموافقة صريحة',
+    icon: '📣',
+    href: '/marketing',
+    color: 'from-fuchsia-500 to-rose-600',
+    defaultRoles: ['admin', 'store_manager'],
+    grantsRoles: ['store_manager'],
+  },
+  {
     key: 'notify-script-editor',
     title: 'محرر سكربت أبلغني',
     description: 'تحرير ومراجعة ونشر سكربت واجهة أبلغني عند التوفر',

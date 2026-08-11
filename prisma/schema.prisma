@@ -161,6 +161,105 @@ model ZokoChatClosure {
   @@index([agentId])
 }
 
+/// A reusable audience managed by authorized store staff.
+model MarketingCustomerGroup {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?  @db.Text
+  isArchived    Boolean  @default(false)
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  members   MarketingCustomer[]
+  campaigns MarketingCampaign[]
+
+  @@index([isArchived, updatedAt])
+  @@index([createdAt])
+}
+
+/// A phone is unique within a group. Consent is explicit and defaults to
+/// unknown so an imported contact can never be messaged accidentally.
+model MarketingCustomer {
+  id                String                 @id @default(cuid())
+  groupId           String
+  group             MarketingCustomerGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name              String?
+  phone             String
+  email             String?
+  source            String                 @default("manual")
+  consentStatus     String                 @default("unknown") // unknown | opted_in | opted_out
+  consentRecordedAt DateTime?
+  consentRecordedBy String?
+  isActive          Boolean                @default(true)
+  metadata          Json?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  messages MarketingCampaignMessage[]
+
+  @@unique([groupId, phone])
+  @@index([groupId, isActive, consentStatus])
+  @@index([phone])
+}
+
+/// Immutable template and audience snapshot for one marketing send.
+model MarketingCampaign {
+  id                    String                 @id @default(cuid())
+  groupId               String
+  group                 MarketingCustomerGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  name                  String
+  templateId            String
+  templateLanguage      String
+  templateType          String
+  templateDescription   String?                @db.Text
+  templateVariableCount Int                    @default(0)
+  templateArgs          Json
+  claimedAudienceSize   Int?
+  status                String                 @default("ready") // ready | sending | completed | partial | failed
+  totalRecipients       Int                    @default(0)
+  sentCount             Int                    @default(0)
+  failedCount           Int                    @default(0)
+  skippedCount          Int                    @default(0)
+  createdById           String?
+  createdByName         String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  messages MarketingCampaignMessage[]
+
+  @@index([status, createdAt])
+  @@index([groupId, createdAt])
+}
+
+/// Per-recipient delivery state. The unique campaign/recipient pair and the
+/// processing claim state make repeated send requests idempotent.
+model MarketingCampaignMessage {
+  id                  String             @id @default(cuid())
+  campaignId          String
+  campaign            MarketingCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customerId          String?
+  customer            MarketingCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  recipient           String
+  customerName        String?
+  status              String             @default("pending") // pending | processing | sent | failed | skipped
+  attemptCount        Int                @default(0)
+  processingStartedAt DateTime?
+  providerMessageId   String?
+  lastError           String?            @db.Text
+  sentAt              DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([campaignId, recipient])
+  @@index([campaignId, status, createdAt])
+  @@index([customerId])
+  @@index([providerMessageId])
+}
+
 model SmsaWebhookShipment {
   id                 String            @id @default(cuid())
   awb                String            @unique
