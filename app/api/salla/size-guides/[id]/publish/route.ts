@@ -4,10 +4,17 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import {
+  parseSizeGuideDocument,
   sizeGuideAudit,
+  sizeGuideSkuKey,
   SIZE_GUIDE_SERVICE_KEY,
-  validateSizeGuideDocument,
 } from '@/app/lib/salla-size-guides';
+import {
+  loadSallaSizeGuideProduct,
+  SallaSizeGuideError,
+  validateDocumentAgainstSallaProduct,
+} from '@/app/lib/salla-size-guide-server';
+import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -23,7 +30,15 @@ export async function POST(_request: Request, context: RouteContext) {
   if (!existing) return NextResponse.json({ error: 'دليل المقاسات غير موجود' }, { status: 404 });
 
   try {
-    const validated = validateSizeGuideDocument(existing.draftData);
+    if (!existing.productId) throw new SallaSizeGuideError('اربط الدليل بمنتج سلة قبل النشر', 'product_id_required');
+    const document = parseSizeGuideDocument(existing.draftData);
+    const merchant = await resolveSallaMerchantId();
+    if (!merchant.merchantId) throw new Error(merchant.error);
+    const product = await loadSallaSizeGuideProduct(merchant.merchantId, {
+      productId: existing.productId,
+      optionId: document.sallaSizeOptionId,
+    });
+    const validated = validateDocumentAgainstSallaProduct(document, product);
     if (!validated.canPublish) {
       return NextResponse.json(
         { error: 'صحح أخطاء الدليل قبل النشر', issues: validated.issues },
@@ -34,6 +49,10 @@ export async function POST(_request: Request, context: RouteContext) {
     const guide = await prisma.sallaSizeGuide.update({
       where: { id },
       data: {
+        sku: product.sku,
+        skuKey: sizeGuideSkuKey(product.sku),
+        productName: product.name,
+        productImageUrl: product.imageUrl,
         draftData: validated.data as unknown as Prisma.InputJsonValue,
         publishedData: validated.data as unknown as Prisma.InputJsonValue,
         validationIssues: validated.issues as unknown as Prisma.InputJsonValue,
@@ -47,8 +66,11 @@ export async function POST(_request: Request, context: RouteContext) {
     return NextResponse.json({ success: true, guide });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'تعذر نشر دليل المقاسات' },
-      { status: 400 }
+      {
+        error: error instanceof Error ? error.message : 'تعذر نشر دليل المقاسات',
+        ...(error instanceof SallaSizeGuideError ? { code: error.code, details: error.details } : {}),
+      },
+      { status: error instanceof SallaSizeGuideError && error.code === 'salla_sizes_changed' ? 409 : 400 }
     );
   }
 }

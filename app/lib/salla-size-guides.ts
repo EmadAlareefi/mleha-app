@@ -26,6 +26,7 @@ export type SizeGuideRow = {
 export type SizeGuideDocument = {
   unit: 'in';
   twoPiece: boolean;
+  sallaSizeOptionId?: string;
   rows: SizeGuideRow[];
 };
 
@@ -46,6 +47,8 @@ export type ValidatedSizeGuide = {
 export type ImportedSizeGuide = ValidatedSizeGuide & {
   sku: string;
   skuKey: string;
+  productId: string;
+  productName: string | null;
   sourceRows: number[];
 };
 
@@ -139,6 +142,7 @@ export function parseSizeGuideDocument(value: unknown): SizeGuideDocument {
   return {
     unit: 'in',
     twoPiece: rows.some((row) => Boolean(row.BLOUSE_LEN || row.SKIRT_LEN)),
+    ...(text(input.sallaSizeOptionId, 64) ? { sallaSizeOptionId: text(input.sallaSizeOptionId, 64) } : {}),
     rows,
   };
 }
@@ -226,9 +230,13 @@ export function validateSizeGuideDocument(value: unknown): ValidatedSizeGuide {
 
 function normalizedHeaders(row: unknown[]): string[] {
   return row.map((value, index) => {
-    const header = text(value).toUpperCase();
+    const header = text(value).toUpperCase().replace(/[\s-]+/g, '_');
     if (!header && index === 0) return 'SKU';
     if (header === 'SIZE') return 'Size';
+    if (header === 'PRODUCT_ID') return 'SALLA_PRODUCT_ID';
+    if (header === 'PRODUCT_NAME') return 'NAME';
+    if (header === 'BLOUSE') return 'BLOUSE_LEN';
+    if (header === 'SKIRT') return 'SKIRT_LEN';
     return header;
   });
 }
@@ -237,8 +245,10 @@ export function parseSizeGuideImport(buffer: Buffer, fileName: string): SizeGuid
   if (!buffer.length) throw new Error('ملف الاستيراد فارغ');
   if (buffer.length > SIZE_GUIDE_IMPORT_MAX_BYTES) throw new Error('حجم الملف يتجاوز 5 ميجابايت');
 
-  const workbook = XLSX.read(buffer, { type: 'buffer', raw: false, cellDates: false });
   const isWorkbook = /\.xlsx?$/i.test(fileName);
+  const workbook = isWorkbook
+    ? XLSX.read(buffer, { type: 'buffer', raw: false, cellDates: false })
+    : XLSX.read(buffer.toString('utf8').replace(/^\uFEFF/, ''), { type: 'string', raw: false, cellDates: false });
   const sheetName = isWorkbook
     ? workbook.SheetNames.find((name) => name.trim().toLowerCase() === 'data')
     : workbook.SheetNames[0];
@@ -254,7 +264,7 @@ export function parseSizeGuideImport(buffer: Buffer, fileName: string): SizeGuid
   if (allRows.length < 2) throw new Error('ورقة البيانات فارغة');
 
   const headers = normalizedHeaders(allRows[0]);
-  const required = ['SKU', 'Size'];
+  const required = ['SKU', 'SALLA_PRODUCT_ID', 'Size'];
   required.forEach((field) => {
     if (!headers.includes(field)) throw new Error(`العمود ${field} غير موجود`);
   });
@@ -262,7 +272,15 @@ export function parseSizeGuideImport(buffer: Buffer, fileName: string): SizeGuid
     if (!headers.includes(field)) throw new Error(`العمود ${field} غير موجود`);
   });
 
-  type Group = { sku: string; rawSkus: Set<string>; rows: SizeGuideRow[]; sourceRows: number[] };
+  type Group = {
+    sku: string;
+    rawSkus: Set<string>;
+    productId: string;
+    rawProductIds: Set<string>;
+    productName: string | null;
+    rows: SizeGuideRow[];
+    sourceRows: number[];
+  };
   const groups = new Map<string, Group>();
   const skippedRows: Array<{ row: number; message: string }> = [];
   let populatedRows = 0;
@@ -278,6 +296,11 @@ export function parseSizeGuideImport(buffer: Buffer, fileName: string): SizeGuid
       skippedRows.push({ row: excelRow, message: 'SKU مفقود' });
       return;
     }
+    const productId = text(record.SALLA_PRODUCT_ID, 32);
+    if (!/^\d+$/.test(productId)) {
+      skippedRows.push({ row: excelRow, message: 'رقم منتج سلة مفقود أو غير صالح' });
+      return;
+    }
 
     const row = emptyRow();
     row.size = text(record.Size, 40);
@@ -288,10 +311,15 @@ export function parseSizeGuideImport(buffer: Buffer, fileName: string): SizeGuid
     const group = groups.get(skuKey) || {
       sku,
       rawSkus: new Set<string>(),
+      productId,
+      rawProductIds: new Set<string>(),
+      productName: optionalSizeGuideText(record.NAME, 250),
       rows: [],
       sourceRows: [],
     };
     group.rawSkus.add(sku);
+    group.rawProductIds.add(productId);
+    if (!group.productName) group.productName = optionalSizeGuideText(record.NAME, 250);
     group.rows.push(row);
     group.sourceRows.push(excelRow);
     groups.set(skuKey, group);
@@ -308,7 +336,23 @@ export function parseSizeGuideImport(buffer: Buffer, fileName: string): SizeGuid
       });
       validated.canPublish = false;
     }
-    return { ...validated, sku: group.sku, skuKey, sourceRows: group.sourceRows };
+    if (group.rawProductIds.size > 1) {
+      validated.issues.unshift({
+        severity: 'error',
+        code: 'product_id_collision',
+        message: `SKU مرتبط بأكثر من رقم منتج سلة: ${Array.from(group.rawProductIds).join('، ')}`,
+        field: 'SKU',
+      });
+      validated.canPublish = false;
+    }
+    return {
+      ...validated,
+      sku: group.sku,
+      skuKey,
+      productId: group.productId,
+      productName: group.productName,
+      sourceRows: group.sourceRows,
+    };
   });
 
   const warnings = guides.reduce(
@@ -352,4 +396,54 @@ export function parseSizeGuideSku(value: unknown): { sku: string; skuKey: string
 export function optionalSizeGuideText(value: unknown, maxLength: number): string | null {
   const result = text(value, maxLength);
   return result || null;
+}
+
+type ExportableSizeGuide = {
+  sku: string;
+  productId?: string | null;
+  productName?: string | null;
+  draftData: unknown;
+  publishedAt?: Date | string | null;
+  updatedAt: Date | string;
+};
+
+function csvCell(value: unknown): string {
+  const raw = value == null ? '' : String(value);
+  return /[",\r\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+}
+
+export function serializeSizeGuidesCsv(guides: ExportableSizeGuide[]): string {
+  const headers = [
+    'sku', 'salla_product_id', 'name', 'size',
+    'chest', 'waist', 'hip', 'shoulder', 'length', 'sleeve', 'blouse', 'skirt',
+    'status', 'updated',
+  ];
+  const lines = [headers.join(',')];
+
+  guides.forEach((guide) => {
+    const document = parseSizeGuideDocument(guide.draftData);
+    document.rows.forEach((row) => {
+      const updated = guide.updatedAt instanceof Date
+        ? guide.updatedAt.toISOString()
+        : new Date(guide.updatedAt).toISOString();
+      lines.push([
+        guide.sku,
+        guide.productId || '',
+        guide.productName || '',
+        row.size,
+        row.CHEST,
+        row.WAIST,
+        row.HIP,
+        row.SHOULDER,
+        row.LENGTH,
+        row.SLEEVE,
+        row.BLOUSE_LEN,
+        row.SKIRT_LEN,
+        guide.publishedAt ? 'published' : 'draft',
+        updated,
+      ].map(csvCell).join(','));
+    });
+  });
+
+  return `\uFEFF${lines.join('\r\n')}`;
 }

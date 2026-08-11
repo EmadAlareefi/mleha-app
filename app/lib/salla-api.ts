@@ -870,6 +870,22 @@ export interface SallaProductSummary {
   imageUrl?: string | null;
   lastUpdatedAt?: string | null;
   variations?: SallaProductVariation[];
+  options?: SallaProductOption[];
+}
+
+export interface SallaProductOptionValue {
+  id: number | string;
+  name: string;
+  displayValue?: string | null;
+  isOutOfStock?: boolean;
+  translations?: Record<string, { option_details_name?: string; name?: string }>;
+}
+
+export interface SallaProductOption {
+  id: number | string;
+  name: string;
+  values: SallaProductOptionValue[];
+  translations?: Record<string, { option_name?: string; name?: string }>;
 }
 
 export interface SallaProductVariation {
@@ -1132,6 +1148,44 @@ function normalizeProductVariations(product: Record<string, any>): SallaProductV
   return normalized;
 }
 
+function normalizeProductOptions(product: Record<string, any>): SallaProductOption[] {
+  if (!Array.isArray(product?.options)) return [];
+
+  return product.options.flatMap((option: Record<string, any>) => {
+    if (!option || typeof option !== 'object') return [];
+    const id = option.id;
+    const name = typeof option.name === 'string' ? option.name.trim() : '';
+    if ((typeof id !== 'number' && typeof id !== 'string') || !name) return [];
+
+    const values = Array.isArray(option.values)
+      ? option.values.flatMap((value: Record<string, any>) => {
+          if (!value || typeof value !== 'object') return [];
+          const valueId = value.id;
+          const valueName = typeof value.name === 'string' ? value.name.trim() : '';
+          if ((typeof valueId !== 'number' && typeof valueId !== 'string') || !valueName) return [];
+          return [{
+            id: valueId,
+            name: valueName,
+            displayValue: typeof value.display_value === 'string' ? value.display_value.trim() || null : null,
+            isOutOfStock: value.is_out_of_stock === true,
+            translations: value.translations && typeof value.translations === 'object'
+              ? value.translations
+              : undefined,
+          } satisfies SallaProductOptionValue];
+        })
+      : [];
+
+    return [{
+      id,
+      name,
+      values,
+      translations: option.translations && typeof option.translations === 'object'
+        ? option.translations
+        : undefined,
+    } satisfies SallaProductOption];
+  });
+}
+
 function normalizeProduct(product: Record<string, any>): SallaProductSummary {
   const rawId = typeof product?.id === 'number'
     ? product.id
@@ -1208,6 +1262,7 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
       ? product.updatedAt
       : undefined;
   const variations = normalizeProductVariations(product);
+  const options = normalizeProductOptions(product);
 
   return {
     id: rawId ?? Date.now(),
@@ -1221,7 +1276,26 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
     imageUrl: mainImage || null,
     lastUpdatedAt,
     variations,
+    options,
   };
+}
+
+export async function getSallaProductDetails(
+  merchantId: string,
+  productId: string | number
+): Promise<SallaProductSummary> {
+  const response = await sallaMakeRequest<{
+    status: number;
+    success: boolean;
+    data?: Record<string, any>;
+    message?: string;
+  }>(merchantId, `/products/${productId}`, { throwOnError: true });
+
+  if (!response?.success || !response.data) {
+    throw new Error(response?.message || 'تعذر تحميل تفاصيل المنتج من سلة');
+  }
+
+  return normalizeProduct(response.data);
 }
 
 export async function listSallaProducts(

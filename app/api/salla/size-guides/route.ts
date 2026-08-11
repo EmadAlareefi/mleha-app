@@ -4,13 +4,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import {
-  optionalSizeGuideText,
-  parseSizeGuideDocument,
-  parseSizeGuideSku,
   sizeGuideAudit,
+  sizeGuideSkuKey,
   SIZE_GUIDE_SERVICE_KEY,
-  validateSizeGuideDocument,
 } from '@/app/lib/salla-size-guides';
+import {
+  loadSallaSizeGuideProduct,
+  SallaSizeGuideError,
+  validateDocumentAgainstSallaProduct,
+} from '@/app/lib/salla-size-guide-server';
+import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -25,9 +28,10 @@ function positiveInteger(value: string | null, fallback: number, maximum: number
   return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
 }
 
-function parseProductId(value: unknown): string | null {
-  const productId = optionalSizeGuideText(value, 32);
+function parseProductId(value: unknown): string {
+  const productId = String(value ?? '').trim().slice(0, 32);
   if (productId && !/^\d+$/.test(productId)) throw new Error('رقم منتج سلة غير صالح');
+  if (!productId) throw new Error('اختر منتجاً من سلة');
   return productId;
 }
 
@@ -43,6 +47,7 @@ export async function GET(request: NextRequest) {
   const page = positiveInteger(params.get('page'), 1, 100_000);
   const perPage = positiveInteger(params.get('perPage'), 40, 100);
   const status = params.get('status');
+  const link = params.get('link');
   const query = params.get('q')?.trim().slice(0, 120);
 
   const where: Prisma.SallaSizeGuideWhereInput = {
@@ -62,9 +67,14 @@ export async function GET(request: NextRequest) {
           ],
         }
       : {}),
+    ...(link === 'linked'
+      ? { productId: { not: null } }
+      : link === 'unlinked'
+        ? { productId: null }
+        : {}),
   };
 
-  const [guides, total] = await Promise.all([
+  const [guides, total, allTotal, linked, published, drafts, review, issueDocuments] = await Promise.all([
     prisma.sallaSizeGuide.findMany({
       where,
       orderBy: [{ hasIssues: 'desc' }, { updatedAt: 'desc' }],
@@ -72,12 +82,27 @@ export async function GET(request: NextRequest) {
       take: perPage,
     }),
     prisma.sallaSizeGuide.count({ where }),
+    prisma.sallaSizeGuide.count(),
+    prisma.sallaSizeGuide.count({ where: { productId: { not: null } } }),
+    prisma.sallaSizeGuide.count({ where: { publishedAt: { not: null } } }),
+    prisma.sallaSizeGuide.count({ where: { publishedAt: null } }),
+    prisma.sallaSizeGuide.count({ where: { hasIssues: true } }),
+    prisma.sallaSizeGuide.findMany({
+      where: { hasIssues: true },
+      select: { validationIssues: true },
+    }),
   ]);
+  const missingFit = issueDocuments.filter((entry) =>
+    Array.isArray(entry.validationIssues) && entry.validationIssues.some((issue) =>
+      Boolean(issue && typeof issue === 'object' && 'code' in issue && issue.code === 'missing_fit_measurements')
+    )
+  ).length;
 
   return NextResponse.json({
     success: true,
     guides,
     pagination: { page, perPage, total, totalPages: Math.ceil(total / perPage) },
+    summary: { total: allTotal, linked, published, drafts, review, missingFit },
   });
 }
 
@@ -91,17 +116,23 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') throw new Error('بيانات دليل المقاسات غير صالحة');
     const input = body as Record<string, unknown>;
-    const { sku, skuKey } = parseSizeGuideSku(input.sku);
-    const validated = validateSizeGuideDocument(parseSizeGuideDocument(input.data));
+    const productId = parseProductId(input.productId);
+    const merchant = await resolveSallaMerchantId();
+    if (!merchant.merchantId) throw new Error(merchant.error);
+    const optionId = input.data && typeof input.data === 'object'
+      ? String((input.data as Record<string, unknown>).sallaSizeOptionId || '') || null
+      : null;
+    const product = await loadSallaSizeGuideProduct(merchant.merchantId, { productId, optionId });
+    const validated = validateDocumentAgainstSallaProduct(input.data, product);
     const audit = sizeGuideAudit(session.user);
 
     const guide = await prisma.sallaSizeGuide.create({
       data: {
-        sku,
-        skuKey,
-        productId: parseProductId(input.productId),
-        productName: optionalSizeGuideText(input.productName, 250),
-        productImageUrl: optionalSizeGuideText(input.productImageUrl, 500),
+        sku: product.sku,
+        skuKey: sizeGuideSkuKey(product.sku),
+        productId: product.id,
+        productName: product.name,
+        productImageUrl: product.imageUrl,
         draftData: json(validated.data),
         validationIssues: json(validated.issues),
         hasIssues: validated.issues.length > 0,
@@ -116,8 +147,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, guide, canPublish: validated.canPublish }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'تعذر إنشاء دليل المقاسات' },
-      { status: 400 }
+      {
+        error: error instanceof Error ? error.message : 'تعذر إنشاء دليل المقاسات',
+        ...(error instanceof SallaSizeGuideError ? { code: error.code, details: error.details } : {}),
+      },
+      { status: error instanceof SallaSizeGuideError && error.code === 'salla_sizes_changed' ? 409 : 400 }
     );
   }
 }

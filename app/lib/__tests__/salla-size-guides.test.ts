@@ -4,12 +4,14 @@ import * as XLSX from 'xlsx';
 import {
   numericMeasurement,
   parseSizeGuideImport,
+  serializeSizeGuidesCsv,
   sizeGuideSkuCandidates,
   sizeGuideSkuKey,
   validateSizeGuideDocument,
 } from '../salla-size-guides';
+import { extractSallaSizeOptions, reconcileSizeGuideRows } from '../salla-size-guide-products';
 
-const HEADERS = ['  ', 'Size', 'CHEST', 'WAIST', 'HIP', 'SHOULDER', 'LENGTH', 'SLEEVE', 'BLOUSE_LEN', 'SKIRT_LEN'];
+const HEADERS = ['  ', 'SALLA_PRODUCT_ID', 'Size', 'CHEST', 'WAIST', 'HIP', 'SHOULDER', 'LENGTH', 'SLEEVE', 'BLOUSE_LEN', 'SKIRT_LEN'];
 
 function workbook(rows: unknown[][]) {
   const book = XLSX.utils.book_new();
@@ -19,21 +21,22 @@ function workbook(rows: unknown[][]) {
 
 test('imports the data worksheet and treats a blank first header as SKU', () => {
   const result = parseSizeGuideImport(workbook([
-    ['7049', 'S', '36', '28', '', '', '57', '', '', ''],
-    ['7049', 'M', '38', '30', '', '', '57', '', '', ''],
+    ['7049', '203892285', 'S', '36', '28', '', '', '57', '', '', ''],
+    ['7049', '203892285', 'M', '38', '30', '', '', '57', '', '', ''],
   ]), 'sizes.xlsx');
 
   assert.equal(result.sheetName, 'data');
   assert.equal(result.summary.guides, 1);
   assert.equal(result.summary.publishable, 1);
   assert.equal(result.guides[0].sku, '7049');
+  assert.equal(result.guides[0].productId, '203892285');
   assert.equal(result.guides[0].data.rows[1].CHEST, '38');
 });
 
 test('preserves leading zero SKUs as distinct guides', () => {
   const result = parseSizeGuideImport(workbook([
-    ['66', 'S', '30', '26', '', '', '', '', '', ''],
-    ['0066', 'S', '32', '28', '', '', '', '', '', ''],
+    ['66', '1001', 'S', '30', '26', '', '', '', '', '', ''],
+    ['0066', '1002', 'S', '32', '28', '', '', '', '', '', ''],
   ]), 'sizes.xlsx');
 
   assert.deepEqual(result.guides.map((guide) => guide.skuKey), ['66', '0066']);
@@ -56,4 +59,59 @@ test('blocks duplicated and non-monotonic fit rows while retaining display-only 
 
 test('SKU candidates prefer the exact normalized value without stripping leading zeros', () => {
   assert.deepEqual(sizeGuideSkuCandidates('ML-007628-A'), ['ML007628A', '007628']);
+});
+
+test('accepts prototype CSV headers and preserves the Salla product identity', () => {
+  const csv = [
+    'sku,salla_product_id,name,size,chest,waist,hip,shoulder,length,sleeve,blouse,skirt',
+    '7490,203892285,فستان,S,34,27,37,17.9,52,,,',
+  ].join('\n');
+  const result = parseSizeGuideImport(Buffer.from(csv), 'sizes.csv');
+  assert.equal(result.guides[0].productId, '203892285');
+  assert.equal(result.guides[0].productName, 'فستان');
+  assert.equal(result.guides[0].data.rows[0].BLOUSE_LEN, '');
+});
+
+test('extracts Arabic and translated English size options while retaining out-of-stock values', () => {
+  const result = extractSallaSizeOptions([
+    { id: 1, name: 'اللون', values: [{ id: 11, name: 'أسود' }] },
+    {
+      id: 2,
+      name: 'المقاس',
+      translations: { en: { option_name: 'Size' } },
+      values: [
+        { id: 21, name: 'S', isOutOfStock: true },
+        { id: 22, name: 'M', isOutOfStock: false },
+      ],
+    },
+  ]);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.selected?.values.map((value) => [value.label, value.isOutOfStock]), [['S', true], ['M', false]]);
+});
+
+test('reconciles Salla sizes without losing matching measurements', () => {
+  const current = validateSizeGuideDocument({ rows: [
+    { size: 's', CHEST: '34', WAIST: '27', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
+    { size: 'L', CHEST: '38', WAIST: '31', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
+  ] }).data.rows;
+  const result = reconcileSizeGuideRows(current, ['S', 'M']);
+  assert.equal(result.rows[0].CHEST, '34');
+  assert.equal(result.rows[1].CHEST, '');
+  assert.deepEqual(result.added, ['M']);
+  assert.deepEqual(result.removed.map((row) => row.size), ['L']);
+});
+
+test('exports a BOM-prefixed CSV that can be imported again', () => {
+  const csv = serializeSizeGuidesCsv([{
+    sku: '7490',
+    productId: '203892285',
+    productName: 'فستان، مطرز',
+    draftData: { rows: [{ size: 'S', CHEST: '34', WAIST: '27', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' }] },
+    publishedAt: new Date('2026-08-10T00:00:00Z'),
+    updatedAt: new Date('2026-08-11T00:00:00Z'),
+  }]);
+  assert.ok(csv.startsWith('\uFEFF'));
+  const imported = parseSizeGuideImport(Buffer.from(csv), 'roundtrip.csv');
+  assert.equal(imported.guides[0].productName, 'فستان، مطرز');
+  assert.equal(imported.guides[0].data.rows[0].CHEST, '34');
 });
