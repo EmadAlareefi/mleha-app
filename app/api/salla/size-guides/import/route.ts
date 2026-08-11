@@ -7,6 +7,7 @@ import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { reconcileSizeGuideRows } from '@/app/lib/salla-size-guide-products';
 import { loadSallaSizeGuideProduct } from '@/app/lib/salla-size-guide-server';
 import {
+  differsOnlyBySkuZeroPadding,
   parseSizeGuideImport,
   sizeGuideAudit,
   sizeGuideSkuKey,
@@ -45,12 +46,21 @@ async function prepareGuides(merchantId: string, guides: ImportedSizeGuide[]): P
         const product = await loadSallaSizeGuideProduct(merchantId, { productId: guide.productId });
         const issues = [...guide.issues];
         if (sizeGuideSkuKey(product.sku) !== guide.skuKey) {
-          issues.unshift({
-            severity: 'error',
-            code: 'salla_sku_mismatch',
-            message: `SKU الملف (${guide.sku}) لا يطابق SKU منتج سلة (${product.sku})`,
-            field: 'SKU',
-          });
+          if (differsOnlyBySkuZeroPadding(guide.sku, product.sku)) {
+            issues.unshift({
+              severity: 'warning',
+              code: 'salla_sku_zero_padding_corrected',
+              message: `تم تصحيح SKU الملف (${guide.sku}) إلى SKU سلة (${product.sku}) مع الحفاظ على الأصفار`,
+              field: 'SKU',
+            });
+          } else {
+            issues.unshift({
+              severity: 'error',
+              code: 'salla_sku_mismatch',
+              message: `SKU الملف (${guide.sku}) لا يطابق SKU منتج سلة (${product.sku})`,
+              field: 'SKU',
+            });
+          }
         }
         const labels = product.sizeOption.values.map((value) => value.label);
         const reconciled = reconcileSizeGuideRows(guide.data.rows, labels);
@@ -66,7 +76,11 @@ async function prepareGuides(merchantId: string, guides: ImportedSizeGuide[]): P
           });
         }
         const sallaBlocked = issues.some((issue) =>
-          issue.code.startsWith('salla_') || issue.code === 'product_id_collision' || issue.code === 'sku_collision'
+          issue.severity === 'error' && (
+            issue.code.startsWith('salla_') ||
+            issue.code === 'product_id_collision' ||
+            issue.code === 'sku_collision'
+          )
         );
         const validated = validateSizeGuideDocument({
           ...guide.data,

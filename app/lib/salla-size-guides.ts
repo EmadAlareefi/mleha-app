@@ -101,6 +101,26 @@ export function sizeGuideSkuKey(value: unknown): string {
   return text(value).toUpperCase().replace(/[^0-9A-Z]/g, '');
 }
 
+export function numericSkuKey(value: unknown): string | null {
+  const raw = text(value);
+  if (!/^\d+$/.test(raw)) return null;
+  return raw.replace(/^0+(?=\d)/, '');
+}
+
+export function differsOnlyBySkuZeroPadding(left: unknown, right: unknown): boolean {
+  const leftKey = sizeGuideSkuKey(left);
+  const rightKey = sizeGuideSkuKey(right);
+  const leftNumeric = numericSkuKey(left);
+  const rightNumeric = numericSkuKey(right);
+  return Boolean(
+    leftKey &&
+    rightKey &&
+    leftKey !== rightKey &&
+    leftNumeric &&
+    leftNumeric === rightNumeric
+  );
+}
+
 export function sizeGuideSkuCandidates(value: unknown): string[] {
   const raw = text(value);
   const candidates: string[] = [];
@@ -108,10 +128,21 @@ export function sizeGuideSkuCandidates(value: unknown): string[] {
     const key = sizeGuideSkuKey(candidate);
     if (key.length >= 3 && !candidates.includes(key)) candidates.push(key);
   };
+  const addNumeric = (candidate: string) => {
+    if (candidate && !candidates.includes(candidate)) candidates.push(candidate);
+  };
 
   add(raw);
   raw.split(/[-/_\s]+/).forEach(add);
   (raw.match(/\d{3,12}/g) || []).forEach(add);
+
+  const numericKey = numericSkuKey(raw);
+  if (numericKey) {
+    addNumeric(numericKey);
+    for (let width = numericKey.length + 1; width <= 12; width += 1) {
+      addNumeric(numericKey.padStart(width, '0'));
+    }
+  }
   return candidates;
 }
 

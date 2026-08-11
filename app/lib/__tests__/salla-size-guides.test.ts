@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as XLSX from 'xlsx';
 import {
+  differsOnlyBySkuZeroPadding,
+  numericSkuKey,
   numericMeasurement,
   parseSizeGuideImport,
   serializeSizeGuidesCsv,
@@ -43,6 +45,21 @@ test('preserves leading zero SKUs as distinct guides', () => {
   assert.equal(sizeGuideSkuKey('0066'), '0066');
 });
 
+test('preserves an Excel numeric SKU when its cell format contains leading zeroes', () => {
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet([
+    HEADERS,
+    [98, '1001', 'S', '30', '26', '', '', '', '', '', ''],
+  ]);
+  sheet.A2.z = '0000';
+  XLSX.utils.book_append_sheet(book, sheet, 'data');
+  const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx', cellStyles: true }) as Buffer;
+
+  const result = parseSizeGuideImport(buffer, 'formatted-skus.xlsx');
+  assert.equal(result.guides[0].sku, '0098');
+  assert.equal(result.guides[0].skuKey, '0098');
+});
+
 test('blocks duplicated and non-monotonic fit rows while retaining display-only text', () => {
   const duplicate = validateSizeGuideDocument({ rows: [
     { size: 'S', CHEST: '36', WAIST: '28', HIP: '-', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
@@ -59,6 +76,17 @@ test('blocks duplicated and non-monotonic fit rows while retaining display-only 
 
 test('SKU candidates prefer the exact normalized value without stripping leading zeros', () => {
   assert.deepEqual(sizeGuideSkuCandidates('ML-007628-A'), ['ML007628A', '007628']);
+});
+
+test('numeric SKU candidates bridge legacy values that lost leading zeroes', () => {
+  assert.deepEqual(sizeGuideSkuCandidates('0098').slice(0, 4), ['0098', '98', '098', '00098']);
+  assert.ok(sizeGuideSkuCandidates('98').includes('0098'));
+  assert.equal(numericSkuKey('0000'), '0');
+  assert.equal(numericSkuKey('ML-0098'), null);
+  assert.equal(numericSkuKey('001-11'), null);
+  assert.equal(sizeGuideSkuCandidates('001-11').includes('111'), false);
+  assert.equal(differsOnlyBySkuZeroPadding('98', '0098'), true);
+  assert.equal(differsOnlyBySkuZeroPadding('98', '0099'), false);
 });
 
 test('accepts prototype CSV headers and preserves the Salla product identity', () => {
