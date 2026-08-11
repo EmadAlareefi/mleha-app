@@ -1,5 +1,5 @@
 import type { SallaProductOption, SallaProductSummary } from './salla-api';
-import type { SizeGuideRow } from './salla-size-guides';
+import { normalizeSizeGuideLabel, type SizeGuideRow } from './salla-size-guides';
 
 export const SIZE_OPTION_ALIASES = ['المقاس', 'المقاسات', 'مقاس', 'size', 'sizes'] as const;
 
@@ -24,7 +24,7 @@ export type SizeGuideSallaProduct = {
 };
 
 export function normalizeSizeLabel(value: unknown): string {
-  return String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleUpperCase('en-US');
+  return normalizeSizeGuideLabel(value).toLocaleUpperCase('en-US');
 }
 
 function normalizeOptionName(value: unknown): string {

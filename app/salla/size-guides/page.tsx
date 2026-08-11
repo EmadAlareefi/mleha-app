@@ -38,7 +38,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { useToast } from '@/components/ui/use-toast';
-import type { SizeGuideDocument, SizeGuideField, SizeGuideIssue, SizeGuideRow } from '@/app/lib/salla-size-guides';
+import {
+  normalizeSizeGuideLabel,
+  type SizeGuideDocument,
+  type SizeGuideField,
+  type SizeGuideIssue,
+  type SizeGuideRow,
+} from '@/app/lib/salla-size-guides';
 
 const FIELDS: Array<{ key: SizeGuideField; label: string }> = [
   { key: 'CHEST', label: 'الصدر' },
@@ -89,6 +95,7 @@ type ImportPreview = {
   published?: number;
 };
 type ProductSearchResult = { id: number; sku?: string; name: string; imageUrl?: string | null };
+type LinkedEditorProduct = { id: string; sku: string; name: string; imageUrl: string | null };
 type SizeOption = { id: string; name: string; values: Array<{ id: string; label: string; isOutOfStock: boolean }> };
 type SallaEditorProduct = { id: string; sku: string; name: string; imageUrl: string | null; sizeOption: SizeOption };
 type ProductDetailsResponse = {
@@ -111,7 +118,7 @@ function emptyDocument(): SizeGuideDocument {
 }
 
 function sizeKey(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('en-US');
+  return normalizeSizeGuideLabel(value).toLocaleUpperCase('en-US');
 }
 
 function reconcileRows(rows: SizeGuideRow[], labels: string[]) {
@@ -179,6 +186,8 @@ export default function SizeGuidesPage() {
   const [productQuery, setProductQuery] = useState('');
   const [productResults, setProductResults] = useState<ProductSearchResult[]>([]);
   const [productSearching, setProductSearching] = useState(false);
+  const [linkedProducts, setLinkedProducts] = useState<LinkedEditorProduct[]>([]);
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
   const [pendingProduct, setPendingProduct] = useState<ProductDetailsResponse | null>(null);
   const [selectedOptionId, setSelectedOptionId] = useState('');
 
@@ -227,6 +236,8 @@ export default function SizeGuidesPage() {
     setEditorIssues([]);
     setProductQuery('');
     setProductResults([]);
+    setLinkedProducts([]);
+    setSelectedProductIds(new Set());
     setPendingProduct(null);
     setEditorOpen(true);
   };
@@ -237,6 +248,10 @@ export default function SizeGuidesPage() {
     if (editorProduct && editorProduct.id !== nextProduct.id && !window.confirm('تغيير المنتج سيعيد مزامنة المقاسات. هل تريد المتابعة؟')) return;
     if (next.removed.length && !window.confirm(`ستُحذف قياسات: ${next.removed.map((row) => row.size).join('، ')}. هل تريد المتابعة؟`)) return;
     setEditorProduct(nextProduct);
+    setLinkedProducts((current) => editorProduct?.id === nextProduct.id
+      ? Array.from(new Map([...current, details.product].map((product) => [product.id, product])).values())
+      : [details.product]);
+    setSelectedProductIds(new Set());
     setDraft({ unit: 'in', twoPiece: draft.twoPiece, sallaSizeOptionId: option.id, rows: next.rows });
     setPendingProduct(null);
     setEditorIssues([]);
@@ -266,6 +281,17 @@ export default function SizeGuidesPage() {
     setEditorProduct(null);
     setDraft(guide.draftData || emptyDocument());
     setEditorIssues(Array.isArray(guide.validationIssues) ? guide.validationIssues : []);
+    setLinkedProducts(guide.productLinks?.length
+      ? guide.productLinks.map((link) => ({
+          id: link.productId,
+          sku: link.sku,
+          name: link.productName || link.sku,
+          imageUrl: link.productImageUrl || null,
+        }))
+      : guide.productId
+        ? [{ id: guide.productId, sku: guide.sku, name: guide.productName || guide.sku, imageUrl: guide.productImageUrl || null }]
+        : []);
+    setSelectedProductIds(new Set());
     setProductResults([]);
     setProductQuery('');
     setPendingProduct(null);
@@ -320,6 +346,23 @@ export default function SizeGuidesPage() {
     }
   };
 
+  const addSelectedProducts = () => {
+    const additions = productResults
+      .filter((product) => selectedProductIds.has(product.id))
+      .map((product) => ({
+        id: String(product.id),
+        sku: product.sku?.trim() || `#${product.id}`,
+        name: product.name,
+        imageUrl: product.imageUrl || null,
+      }));
+    if (!additions.length) return notify('حدد منتجاً واحداً على الأقل', true);
+    setLinkedProducts((current) => Array.from(new Map(
+      [...current, ...additions].map((product) => [product.id, product])
+    ).values()));
+    setSelectedProductIds(new Set());
+    notify(`تمت إضافة ${additions.length} منتج إلى الدليل؛ سيتم التحقق من مقاساتها عند الحفظ`);
+  };
+
   const updateCell = (rowIndex: number, field: SizeGuideField, value: string) => {
     setDraft((current) => ({ ...current, rows: current.rows.map((row, index) => index === rowIndex ? { ...row, [field]: value } : row) }));
   };
@@ -365,7 +408,11 @@ export default function SizeGuidesPage() {
       const data = await responseData(await fetch(endpoint, {
         method: editingGuide ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: editorProduct.id, data: draft }),
+        body: JSON.stringify({
+          productId: editorProduct.id,
+          productIds: linkedProducts.map((product) => product.id),
+          data: draft,
+        }),
       }), 'تعذر حفظ دليل المقاسات');
       const saved = data.guide as ManagedGuide;
       setEditorIssues(Array.isArray(saved.validationIssues) ? saved.validationIssues : []);
@@ -515,7 +562,7 @@ export default function SizeGuidesPage() {
             <NativeSelectOption value="all">الكل (الربط بسلة)</NativeSelectOption><NativeSelectOption value="linked">مربوط بسلة</NativeSelectOption><NativeSelectOption value="unlinked">غير مربوط</NativeSelectOption>
           </NativeSelect>
           <Button variant="outline" disabled={!selected.size || actionId === 'bulk'} onClick={() => void publishSelected()}>{actionId === 'bulk' ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />} نشر المحدد</Button>
-          <Button className="bg-[#7A6A4C] hover:bg-[#63563C]" onClick={openNew}><Plus className="size-4" /> منتج جديد</Button>
+          <Button className="bg-[#7A6A4C] hover:bg-[#63563C]" onClick={openNew}><Plus className="size-4" /> دليل جديد</Button>
         </section>
 
         <section className="overflow-hidden rounded-[14px] border border-[#EADFCB] bg-white shadow-sm">
@@ -547,7 +594,7 @@ export default function SizeGuidesPage() {
       <Sheet open={editorOpen} onOpenChange={setEditorOpen}>
         <SheetContent side="left" className="w-full gap-0 border-[#EADFCB] bg-white p-0 sm:max-w-[680px]" dir="rtl">
           <SheetHeader className="border-b border-[#F0E8D8] px-5 py-4 text-right">
-            <SheetTitle>{editingGuide ? `تعديل الدليل — ${editingGuide.sku}` : 'منتج جديد'}</SheetTitle>
+            <SheetTitle>{editingGuide ? `تعديل الدليل — ${editingGuide.sku}` : 'دليل مقاسات جديد'}</SheetTitle>
             <SheetDescription>{editorProduct ? `${editorProduct.name} · سلة #${editorProduct.id}` : 'ابحث عن منتج سلة لاستخراج مقاساته'}</SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto p-4 md:p-5">
@@ -558,7 +605,31 @@ export default function SizeGuidesPage() {
               <div className="space-y-2">{productResults.map((product) => <button key={product.id} type="button" className="flex w-full items-center justify-between rounded-xl border border-[#EADFCB] bg-[#FDFBF7] p-3 text-right transition hover:border-[#7A6A4C]" onClick={() => void selectSearchProduct(product)}><span><strong>{product.name}</strong><small className="mt-1 block text-[#8C8474]" dir="ltr">{product.sku || 'بدون SKU'} · #{product.id}</small></span><ChevronLeft className="size-4" /></button>)}</div>
             </div>}
             {!editorLoading && editorProduct && !pendingProduct && <div>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#EADFCB] bg-[#FCFAF5] p-3"><div><strong>{editorProduct.name}</strong><div className="text-xs text-[#8C8474]" dir="ltr">SKU {editorProduct.sku} · #{editorProduct.id}</div></div><Button variant="outline" size="sm" onClick={() => { if (!window.confirm('تغيير المنتج سيعيد مزامنة قائمة المقاسات وقد يحذف قياسات غير موجودة في المنتج الجديد. هل تريد المتابعة؟')) return; setProductResults([]); setProductQuery(''); setEditorProduct(null); }}>تغيير المنتج</Button></div>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#EADFCB] bg-[#FCFAF5] p-3"><div><strong>{editorProduct.name}</strong><div className="text-xs text-[#8C8474]" dir="ltr">SKU {editorProduct.sku} · #{editorProduct.id}</div></div><Button variant="outline" size="sm" onClick={() => { if (!window.confirm('تغيير المنتج سيعيد مزامنة قائمة المقاسات وقد يحذف قياسات غير موجودة في المنتج الجديد. هل تريد المتابعة؟')) return; setProductResults([]); setProductQuery(''); setLinkedProducts([]); setSelectedProductIds(new Set()); setEditorProduct(null); }}>تغيير المنتج</Button></div>
+              <section className="mb-4 rounded-xl border border-[#EADFCB] bg-white p-3">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div><h3 className="font-extrabold text-[#63563C]">منتجات سلة المرتبطة</h3><p className="text-xs text-[#8C8474]">اختر كل ألوان أو نسخ المنتج التي تستخدم نفس المقاسات.</p></div>
+                  <Badge variant="secondary">{linkedProducts.length} منتج</Badge>
+                </div>
+                <div className="mb-3 flex flex-wrap gap-1.5" dir="ltr">
+                  {linkedProducts.map((product) => <span key={product.id} className="inline-flex items-center gap-1 rounded-full bg-[#E7EFFA] px-2.5 py-1 text-xs font-bold text-[#3E6DB0]">{product.sku}{product.id !== editorProduct.id && <button type="button" title="إزالة المنتج" className="rounded-full p-0.5 hover:bg-[#D4E2F5]" onClick={() => setLinkedProducts((current) => current.filter((entry) => entry.id !== product.id))}><Trash2 className="size-3" /></button>}</span>)}
+                </div>
+                <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void searchProducts(); }}>
+                  <Input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} placeholder="ابحث برمز العائلة، مثل 7776" />
+                  <Button type="submit" variant="outline" disabled={productSearching}>{productSearching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />} بحث</Button>
+                </form>
+                {productResults.length > 0 && <div className="mt-3 max-h-56 space-y-1.5 overflow-y-auto rounded-lg border border-[#F0E8D8] p-2">
+                  {productResults.map((product) => {
+                    const alreadyLinked = linkedProducts.some((entry) => entry.id === String(product.id));
+                    return <label key={product.id} className={`flex items-center gap-3 rounded-lg p-2 text-sm ${alreadyLinked ? 'bg-[#F3F7FC] text-[#8C8474]' : 'cursor-pointer hover:bg-[#FCFAF5]'}`}>
+                      <Checkbox disabled={alreadyLinked} checked={alreadyLinked || selectedProductIds.has(product.id)} onCheckedChange={(checked) => setSelectedProductIds((current) => { const next = new Set(current); if (checked === true) next.add(product.id); else next.delete(product.id); return next; })} />
+                      <span className="min-w-0 flex-1"><strong className="block truncate">{product.name}</strong><small className="block text-[#8C8474]" dir="ltr">{product.sku || 'بدون SKU'} · #{product.id}</small></span>
+                      {alreadyLinked && <Check className="size-4 text-[#2F9E6B]" />}
+                    </label>;
+                  })}
+                </div>}
+                {productResults.length > 0 && <Button type="button" size="sm" className="mt-3 bg-[#3E6DB0] hover:bg-[#345D98]" disabled={!selectedProductIds.size} onClick={addSelectedProducts}><Plus className="size-4" /> ربط المحدد ({selectedProductIds.size})</Button>}
+              </section>
               {!hasFitMeasurement && <Alert variant="destructive" className="mb-3"><AlertDescription>يجب إدخال قياس رقمي واحد على الأقل للصدر أو الخصر قبل النشر.</AlertDescription></Alert>}
               {editorIssues.length > 0 && <Alert variant={blockingIssues.length ? 'destructive' : 'default'} className="mb-3"><AlertDescription><ul className="list-disc space-y-1 pr-5">{editorIssues.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul></AlertDescription></Alert>}
               <h3 className="mb-2 font-extrabold text-[#63563C]">القياسات (بالإنش)</h3>

@@ -5,6 +5,7 @@ import {
   differsOnlyBySkuZeroPadding,
   numericSkuKey,
   numericMeasurement,
+  normalizeSizeGuideLabel,
   parseSizeGuideImport,
   serializeSizeGuidesCsv,
   sizeGuideSkuCandidates,
@@ -12,7 +13,12 @@ import {
   validateSizeGuideDocument,
 } from '../salla-size-guides';
 import { extractSallaSizeOptions, reconcileSizeGuideRows } from '../salla-size-guide-products';
-import { isSizeGuideProductFamilySku, productMatchesSizeGuideRows } from '../salla-size-guide-links';
+import {
+  isSizeGuideProductFamilySku,
+  productMatchesSizeGuideRows,
+  sharedSizeGuideFamilySku,
+  sizeGuideProductsShareSizes,
+} from '../salla-size-guide-links';
 
 const HEADERS = ['  ', 'SALLA_PRODUCT_ID', 'Size', 'CHEST', 'WAIST', 'LENGTH', 'BLOUSE_LEN', 'SKIRT_LEN'];
 
@@ -94,6 +100,15 @@ test('numeric SKU candidates bridge legacy values that lost leading zeroes', () 
   assert.equal(differsOnlyBySkuZeroPadding('98', '0099'), false);
 });
 
+test('normalizes the 2XL alias to Salla XXL', () => {
+  assert.equal(normalizeSizeGuideLabel('2xl'), 'XXL');
+  assert.equal(normalizeSizeGuideLabel('2 XL'), 'XXL');
+  const guide = validateSizeGuideDocument({ rows: [
+    { size: '2XL', CHEST: '42', WAIST: '36', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
+  ] });
+  assert.equal(guide.data.rows[0].size, 'XXL');
+});
+
 test('matches only explicit SKU families with the same ordered Salla sizes', () => {
   const product = {
     id: 1,
@@ -116,6 +131,25 @@ test('matches only explicit SKU families with the same ordered Salla sizes', () 
   assert.equal(isSizeGuideProductFamilySku('7615', '7615'), false);
   assert.equal(productMatchesSizeGuideRows(product, document), true);
   assert.equal(productMatchesSizeGuideRows({ ...product, options: [{ ...product.options[0], values: [{ id: 1, name: 'S' }] }] }, document), false);
+});
+
+test('derives one family SKU when several Salla products are selected together', () => {
+  assert.equal(sharedSizeGuideFamilySku(['7776-20', '7776-25', '7776-26', '7776-30']), '7776');
+  assert.equal(sharedSizeGuideFamilySku(['7776-20', '8888-20']), null);
+  assert.equal(sharedSizeGuideFamilySku(['7776-20']), null);
+  assert.equal(sharedSizeGuideFamilySku(['7776']), null);
+
+  const primary = {
+    id: '1', sku: '7776-20', name: 'Primary', imageUrl: null,
+    sizeOption: { id: '10', name: 'Size', values: ['S', 'M', '2XL'].map((label) => ({ id: label, label, isOutOfStock: false })) },
+  };
+  const matching = {
+    ...primary,
+    id: '2', sku: '7776-25',
+    sizeOption: { ...primary.sizeOption, values: ['S', 'M', 'XXL'].map((label) => ({ id: label, label, isOutOfStock: false })) },
+  };
+  assert.equal(sizeGuideProductsShareSizes(primary, matching), true);
+  assert.equal(sizeGuideProductsShareSizes(primary, { ...matching, sizeOption: { ...matching.sizeOption, values: matching.sizeOption.values.slice(0, 2) } }), false);
 });
 
 test('accepts prototype CSV headers and preserves the Salla product identity', () => {
@@ -150,10 +184,13 @@ test('reconciles Salla sizes without losing matching measurements', () => {
   const current = validateSizeGuideDocument({ rows: [
     { size: 's', CHEST: '34', WAIST: '27', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
     { size: 'L', CHEST: '38', WAIST: '31', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
+    { size: '2XL', CHEST: '42', WAIST: '35', HIP: '', SHOULDER: '', LENGTH: '', SLEEVE: '', BLOUSE_LEN: '', SKIRT_LEN: '' },
   ] }).data.rows;
-  const result = reconcileSizeGuideRows(current, ['S', 'M']);
+  const result = reconcileSizeGuideRows(current, ['S', 'M', 'XXL']);
   assert.equal(result.rows[0].CHEST, '34');
   assert.equal(result.rows[1].CHEST, '');
+  assert.equal(result.rows[2].CHEST, '42');
+  assert.equal(result.rows[2].size, 'XXL');
   assert.deepEqual(result.added, ['M']);
   assert.deepEqual(result.removed.map((row) => row.size), ['L']);
 });

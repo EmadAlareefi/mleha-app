@@ -1,6 +1,10 @@
 import type { SallaProductSummary } from './salla-api';
 import { parseSizeGuideDocument, sizeGuideSkuKey } from './salla-size-guides';
-import { extractSallaSizeOptions } from './salla-size-guide-products';
+import {
+  extractSallaSizeOptions,
+  normalizeSizeLabel,
+  type SizeGuideSallaProduct,
+} from './salla-size-guide-products';
 
 export type LinkableSallaProduct = {
   id: string | number;
@@ -10,7 +14,30 @@ export type LinkableSallaProduct = {
 };
 
 function normalizedSizeLabel(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('en-US');
+  return normalizeSizeLabel(value);
+}
+
+export function sharedSizeGuideFamilySku(skus: string[]): string | null {
+  if (skus.length < 2) return null;
+  const parsed = skus.map((value) => {
+    const sku = value.trim();
+    const separator = sku.lastIndexOf('-');
+    if (separator <= 0 || separator === sku.length - 1) return null;
+    return { base: sku.slice(0, separator), key: sku.slice(0, separator).toLocaleUpperCase('en-US') };
+  });
+  if (!parsed.length || parsed.some((entry) => !entry)) return null;
+  const first = parsed[0]!;
+  return parsed.every((entry) => entry?.key === first.key) ? first.base : null;
+}
+
+export function sizeGuideProductsShareSizes(
+  primary: SizeGuideSallaProduct,
+  candidate: SizeGuideSallaProduct
+): boolean {
+  const primaryLabels = primary.sizeOption.values.map((value) => normalizeSizeLabel(value.label));
+  const candidateLabels = candidate.sizeOption.values.map((value) => normalizeSizeLabel(value.label));
+  return primaryLabels.length === candidateLabels.length &&
+    primaryLabels.every((label, index) => label === candidateLabels[index]);
 }
 
 export function isSizeGuideProductFamilySku(guideSku: string, productSku: string): boolean {

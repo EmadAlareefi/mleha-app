@@ -14,7 +14,11 @@ import {
   validateDocumentAgainstSallaProduct,
 } from '@/app/lib/salla-size-guide-server';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
-import { sizeGuideProductLinkData } from '@/app/lib/salla-size-guide-links';
+import {
+  sharedSizeGuideFamilySku,
+  sizeGuideProductLinkData,
+  sizeGuideProductsShareSizes,
+} from '@/app/lib/salla-size-guide-links';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -34,6 +38,13 @@ function parseProductId(value: unknown): string {
   if (productId && !/^\d+$/.test(productId)) throw new Error('رقم منتج سلة غير صالح');
   if (!productId) throw new Error('اختر منتجاً من سلة');
   return productId;
+}
+
+function parseProductIds(primary: unknown, values: unknown): string[] {
+  const raw = [primary, ...(Array.isArray(values) ? values : [])];
+  const ids = Array.from(new Set(raw.map(parseProductId)));
+  if (ids.length > 30) throw new Error('يمكن ربط 30 منتجاً كحد أقصى في المرة الواحدة');
+  return ids;
 }
 
 function json(value: unknown): Prisma.InputJsonValue {
@@ -125,25 +136,36 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') throw new Error('بيانات دليل المقاسات غير صالحة');
     const input = body as Record<string, unknown>;
-    const productId = parseProductId(input.productId);
+    const productIds = parseProductIds(input.productId, input.productIds);
     const merchant = await resolveSallaMerchantId();
     if (!merchant.merchantId) throw new Error(merchant.error);
     const optionId = input.data && typeof input.data === 'object'
       ? String((input.data as Record<string, unknown>).sallaSizeOptionId || '') || null
       : null;
-    const product = await loadSallaSizeGuideProduct(merchant.merchantId, { productId, optionId });
-    const productLink = sizeGuideProductLinkData(product);
+    const products = await Promise.all(productIds.map((id, index) => loadSallaSizeGuideProduct(
+      merchant.merchantId,
+      { productId: id, optionId: index === 0 ? optionId : null }
+    )));
+    const product = products[0];
+    const incompatible = products.slice(1).find((candidate) => !sizeGuideProductsShareSizes(product, candidate));
+    if (incompatible) throw new Error(`مقاسات المنتج ${incompatible.sku} لا تطابق مقاسات المنتج الأساسي ${product.sku}`);
+    const occupied = await prisma.sallaSizeGuideProductLink.findMany({
+      where: { productId: { in: productIds } },
+      select: { sku: true },
+    });
+    if (occupied.length) throw new Error(`يوجد دليل مقاسات مرتبط مسبقاً بالمنتج ${occupied[0].sku}`);
+    const guideSku = sharedSizeGuideFamilySku(products.map((entry) => entry.sku)) || product.sku;
     const validated = validateDocumentAgainstSallaProduct(input.data, product);
     const audit = sizeGuideAudit(session.user);
 
     const guide = await prisma.sallaSizeGuide.create({
       data: {
-        sku: product.sku,
-        skuKey: sizeGuideSkuKey(product.sku),
+        sku: guideSku,
+        skuKey: sizeGuideSkuKey(guideSku),
         productId: product.id,
         productName: product.name,
         productImageUrl: product.imageUrl,
-        productLinks: { create: productLink },
+        productLinks: { create: products.map(sizeGuideProductLinkData) },
         draftData: json(validated.data),
         validationIssues: json(validated.issues),
         hasIssues: validated.issues.length > 0,

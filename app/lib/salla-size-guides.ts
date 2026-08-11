@@ -85,6 +85,11 @@ function text(value: unknown, maxLength = 120): string {
   return String(value).trim().slice(0, maxLength);
 }
 
+export function normalizeSizeGuideLabel(value: unknown): string {
+  const label = text(value, 40).replace(/\s+/g, ' ');
+  return /^2[\s_-]*X[\s_-]*L$/i.test(label) ? 'XXL' : label;
+}
+
 function emptyRow(): SizeGuideRow {
   return {
     size: '',
@@ -165,7 +170,7 @@ export function parseSizeGuideDocument(value: unknown): SizeGuideDocument {
     if (!rawRow || typeof rawRow !== 'object') return emptyRow();
     const source = rawRow as Record<string, unknown>;
     const row = emptyRow();
-    row.size = text(source.size ?? source.Size, 40);
+    row.size = normalizeSizeGuideLabel(source.size ?? source.Size);
     SIZE_GUIDE_FIELDS.forEach((field) => {
       row[field] = text(source[field], 120);
     });
