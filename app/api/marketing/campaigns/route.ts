@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeMarketing, marketingActor, marketingErrorResponse } from '@/app/api/marketing/_shared';
-import {
-  extractClaimedAudienceSize,
-  MARKETING_CAMPAIGN_MAX_RECIPIENTS,
-} from '@/app/lib/marketing-customers';
+import { MARKETING_CAMPAIGN_MAX_RECIPIENTS } from '@/app/lib/marketing-customers';
 import { getZokoTemplates } from '@/app/lib/zoko';
 import { prisma } from '@/lib/prisma';
 
@@ -67,15 +64,6 @@ export async function POST(request: NextRequest) {
     if (members.length > MARKETING_CAMPAIGN_MAX_RECIPIENTS) {
       return NextResponse.json({ error: `الحد الأعلى للحملة ${MARKETING_CAMPAIGN_MAX_RECIPIENTS} مستلم` }, { status: 400 });
     }
-    const claimedAudienceSize = extractClaimedAudienceSize(template.templateDesc);
-    if (claimedAudienceSize && claimedAudienceSize !== members.length) {
-      return NextResponse.json({
-        error: `نص القالب يذكر ${claimedAudienceSize} عميل بينما المجموعة تحتوي على ${members.length} مشترك مؤهل`,
-        code: 'template_audience_mismatch',
-        claimedAudienceSize,
-        recipientCount: members.length,
-      }, { status: 422 });
-    }
     const actor = marketingActor(auth.session);
     const campaign = await prisma.$transaction(async (tx) => {
       const created = await tx.marketingCampaign.create({
@@ -88,7 +76,6 @@ export async function POST(request: NextRequest) {
           templateDescription: template.templateDesc || null,
           templateVariableCount: template.templateVariableCount,
           templateArgs,
-          claimedAudienceSize,
           totalRecipients: members.length,
           createdById: actor.id,
           createdByName: actor.name,

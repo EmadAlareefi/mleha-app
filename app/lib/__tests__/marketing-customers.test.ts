@@ -1,15 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  extractClaimedAudienceSize,
   parseMarketingCustomerCsv,
 } from '../marketing-customers';
-
-test('extractClaimedAudienceSize reads Arabic and English exclusivity claims', () => {
-  assert.equal(extractClaimedAudienceSize('تم اختيارك ضمن 30 عميلة فقط'), 30);
-  assert.equal(extractClaimedAudienceSize('Selected among only 500 customers'), 500);
-  assert.equal(extractClaimedAudienceSize('خصم 30% لمدة يومين'), null);
-});
 
 test('parseMarketingCustomerCsv supports Arabic headers, quoted cells, and deduplication', () => {
   const result = parseMarketingCustomerCsv(

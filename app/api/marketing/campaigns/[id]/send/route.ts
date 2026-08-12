@@ -2,7 +2,6 @@ import { Prisma } from '@prisma/client';
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeMarketing, marketingErrorResponse } from '@/app/api/marketing/_shared';
 import {
-  extractClaimedAudienceSize,
   MARKETING_SEND_BATCH_SIZE,
   providerMessageId,
 } from '@/app/lib/marketing-customers';
@@ -63,14 +62,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     ) {
       return NextResponse.json({ error: 'تغير القالب في زوكو بعد إنشاء الحملة؛ أنشئ حملة جديدة' }, { status: 409 });
     }
-    const claimedSize = extractClaimedAudienceSize(liveTemplate.templateDesc);
-    if (claimedSize && claimedSize !== campaign.totalRecipients) {
-      return NextResponse.json({
-        error: `نص القالب يذكر ${claimedSize} عميل بينما الحملة تحتوي على ${campaign.totalRecipients}`,
-        code: 'template_audience_mismatch',
-      }, { status: 422 });
-    }
-
     await prisma.$transaction([
       prisma.$executeRaw`
         UPDATE "MarketingCampaignMessage"

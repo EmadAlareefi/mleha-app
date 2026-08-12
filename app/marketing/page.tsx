@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  Check,
+  ChevronsUpDown,
   Download,
   Loader2,
   Megaphone,
@@ -21,10 +23,19 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -59,7 +70,6 @@ type ZokoTemplate = {
   templateType: 'template' | 'buttonTemplate' | 'richTemplate';
   templateVariableCount: number;
   templateDesc: string;
-  claimedAudienceSize: number | null;
 };
 
 type Campaign = {
@@ -150,6 +160,7 @@ export default function MarketingPage() {
   const [templates, setTemplates] = useState<ZokoTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const selectedTemplate = templates.find((template) => template.templateId === selectedTemplateId) || null;
   const [templateArgs, setTemplateArgs] = useState<string[]>([]);
   const [campaignName, setCampaignName] = useState('');
@@ -250,12 +261,6 @@ export default function MarketingPage() {
   useEffect(() => {
     setTemplateArgs(Array.from({ length: selectedTemplate?.templateVariableCount || 0 }, () => ''));
   }, [selectedTemplate?.templateId, selectedTemplate?.templateVariableCount]);
-
-  const audienceMismatch = Boolean(
-    selectedTemplate?.claimedAudienceSize &&
-    selectedGroup &&
-    selectedTemplate.claimedAudienceSize !== selectedGroup.optedInCount
-  );
 
   const totalMembers = useMemo(() => groups.reduce((sum, group) => sum + group.memberCount, 0), [groups]);
   const totalOptedIn = useMemo(() => groups.reduce((sum, group) => sum + group.optedInCount, 0), [groups]);
@@ -547,10 +552,63 @@ export default function MarketingPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-1"><Label>اسم الحملة</Label><Input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="عرض 48 ساعة - أغسطس" /></div>
                 <div className="space-y-1"><Label>مجموعة العملاء</Label><NativeSelect className="w-full" value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}><NativeSelectOption value="">اختر مجموعة</NativeSelectOption>{groups.map((group) => <NativeSelectOption key={group.id} value={group.id}>{group.name} — {group.optedInCount} موافق</NativeSelectOption>)}</NativeSelect></div>
-                <div className="space-y-1"><div className="flex items-center justify-between"><Label>قالب زوكو</Label><Button type="button" variant="ghost" size="sm" onClick={() => void loadTemplates()} disabled={templatesLoading}>{templatesLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCcw className="size-4" />} تحديث</Button></div><NativeSelect className="w-full" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}><NativeSelectOption value="">اختر قالباً</NativeSelectOption>{templates.map((template) => <NativeSelectOption key={`${template.templateId}:${template.templateLanguage}`} value={template.templateId}>{template.templateId} ({template.templateLanguage})</NativeSelectOption>)}</NativeSelect></div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label>قالب زوكو</Label>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void loadTemplates()} disabled={templatesLoading}>
+                      {templatesLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCcw className="size-4" />} تحديث
+                    </Button>
+                  </div>
+                  <Popover open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={templatePickerOpen}
+                        className="w-full justify-between font-normal"
+                        disabled={templatesLoading}
+                      >
+                        <span className="truncate">
+                          {selectedTemplate
+                            ? `${selectedTemplate.templateId} (${selectedTemplate.templateLanguage})`
+                            : 'ابحث عن قالب زوكو...'}
+                        </span>
+                        <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+                      <Command>
+                        <CommandInput placeholder="ابحث بالاسم أو محتوى القالب..." />
+                        <CommandList>
+                          <CommandEmpty>لا يوجد قالب مطابق.</CommandEmpty>
+                          <CommandGroup>
+                            {templates.map((template) => (
+                              <CommandItem
+                                key={`${template.templateId}:${template.templateLanguage}`}
+                                value={`${template.templateId} ${template.templateLanguage} ${template.templateDesc}`}
+                                onSelect={() => {
+                                  setSelectedTemplateId(template.templateId);
+                                  setTemplatePickerOpen(false);
+                                }}
+                              >
+                                <Check className={`size-4 ${selectedTemplateId === template.templateId ? 'opacity-100' : 'opacity-0'}`} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate font-mono text-xs">{template.templateId}</div>
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    {template.templateLanguage} · {template.templateType} · {template.templateVariableCount} متغير
+                                  </div>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 {templateArgs.map((value, index) => <div className="space-y-1" key={index}><Label>متغير القالب {index + 1}</Label><Input dir={index === 0 && selectedTemplate?.templateType === 'richTemplate' ? 'ltr' : undefined} value={value} onChange={(e) => setTemplateArgs((rows) => rows.map((row, rowIndex) => rowIndex === index ? e.target.value : row))} placeholder={index === 0 && selectedTemplate?.templateType === 'richTemplate' ? 'رابط وسائط الرأس أو قيمة المتغير' : `قيمة {{${index + 1}}}`} /></div>)}
-                {audienceMismatch && <Alert variant="destructive"><AlertTriangle className="size-4" /><AlertTitle>عدد الجمهور لا يطابق نص القالب</AlertTitle><AlertDescription>القالب يذكر {selectedTemplate?.claimedAudienceSize} عميل، بينما المجموعة تحتوي على {selectedGroup?.optedInCount} موافق. اختر مجموعة أخرى أو قالباً مصححاً.</AlertDescription></Alert>}
-                <Button className="w-full" onClick={() => void createCampaign()} disabled={busy === 'campaign' || !campaignName.trim() || !selectedGroup || !selectedTemplate || audienceMismatch || templateArgs.some((value) => !value.trim()) || selectedGroup.optedInCount === 0}>{busy === 'campaign' ? <Loader2 className="size-4 animate-spin" /> : <Megaphone className="size-4" />} تجهيز الحملة للمراجعة</Button>
+                <Button className="w-full" onClick={() => void createCampaign()} disabled={busy === 'campaign' || !campaignName.trim() || !selectedGroup || !selectedTemplate || templateArgs.some((value) => !value.trim()) || selectedGroup.optedInCount === 0}>{busy === 'campaign' ? <Loader2 className="size-4 animate-spin" /> : <Megaphone className="size-4" />} تجهيز الحملة للمراجعة</Button>
               </CardContent>
             </Card>
 

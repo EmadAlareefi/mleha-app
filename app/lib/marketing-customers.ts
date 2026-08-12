@@ -22,12 +22,6 @@ export type MarketingImportResult = {
   duplicatePhones: number;
 };
 
-function normalizeNumerals(value: string) {
-  return value
-    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)));
-}
-
 export function parseConsentStatus(value: unknown): MarketingConsentStatus {
   const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (['opted_in', 'optin', 'yes', 'true', '1', 'موافق', 'مشترك'].includes(normalized)) {
@@ -37,14 +31,6 @@ export function parseConsentStatus(value: unknown): MarketingConsentStatus {
     return 'opted_out';
   }
   return 'unknown';
-}
-
-export function extractClaimedAudienceSize(description: string): number | null {
-  const text = normalizeNumerals(description);
-  const match = text.match(/(?:ضمن|among)\s+(?:أول\s+|only\s+)?(\d{1,6})\s+(?:عميلة|عميل|customer)/iu);
-  if (!match) return null;
-  const value = Number.parseInt(match[1], 10);
-  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function countDelimiter(line: string, delimiter: string) {
