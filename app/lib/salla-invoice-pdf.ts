@@ -29,7 +29,6 @@ const COLOR_MUTED = rgb(0.42, 0.42, 0.42);
 const COLOR_LINE = rgb(0.85, 0.85, 0.85);
 const COLOR_BAND = rgb(0.949, 0.949, 0.949);
 const COLOR_ZEBRA = rgb(0.965, 0.965, 0.965);
-const WHITE = rgb(1, 1, 1);
 const BLACK = rgb(0, 0, 0);
 
 const FONT_DIR = path.join(process.cwd(), 'public', 'fonts', 'invoice');
@@ -285,18 +284,33 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
 
   // Invoice-level figures (prefer the official invoice record).
   const inv = invoice || {};
+  const orderAmounts = (orderAny.amounts as AnyRecord | undefined) || {};
   const taxNode = (inv.tax || {}) as AnyRecord;
   const itemsSubtotal = items.reduce((s, i) => s + i.unitPrice, 0);
   const itemsTax = items.reduce((s, i) => s + i.taxAmount, 0);
   const itemsTotal = items.reduce((s, i) => s + i.total, 0);
 
-  const subtotal = invoice ? amountOf(inv.sub_total) : itemsSubtotal;
-  const shipping = amountOf(inv.shipping_cost);
-  const codFee = amountOf(inv.cod_cost);
-  const discount = amountOf(inv.discount);
-  const taxAmount = invoice ? amountOf(taxNode.amount) : itemsTax;
-  const taxPercent = Number(str(taxNode.percent)) || items[0]?.taxPercent || 15;
-  const total = invoice ? amountOf(inv.total) : itemsTotal;
+  const subtotal = invoice
+    ? amountOf(inv.sub_total)
+    : amountOf(orderAmounts.sub_total ?? orderAmounts.subtotal) || itemsSubtotal;
+  const shipping = invoice
+    ? amountOf(inv.shipping_cost)
+    : amountOf(orderAmounts.shipping_cost ?? orderAmounts.shipping);
+  const codFee = invoice
+    ? amountOf(inv.cod_cost)
+    : amountOf(orderAmounts.cash_on_delivery ?? orderAmounts.cod_cost);
+  const discount = invoice
+    ? amountOf(inv.discount)
+    : amountOf(orderAmounts.total_discount ?? orderAmounts.discount);
+  const orderTaxNode = (orderAmounts.tax || {}) as AnyRecord;
+  const taxAmount = invoice
+    ? amountOf(taxNode.amount)
+    : amountOf(orderTaxNode.amount ?? orderAmounts.tax_amount) || itemsTax;
+  const taxPercent =
+    Number(str(taxNode.percent || orderTaxNode.percent)) || items[0]?.taxPercent || 15;
+  const total = invoice
+    ? amountOf(inv.total)
+    : amountOf(orderAmounts.total) || itemsTotal + shipping + codFee - discount;
 
   // Coupon row (shown when the order carries a coupon).
   const coupon = (orderAny.coupon as AnyRecord | undefined) || (inv.coupon as AnyRecord | undefined);

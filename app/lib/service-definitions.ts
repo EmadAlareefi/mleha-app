@@ -75,6 +75,17 @@ const serviceDefinitionsData = [
     assignable: true,
   },
   {
+    key: 'zoko-notifications',
+    title: 'مراقبة إشعارات واتساب',
+    description: 'فحص قوالب Zoko ومتابعة تسليم رسائل رحلة العميل وأخطائها',
+    icon: '💬',
+    href: '/zoko-notifications',
+    color: 'from-emerald-500 to-teal-600',
+    defaultRoles: ['admin'],
+    grantsRoles: [],
+    assignable: false,
+  },
+  {
     key: 'warehouse',
     title: 'المستودع',
     description: 'إدارة الشحنات الواردة والصادرة',

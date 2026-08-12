@@ -11,6 +11,10 @@ import {
   linkExchangeOrderFromWebhook,
 } from "@/app/lib/returns/exchange-order";
 import { maybeNotifyReturnLabelCreated } from "@/app/lib/returns/return-label-notification";
+import {
+  enqueueCustomerJourneyEvent,
+  extractJourneyShipment,
+} from "@/app/lib/customer-journey-notifications";
 
 type AnyObj = Record<string, any>;
 
@@ -140,25 +144,11 @@ function getOrderNumber(order: AnyObj): string {
 }
 
 function getShipmentDetails(order: AnyObj, data?: AnyObj) {
-  const shipment = order?.shipment || data?.shipment || {};
+  const shipment = extractJourneyShipment(order || {}, data || {});
   return {
-    carrier:
-      shipment?.company ||
-      shipment?.carrier ||
-      order?.shipping_company ||
-      "",
-    trackingNumber:
-      shipment?.tracking_number ||
-      shipment?.tracking ||
-      order?.tracking_number ||
-      "",
-    trackingLink:
-      shipment?.tracking_link ||
-      shipment?.tracking_url ||
-      shipment?.tracking_page ||
-      shipment?.tracking_web_url ||
-      order?.tracking_link ||
-      "",
+    carrier: shipment.carrier,
+    trackingNumber: shipment.trackingNumber,
+    trackingLink: shipment.trackingLink,
   };
 }
 
@@ -489,12 +479,17 @@ export async function processSallaWebhook(payload: AnyObj, meta?: WebhookMeta) {
       return process_salla_order_updated(data, meta);
     case "order.status.updated":
       return process_salla_order_status_updated(data, meta);
+    case "order.cancelled":
+    case "order.refunded":
+      return process_salla_order_exception(data, { ...meta, event });
     case "order.products.updated":
       return update_refunded_quantity(data);
     case "customer.login":
       return process_customer_login(data);
     case "order.shipment.created":
       return process_salla_shipment_created(data, meta);
+    case "shipment.created":
+      return process_salla_shipment_created(data, { ...meta, event });
     case "abandoned.cart":
       return process_abandoned_cart(data);
     case "abandoned.cart.purchased":
@@ -563,6 +558,8 @@ export async function process_salla_order_status_updated(
   const customerName = getCustomerName(customer);
   const reviewLink =
     process.env.ZOKO_REVIEW_LINK ||
+    order?.urls?.rating ||
+    order?.rating_link ||
     order?.review_link ||
     order?.survey_link ||
     "";
@@ -588,6 +585,17 @@ export async function process_salla_order_status_updated(
   ) {
     log.info("Skipping duplicate order status notification", { orderId, status });
     return { success: true, skipped: "duplicate_status" };
+  }
+
+  if (env.ZOKO_CUSTOMER_JOURNEY_ENABLED) {
+    const queued = await enqueueCustomerJourneyEvent({
+      event: meta?.event || "order.status.updated",
+      merchantId: meta?.merchantId,
+      order,
+      data,
+      status,
+    });
+    return { success: true, message: "queued", journey: queued };
   }
   const templateCtx: TemplateContext = {
     customerName,
@@ -631,6 +639,17 @@ export async function process_salla_order_created(
     orderId: meta?.orderId ?? order?.id?.toString?.() ?? null,
   });
 
+  if (env.ZOKO_CUSTOMER_JOURNEY_ENABLED) {
+    const queued = await enqueueCustomerJourneyEvent({
+      event: "order.created",
+      merchantId: meta?.merchantId,
+      order,
+      data,
+      status: extractOrderStatus(order),
+    });
+    return { success: true, message: "queued", journey: queued };
+  }
+
   const resp = await sendTpl(phone, TPL.ORDER_CONFIRMATION, [
     customerName,
     orderNumber,
@@ -663,15 +682,22 @@ export async function process_customer_login(data: AnyObj) {
 }
 
 export async function process_salla_shipment_created(data: AnyObj, meta?: WebhookMeta) {
+  const isDirectShipment = meta?.event === "shipment.created" && !data?.order;
   const order: AnyObj = data?.order ?? data ?? {};
-  const orderId = String(order?.id ?? order?.order_id ?? "");
+  const orderId = String(
+    isDirectShipment
+      ? data?.order_id ?? data?.orderId ?? data?.reference_id ?? ""
+      : order?.id ?? order?.order_id ?? ""
+  );
   const customer = order?.customer ?? order?.customer_info ?? {};
   const phone = getCustomerPhone(customer);
   const customerName = getCustomerName(customer);
   const orderNumber = getOrderNumber(order) || orderId;
   const { carrier, trackingNumber, trackingLink } = getShipmentDetails(order, data);
 
-  await upsertSallaOrderFromPayload(data);
+  if (!isDirectShipment) {
+    await upsertSallaOrderFromPayload(data);
+  }
 
   const merchantId =
     meta?.merchantId ||
@@ -679,6 +705,35 @@ export async function process_salla_shipment_created(data: AnyObj, meta?: Webhoo
     data?.store?.id?.toString?.() ||
     order?.merchant_id?.toString?.() ||
     null;
+
+  if (isDirectShipment && merchantId && orderId) {
+    const outbound = extractJourneyShipment(order, data);
+    if (outbound.labelUrl) {
+      const shipmentStatus = String(data?.status?.slug ?? data?.status ?? "created");
+      await prisma.sallaShipment.upsert({
+        where: { merchantId_orderId: { merchantId, orderId } },
+        create: {
+          merchantId,
+          orderId,
+          orderNumber: String(data?.order_reference_id ?? data?.reference_id ?? orderId),
+          trackingNumber: outbound.trackingNumber,
+          courierName: outbound.carrier || "Unknown",
+          courierCode: (outbound.carrier || "unknown").toLowerCase().replace(/\s+/g, "_"),
+          status: shipmentStatus,
+          labelUrl: outbound.labelUrl,
+          shipmentData: data,
+        },
+        update: {
+          trackingNumber: outbound.trackingNumber,
+          courierName: outbound.carrier || "Unknown",
+          courierCode: (outbound.carrier || "unknown").toLowerCase().replace(/\s+/g, "_"),
+          status: shipmentStatus,
+          labelUrl: outbound.labelUrl,
+          shipmentData: data,
+        },
+      });
+    }
+  }
 
   const returnLabelNotification = await maybeNotifyReturnLabelCreated({
     merchantId,
@@ -702,6 +757,38 @@ export async function process_salla_shipment_created(data: AnyObj, meta?: Webhoo
       reason: returnLabelNotification.reason,
       returnRequestId: returnLabelNotification.returnRequestId,
     });
+    return {
+      success: true,
+      message: "return_label_processed",
+      returnLabel: returnLabelNotification,
+    };
+  }
+
+  if (/return|reverse|مرتجع|استرجاع/i.test(String(data?.type ?? data?.shipment?.type ?? ""))) {
+    return { success: true, skipped: "return_shipment_not_outbound" };
+  }
+
+  if (env.ZOKO_CUSTOMER_JOURNEY_ENABLED) {
+    const storedOrder = merchantId && orderId
+      ? await prisma.sallaOrder.findFirst({
+          where: {
+            merchantId,
+            OR: [{ orderId }, { referenceId: orderId }, { orderNumber: orderId }],
+          },
+          select: { rawOrder: true },
+        })
+      : null;
+    const journeyOrder = storedOrder?.rawOrder
+      ? { ...(storedOrder.rawOrder as AnyObj), shipping: data?.shipping }
+      : order;
+    const queued = await enqueueCustomerJourneyEvent({
+      event: meta?.event || "order.shipment.created",
+      merchantId,
+      order: journeyOrder,
+      data,
+      status: "shipped",
+    });
+    return { success: true, message: "queued", journey: queued };
   }
 
   const resp = await sendTpl(phone, TPL.ORDER_SHIPPED, [
@@ -712,6 +799,22 @@ export async function process_salla_shipment_created(data: AnyObj, meta?: Webhoo
     trackingLink,
   ]);
   return { success: true, message: "sent", zoko: resp };
+}
+
+export async function process_salla_order_exception(data: AnyObj, meta?: WebhookMeta) {
+  const order: AnyObj = data?.order ?? data ?? {};
+  await upsertSallaOrderFromPayload(data);
+  if (!env.ZOKO_CUSTOMER_JOURNEY_ENABLED) {
+    return { success: true, skipped: "customer_journey_disabled" };
+  }
+  const queued = await enqueueCustomerJourneyEvent({
+    event: meta?.event || "order.cancelled",
+    merchantId: meta?.merchantId,
+    order,
+    data,
+    status: extractOrderStatus(order),
+  });
+  return { success: true, message: "queued", journey: queued };
 }
 
 export async function process_abandoned_cart(data: AnyObj) {

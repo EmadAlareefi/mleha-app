@@ -21,6 +21,8 @@
     "check:salla-tokens": "node scripts/run-check-token-status.js",
     "db:migrate:supabase": "bash scripts/migrate-neon-to-supabase.sh",
     "test:zoko": "node --test --import tsx app/lib/__tests__/zoko-webhook.test.ts",
+    "test:customer-journey": "node --test --import tsx app/lib/__tests__/customer-journey-notifications.test.ts app/lib/__tests__/zoko-webhook.test.ts",
+    "audit:zoko-journey": "node --env-file=.env scripts/audit-zoko-journey-templates.mjs",
     "test:delivered-date": "node --test --import tsx app/lib/__tests__/salla-order-delivered-date.test.ts",
     "test:availability": "node --test --import tsx app/lib/__tests__/availability-stock-watcher.test.ts",
     "test:notify-widget": "node --test --import tsx app/embed/__tests__/notify-me-widget.test.ts",

@@ -11,6 +11,7 @@ import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 import { extractSallaTrackingNumber, extractTrackingFromShipment } from '@/app/lib/salla-shipment';
 import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-notification';
+import { enqueueCustomerJourneyEvent } from '@/app/lib/customer-journey-notifications';
 
 export const runtime = 'nodejs';
 
@@ -113,6 +114,7 @@ export async function POST(request: NextRequest) {
 
     // Find the order in our database
     let orderId: string | null = null;
+    let storedOrderSnapshot: any = null;
     try {
       const lookupConditions: Record<string, string>[] = [];
       if (orderIdFromPayload) lookupConditions.push({ orderId: orderIdFromPayload });
@@ -128,6 +130,7 @@ export async function POST(request: NextRequest) {
 
       if (sallaOrder) {
         orderId = sallaOrder.orderId;
+        storedOrderSnapshot = sallaOrder;
       } else {
         log.warn('Order not found in database', { referenceId, merchantId });
       }
@@ -242,6 +245,23 @@ export async function POST(request: NextRequest) {
             result: returnLabelNotification.status,
             reason: returnLabelNotification.reason,
             returnRequestId: returnLabelNotification.returnRequestId,
+          });
+        }
+
+        if (!isReturnShipment) {
+          await enqueueCustomerJourneyEvent({
+            event: eventType,
+            merchantId,
+            order: (storedOrderSnapshot?.rawOrder as any) || {
+              id: resolvedOrderId,
+              reference_id: referenceId,
+              customer: {
+                name: receiver.name,
+                mobile: receiver.phone,
+              },
+            },
+            data,
+            status: 'shipped',
           });
         }
       }

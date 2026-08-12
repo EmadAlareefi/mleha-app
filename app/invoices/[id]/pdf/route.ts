@@ -19,9 +19,9 @@ const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 /**
  * GET /invoices/[id]/pdf
  *
- * Public endpoint that renders a Salla order's tax invoice (فاتورة ضريبية) as
- * a PDF. `[id]` may be either the Salla order id or the human order reference
- * number. Pass `?download=1` to force a file download instead of inline view.
+ * Staff-authenticated endpoint that renders a Salla order's tax invoice
+ * (فاتورة ضريبية) as a PDF. Customer/Zoko document delivery uses the separate
+ * expiring HMAC route under `/api/public/order-documents`.
  */
 export async function GET(
   request: NextRequest,

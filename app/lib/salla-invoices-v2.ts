@@ -171,7 +171,11 @@ async function fetchOrderInvoices(
   merchantId: string,
   orderId: string
 ): Promise<SallaInvoicesResponse | null> {
-  return sallaMakeRequest<SallaInvoicesResponse>(merchantId, `/orders/${orderId}/invoices`);
+  const query = new URLSearchParams({ order_id: orderId, per_page: '20' });
+  return sallaMakeRequest<SallaInvoicesResponse>(
+    merchantId,
+    `/orders/invoices?${query.toString()}`
+  );
 }
 
 /**

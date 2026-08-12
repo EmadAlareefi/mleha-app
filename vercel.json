@@ -8,6 +8,10 @@
     {
       "path": "/api/salla/availability-requests/check-stock",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/customer-journey/process",
+      "schedule": "* * * * *"
     }
   ]
 }

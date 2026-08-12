@@ -41,6 +41,39 @@ model MessageLog {
   @@index([zokoMsgId])
 }
 
+/// Durable, idempotent outbox for transactional customer-journey messages.
+/// String states/steps keep provider-specific values out of the Prisma enum
+/// surface while the unique dedupe key prevents webhook replays from sending
+/// the same milestone twice.
+model CustomerJourneyNotification {
+  id                String    @id @default(cuid())
+  merchantId        String
+  orderId           String
+  step              String
+  dedupeKey         String    @unique
+  recipient         String
+  templateId        String
+  messageType       String    @default("template")
+  language          String    @default("ar")
+  data              Json
+  status            String    @default("pending")
+  scheduledFor      DateTime  @default(now())
+  nextAttemptAt     DateTime?
+  attemptCount      Int       @default(0)
+  providerMessageId String?   @unique
+  acceptedAt        DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  lastError         String?   @db.Text
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([status, nextAttemptAt])
+  @@index([merchantId, orderId])
+}
+
 model WebhookLog {
   id         String   @id @default(cuid())
   receivedAt DateTime @default(now())

@@ -65,7 +65,16 @@ export interface SallaOrder {
     pickup_address?: any;
     company?: string;
     tracking_number?: string;
+    shipment?: any;
   };
+  shipments?: any[];
+  urls?: {
+    customer?: string;
+    rating?: string;
+    checkout?: string;
+    digital_content?: string;
+  };
+  rating_link?: string;
 }
 
 export interface SallaOrderItem {
@@ -589,7 +598,8 @@ export async function findOrdersByCustomerContact(
 }
 
 /**
- * Fetches invoices for a single order (Salla: GET /orders/{orderId}/invoices)
+ * Fetches invoices for a single order. Salla exposes order filtering on the
+ * invoice-list endpoint; `/orders/{orderId}/invoices` is not a valid v2 route.
  */
 export async function getSallaOrderInvoices(
   merchantId: string,
@@ -598,7 +608,7 @@ export async function getSallaOrderInvoices(
   try {
     const response = await sallaMakeRequest<{ success: boolean; data: any[] }>(
       merchantId,
-      `/orders/${orderId}/invoices`
+      `/orders/invoices?order_id=${encodeURIComponent(String(orderId))}&per_page=20`
     );
 
     if (response && response.success) {

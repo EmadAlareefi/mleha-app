@@ -97,6 +97,19 @@ describe("normalizeZokoEvent", () => {
     assert.equal(normalized.messageId, "provider-message-1");
     assert.equal(normalized.deliveryStatus, "delivered");
   });
+
+  it("normalizes real Zoko delivery updates without a chat id", () => {
+    const normalized = normalizeZokoEvent({
+      event: "message:delivery:update",
+      id: "provider-message-2",
+      deliveryStatus: "read",
+      platformTimestamp: "2026-08-09T12:00:00Z",
+    });
+
+    assert.ok(normalized && normalized.kind === "delivery");
+    assert.equal(normalized.messageId, "provider-message-2");
+    assert.equal(normalized.deliveryStatus, "read");
+  });
 });
 
 describe("buildAvailabilityDeliveryUpdate", () => {

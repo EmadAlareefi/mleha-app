@@ -156,6 +156,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   'order-users-management': 'admin',
   'printer-settings': 'admin',
   'smsa-webhook': 'admin',
+  'zoko-notifications': 'admin',
 };
 
 const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
@@ -193,6 +194,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'order-reports': FileSpreadsheet,
   settlements: Calculator,
   'smsa-webhook': Webhook,
+  'zoko-notifications': MessageCircle,
   invoices: ReceiptText,
   'invoice-refunds': Undo2,
   'invoices-and-refund-invoices': ReceiptText,

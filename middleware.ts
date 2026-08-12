@@ -49,6 +49,7 @@ const PUBLIC_PATHS = [
   '/embed',
   // Called by Vercel Cron, which carries no session; guarded by CRON_SECRET.
   '/api/salla/availability-requests/check-stock',
+  '/api/customer-journey/process',
   '/salla/webhook',
   '/logo.png',
   '/manifest.webmanifest',
@@ -56,11 +57,9 @@ const PUBLIC_PATHS = [
   '/trademark.pdf',
 ];
 
-// Public paths matched by pattern rather than exact prefix. Used for routes
-// that live under an otherwise-protected segment (e.g. the customer-facing
-// invoice PDF under /invoices/{orderId}/pdf, while the /invoices admin pages
-// stay gated behind the `invoices` service).
-const PUBLIC_PATTERNS = [/^\/invoices\/[^/]+\/pdf\/?$/];
+// Public document delivery is handled below `/api/public` and requires an
+// expiring HMAC signature. Admin invoice pages remain session-protected.
+const PUBLIC_PATTERNS: RegExp[] = [];
 
 const isPublicPath = (pathname: string) =>
   PUBLIC_PATHS.some(

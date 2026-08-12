@@ -1,13 +1,24 @@
 import { prisma } from "@/lib/prisma";
 import { log } from "@/app/lib/logger";
 import { buildAvailabilityDeliveryUpdate } from "@/app/lib/availability-delivery";
+import { reconcileCustomerJourneyDelivery } from "@/app/lib/customer-journey-notifications";
 
 type AnyRecord = Record<string, any>;
 
 export type NormalizedZokoEvent =
   | NormalizedZokoMessageEvent
+  | NormalizedZokoDeliveryEvent
   | NormalizedZokoAssignmentEvent
   | NormalizedZokoClosureEvent;
+
+export interface NormalizedZokoDeliveryEvent {
+  kind: "delivery";
+  eventName: string;
+  messageId: string;
+  deliveryStatus?: string | null;
+  platformTimestamp?: Date | null;
+  payload: AnyRecord;
+}
 
 export interface NormalizedZokoMessageEvent {
   kind: "message";
@@ -71,6 +82,21 @@ export function normalizeZokoEvent(input: unknown): NormalizedZokoEvent | null {
   const eventName = typeof payload.event === "string" ? payload.event : "";
 
   if (!eventName) return null;
+
+  // Delivery updates contain the provider message id but no customer/chat id.
+  // Normalize them separately so they can still reconcile the outbox row.
+  if (eventName === "message:delivery:update") {
+    const messageId = typeof payload.id === "string" ? payload.id : null;
+    if (!messageId) return null;
+    return {
+      kind: "delivery",
+      eventName,
+      messageId,
+      deliveryStatus: payload.deliveryStatus ?? null,
+      platformTimestamp: toDate(payload.platformTimestamp),
+      payload,
+    };
+  }
 
   if (MESSAGE_EVENTS.has(eventName) || eventName.startsWith("message:")) {
     const chatId = getChatId(payload);
@@ -205,6 +231,10 @@ export async function processZokoWebhookPayload(rawPayload: unknown) {
 }
 
 async function persistNormalizedEvent(event: NormalizedZokoEvent) {
+  if (event.kind === "delivery") {
+    await persistDelivery(event);
+    return;
+  }
   if (event.kind === "message") {
     await persistMessage(event);
     return;
@@ -216,6 +246,34 @@ async function persistNormalizedEvent(event: NormalizedZokoEvent) {
   }
 
   await persistClosure(event);
+}
+
+async function persistDelivery(event: NormalizedZokoDeliveryEvent) {
+  const timestamp = event.platformTimestamp ?? new Date();
+  await prisma.zokoMessage.updateMany({
+    where: { id: event.messageId },
+    data: {
+      deliveryStatus: event.deliveryStatus ?? undefined,
+      platformTimestamp: timestamp,
+      payload: event.payload,
+    },
+  });
+  await reconcileCustomerJourneyDelivery({
+    providerMessageId: event.messageId,
+    deliveryStatus: event.deliveryStatus,
+    occurredAt: timestamp,
+  });
+
+  const deliveryUpdate = buildAvailabilityDeliveryUpdate(
+    event.deliveryStatus,
+    timestamp
+  );
+  if (deliveryUpdate) {
+    await prisma.sallaProductAvailabilityRequest.updateMany({
+      where: { providerMessageId: event.messageId },
+      data: deliveryUpdate,
+    });
+  }
 }
 
 async function persistMessage(event: NormalizedZokoMessageEvent) {
@@ -290,6 +348,11 @@ async function persistMessage(event: NormalizedZokoMessageEvent) {
       data: deliveryUpdate,
     });
   }
+  await reconcileCustomerJourneyDelivery({
+    providerMessageId: event.messageId,
+    deliveryStatus: event.deliveryStatus,
+    occurredAt: timestamp,
+  });
 }
 
 async function persistAssignment(event: NormalizedZokoAssignmentEvent) {

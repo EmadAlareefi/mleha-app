@@ -18,6 +18,24 @@ export const env = {
   // Must exist and be approved in Zoko.
   ZOKO_TPL_PRODUCT_BACK_IN_STOCK:
     process.env.ZOKO_TPL_PRODUCT_BACK_IN_STOCK || "notify_available_v1",
+  ZOKO_CUSTOMER_JOURNEY_ENABLED:
+    process.env.ZOKO_CUSTOMER_JOURNEY_ENABLED === "true",
+  ZOKO_TPL_ORDER_RECEIVED_INVOICE:
+    process.env.ZOKO_TPL_ORDER_RECEIVED_INVOICE || "order_received_invoice_ar_v1",
+  ZOKO_TPL_ORDER_SHIPPED_LABEL:
+    process.env.ZOKO_TPL_ORDER_SHIPPED_LABEL || "order_shipped_label_ar_v1",
+  ZOKO_TPL_ORDER_DELIVERED_RATING:
+    process.env.ZOKO_TPL_ORDER_DELIVERED_RATING || "order_delivered_rating_ar_v1",
+  ZOKO_TPL_ORDER_CANCELLED:
+    process.env.ZOKO_TPL_ORDER_CANCELLED || "order_cancelled_ar_v1",
+  ZOKO_TPL_ORDER_REFUNDED:
+    process.env.ZOKO_TPL_ORDER_REFUNDED || "order_refund_processed_ar_v1",
+  CUSTOMER_RATING_DELAY_HOURS:
+    Number(process.env.CUSTOMER_RATING_DELAY_HOURS || "24"),
+  CUSTOMER_DOCUMENT_SIGNING_SECRET:
+    process.env.CUSTOMER_DOCUMENT_SIGNING_SECRET || "",
+  CUSTOMER_DOCUMENT_BASE_URL:
+    process.env.CUSTOMER_DOCUMENT_BASE_URL || process.env.NEXTAUTH_URL || "",
   ZOKO_DEBUG_PHONE: process.env.ZOKO_DEBUG_PHONE || process.env.ZOKO_TEST_PHONE || "",
   MSEGAT_API_URL: process.env.MSEGAT_API_URL || "https://www.msegat.com/gw/sendsms.php",
   MSEGAT_USERNAME: process.env.MSEGAT_USERNAME,
