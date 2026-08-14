@@ -155,6 +155,11 @@ export function extractJourneyRatingLink(order: AnyRecord): string {
   return text(order.urls?.rating ?? order.rating_link ?? order.review_link ?? order.survey_link);
 }
 
+export function isDeliveredJourneyStatus(status: string | null | undefined): boolean {
+  const normalized = text(status).toLowerCase().replace(/\s+/g, ' ');
+  return normalized === 'delivered' || normalized === 'تم التوصيل';
+}
+
 function extractRefund(order: AnyRecord, data: AnyRecord) {
   const refund = data.refund ?? order.refund ?? data;
   // Never substitute the order total for a refund amount: partial refunds
@@ -184,7 +189,7 @@ export function stepForJourneyEvent(event: string, status: string): CustomerJour
   // Preparation and out-for-delivery are intentionally silent. Meta charges per
   // delivered template, so these low-information milestones are consolidated
   // into the received/shipped/final-review messages.
-  if (status === 'delivered' || status === 'completed') return 'product_rating';
+  if (isDeliveredJourneyStatus(status)) return 'product_rating';
   return null;
 }
 
@@ -276,6 +281,10 @@ export async function enqueueCustomerJourneyEvent(input: EnqueueJourneyInput) {
     step === 'refunded'
       ? text(data.refund?.id ?? data.refund_id ?? data.refundId ?? data.transaction_id)
       : '';
+  // Version the rating key around the actual delivery milestone. This keeps a
+  // rating row that may have been queued by the old `completed` mapping from
+  // retaining its earlier countdown when `delivered` arrives.
+  const ratingDiscriminator = step === 'product_rating' ? 'delivered' : '';
   const delayHours = Number.isFinite(env.CUSTOMER_RATING_DELAY_HOURS)
     ? Math.max(0, env.CUSTOMER_RATING_DELAY_HOURS)
     : 24;
@@ -289,7 +298,7 @@ export async function enqueueCustomerJourneyEvent(input: EnqueueJourneyInput) {
       step === 'product_rating'
         ? new Date(Date.now() + delayHours * 60 * 60_000)
         : undefined,
-    dedupeDiscriminator: refundDiscriminator || undefined,
+    dedupeDiscriminator: refundDiscriminator || ratingDiscriminator || undefined,
   });
 
   if (step === 'product_rating') {
@@ -297,10 +306,15 @@ export async function enqueueCustomerJourneyEvent(input: EnqueueJourneyInput) {
       where: {
         merchantId,
         orderId,
-        step: { in: ['preparing', 'shipped', 'out_for_delivery'] },
+        id: { not: row.id },
+        step: { in: ['preparing', 'shipped', 'out_for_delivery', 'product_rating'] },
         status: { in: ['pending', 'waiting_for_data', 'retrying'] },
       },
-      data: { status: 'superseded', lastError: 'A later delivery milestone was received' },
+      data: {
+        status: 'superseded',
+        nextAttemptAt: null,
+        lastError: 'Replaced when the delivered milestone started a new rating countdown',
+      },
     });
   }
 
@@ -434,6 +448,23 @@ function requiredDataMissing(step: string, data: JourneyNotificationData): strin
 
 async function sendClaimedNotification(row: any) {
   try {
+    if (
+      row.step === 'product_rating' &&
+      !text(row.dedupeKey).endsWith(':product_rating:delivered')
+    ) {
+      // Rows created before the delivered-only rule may have started their
+      // countdown at `completed`. Never let those legacy schedules send.
+      await prisma.customerJourneyNotification.update({
+        where: { id: row.id },
+        data: {
+          status: 'superseded',
+          nextAttemptAt: null,
+          lastError: 'Legacy rating schedule did not originate from delivered status',
+        },
+      });
+      return { id: row.id, status: 'superseded' };
+    }
+
     const data = await enrichNotification(row);
     const missing = requiredDataMissing(row.step, data);
     if (missing.length > 0) {

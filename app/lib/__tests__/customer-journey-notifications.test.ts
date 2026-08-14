@@ -5,6 +5,7 @@ import {
   buildJourneyNotificationData,
   extractJourneyRatingLink,
   extractJourneyShipment,
+  isDeliveredJourneyStatus,
   stepForJourneyEvent,
 } from '../customer-journey-notifications';
 import {
@@ -19,9 +20,19 @@ test('maps only trust-relevant Salla milestones', () => {
   assert.equal(stepForJourneyEvent('order.updated', 'in_progress'), null);
   assert.equal(stepForJourneyEvent('shipment.created', ''), 'shipped');
   assert.equal(stepForJourneyEvent('order.updated', 'delivering'), null);
-  assert.equal(stepForJourneyEvent('order.updated', 'completed'), 'product_rating');
+  assert.equal(stepForJourneyEvent('order.updated', 'completed'), null);
+  assert.equal(stepForJourneyEvent('order.updated', 'delivered'), 'product_rating');
+  assert.equal(stepForJourneyEvent('order.updated', 'تم التوصيل'), 'product_rating');
   assert.equal(stepForJourneyEvent('order.refunded', 'restored'), 'refunded');
   assert.equal(stepForJourneyEvent('order.updated', 'restoring'), null);
+});
+
+test('recognizes only Salla delivered statuses as the rating milestone', () => {
+  assert.equal(isDeliveredJourneyStatus('delivered'), true);
+  assert.equal(isDeliveredJourneyStatus('تم التوصيل'), true);
+  assert.equal(isDeliveredJourneyStatus('  تم   التوصيل  '), true);
+  assert.equal(isDeliveredJourneyStatus('completed'), false);
+  assert.equal(isDeliveredJourneyStatus('تم التنفيذ'), false);
 });
 
 test('extracts outbound shipment fields from current nested Salla payloads', () => {
