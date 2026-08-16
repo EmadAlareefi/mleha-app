@@ -82,7 +82,7 @@ export interface InvoiceLineItem {
   imageUrl?: string;
   options: Array<{ name: string; value: string }>;
   quantity: number;
-  unitPrice: number; // price excluding VAT, per the whole line
+  unitPrice: number; // unit price excluding VAT
   taxPercent: number;
   taxAmount: number;
   total: number; // line total including VAT
@@ -128,6 +128,21 @@ export interface InvoiceData {
   taxAmount: number;
   total: number;
   orderOptions: InvoiceOrderOption[];
+}
+
+const FIRST_ITEMS_PAGE_CAPACITY = 5;
+const CONTINUATION_ITEMS_PAGE_CAPACITY = 10;
+
+/** Splits invoice rows across the first and continuation-page table sizes. */
+export function paginateInvoiceLineItems<T>(items: T[]): T[][] {
+  if (items.length === 0) return [[]];
+
+  const pages: T[][] = [];
+  pages.push(items.slice(0, FIRST_ITEMS_PAGE_CAPACITY));
+  for (let index = FIRST_ITEMS_PAGE_CAPACITY; index < items.length; index += CONTINUATION_ITEMS_PAGE_CAPACITY) {
+    pages.push(items.slice(index, index + CONTINUATION_ITEMS_PAGE_CAPACITY));
+  }
+  return pages;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,8 +301,8 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
   const inv = invoice || {};
   const orderAmounts = (orderAny.amounts as AnyRecord | undefined) || {};
   const taxNode = (inv.tax || {}) as AnyRecord;
-  const itemsSubtotal = items.reduce((s, i) => s + i.unitPrice, 0);
-  const itemsTax = items.reduce((s, i) => s + i.taxAmount, 0);
+  const itemsSubtotal = items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+  const itemsTax = items.reduce((s, i) => s + i.taxAmount * i.quantity, 0);
   const itemsTotal = items.reduce((s, i) => s + i.total, 0);
 
   const subtotal = invoice
@@ -484,9 +499,36 @@ export async function generateSallaInvoicePdf(
   drawOrderDetails(ctx, seller, data);
   drawParties(ctx, seller, data);
   drawPaymentShipping(ctx, data);
-  drawItemsTable(ctx, data, productImages[0] ?? null);
-  drawTotals(ctx, data);
-  drawOrderOptions(ctx, data);
+  const itemPages = paginateInvoiceLineItems(data.items);
+  let itemOffset = 0;
+  let contentBottom = drawItemsTablePage(
+    ctx,
+    data,
+    itemPages[0],
+    productImages.slice(0, itemPages[0].length),
+    392,
+  );
+  itemOffset += itemPages[0].length;
+
+  for (const itemPage of itemPages.slice(1)) {
+    drawContinuationHeader(ctx, data, 'تابع المنتجات');
+    contentBottom = drawItemsTablePage(
+      ctx,
+      data,
+      itemPage,
+      productImages.slice(itemOffset, itemOffset + itemPage.length),
+      82,
+    );
+    itemOffset += itemPage.length;
+  }
+
+  const totalsHeight = getTotalsRowCount(data) * 25.5 + 8;
+  if (contentBottom + totalsHeight > 790) {
+    drawContinuationHeader(ctx, data, 'ملخص الفاتورة');
+    contentBottom = 82;
+  }
+  contentBottom = drawTotals(ctx, data, contentBottom + 4);
+  drawOrderOptions(ctx, data, contentBottom + 8);
 
   drawSecondPage(ctx, seller);
 
@@ -766,62 +808,102 @@ function drawPaymentShipping(ctx: RenderCtx, data: InvoiceData): void {
   hline(ctx, T(392));
 }
 
-function drawItemsTable(ctx: RenderCtx, data: InvoiceData, image: PDFImage | null): void {
+function drawContinuationHeader(ctx: RenderCtx, data: InvoiceData, title: string): void {
+  ctx.page = ctx.pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  draw(ctx, title, CENTER_X, T(38), { size: 14, align: 'center', bold: true });
+  metaRow(ctx, 'رقم الطلب', data.orderNumber, CONTENT_RIGHT, T(61), 9.5);
+  hline(ctx, T(72));
+}
+
+function drawItemsTablePage(
+  ctx: RenderCtx,
+  data: InvoiceData,
+  items: InvoiceLineItem[],
+  images: Array<PDFImage | null>,
+  tableTop: number,
+): number {
   const x0 = CONTENT_LEFT;
   const productRight = RIGHT;
   const qtyRight = 272;
   const priceRight = 230;
   const totalRight = 103;
+  const rowHeight = 62;
 
   // Header band.
-  ctx.page.drawRectangle({ x: x0, y: T(424), width: CONTENT_WIDTH, height: 23, color: COLOR_BAND });
-  const headY = T(413.2);
+  ctx.page.drawRectangle({ x: x0, y: T(tableTop + 32), width: CONTENT_WIDTH, height: 23, color: COLOR_BAND });
+  const headY = T(tableTop + 21.2);
   draw(ctx, 'المنتج', productRight, headY, { size: 9.8, align: 'right', bold: true });
   draw(ctx, 'الكمية', qtyRight, headY, { size: 9.8, align: 'right', bold: true });
   draw(ctx, 'السعر', priceRight, headY, { size: 9.8, align: 'right', bold: true });
   draw(ctx, 'المجموع', totalRight, headY, { size: 9.8, align: 'right', bold: true });
 
-  // Single product row (the template carries one line item).
-  const item = data.items[0];
-  if (item) {
+  let rowTop = tableTop + 36;
+  items.forEach((item, index) => {
+    if (index % 2 === 1) {
+      ctx.page.drawRectangle({
+        x: x0,
+        y: T(rowTop + rowHeight),
+        width: CONTENT_WIDTH,
+        height: rowHeight,
+        color: COLOR_ZEBRA,
+      });
+    }
+
     let nameRight = productRight;
+    const image = images[index];
     if (image) {
-      const imgSize = 58;
+      const imgSize = 34;
       const scale = imgSize / Math.max(image.width, image.height);
       const w = image.width * scale;
       const h = image.height * scale;
-      ctx.page.drawImage(image, { x: productRight - w, y: T(436.5) - h + 4, width: w, height: h });
+      ctx.page.drawImage(image, {
+        x: productRight - w,
+        y: T(rowTop + 9) - h + 4,
+        width: w,
+        height: h,
+      });
       nameRight = productRight - imgSize - 8;
     }
-    draw(ctx, item.name, nameRight, T(436.5), { size: 9, align: 'right' });
-    if (item.sku) draw(ctx, `SKU ${item.sku}`, nameRight, T(450), { size: 9, align: 'right', bold: true });
-    if (item.description) {
-      draw(ctx, `${truncate(item.description, 42)}...`, nameRight, T(465), { size: 9, align: 'right', color: COLOR_MUTED });
+    draw(ctx, truncate(item.name, 38), nameRight, T(rowTop + 14), { size: 9, align: 'right' });
+    if (item.sku) {
+      draw(ctx, `SKU ${truncate(item.sku, 28)}`, nameRight, T(rowTop + 29), {
+        size: 8.3,
+        align: 'right',
+        bold: true,
+      });
+    }
+    const detail = item.options.length
+      ? item.options.map((option) => `${option.name}: ${option.value}`).join('، ')
+      : item.description || '';
+    if (detail) {
+      draw(ctx, truncate(detail, 48), nameRight, T(rowTop + 45), {
+        size: 8,
+        align: 'right',
+        color: COLOR_MUTED,
+      });
     }
 
-    draw(ctx, String(item.quantity), qtyRight - 4, T(436.5), { size: 9, align: 'right' });
-    draw(ctx, `${data.currency} ${formatMoney(item.unitPrice)}`, priceRight, T(436.5), { size: 9, align: 'right' });
-    draw(ctx, `${data.currency} ${formatMoney(item.unitPrice)}`, totalRight, T(436.5), { size: 9, align: 'right' });
-    draw(ctx, `الضريبة (${data.taxPercent}%) : ${data.currency} ${formatMoney(item.taxAmount)}`, priceRight, T(451.5), { size: 9, align: 'right', color: COLOR_MUTED });
-    draw(ctx, `السعر شامل الضريبة : ${data.currency} ${formatMoney(item.total)}`, priceRight, T(466.5), { size: 9, align: 'right', color: COLOR_MUTED });
+    draw(ctx, String(item.quantity), qtyRight - 4, T(rowTop + 14), { size: 9, align: 'right' });
+    draw(ctx, `${data.currency} ${formatMoney(item.unitPrice)}`, priceRight, T(rowTop + 14), { size: 8.5, align: 'right' });
+    draw(ctx, `${data.currency} ${formatMoney(item.total)}`, totalRight, T(rowTop + 14), { size: 8.5, align: 'right' });
+    draw(ctx, `ضريبة ${formatMoney(item.taxAmount * item.quantity)}`, priceRight, T(rowTop + 33), {
+      size: 7.5,
+      align: 'right',
+      color: COLOR_MUTED,
+    });
 
-    if (item.sku) drawBarcode(ctx, item.sku, 130, T(505), 22, 150);
+    hline(ctx, T(rowTop + rowHeight));
+    rowTop += rowHeight;
+  });
 
-    if (item.options.length) {
-      heading(ctx, 'خيارات المنتج', productRight, T(525), 9.8);
-      let oy = T(540.8);
-      for (const opt of item.options) {
-        draw(ctx, opt.name, productRight, oy, { size: 9, align: 'right', bold: true });
-        draw(ctx, opt.value, 372, oy, { size: 9, align: 'left' });
-        oy -= 16;
-      }
-    }
-  }
-
-  hline(ctx, T(553));
+  return rowTop;
 }
 
-function drawTotals(ctx: RenderCtx, data: InvoiceData): void {
+function getTotalsRowCount(data: InvoiceData): number {
+  return 4 + (data.couponLabel ? 1 : 0) + (data.codFee ? 1 : 0);
+}
+
+function drawTotals(ctx: RenderCtx, data: InvoiceData, startTop: number): number {
   const rows: Array<[string, string]> = [];
   rows.push(['الإجمالي الفرعي (غير شامل الضريبة)', `${data.currency} ${formatMoney(data.subtotal)}`]);
   if (data.couponLabel) rows.push([data.couponLabel, `${data.currency} ${formatMoney(data.couponAmount)}`]);
@@ -831,7 +913,7 @@ function drawTotals(ctx: RenderCtx, data: InvoiceData): void {
   rows.push(['إجمالي الطلب', `${data.currency} ${formatMoney(data.total)}`]);
 
   const rowH = 25.5;
-  let top = T(556); // band top of first row
+  let top = T(startTop);
   rows.forEach(([label, value], idx) => {
     if (idx % 2 === 0) {
       ctx.page.drawRectangle({ x: CONTENT_LEFT, y: top - rowH, width: CONTENT_WIDTH, height: rowH, color: COLOR_ZEBRA });
@@ -841,28 +923,40 @@ function drawTotals(ctx: RenderCtx, data: InvoiceData): void {
     draw(ctx, value, CONTENT_LEFT + 2, ty, { size: 10.5, align: 'left', bold: true });
     top -= rowH;
   });
+  return startTop + rows.length * rowH;
 }
 
-function drawOrderOptions(ctx: RenderCtx, data: InvoiceData): void {
+function drawOrderOptions(ctx: RenderCtx, data: InvoiceData, startTop: number): void {
   if (!data.orderOptions.length) return;
   const x0 = CONTENT_LEFT;
   const optRight = CONTENT_RIGHT;
   const contentCenter = 320;
   const priceLeft = CONTENT_LEFT;
+  const rowHeight = 24;
+  let top = startTop;
 
-  ctx.page.drawRectangle({ x: x0, y: T(720), width: CONTENT_WIDTH, height: 22, color: COLOR_BAND });
-  const hy = T(709.5);
-  draw(ctx, 'خيارات الطلب', optRight, hy, { size: 9, align: 'right', bold: true });
-  draw(ctx, 'المحتوى', contentCenter, hy, { size: 9, align: 'center', bold: true });
-  draw(ctx, 'السعر (شامل الضريبة)', priceLeft, hy, { size: 9, align: 'left', bold: true });
+  for (let index = 0; index < data.orderOptions.length; index += 1) {
+    if (index === 0 || top + rowHeight > 790) {
+      if (index > 0 || top + rowHeight > 790) {
+        drawContinuationHeader(ctx, data, 'خيارات الطلب');
+        top = 82;
+      }
+      ctx.page.drawRectangle({ x: x0, y: T(top + 22), width: CONTENT_WIDTH, height: 22, color: COLOR_BAND });
+      const hy = T(top + 11.5);
+      draw(ctx, 'خيارات الطلب', optRight, hy, { size: 9, align: 'right', bold: true });
+      draw(ctx, 'المحتوى', contentCenter, hy, { size: 9, align: 'center', bold: true });
+      draw(ctx, 'السعر (شامل الضريبة)', priceLeft, hy, { size: 9, align: 'left', bold: true });
+      top += 25;
+    }
 
-  const rowY = [T(732.8), T(755.2)];
-  data.orderOptions.slice(0, 2).forEach((opt, i) => {
-    draw(ctx, opt.name, optRight, rowY[i], { size: 9, align: 'right' });
-    draw(ctx, opt.content || '-', contentCenter, rowY[i], { size: 9, align: 'center' });
-    draw(ctx, `${data.currency} ${formatMoney(opt.price)}`, priceLeft, rowY[i], { size: 9, align: 'left' });
-  });
-  hline(ctx, T(777));
+    const opt = data.orderOptions[index];
+    const rowY = T(top + 16);
+    draw(ctx, truncate(opt.name, 42), optRight, rowY, { size: 9, align: 'right' });
+    draw(ctx, truncate(opt.content || '-', 34), contentCenter, rowY, { size: 9, align: 'center' });
+    draw(ctx, `${data.currency} ${formatMoney(opt.price)}`, priceLeft, rowY, { size: 9, align: 'left' });
+    top += rowHeight;
+    hline(ctx, T(top));
+  }
 }
 
 function drawSecondPage(ctx: RenderCtx, seller: SellerInfo): void {

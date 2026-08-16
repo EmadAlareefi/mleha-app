@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { PDFDocument } from 'pdf-lib';
 
 import {
   buildJourneyNotificationData,
@@ -13,7 +14,11 @@ import {
   signCustomerDocument,
   verifyCustomerDocumentSignature,
 } from '../customer-document-links';
-import { buildInvoiceData } from '../salla-invoice-pdf';
+import {
+  buildInvoiceData,
+  generateSallaInvoicePdf,
+  paginateInvoiceLineItems,
+} from '../salla-invoice-pdf';
 
 test('maps only trust-relevant Salla milestones', () => {
   assert.equal(stepForJourneyEvent('order.created', 'under_review'), 'order_received');
@@ -178,4 +183,77 @@ test('local invoice fallback uses complete order amounts', () => {
   assert.equal(invoice.couponAmount, 10);
   assert.equal(invoice.taxAmount, 15);
   assert.equal(invoice.total, 130);
+});
+
+test('invoice item pagination preserves every line item in order', () => {
+  const items = Array.from({ length: 27 }, (_, index) => `item-${index + 1}`);
+  const pages = paginateInvoiceLineItems(items);
+
+  assert.deepEqual(pages.map((page) => page.length), [5, 10, 10, 2]);
+  assert.deepEqual(pages.flat(), items);
+});
+
+test('local invoice fallback multiplies per-unit amounts by quantity', () => {
+  const order: any = {
+    id: 2,
+    reference_id: '1002',
+    status: { slug: 'under_review', name: 'تحت المراجعة' },
+    date: { created: '2026-08-09 10:00:00', updated: '2026-08-09 10:00:00' },
+    customer: { id: 2, first_name: 'نورة', last_name: '', mobile: '0500000001', email: '' },
+    amounts: {},
+    items: [
+      {
+        id: 1,
+        name: 'عباءة',
+        quantity: 3,
+        currency: 'SAR',
+        amounts: {
+          price_without_tax: { amount: 100, currency: 'SAR' },
+          total_discount: { amount: 0, currency: 'SAR' },
+          tax: { percent: '15', amount: { amount: 15, currency: 'SAR' } },
+          total: { amount: 345, currency: 'SAR' },
+        },
+      },
+    ],
+  };
+
+  const invoice = buildInvoiceData(order, null);
+  assert.equal(invoice.subtotal, 300);
+  assert.equal(invoice.taxAmount, 45);
+  assert.equal(invoice.total, 345);
+});
+
+test('rendered invoice adds continuation pages for every product chunk', async () => {
+  const items = Array.from({ length: 16 }, (_, index) => ({
+    id: index + 1,
+    name: `منتج ${index + 1}`,
+    sku: `SKU-${index + 1}`,
+    quantity: 1,
+    currency: 'SAR',
+    amounts: {
+      price_without_tax: { amount: 10, currency: 'SAR' },
+      total_discount: { amount: 0, currency: 'SAR' },
+      tax: { percent: '15', amount: { amount: 1.5, currency: 'SAR' } },
+      total: { amount: 11.5, currency: 'SAR' },
+    },
+  }));
+  const order: any = {
+    id: 3,
+    reference_id: '1003',
+    status: { slug: 'under_review', name: 'تحت المراجعة' },
+    date: { created: '2026-08-09 10:00:00', updated: '2026-08-09 10:00:00' },
+    customer: { id: 3, first_name: 'ريم', last_name: '', mobile: '0500000002', email: '' },
+    amounts: {
+      sub_total: { amount: 160, currency: 'SAR' },
+      tax: { percent: 15, amount: { amount: 24, currency: 'SAR' } },
+      total: { amount: 184, currency: 'SAR' },
+    },
+    items,
+  };
+
+  const rendered = await generateSallaInvoicePdf(buildInvoiceData(order, null));
+  const pdf = await PDFDocument.load(rendered);
+
+  // Three item-table pages (5 + 10 + 1), followed by the declaration page.
+  assert.equal(pdf.getPageCount(), 4);
 });

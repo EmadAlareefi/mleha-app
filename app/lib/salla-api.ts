@@ -190,28 +190,81 @@ export async function getSallaOrderItems(
   orderId: string
 ): Promise<SallaOrderItem[] | null> {
   try {
-    const response = await sallaMakeRequest<{
-      status: number;
-      success: boolean;
-      data: SallaOrderItem[];
-    }>(
-      merchantId,
-      `/orders/items?order_id=${orderId}`
-    );
+    const allItems: SallaOrderItem[] = [];
+    const seenItemIds = new Set<string>();
+    const perPage = 60;
+    const maxPages = 100;
+    let page = 1;
+    let totalPages = 1;
 
-    if (!response || !response.success) {
-      log.error('Failed to fetch Salla order items', { merchantId, orderId, response });
+    do {
+      const response = await sallaMakeRequest<{
+        status: number;
+        success: boolean;
+        data: SallaOrderItem[];
+        pagination?: {
+          total?: number;
+          per_page?: number;
+          perPage?: number;
+          current_page?: number;
+          currentPage?: number;
+          total_pages?: number;
+          totalPages?: number;
+        };
+      }>(
+        merchantId,
+        `/orders/items?order_id=${encodeURIComponent(orderId)}&per_page=${perPage}&page=${page}`
+      );
+
+      if (!response || !response.success || !Array.isArray(response.data)) {
+        log.error('Failed to fetch Salla order items', { merchantId, orderId, page, response });
+        return null;
+      }
+
+      for (const item of response.data) {
+        const itemId = item?.id != null ? String(item.id) : '';
+        if (itemId && seenItemIds.has(itemId)) continue;
+        if (itemId) seenItemIds.add(itemId);
+        allItems.push(item);
+      }
+
+      const pagination = response.pagination;
+      const reportedTotalPages = pagination?.total_pages ?? pagination?.totalPages;
+      const reportedPerPage = pagination?.per_page ?? pagination?.perPage;
+      if (typeof reportedTotalPages === 'number') {
+        totalPages = Math.max(1, reportedTotalPages);
+      } else if (
+        typeof pagination?.total === 'number' &&
+        typeof reportedPerPage === 'number' &&
+        reportedPerPage > 0
+      ) {
+        totalPages = Math.max(1, Math.ceil(pagination.total / reportedPerPage));
+      } else {
+        totalPages = response.data.length >= perPage ? page + 1 : page;
+      }
+
+      page += 1;
+    } while (page <= totalPages && page <= maxPages);
+
+    if (totalPages > maxPages) {
+      log.error('Salla order items exceeded pagination safety limit', {
+        merchantId,
+        orderId,
+        totalPages,
+        maxPages,
+      });
       return null;
     }
 
     log.info('Fetched order items', {
       merchantId,
       orderId,
-      itemCount: response.data.length,
-      firstItemKeys: response.data[0] ? Object.keys(response.data[0]) : []
+      itemCount: allItems.length,
+      pagesFetched: totalPages,
+      firstItemKeys: allItems[0] ? Object.keys(allItems[0]) : []
     });
 
-    return response.data;
+    return allItems;
   } catch (error) {
     log.error('Error fetching Salla order items', { merchantId, orderId, error });
     return null;
