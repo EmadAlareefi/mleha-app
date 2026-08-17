@@ -35,10 +35,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'المبلغ المدخل غير صالح' }, { status: 400 });
     }
 
-    const affiliateExists = await prisma.orderUser.findFirst({
-      where: { id: affiliateId, affiliateName: { not: null } },
-      select: { id: true },
-    });
+    const [affiliateExists, recorder] = await Promise.all([
+      prisma.orderUser.findFirst({
+        where: { id: affiliateId, affiliateName: { not: null } },
+        select: { id: true },
+      }),
+      sessionUser?.id
+        ? prisma.orderUser.findUnique({
+            where: { id: sessionUser.id },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
     if (!affiliateExists) {
       return NextResponse.json({ error: 'لم يتم العثور على المسوق المحدد' }, { status: 404 });
     }
@@ -64,7 +72,10 @@ export async function POST(request: NextRequest) {
             : null,
         periodStart: periodStart ? new Date(periodStart) : null,
         periodEnd: periodEnd ? new Date(periodEnd) : null,
-        recordedById: sessionUser?.id ?? null,
+        // The environment admin uses a synthetic session ID ("admin-1") and
+        // has no OrderUser row, so only persist a recorder when the relation
+        // can be satisfied.
+        recordedById: recorder?.id ?? null,
       },
       include: {
         recordedBy: {
