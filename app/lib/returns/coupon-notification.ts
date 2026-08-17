@@ -69,6 +69,25 @@ const formatExpiry = (expiryDate?: Date) => {
   }
 };
 
+/**
+ * Positional variables for the approved exchange coupon template:
+ * customer name, order number, coupon code, value, and expiry date.
+ */
+export const buildExchangeCouponTemplateArgs = (
+  payload: CouponNotificationInput,
+): (string | number)[] => [
+  payload.customerName?.trim() || FALLBACK_CUSTOMER_NAME,
+  payload.orderNumber || '',
+  payload.couponCode,
+  formatCouponAmount(
+    payload.discountedAmount,
+    payload.fullAmount,
+    payload.currency,
+    payload.sarFullAmount,
+  ),
+  formatExpiry(payload.expiryDate),
+];
+
 export async function notifyExchangeCoupon(
   payload: CouponNotificationInput
 ): Promise<CouponNotificationResult> {
@@ -91,18 +110,7 @@ export async function notifyExchangeCoupon(
     return { status: 'skipped', reason: 'missing_phone' };
   }
 
-  const templateArgs: (string | number)[] = [
-    payload.customerName?.trim() || FALLBACK_CUSTOMER_NAME,
-    payload.couponCode,
-    formatCouponAmount(
-      payload.discountedAmount,
-      payload.fullAmount,
-      payload.currency,
-      payload.sarFullAmount,
-    ),
-    formatExpiry(payload.expiryDate),
-    payload.orderNumber || '',
-  ];
+  const templateArgs = buildExchangeCouponTemplateArgs(payload);
 
   try {
     const response = await sendWhatsAppTemplate({
