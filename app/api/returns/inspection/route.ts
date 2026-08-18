@@ -12,6 +12,10 @@ import {
 } from '@/app/lib/returns/inspection';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
 import { extractGeneratedReturnTrackingNumbers } from '@/app/lib/returns/salla-return-tracking';
+import {
+  extractSmsaReturnOrderReference,
+  hasSallaReturnShipmentMarker,
+} from '@/app/lib/returns/smsa-return-reference';
 
 export const runtime = 'nodejs';
 
@@ -109,7 +113,15 @@ const normalizeLookupValue = (value: string | null | undefined) => {
 const extractTrackingFromUrl = (value: string) => {
   try {
     const url = new URL(value);
-    for (const key of ['tracking_number', 'trackingNumber', 'tracking_no', 'awb_number', 'awb']) {
+    for (const key of [
+      'tracking_number',
+      'trackingNumber',
+      'tracking_no',
+      'awb_number',
+      'awb',
+      'track',
+      'tracknumbers[0]',
+    ]) {
       const candidate = normalizeLookupValue(url.searchParams.get(key));
       if (candidate) {
         return candidate;
@@ -154,6 +166,52 @@ const buildTrackingLookupValues = (...values: Array<string | null | undefined>) 
 
 const sameTrackingValue = (first: string, second: string) =>
   first.replace(/\s+/g, '').toLowerCase() === second.replace(/\s+/g, '').toLowerCase();
+
+const findReturnRequestFromSmsaWebhook = async (
+  trackingValues: string[]
+): Promise<{ returnRequest: ReturnRequestWithItems; trackingNumber: string } | null> => {
+  if (trackingValues.length === 0) {
+    return null;
+  }
+
+  const webhookShipments = await prisma.smsaWebhookShipment.findMany({
+    where: {
+      OR: trackingValues.map((value) => ({
+        awb: { equals: value, mode: 'insensitive' as const },
+      })),
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: 25,
+    select: { awb: true, reference: true },
+  });
+
+  for (const shipment of webhookShipments) {
+    // SMSA identifies reverse shipments with references such as R-277740122.
+    // Requiring that marker prevents an outbound AWB from opening a return request.
+    const orderReference = extractSmsaReturnOrderReference(shipment.reference);
+    if (!orderReference) {
+      continue;
+    }
+
+    const returnRequest = await prisma.returnRequest.findFirst({
+      where: {
+        status: { notIn: ['cancelled', 'rejected'] },
+        OR: [
+          { orderNumber: orderReference },
+          { orderId: orderReference },
+        ],
+      },
+      include: { items: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (returnRequest) {
+      return { returnRequest, trackingNumber: shipment.awb };
+    }
+  }
+
+  return null;
+};
 
 const findReturnRequestFromStoredPayload = async (
   trackingValues: string[]
@@ -217,10 +275,12 @@ const findSallaShipmentsByTracking = async (trackingValues: string[]) => {
   const matches: Array<{
     shipment: Prisma.SallaShipmentGetPayload<object>;
     matchedTrackingNumber: string | null;
-  }> = directShipments.map((shipment) => ({
-    shipment,
-    matchedTrackingNumber: shipment.trackingNumber || shipment.awbNumber || shipment.sawb || null,
-  }));
+  }> = directShipments
+    .filter((shipment) => hasSallaReturnShipmentMarker(shipment.shipmentData))
+    .map((shipment) => ({
+      shipment,
+      matchedTrackingNumber: shipment.trackingNumber || shipment.awbNumber || shipment.sawb || null,
+    }));
 
   for (const value of trackingValues.filter((candidate) => candidate.length >= 5)) {
     const rows = await prisma.$queryRaw<Array<{ id: string }>>(
@@ -242,7 +302,10 @@ const findSallaShipmentsByTracking = async (trackingValues: string[]) => {
         where: { id: row.id },
       });
 
-      if (jsonMatchedShipment) {
+      if (
+        jsonMatchedShipment &&
+        hasSallaReturnShipmentMarker(jsonMatchedShipment.shipmentData)
+      ) {
         matches.push({
           shipment: jsonMatchedShipment,
           matchedTrackingNumber: value,
@@ -296,16 +359,35 @@ const findReturnRequestFromSallaShipment = async (
 
 const backfillReturnTrackingNumber = async (
   returnRequest: ReturnRequestWithItems,
-  trackingNumber: string | null
+  trackingNumber: string | null,
+  replaceExisting = false
 ) => {
-  if (returnRequest.smsaTrackingNumber || !trackingNumber) {
+  if (!trackingNumber) {
+    return returnRequest;
+  }
+
+  const trackingMatches = returnRequest.smsaTrackingNumber
+    ? sameTrackingValue(returnRequest.smsaTrackingNumber, trackingNumber)
+    : false;
+  const awbMatches = returnRequest.smsaAwbNumber
+    ? sameTrackingValue(returnRequest.smsaAwbNumber, trackingNumber)
+    : false;
+
+  if (trackingMatches && awbMatches) {
+    return returnRequest;
+  }
+
+  if (returnRequest.smsaTrackingNumber && !replaceExisting) {
     return returnRequest;
   }
 
   try {
     return await prisma.returnRequest.update({
       where: { id: returnRequest.id },
-      data: { smsaTrackingNumber: trackingNumber },
+      data: {
+        smsaTrackingNumber: trackingNumber,
+        smsaAwbNumber: trackingNumber,
+      },
       include: { items: true },
     });
   } catch (error) {
@@ -365,15 +447,18 @@ export async function GET(request: NextRequest) {
       searchParams.get('trackingNumber')
     );
 
-    const storedPayloadMatch = await findReturnRequestFromStoredPayload(trackingLookupValues);
-    const sallaShipmentMatch = storedPayloadMatch ?? await findReturnRequestFromSallaShipment(
+    const authoritativeShipmentMatch =
+      await findReturnRequestFromSmsaWebhook(trackingLookupValues) ??
+      await findReturnRequestFromSallaShipment(trackingLookupValues);
+    const matchedReturn = authoritativeShipmentMatch ?? await findReturnRequestFromStoredPayload(
       trackingLookupValues
     );
 
-    if (sallaShipmentMatch) {
+    if (matchedReturn) {
       returnRequest = await backfillReturnTrackingNumber(
-        sallaShipmentMatch.returnRequest,
-        sallaShipmentMatch.trackingNumber
+        matchedReturn.returnRequest,
+        matchedReturn.trackingNumber,
+        Boolean(authoritativeShipmentMatch)
       );
     } else {
       return NextResponse.json(
