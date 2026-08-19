@@ -7,6 +7,7 @@ import {
   extractJourneyRatingLink,
   extractJourneyShipment,
   isDeliveredJourneyStatus,
+  normalizeJourneyTrackingLink,
   stepForJourneyEvent,
 } from '../customer-journey-notifications';
 import {
@@ -59,6 +60,28 @@ test('extracts outbound shipment fields from current nested Salla payloads', () 
       labelUrl: 'https://labels.example/ABC123.pdf',
     }
   );
+});
+
+test('rejects Salla placeholder tracking links used before a label is ready', () => {
+  const placeholders = [
+    '0',
+    'https://www.smsaexpress.com/en/gb/track-shipment?track=0',
+    'https://mydhl.express.dhl/sa/en/tracking.html#/results?id=0',
+  ];
+
+  for (const placeholder of placeholders) {
+    assert.equal(normalizeJourneyTrackingLink(placeholder), '');
+  }
+});
+
+test('uses a later valid carrier link instead of an earlier Salla placeholder', () => {
+  const trackingLink = 'https://aj-ex.com/tracking?tracking_number=AJA100017301176';
+  const result = extractJourneyShipment(
+    { shipping: { shipment: { tracking_link: '0' } } },
+    { shipping: { shipment: { tracking_link: trackingLink } } }
+  );
+
+  assert.equal(result.trackingLink, trackingLink);
 });
 
 test('ignores return candidates when an outbound shipment is available', () => {

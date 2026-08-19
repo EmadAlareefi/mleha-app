@@ -64,6 +64,37 @@ function text(value: unknown): string {
   return '';
 }
 
+export function normalizeJourneyTrackingLink(value: unknown): string {
+  const link = text(value);
+  if (!link || link === '0') return '';
+
+  try {
+    const url = new URL(link);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+
+    const parameters = `${url.search}${url.hash}`;
+    if (
+      /(?:^|[?&#])(?:awb|id|shipmentnumber|track|tracking(?:_?(?:no|number))?)=0(?:$|[&#])/i.test(
+        parameters
+      )
+    ) {
+      return '';
+    }
+
+    return link;
+  } catch {
+    return '';
+  }
+}
+
+function firstUsableTrackingLink(...values: unknown[]): string {
+  for (const value of values) {
+    const link = normalizeJourneyTrackingLink(value);
+    if (link) return link;
+  }
+  return '';
+}
+
 function statusValue(value: unknown): string {
   if (value && typeof value === 'object') {
     return text((value as AnyRecord).slug ?? (value as AnyRecord).code ?? (value as AnyRecord).name)
@@ -118,12 +149,13 @@ export function extractJourneyShipment(order: AnyRecord, data: AnyRecord = {}) {
   const outbound =
     candidates.find((item) => !/return|reverse|مرتجع|استرجاع/i.test(text(item?.type))) || {};
   const shipping = order.shipping ?? data.shipping ?? {};
-  const trackingLink = text(
-    outbound.tracking_link ??
-      outbound.trackingLink ??
-      outbound.tracking_url ??
-      shipping.tracking_link ??
-      order.tracking_link
+  const trackingLink = firstUsableTrackingLink(
+    ...candidates.flatMap((item) => [item?.tracking_link, item?.trackingLink, item?.tracking_url]),
+    order.shipping?.tracking_link,
+    data.shipping?.tracking_link,
+    shipping.tracking_link,
+    order.tracking_link,
+    data.tracking_link
   );
   const trackingNumber = text(
     outbound.tracking_number ??
@@ -372,6 +404,9 @@ async function enrichNotification(row: {
     select: { courierName: true, trackingNumber: true, shipmentData: true },
   });
   const shipmentData = (shipment?.shipmentData || {}) as AnyRecord;
+  const shipmentPayload = (shipmentData.raw_payload || {}) as AnyRecord;
+  const storedShipmentDetails = extractJourneyShipment(shipmentData, shipmentPayload);
+  const storedOrderShipment = extractJourneyShipment(rawOrder);
   let ratingLink = current.ratingLink || extractJourneyRatingLink(rawOrder);
   let customerOrderLink = current.customerOrderLink || text(rawOrder.urls?.customer);
 
@@ -392,8 +427,14 @@ async function enrichNotification(row: {
     trackingNumber:
       current.trackingNumber || shipment?.trackingNumber || stored?.trackingNumber || undefined,
     trackingLink:
-      current.trackingLink ||
-      text(shipmentData.tracking_link ?? shipmentData.raw_payload?.tracking_link) ||
+      firstUsableTrackingLink(
+        current.trackingLink,
+        shipmentData.tracking_link,
+        shipmentData.trackingLink,
+        shipmentData.tracking_url,
+        storedShipmentDetails.trackingLink,
+        storedOrderShipment.trackingLink
+      ) ||
       undefined,
     ratingLink: ratingLink || undefined,
     customerOrderLink: customerOrderLink || undefined,
