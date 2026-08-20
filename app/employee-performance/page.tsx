@@ -138,12 +138,12 @@ function updateLatest(metric: EmployeeMetric, value: Date | null | undefined) {
 }
 
 function formatNumber(value: number) {
-  return value.toLocaleString('ar-SA');
+  return value.toLocaleString('en-US');
 }
 
 function formatDateTime(value: Date | null) {
   if (!value) return 'لا يوجد نشاط';
-  return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+  return new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', {
     timeZone: 'Asia/Riyadh',
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -151,7 +151,7 @@ function formatDateTime(value: Date | null) {
 }
 
 function formatDateRange(from: string, to: string) {
-  const formatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+  const formatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', {
     timeZone: 'Asia/Riyadh',
     dateStyle: 'medium',
   });
