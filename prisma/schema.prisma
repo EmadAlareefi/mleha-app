@@ -677,6 +677,41 @@ model SallaProductLocation {
   @@index([updatedAt])
 }
 
+/// Immutable history of physical warehouse counts submitted from the stock
+/// update screen. One operation can contain multiple variant rows, grouped by
+/// operationId.
+model WarehouseStockCountLog {
+  id                String   @id @default(cuid())
+  operationId       String
+  merchantId        String
+  mode              String
+  productId         String
+  productName       String
+  productSku        String?
+  productImageUrl   String?
+  variantId         String
+  variantName       String
+  variantSku        String?
+  barcode           String?
+  countedQuantity   Int
+  pendingQuantity   Int      @default(0)
+  previousQuantity  Int
+  resultingQuantity Int
+  delta             Int
+  location          String?
+  createdById       String?
+  createdByName     String?
+  createdByUsername String?
+  createdAt         DateTime @default(now())
+
+  @@index([operationId])
+  @@index([productId, createdAt])
+  @@index([productSku])
+  @@index([variantSku])
+  @@index([createdById, createdAt])
+  @@index([createdAt])
+}
+
 model Supplier {
   id            String   @id @default(cuid())
   name          String   @unique

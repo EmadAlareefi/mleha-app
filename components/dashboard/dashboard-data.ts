@@ -150,6 +150,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   'my-deliveries': 'agents',
   'agents-live-monitor': 'agents',
   'agents-performance-reports': 'agents',
+  'employee-performance': 'agents',
   'user-recognition': 'agents',
   'my-recognition': 'agents',
   settings: 'admin',
@@ -183,6 +184,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'returns-analytics': LineChart,
   'agents-live-monitor': MessageCircle,
   'agents-performance-reports': ChartNoAxesCombined,
+  'employee-performance': ChartNoAxesCombined,
   'returns-priority': Zap,
   'returns-gifts': Gift,
   settings: Settings,
@@ -222,6 +224,7 @@ const categoryAccentMap: Record<DashboardCategoryId, string> = {
 };
 
 const priorityMap: Partial<Record<ServiceKey, number>> = {
+  'employee-performance': 98,
   'order-prep': 100,
   'order-shipping': 96,
   warehouse: 92,

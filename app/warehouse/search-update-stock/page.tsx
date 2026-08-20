@@ -8,6 +8,7 @@ import {
   Barcode,
   CheckCircle2,
   ClipboardList,
+  History,
   Info,
   Loader2,
   MapPin,
@@ -30,6 +31,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 
 type StockSearchResult = {
@@ -57,7 +66,28 @@ type StockSearchResult = {
   }>;
 };
 
-type UpdateFeedback = { type: 'success' | 'error'; message: string };
+type UpdateFeedback = { type: 'success' | 'warning' | 'error'; message: string };
+
+type StockCountLog = {
+  id: string;
+  operationId: string;
+  mode: StockUpdateMode;
+  productId: string;
+  productName: string;
+  productSku?: string | null;
+  variantId: string;
+  variantName: string;
+  variantSku?: string | null;
+  countedQuantity: number;
+  pendingQuantity: number;
+  previousQuantity: number;
+  resultingQuantity: number;
+  delta: number;
+  location?: string | null;
+  createdByName?: string | null;
+  createdByUsername?: string | null;
+  createdAt: string;
+};
 
 type StockUpdateMode = 'override' | 'increment';
 
@@ -106,6 +136,15 @@ function formatDateLabel(value?: string | null) {
   }).format(date);
 }
 
+function formatLogDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('ar-SA', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 export default function SearchAndUpdateStockPage() {
   const [searchInput, setSearchInput] = useState('');
   const [searching, setSearching] = useState(false);
@@ -120,9 +159,38 @@ export default function SearchAndUpdateStockPage() {
   const [lastQuery, setLastQuery] = useState<string | null>(null);
   const [confirmingUpdate, setConfirmingUpdate] = useState(false);
   const [stockMode, setStockMode] = useState<StockUpdateMode>('override');
+  const [stockLogs, setStockLogs] = useState<StockCountLog[]>([]);
+  const [stockLogsLoading, setStockLogsLoading] = useState(true);
+  const [stockLogsError, setStockLogsError] = useState<string | null>(null);
+  const [logSearchInput, setLogSearchInput] = useState('');
 
   const activeResult = results[selectedIndex] ?? null;
   const isIncrementMode = stockMode === 'increment';
+
+  const loadStockCountLogs = useCallback(async (query = '') => {
+    setStockLogsLoading(true);
+    setStockLogsError(null);
+    try {
+      const params = new URLSearchParams({ limit: '50' });
+      if (query.trim()) params.set('q', query.trim());
+      const response = await fetch(`/api/warehouse/stock-count-logs?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const data = await parseJsonResponse(response, 'تعذر تحميل سجل الجرد');
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || 'تعذر تحميل سجل الجرد');
+      }
+      setStockLogs(Array.isArray(data?.logs) ? data.logs : []);
+    } catch (error) {
+      setStockLogsError(error instanceof Error ? error.message : 'تعذر تحميل سجل الجرد');
+    } finally {
+      setStockLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStockCountLogs();
+  }, [loadStockCountLogs]);
 
   useEffect(() => {
     if (activeResult?.product.location) {
@@ -264,13 +332,21 @@ export default function SearchAndUpdateStockPage() {
     }, 0);
   }, [activeResult, derivedEntries]);
 
+  const countedVariants = useMemo(() => {
+    if (!activeResult) return 0;
+    return activeResult.variations.reduce((total, variant) => {
+      const entry = derivedEntries[variant.id];
+      return entry && entry.derived !== null ? total + 1 : total;
+    }, 0);
+  }, [activeResult, derivedEntries]);
+
   const locationChanged = useMemo(() => {
     if (!activeResult) return false;
     const currentLocation = activeResult.product.location?.location || '';
     return currentLocation.trim() !== locationInput.trim() && Boolean(locationInput.trim());
   }, [activeResult, locationInput]);
 
-  const hasUpdateableData = variantsNeedingUpdate > 0 || locationChanged;
+  const hasUpdateableData = countedVariants > 0 || locationChanged;
 
   const refreshActiveProduct = useCallback(async () => {
     if (!lastQuery) {
@@ -320,24 +396,80 @@ export default function SearchAndUpdateStockPage() {
       });
     });
 
-    if (adjustments.length === 0 && !locationChanged) {
+    const auditEntries = activeResult.variations.flatMap((variant) => {
+      const entry = derivedEntries[variant.id];
+      if (!entry || entry.derived === null || entry.counted === null) return [];
+      return [{
+        variantId: variant.id,
+        variantName: variant.name,
+        variantSku: variant.sku || null,
+        barcode: variant.barcode || null,
+        countedQuantity: entry.counted,
+        pendingQuantity: entry.pending,
+        previousQuantity: variant.sallaStock,
+      }];
+    });
+
+    if (auditEntries.length === 0 && !locationChanged) {
       setUpdateFeedback({
         type: 'error',
-        message: 'لا توجد تغييرات على الكميات أو موقع التخزين ليتم حفظها.',
+        message: 'لا توجد بيانات جرد أو تغييرات على موقع التخزين ليتم حفظها.',
       });
       return;
     }
 
     setUpdateLoading(true);
-    setOverlayMessage(isIncrementMode ? 'جاري زيادة المخزون...' : 'جاري تحديث المخزون...');
+    setOverlayMessage(
+      auditEntries.length > 0
+        ? isIncrementMode ? 'جاري زيادة المخزون وحفظ السجل...' : 'جاري تحديث المخزون وحفظ السجل...'
+        : 'جاري حفظ موقع التخزين...'
+    );
     setUpdateFeedback(null);
 
     try {
-      if (adjustments.length > 0) {
+      let auditLogWarning = false;
+      // Save the idempotent location change first. This prevents a failed
+      // location request from tempting the user to repeat a successful stock delta.
+      if (locationChanged) {
+        const parentSku = activeResult.product.sku?.trim();
+        if (!parentSku) {
+          throw new Error('لا يمكن حفظ موقع التخزين لأن المنتج لا يحتوي على SKU رئيسي.');
+        }
+        const response = await fetch('/api/product-locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sku: parentSku,
+            location: locationInput.trim(),
+            productName: activeResult.product.name,
+            productId: activeResult.product.id.toString(),
+          }),
+        });
+        const data = await parseJsonResponse(
+          response,
+          'تعذر حفظ موقع التخزين، حاول مرة أخرى.'
+        );
+        if (!response.ok || data?.error) {
+          throw new Error(data?.error || 'لم يتم حفظ موقع التخزين.');
+        }
+      }
+
+      if (auditEntries.length > 0) {
         const response = await fetch('/api/salla/products/quantities/bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ products: adjustments }),
+          body: JSON.stringify({
+            products: adjustments,
+            audit: {
+              mode: stockMode,
+              productId: activeResult.product.id.toString(),
+              productName: activeResult.product.name,
+              productSku: activeResult.product.sku || null,
+              productImageUrl: activeResult.product.imageUrl || null,
+              location: locationInput.trim() || null,
+              entries: auditEntries,
+            },
+          }),
         });
         const data = await parseJsonResponse(
           response,
@@ -346,38 +478,32 @@ export default function SearchAndUpdateStockPage() {
         if (!response.ok || data?.error || data?.success === false) {
           throw new Error(data?.error || 'فشل تحديث كميات سلة.');
         }
+        auditLogWarning = data?.auditSaved === false;
       }
 
-      if (locationChanged) {
-        const parentSku = activeResult.product.sku?.trim();
-        if (parentSku) {
-          const response = await fetch('/api/product-locations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sku: parentSku,
-              location: locationInput.trim(),
-              productName: activeResult.product.name,
-              productId: activeResult.product.id.toString(),
-            }),
-          });
-          const data = await parseJsonResponse(
-            response,
-            'تعذر حفظ موقع التخزين، حاول مرة أخرى.'
-          );
-          if (!response.ok || data?.error) {
-            throw new Error(data?.error || 'لم يتم حفظ موقع التخزين.');
+      const stockMessage = auditEntries.length === 0
+        ? ''
+        : adjustments.length === 0
+          ? 'تم حفظ الجرد دون وجود فرق.'
+          : isIncrementMode
+            ? 'تمت زيادة المخزون بنجاح.'
+            : 'تم تحديث الكميات بنجاح.';
+      const savedMessage = [stockMessage, locationChanged ? 'تم حفظ موقع التخزين.' : '']
+        .filter(Boolean)
+        .join(' ');
+      setUpdateFeedback(auditLogWarning
+        ? {
+            type: 'warning',
+            message: `${savedMessage} لكن تعذر حفظ سجل الجرد؛ تواصل مع مسؤول النظام.`,
           }
-        }
-      }
-
-      const successMessage = isIncrementMode ? 'تمت زيادة المخزون بنجاح.' : 'تم تحديث الكميات بنجاح.';
-      setUpdateFeedback({
-        type: 'success',
-        message: locationChanged ? `${successMessage} وتم حفظ موقع التخزين.` : successMessage,
-      });
+        : {
+            type: 'success',
+            message: auditEntries.length > 0
+              ? `${savedMessage} وتم حفظ سجل الجرد.`
+              : savedMessage,
+          });
       setCountInputs({});
-      await refreshActiveProduct();
+      await Promise.all([refreshActiveProduct(), loadStockCountLogs(logSearchInput)]);
     } catch (error) {
       setUpdateFeedback({
         type: 'error',
@@ -387,7 +513,17 @@ export default function SearchAndUpdateStockPage() {
       setOverlayMessage(null);
       setUpdateLoading(false);
     }
-  }, [activeResult, derivedEntries, locationChanged, locationInput, refreshActiveProduct, isIncrementMode]);
+  }, [
+    activeResult,
+    derivedEntries,
+    locationChanged,
+    locationInput,
+    refreshActiveProduct,
+    isIncrementMode,
+    stockMode,
+    loadStockCountLogs,
+    logSearchInput,
+  ]);
 
   const handleUpdateRequest = useCallback(() => {
     if (!hasUpdateableData || updateLoading) {
@@ -407,8 +543,8 @@ export default function SearchAndUpdateStockPage() {
 
   return (
     <AppPageShell
-      title="تحديث المخزون"
-      subtitle="بحث SKU وتعديل الكميات"
+      title="جرد وتحديث المخزون"
+      subtitle="بحث SKU وتسجيل الجرد وتعديل الكميات"
       contentClassName="flex flex-1 flex-col gap-6 p-4 pb-40 md:p-6"
     >
       <div className="mx-auto w-full max-w-6xl">
@@ -612,7 +748,12 @@ export default function SearchAndUpdateStockPage() {
                   {updateFeedback.type === 'success' ? (
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                   ) : (
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <AlertTriangle
+                      className={cn(
+                        'mt-0.5 h-4 w-4 shrink-0',
+                        updateFeedback.type === 'warning' && 'text-amber-600'
+                      )}
+                    />
                   )}
                   <AlertDescription>{updateFeedback.message}</AlertDescription>
                 </Alert>
@@ -735,6 +876,122 @@ export default function SearchAndUpdateStockPage() {
             </div>
           </section>
         )}
+
+        <Card className="mt-8">
+          <div className="space-y-5 p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <History className="h-5 w-5 text-primary" />
+                  <h2 className="text-lg font-semibold">سجل الجرد</h2>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  آخر 50 عملية عد محفوظة، بما فيها عمليات الجرد التي لم ينتج عنها فرق.
+                </p>
+              </div>
+              <form
+                className="flex w-full gap-2 lg:max-w-md"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void loadStockCountLogs(logSearchInput);
+                }}
+              >
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={logSearchInput}
+                    onChange={(event) => setLogSearchInput(event.target.value)}
+                    placeholder="بحث بالمنتج أو SKU أو الموظف"
+                    className="pe-9"
+                  />
+                </div>
+                <Button type="submit" variant="outline" disabled={stockLogsLoading}>
+                  {stockLogsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'بحث'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="تحديث سجل الجرد"
+                  disabled={stockLogsLoading}
+                  onClick={() => void loadStockCountLogs(logSearchInput)}
+                >
+                  <RefreshCcw className={cn('h-4 w-4', stockLogsLoading && 'animate-spin')} />
+                </Button>
+              </form>
+            </div>
+
+            {stockLogsError && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{stockLogsError}</AlertDescription>
+              </Alert>
+            )}
+
+            {stockLogsLoading && stockLogs.length === 0 ? (
+              <div className="flex min-h-32 items-center justify-center text-sm text-muted-foreground">
+                <Loader2 className="ms-2 h-4 w-4 animate-spin" />
+                جاري تحميل سجل الجرد...
+              </div>
+            ) : stockLogs.length === 0 && !stockLogsError ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                لا توجد عمليات جرد محفوظة حتى الآن.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="whitespace-nowrap">التاريخ والموظف</TableHead>
+                    <TableHead>المنتج والمتغير</TableHead>
+                    <TableHead className="whitespace-nowrap">النمط</TableHead>
+                    <TableHead className="whitespace-nowrap">العد الفعلي</TableHead>
+                    <TableHead className="whitespace-nowrap">طلبات جارية</TableHead>
+                    <TableHead className="whitespace-nowrap">قبل ← بعد</TableHead>
+                    <TableHead className="whitespace-nowrap">الفرق</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stockLogs.map((stockLog) => (
+                    <TableRow key={stockLog.id}>
+                      <TableCell className="min-w-44">
+                        <p className="text-xs font-medium">{formatLogDate(stockLog.createdAt)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {stockLog.createdByName || stockLog.createdByUsername || 'مسؤول النظام'}
+                        </p>
+                      </TableCell>
+                      <TableCell className="min-w-56">
+                        <p className="font-medium">{stockLog.productName}</p>
+                        <p className="text-xs text-muted-foreground">{stockLog.variantName}</p>
+                        {(stockLog.variantSku || stockLog.productSku) && (
+                          <p className="text-[11px] text-muted-foreground">
+                            SKU: {stockLog.variantSku || stockLog.productSku}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {stockLog.mode === 'increment' ? 'زيادة' : 'جرد كلي'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-semibold">{stockLog.countedQuantity}</TableCell>
+                      <TableCell>{stockLog.pendingQuantity}</TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {stockLog.previousQuantity} ← {stockLog.resultingQuantity}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={stockLog.delta < 0 ? 'destructive' : stockLog.delta > 0 ? 'default' : 'secondary'}
+                        >
+                          {stockLog.delta > 0 ? '+' : ''}{stockLog.delta}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </Card>
       </div>
 
       {activeResult && (
@@ -743,11 +1000,11 @@ export default function SearchAndUpdateStockPage() {
             <div className="flex items-center gap-3 text-sm text-muted-foreground">
               <Target className="h-5 w-5 text-primary" />
               <div>
-                {variantsNeedingUpdate > 0 ? (
+                {countedVariants > 0 ? (
                   <p>
-                    سيتم تعديل{' '}
-                    <span className="font-semibold text-primary">{variantsNeedingUpdate}</span>{' '}
-                    متغير/ات بناءً على الإدخالات الأخيرة.
+                    سيتم حفظ جرد{' '}
+                    <span className="font-semibold text-primary">{countedVariants}</span>{' '}
+                    متغير/ات، وتحديث {variantsNeedingUpdate} منها في سلة.
                   </p>
                 ) : (
                   <p>أدخل الكميات الفعلية أو حدّث موقع التخزين قبل الإرسال.</p>
@@ -777,7 +1034,7 @@ export default function SearchAndUpdateStockPage() {
               ) : (
                 <>
                   <RefreshCcw className="ms-2 h-4 w-4" />
-                  تحديث المخزون
+                  حفظ الجرد وتحديث المخزون
                 </>
               )}
             </Button>
@@ -802,6 +1059,15 @@ export default function SearchAndUpdateStockPage() {
                     تعديل{' '}
                     <span className="font-semibold text-primary">{variantsNeedingUpdate}</span>{' '}
                     متغير/متغيرات حسب العد الفعلي.
+                  </p>
+                )}
+                {countedVariants > variantsNeedingUpdate && (
+                  <p>
+                    حفظ{' '}
+                    <span className="font-semibold text-primary">
+                      {countedVariants - variantsNeedingUpdate}
+                    </span>{' '}
+                    متغير/متغيرات مؤكدة بلا فرق في سجل الجرد.
                   </p>
                 )}
                 {locationChanged && (

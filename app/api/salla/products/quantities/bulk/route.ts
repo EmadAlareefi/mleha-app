@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { randomUUID } from 'node:crypto';
 import { authOptions } from '@/app/lib/auth';
+import { getAuditUser } from '@/app/lib/audit';
 import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import {
+  buildWarehouseStockCountLogRows,
+  stockAdjustmentsMatchAudit,
+  type StockCountAuditInput,
+} from '@/app/lib/warehouse-stock-count-log';
+import { prisma } from '@/lib/prisma';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 
 export const runtime = 'nodejs';
@@ -88,39 +96,97 @@ export async function POST(request: NextRequest) {
       })
       .filter((item): item is Record<string, string | number> => item !== null);
 
-    if (sanitizedProducts.length === 0) {
+    const auditInput =
+      (body as any).audit && typeof (body as any).audit === 'object'
+        ? ((body as any).audit as StockCountAuditInput)
+        : null;
+    const operationId = auditInput ? randomUUID() : null;
+    const auditRows = auditInput && operationId
+      ? buildWarehouseStockCountLogRows({
+          audit: auditInput,
+          operationId,
+          merchantId: resolved.merchantId,
+          actor: getAuditUser(session.user),
+        })
+      : [];
+
+    if (auditInput && auditRows.length === 0) {
+      return NextResponse.json(
+        { error: 'بيانات سجل الجرد غير مكتملة أو غير صالحة.' },
+        { status: 400 }
+      );
+    }
+
+    if (
+      auditInput &&
+      !stockAdjustmentsMatchAudit(
+        sanitizedProducts.map((product) => ({
+          identifer: product.identifer,
+          quantity: product.quantity,
+          mode: String(product.mode),
+        })),
+        auditRows
+      )
+    ) {
+      return NextResponse.json(
+        { error: 'كميات التحديث لا تطابق بيانات الجرد المحسوبة.' },
+        { status: 400 }
+      );
+    }
+
+    if (sanitizedProducts.length === 0 && auditRows.length === 0) {
       return NextResponse.json(
         { error: 'يجب تحديد متغيرات صالحة مع كميات أكبر من صفر.' },
         { status: 400 }
       );
     }
 
-    const response = await sallaMakeRequest<{
-      status: number;
-      success: boolean;
-      message?: string;
-      data?: unknown;
-    }>(resolved.merchantId, '/products/quantities/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ products: sanitizedProducts }),
-    });
+    let responseData: unknown = null;
+    if (sanitizedProducts.length > 0) {
+      const response = await sallaMakeRequest<{
+        status: number;
+        success: boolean;
+        message?: string;
+        data?: unknown;
+      }>(resolved.merchantId, '/products/quantities/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ products: sanitizedProducts }),
+      });
 
-    if (!response) {
-      throw new Error('تعذر التواصل مع واجهة سلة لتحديث الكميات');
+      if (!response) {
+        throw new Error('تعذر التواصل مع واجهة سلة لتحديث الكميات');
+      }
+
+      if (!response.success) {
+        const message =
+          typeof response.message === 'string' && response.message.trim().length > 0
+            ? response.message
+            : 'تعذر تحديث كميات المنتجات';
+        throw new Error(message);
+      }
+      responseData = response.data ?? null;
     }
 
-    if (!response.success) {
-      const message =
-        typeof response.message === 'string' && response.message.trim().length > 0
-          ? response.message
-          : 'تعذر تحديث كميات المنتجات';
-      throw new Error(message);
+    let auditSaved = auditRows.length === 0 ? null : true;
+    if (auditRows.length > 0) {
+      try {
+        await prisma.warehouseStockCountLog.createMany({ data: auditRows });
+      } catch (auditError) {
+        if (sanitizedProducts.length === 0) throw auditError;
+        auditSaved = false;
+        log.error('Salla stock updated but warehouse count log could not be saved', {
+          error: auditError,
+          operationId,
+        });
+      }
     }
 
     return NextResponse.json({
       success: true,
-      data: response.data ?? null,
+      data: responseData,
       merchantId: resolved.merchantId,
+      auditSaved,
+      operationId,
     });
   } catch (error) {
     log.error('Failed to update Salla product quantities', { error });

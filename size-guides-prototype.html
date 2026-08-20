@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>أدلة المقاسات — جدول المنتجات | متجر مليحة</title>
+<style>
+  :root{
+    --bg:#FAF7F1; --surface:#FFFFFF; --sidebar:#F4EDE1;
+    --border:#EADFCB; --border-soft:#F0E8D8;
+    --text:#2E2A22; --muted:#8C8474;
+    --accent:#7A6A4C; --accent-hover:#63563C; --accent-soft:#EFE7D7;
+    --green:#2F9E6B; --green-bg:#E4F3EA;
+    --red:#D14B4B;   --red-bg:#FBE7E7;
+    --amber:#A9812F; --amber-bg:#F6ECD6;
+    --blue:#3E6DB0;  --blue-bg:#E7EFFA;
+    --shadow:0 1px 2px rgba(46,42,34,.06), 0 6px 20px rgba(46,42,34,.05);
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:"Segoe UI","Tajawal",Tahoma,"Noto Sans Arabic",sans-serif; background:var(--bg); color:var(--text); font-size:14px; line-height:1.6}
+  .wrap{max-width:1240px; margin:0 auto; padding:22px 24px 60px}
+
+  .page-head{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px}
+  .page-head .title{font-size:26px; font-weight:800; margin:0}
+  .page-head .sub{color:var(--muted); margin:4px 0 0}
+  .brand{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px}
+  .brand .logo{width:38px;height:38px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:800}
+
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px}
+  .stat{text-align:start; font:inherit; cursor:pointer; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow); transition:transform .15s, box-shadow .15s, border-color .15s}
+  .stat:hover{transform:translateY(-2px); box-shadow:0 6px 18px rgba(46,42,34,.12)}
+  .stat.active{border-width:2px}
+  .stat[data-filter="all"].active{border-color:var(--accent)}
+  .stat[data-filter="published"].active{border-color:var(--green)}
+  .stat[data-filter="draft"].active{border-color:var(--amber)}
+  .stat[data-filter="review"].active{border-color:var(--red)}
+  .stat-top{display:flex; align-items:center; gap:12px}
+  .stat-ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:800;flex:none}
+  .stat-ic.all{background:var(--accent-soft); color:var(--accent-hover)}
+  .stat-ic.pub{background:var(--green-bg); color:var(--green)}
+  .stat-ic.draft{background:var(--amber-bg); color:var(--amber)}
+  .stat-ic.review{background:var(--red-bg); color:var(--red)}
+  .stat .k{color:var(--muted); font-size:13px}
+  .stat .v{font-size:26px; font-weight:800; line-height:1.15}
+  .stat .v.green{color:var(--green)} .stat .v.amber{color:var(--amber)} .stat .v.red{color:var(--red)}
+  .stat-foot{margin-top:13px; font-size:11.5px; color:var(--muted); display:flex; align-items:center; gap:9px; min-height:16px}
+  .bar{flex:1; height:6px; border-radius:999px; background:#ece4d3; overflow:hidden}
+  .bar>span{display:block; height:100%; width:0; border-radius:999px; transition:width .45s ease}
+  .bar>span.green{background:var(--green)} .bar>span.amber{background:var(--amber)} .bar>span.red{background:var(--red)}
+
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:18px}
+  .card-b{padding:16px 18px}
+  .card h3{margin:0 0 4px; font-size:16px}
+  .hint{color:var(--muted); font-size:13px; margin:0}
+
+  .btn{border:1px solid var(--border); background:var(--surface); color:var(--text); padding:9px 16px; border-radius:10px; cursor:pointer; font:inherit; font-weight:600; display:inline-flex; align-items:center; gap:7px; transition:.15s}
+  .btn:hover{background:#faf6ee}
+  .btn.primary{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .btn.primary:hover{background:var(--accent-hover)}
+  .btn.ghost{background:transparent}
+  .btn.sm{padding:6px 11px; font-size:13px; border-radius:8px}
+  .btn.danger{color:var(--red); border-color:#eecccc}
+  .btn.danger:hover{background:var(--red-bg)}
+  .btn.ok{color:var(--green); border-color:#c7e6d3}
+  .btn.ok:hover{background:var(--green-bg)}
+
+  .toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:14px 18px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:16px}
+  .search{position:relative; flex:1; min-width:220px}
+  .search input{width:100%; padding:9px 36px 9px 12px; border:1px solid var(--border); border-radius:10px; font:inherit; background:#fdfbf7}
+  .search .ic{position:absolute; inset-inline-start:12px; top:50%; transform:translateY(-50%); color:var(--muted)}
+  select{padding:9px 12px; border:1px solid var(--border); border-radius:10px; font:inherit; background:#fdfbf7; color:var(--text)}
+  .spacer{flex:1}
+  .dirty{color:var(--amber); font-size:13px; font-weight:600; display:none}
+  .dirty.show{display:inline}
+
+  /* Main table */
+  .tbl-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden}
+  .tbl-head{display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid var(--border-soft)}
+  .tbl-head .count{color:var(--muted); font-size:13px}
+  .t-scroll{overflow-x:auto}
+  table.list{width:100%; border-collapse:collapse; min-width:760px}
+  table.list th, table.list td{padding:13px 16px; border-bottom:1px solid var(--border-soft); text-align:start}
+  table.list thead th{background:#fcfaf5; color:var(--muted); font-size:12.5px; font-weight:700}
+  table.list tbody tr:hover{background:#fdfbf6}
+  table.list td.center, table.list th.center{text-align:center}
+  .sku-main{font-weight:800; font-size:15px}
+  .sku-sub{color:var(--muted); font-size:12.5px}
+  .count-pill{display:inline-block; min-width:34px; text-align:center; background:var(--accent-soft); color:var(--accent-hover); font-weight:800; padding:3px 10px; border-radius:999px}
+  .count-pill.zero{background:var(--red-bg); color:var(--red)}
+
+  .badge{padding:3px 11px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap}
+  .badge.published{background:var(--green-bg); color:var(--green)}
+  .badge.draft{background:var(--amber-bg); color:var(--amber)}
+  .badge.review{background:var(--red-bg); color:var(--red)}
+  .link-pill{background:var(--blue-bg); color:var(--blue); padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700; margin-inline-start:6px}
+  .link-pill.off{background:#f0eee9; color:var(--muted)}
+  .warn{color:var(--red); font-size:11.5px; font-weight:700; margin-inline-start:6px}
+  .row-actions{display:flex; gap:7px; justify-content:flex-end; flex-wrap:wrap}
+  .empty{padding:44px; text-align:center; color:var(--muted)}
+
+  /* Modal */
+  .modal-bg{position:fixed; inset:0; background:rgba(46,42,34,.45); display:none; align-items:flex-start; justify-content:center; padding:48px 16px; z-index:50; overflow:auto}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--surface); border-radius:var(--radius); width:100%; box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .modal.sm{max-width:520px}
+  .modal.lg{max-width:1040px}
+  .m-h{display:flex; justify-content:space-between; align-items:center; padding:16px 18px; border-bottom:1px solid var(--border-soft)}
+  .m-h h3{margin:0}
+  .m-b{padding:18px}
+  .m-f{padding:14px 18px; border-top:1px solid var(--border-soft); display:flex; justify-content:flex-start; gap:10px; flex-wrap:wrap}
+  .close-x{border:none;background:none;font-size:20px;cursor:pointer;color:var(--muted)}
+  .form-row{display:flex; flex-direction:column; gap:5px; margin-bottom:14px}
+  .form-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px}
+  .form-row label{font-size:13px; font-weight:600}
+  .form-row input{padding:9px 11px; border:1px solid var(--border); border-radius:9px; font:inherit; background:#fdfbf7}
+  .sizes-pick{display:flex; gap:8px; flex-wrap:wrap}
+  .sizes-pick label{display:inline-flex; align-items:center; gap:5px; background:#fbf7ef; border:1px solid var(--border); padding:5px 10px; border-radius:8px; font-size:13px; cursor:pointer}
+
+  /* measurement matrix inside the drawer — fits without horizontal scroll */
+  table.m{width:100%; border-collapse:collapse; table-layout:fixed}
+  table.m th, table.m td{padding:5px 2px; text-align:center; border-bottom:1px solid var(--border-soft)}
+  table.m thead th{background:#fcfaf5; color:var(--muted); font-size:12px; font-weight:700; border-radius:6px 6px 0 0}
+  table.m input.cell{width:100%; padding:8px 2px; border:1px solid var(--border-soft); border-radius:7px; text-align:center; font:inherit; background:#fff}
+  table.m input.cell:hover{border-color:var(--border)}
+  table.m input.cell:focus{border-color:var(--accent); background:#fffdf8; outline:none; box-shadow:0 0 0 2px rgba(122,106,76,.13)}
+  td.mcol, th.mcol{text-align:start; width:112px; padding-inline-start:4px}
+  table.m tbody tr:hover{background:#fdfbf6}
+  .mlabel{font-weight:700; font-size:13px; white-space:nowrap}
+  .fillbtn{border:1px solid var(--border); background:#fff; color:var(--muted); width:24px; height:24px; border-radius:6px; cursor:pointer; font-size:12px; line-height:1; padding:0; margin-inline-start:6px; vertical-align:middle}
+  .fillbtn:hover{border-color:var(--accent); color:var(--accent-hover); background:var(--accent-soft)}
+  .val-note{background:var(--red-bg); color:var(--red); border-radius:9px; padding:8px 12px; font-size:12.5px; font-weight:600; margin-bottom:10px; display:none}
+  .val-note.show{display:block}
+
+  /* Import / Export panel */
+  .io{display:grid; grid-template-columns:1.3fr 1fr; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin-bottom:18px}
+  .io-col{padding:18px 20px}
+  .io-col+.io-col{border-inline-start:1px solid var(--border-soft); background:#fdfbf7}
+  .io-head{display:flex; align-items:center; gap:12px; margin-bottom:14px}
+  .io-ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:19px;font-weight:800}
+  .io-ic.imp{background:var(--blue-bg); color:var(--blue)}
+  .io-ic.exp{background:var(--green-bg); color:var(--green)}
+  .io-t{font-weight:800; font-size:15px}
+  .io-s{color:var(--muted); font-size:12.5px}
+  .dropzone{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; text-align:center; padding:26px 16px; border:2px dashed var(--border); border-radius:12px; background:#fdfbf7; cursor:pointer; transition:.15s}
+  .dropzone:hover{border-color:var(--accent); background:#fbf7ef}
+  .dropzone.drag{border-color:var(--accent); background:var(--accent-soft)}
+  .dz-ic{font-size:28px; line-height:1}
+  .dz-main{font-weight:600}
+  .dz-link{color:var(--accent); text-decoration:underline}
+  .dz-sub{color:var(--muted); font-size:12px}
+  .fmt{margin-top:12px; font-size:12.5px}
+  .fmt summary{cursor:pointer; color:var(--muted); font-weight:600; list-style:none}
+  .fmt summary::-webkit-details-marker{display:none}
+  .fmt summary::before{content:'▸'; margin-inline-end:6px}
+  .fmt[open] summary::before{content:'▾'}
+  .fmt-cols{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px}
+  .fmt-cols span{background:var(--accent-soft); color:var(--accent-hover); padding:3px 9px; border-radius:6px; font-family:monospace; font-size:11.5px}
+  .io-body{display:flex; flex-direction:column; gap:14px; align-items:flex-start}
+  .io-stat{color:var(--text); font-size:13.5px}
+  .io-stat b{font-size:22px; color:var(--accent-hover)}
+  @media(max-width:720px){ .io{grid-template-columns:1fr} .io-col+.io-col{border-inline-start:none; border-top:1px solid var(--border-soft)} }
+
+  /* Left drawer */
+  .drawer-bg{position:fixed; inset:0; background:rgba(46,42,34,.45); display:none; z-index:60}
+  .drawer-bg.open{display:block}
+  .drawer{position:fixed; top:0; left:0; height:100%; width:100%; max-width:680px; background:var(--surface); box-shadow:8px 0 44px rgba(0,0,0,.22); transform:translateX(-100%); transition:transform .28s ease; display:flex; flex-direction:column; z-index:61}
+  .drawer-bg.open .drawer{transform:translateX(0)}
+  .drawer .d-h{display:flex; justify-content:space-between; align-items:flex-start; padding:18px 20px; border-bottom:1px solid var(--border-soft)}
+  .drawer .d-h h3{margin:0; font-size:18px}
+  .drawer .d-h .d-sub{color:var(--muted); font-size:12.5px; margin-top:3px}
+  .drawer .d-b{padding:20px; overflow:auto; flex:1}
+  .drawer .d-f{padding:16px 20px; border-top:1px solid var(--border-soft); display:flex; gap:10px; flex-wrap:wrap; background:var(--surface)}
+  .sec-title{font-weight:800; font-size:14px; margin:20px 0 10px; color:var(--accent-hover)}
+  .sec-title:first-child{margin-top:0}
+
+  .toast{position:fixed; bottom:24px; inset-inline-start:24px; background:var(--text); color:#fff; padding:12px 18px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; transform:translateY(10px); transition:.25s; z-index:80; font-weight:600}
+  .toast.show{opacity:1; transform:translateY(0)}
+
+  .devnote{background:#fffef9; border:1px dashed var(--accent); border-radius:var(--radius); padding:16px 18px; margin-top:26px; font-size:13px}
+  .devnote h4{margin:0 0 8px; color:var(--accent-hover)}
+  .devnote ul{margin:6px 0; padding-inline-start:20px}
+  .devnote code{background:var(--accent-soft); padding:1px 6px; border-radius:5px; font-size:12px}
+
+  /* ===== Responsive ===== */
+  @media(max-width:1000px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+  }
+  @media(max-width:760px){
+    .wrap{padding:16px 14px 48px}
+    .page-head{flex-direction:column; gap:10px}
+    .page-head .title{font-size:22px}
+    .brand{order:-1}
+    .form-grid{grid-template-columns:1fr}
+    .toolbar{padding:12px 14px; gap:8px; position:static}
+    .search{flex:1 1 100%}
+    .toolbar select{flex:1 1 46%}
+    .toolbar .btn{flex:1 1 auto; justify-content:center}
+    .stat{padding:14px}
+    .stat-ic{width:38px;height:38px;font-size:17px}
+    .stat .v{font-size:22px}
+    .io-col{padding:16px}
+    .tbl-head{padding:12px 14px}
+    table.list{min-width:0}
+    table.list th, table.list td{padding:11px 10px}
+    /* إخفاء أعمدة ثانوية: التحديد + آخر تحديث */
+    table.list th:nth-child(1), table.list td:nth-child(1),
+    table.list th:nth-child(5), table.list td:nth-child(5){display:none}
+    table.list th, table.list td{padding:11px 7px}
+    /* السطر الأول: الرمز ثم الوسوم تحته بدل الازدحام */
+    .sku-main{display:flex; flex-direction:column; align-items:flex-start; gap:3px}
+    .link-pill{margin-inline-start:0; white-space:nowrap}
+    .warn{margin-inline-start:0}
+    .sku-sub{font-size:11.5px}
+    /* الإجراءات كأيقونات لتوفير العرض */
+    .row-actions{flex-wrap:nowrap; gap:5px; justify-content:flex-end}
+    .row-actions .btn.sm{padding:0; width:32px; height:32px; justify-content:center; font-size:0}
+    .row-actions .btn.sm::before{font-size:14px; line-height:1}
+    .row-actions .btn.sm[data-a="edit"]::before{content:'✎'}
+    .row-actions .btn.sm[data-a="publish"]::before{content:'↑'}
+    .row-actions .btn.sm[data-a="delete"]::before{content:'✕'}
+    .drawer .d-b{padding:16px 14px}
+    .drawer .d-h, .drawer .d-f{padding:14px}
+    .drawer .d-f .btn{flex:1 1 auto; justify-content:center}
+    td.mcol, th.mcol{width:86px}
+    .mlabel{font-size:12px}
+    .fillbtn{width:22px;height:22px;font-size:11px;margin-inline-start:4px}
+    table.m th, table.m td{padding:4px 1px}
+    table.m thead th{font-size:11px}
+    table.m input.cell{padding:8px 1px; font-size:13px}
+  }
+  @media(max-width:430px){
+    .stats{grid-template-columns:1fr}
+    .stat-foot{margin-top:10px}
+    td.mcol, th.mcol{width:70px}
+    .mlabel{font-size:11.5px}
+    .fillbtn{display:none}
+    table.m input.cell{font-size:12.5px; padding:7px 0}
+    .sku-main{font-size:14px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-head">
+    <div>
+      <h1 class="title">أدلة المقاسات</h1>
+      <p class="sub">جدول موحّد بأدلة قياسات المنتجات. يضيف الموظفون المنتجات الجديدة ويعبّئون قياساتها، وتُربط بمتجر سلة ثم تُنشر.</p>
+    </div>
+    <div class="brand"><div class="logo">م</div><div>متجر مليحة للفساتين<br><span style="font-size:11px">لوحة التحكم</span></div></div>
+  </div>
+
+  <div class="stats">
+    <button class="stat active" data-filter="all" onclick="filterByStat('all')">
+      <div class="stat-top"><span class="stat-ic all">▤</span><div><div class="k">إجمالي الأدلة</div><div class="v" id="st-total">0</div></div></div>
+      <div class="stat-foot"><span id="st-linked">0</span> منها مربوط بسلة</div>
+    </button>
+    <button class="stat" data-filter="published" onclick="filterByStat('published')">
+      <div class="stat-top"><span class="stat-ic pub">✓</span><div><div class="k">منشورة</div><div class="v green" id="st-pub">0</div></div></div>
+      <div class="stat-foot"><span class="bar"><span class="green" id="bar-pub"></span></span><span id="pct-pub">0%</span></div>
+    </button>
+    <button class="stat" data-filter="draft" onclick="filterByStat('draft')">
+      <div class="stat-top"><span class="stat-ic draft">✎</span><div><div class="k">مسودات</div><div class="v amber" id="st-draft">0</div></div></div>
+      <div class="stat-foot"><span class="bar"><span class="amber" id="bar-draft"></span></span><span id="pct-draft">0%</span></div>
+    </button>
+    <button class="stat" data-filter="review" onclick="filterByStat('review')">
+      <div class="stat-top"><span class="stat-ic review">!</span><div><div class="k">تحتاج مراجعة</div><div class="v red" id="st-review">0</div></div></div>
+      <div class="stat-foot"><span id="st-missing">0</span> دليل ناقص القياسات</div>
+    </button>
+  </div>
+
+  <div class="io">
+    <div class="io-col">
+      <div class="io-head">
+        <span class="io-ic imp">⬆</span>
+        <div><div class="io-t">استيراد الأدلة</div><div class="io-s">ارفع ملف CSV بصيغة ورقة data لإضافة عدة أدلة دفعة واحدة</div></div>
+      </div>
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="importFile" accept=".csv" hidden />
+        <div class="dz-ic">📄</div>
+        <div class="dz-main">اسحب ملف CSV هنا أو <span class="dz-link">اختر ملفًا</span></div>
+        <div class="dz-sub">يُقبل .csv بترميز UTF-8</div>
+      </label>
+      <details class="fmt">
+        <summary>الصيغة المتوقّعة للأعمدة</summary>
+        <div class="fmt-cols">
+          <span>sku</span><span>salla_product_id</span><span>name</span><span>size</span>
+          <span>chest</span><span>waist</span><span>hip</span><span>shoulder</span>
+          <span>length</span><span>sleeve</span><span>blouse</span><span>skirt</span>
+        </div>
+      </details>
+    </div>
+    <div class="io-col">
+      <div class="io-head">
+        <span class="io-ic exp">⬇</span>
+        <div><div class="io-t">تصدير الأدلة</div><div class="io-s">نزّل كل الأدلة كملف CSV للأرشفة أو المشاركة</div></div>
+      </div>
+      <div class="io-body">
+        <div class="io-stat"><b id="io-count">0</b> دليل جاهز للتصدير</div>
+        <button class="btn primary" onclick="exportCSV()">⬇ تنزيل ملف CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search"><span class="ic">🔍</span><input id="q" type="text" placeholder="ابحث بالـ رمز المنتج أو الاسم…" oninput="render()" /></div>
+    <select id="statusFilter" onchange="render()">
+      <option value="all">كل الحالات</option>
+      <option value="published">منشور</option>
+      <option value="draft">مسودة</option>
+      <option value="review">مراجعة</option>
+    </select>
+    <select id="linkFilter" onchange="render()">
+      <option value="all">الكل (الربط بسلة)</option>
+      <option value="linked">مربوط بسلة</option>
+      <option value="unlinked">غير مربوط</option>
+    </select>
+    <div class="spacer"></div>
+    <span class="dirty" id="dirty">● تغييرات غير محفوظة</span>
+    <button class="btn" onclick="publishSelected()">نشر المحدد</button>
+    <button class="btn" onclick="openAdd()">+ منتج جديد</button>
+    <button class="btn primary" onclick="saveAll()">حفظ الكل</button>
+  </div>
+
+  <div class="tbl-card">
+    <div class="tbl-head">
+      <h3 style="margin:0">الأدلة المحفوظة</h3>
+      <span class="count" id="count">0 دليل</span>
+    </div>
+    <div class="t-scroll">
+      <table class="list">
+        <thead>
+          <tr>
+            <th class="center" style="width:40px"><input type="checkbox" id="selAll" onchange="toggleAll(this.checked)"></th>
+            <th>رمز المنتج</th>
+            <th class="center">عدد المقاسات</th>
+            <th class="center">الحالة</th>
+            <th>آخر تحديث</th>
+            <th style="text-align:end">الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="devnote">
+    <h4>ملاحظات للمطوّر (لا تظهر في النسخة النهائية)</h4>
+    <ul>
+      <li>نموذج واجهة (Prototype) — البيانات تجريبية في الذاكرة فقط، بلا اتصال فعلي بالـ API.</li>
+      <li>كل صف = دليل منتج واحد. «عدد المقاسات» = عدد صفوف المقاسات داخل الدليل.</li>
+      <li>حقول الربط بالمتجر: <code>sku</code> + <code>salla_product_id</code> + <code>name</code>. وسم «مربوط بسلة» يعتمد على توفّر <code>salla_product_id</code>.</li>
+      <li>نافذة «تعديل» تحتوي شبكة القياسات (بالإنش): الصدر، الخصر، الورك، الكتف، الطول، الكم، البلوزة، التنورة — مطابقة لأعمدة ورقة <code>data</code>.</li>
+      <li>التحقق: يجب قياس رقمي واحد على الأقل للصدر أو الخصر قبل النشر (نفس قاعدة النظام الحالي).</li>
+      <li>«آخر تحديث» يُحدَّث عند أي حفظ للدليل. الحالات: <code>draft</code>/<code>review</code>/<code>published</code>.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Product drawer (slides from left) -->
+<div class="drawer-bg" id="drawer" onclick="if(event.target===this) closeDrawer()">
+  <div class="drawer">
+    <div class="d-h">
+      <div>
+        <h3 id="d-title">منتج جديد</h3>
+        <div class="d-sub" id="d-sub">أدخل بيانات المنتج وقياساته كاملة ثم احفظ</div>
+      </div>
+      <button class="close-x" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="d-b">
+      <div class="sec-title">بيانات المنتج</div>
+      <div class="form-grid">
+        <div class="form-row" style="margin:0"><label>رمز المنتج (SKU) *</label><input id="d-sku" placeholder="مثال: 7801"></div>
+        <div class="form-row" style="margin:0"><label>رقم منتج سلة (اختياري)</label><input id="d-salla" placeholder="مثال: 203892285"></div>
+        <div class="form-row" style="margin:0"><label>اسم المنتج (اختياري)</label><input id="d-name" placeholder="مثال: فستان دانتيل"></div>
+      </div>
+
+      <div class="sec-title">القياسات (بالإنش)</div>
+
+      <div class="val-note" id="d-valnote">⚠ يجب إدخال قياس رقمي واحد على الأقل للصدر أو الخصر</div>
+
+      <table class="m">
+        <thead><tr id="d-thead"></tr></thead>
+        <tbody id="d-rows"></tbody>
+      </table>
+
+      <p class="hint" style="margin-top:14px; line-height:1.9">
+        💡 اترك خانة أي قياس فارغة إن كان لا ينطبق على المنتج.<br>
+        اكتب قيمة أصغر مقاس ثم اضغط <b>⇢</b> لتعبئة باقي المقاسات بفارق ثابت.<br>
+        ⌨ تنقّل بين الخانات بالأسهم أو <b>Enter</b> للنزول لنفس العمود.
+      </p>
+    </div>
+    <div class="d-f">
+      <button class="btn primary" onclick="saveDrawer('draft')">حفظ كمسودة</button>
+      <button class="btn ok" onclick="saveDrawer('published')">حفظ ونشر</button>
+      <button class="btn ghost" onclick="closeDrawer()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const MEASURES=[
+  {key:'chest',label:'الصدر'},{key:'waist',label:'الخصر'},{key:'hip',label:'الورك'},
+  {key:'shoulder',label:'الكتف'},{key:'length',label:'الطول'},{key:'sleeve',label:'الكم'},
+  {key:'blouse',label:'البلوزة'},{key:'skirt',label:'التنورة'},
+];
+function row(size,vals){ return Object.assign({size}, vals); }
+function today(){ const d=new Date(); return d.toLocaleDateString('ar-EG',{year:'numeric',month:'2-digit',day:'2-digit'}); }
+
+let PRODUCTS=[
+  { id:'p1', sku:'7490', salla:'203892285', name:'فستان أوف شولدر مطرّز', status:'published', updated:'2026/08/09',
+    rows:[row('S',{chest:34,waist:27,hip:37,shoulder:17.9,length:52}),row('M',{chest:36,waist:29,hip:39,shoulder:18.5,length:52}),row('L',{chest:38,waist:31,hip:41,shoulder:19.3,length:52}),row('XL',{chest:40,waist:33,hip:43,shoulder:19.9,length:52}),row('XXL',{chest:42,waist:35,hip:45,shoulder:20.5,length:52})]},
+  { id:'p2', sku:'7452', salla:'203704943', name:'فستان دانتيل بقصة مائلة', status:'published', updated:'2026/08/09',
+    rows:[row('S',{chest:33,waist:25,hip:34.6,shoulder:17.3,length:57,sleeve:23}),row('M',{chest:35,waist:27,hip:36.6,shoulder:18.1,length:57,sleeve:23}),row('L',{chest:37,waist:29,hip:38.6,shoulder:18.7,length:57,sleeve:23}),row('XL',{chest:39,waist:31,hip:40.6,shoulder:19.5,length:57,sleeve:23}),row('XXL',{chest:41,waist:33,hip:42.6,shoulder:20.3,length:57,sleeve:23})]},
+  { id:'p3', sku:'7273', salla:'', name:'فستان ميدي مزخرف', status:'draft', updated:'2026/08/07',
+    rows:[row('S',{waist:27.6,shoulder:19,length:50}),row('M',{waist:29.6,shoulder:19.7,length:50}),row('L',{waist:31.6,shoulder:20.3,length:50}),row('XL',{waist:33.6,shoulder:20.9,length:50}),row('XXL',{waist:35.6,shoulder:21.7,length:50})]},
+  { id:'p4', sku:'7776', salla:'', name:'فستان شيفون مزين بالخرز', status:'review', updated:'2026/08/05',
+    rows:[row('S',{}),row('M',{}),row('L',{}),row('XL',{}),row('XXL',{})]},
+];
+
+let SELECTED=new Set(), dirty=false, seq=100;
+
+function setDirty(v){ dirty=v; document.getElementById('dirty').classList.toggle('show',v); }
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+function isLinked(p){ return !!(p.salla && String(p.salla).trim()); }
+function isValid(p){ return p.rows.some(r=>(r.chest!==undefined&&r.chest!=='')||(r.waist!==undefined&&r.waist!=='')); }
+function statusBadge(s){ const m={published:['published','منشور'],draft:['draft','مسودة'],review:['review','مراجعة']}; const [c,t]=m[s]||m.draft; return `<span class="badge ${c}">${t}</span>`; }
+
+function render(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  const sf=document.getElementById('statusFilter').value;
+  const lf=document.getElementById('linkFilter').value;
+
+  const tot=PRODUCTS.length;
+  const nPub=PRODUCTS.filter(p=>p.status==='published').length;
+  const nDraft=PRODUCTS.filter(p=>p.status==='draft').length;
+  const nRev=PRODUCTS.filter(p=>p.status==='review').length;
+  const pct=n=>tot?Math.round(n*100/tot):0;
+  document.getElementById('st-total').textContent=tot;
+  document.getElementById('st-pub').textContent=nPub;
+  document.getElementById('st-draft').textContent=nDraft;
+  document.getElementById('st-review').textContent=nRev;
+  document.getElementById('st-linked').textContent=PRODUCTS.filter(isLinked).length;
+  document.getElementById('st-missing').textContent=PRODUCTS.filter(p=>!isValid(p)).length;
+  document.getElementById('bar-pub').style.width=pct(nPub)+'%';
+  document.getElementById('bar-draft').style.width=pct(nDraft)+'%';
+  document.getElementById('pct-pub').textContent=pct(nPub)+'%';
+  document.getElementById('pct-draft').textContent=pct(nDraft)+'%';
+  const ioc=document.getElementById('io-count'); if(ioc) ioc.textContent=tot;
+
+  const list=PRODUCTS.filter(p=>{
+    if(sf!=='all'&&p.status!==sf) return false;
+    if(lf==='linked'&&!isLinked(p)) return false;
+    if(lf==='unlinked'&&isLinked(p)) return false;
+    if(q){ if(!((p.sku+' '+p.name+' '+p.salla).toLowerCase().includes(q))) return false; }
+    return true;
+  });
+
+  document.getElementById('count').textContent=`${list.length} دليل`;
+  const tb=document.getElementById('rows');
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="6"><div class="empty">لا توجد نتائج مطابقة.</div></td></tr>`; return; }
+
+  tb.innerHTML=list.map(p=>{
+    const n=p.rows.length, valid=isValid(p);
+    return `<tr>
+      <td class="center"><input type="checkbox" ${SELECTED.has(p.id)?'checked':''} onchange="toggleSel('${p.id}',this.checked)"></td>
+      <td>
+        <div class="sku-main">${p.sku||'—'}
+          <span class="link-pill ${isLinked(p)?'':'off'}">${isLinked(p)?'مربوط بسلة':'غير مربوط'}</span>
+          ${valid?'':'<span class="warn">⚠ ناقص قياسات</span>'}
+        </div>
+        <div class="sku-sub">${p.name||'بدون اسم'}${p.salla?(' · سلة #'+p.salla):''}</div>
+      </td>
+      <td class="center"><span class="count-pill ${n?'':'zero'}">${n}</span></td>
+      <td class="center">${statusBadge(p.status)}</td>
+      <td>${p.updated||'—'}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn sm" data-a="edit" title="تعديل" onclick="openEdit('${p.id}')">تعديل</button>
+          <button class="btn sm ok" data-a="publish" title="نشر" onclick="publishOne('${p.id}')">نشر</button>
+          <button class="btn sm danger" data-a="delete" title="حذف" onclick="delProduct('${p.id}')">حذف</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const shown=list.map(p=>p.id);
+  document.getElementById('selAll').checked = shown.length>0 && shown.every(id=>SELECTED.has(id));
+
+  document.querySelectorAll('.stat').forEach(b=>b.classList.toggle('active', b.dataset.filter===sf));
+}
+
+/* click a stat card to filter the table by that status */
+function filterByStat(status){
+  const sel=document.getElementById('statusFilter');
+  sel.value = (sel.value===status && status!=='all') ? 'all' : status;
+  render();
+}
+
+/* selection */
+function toggleSel(id,on){ on?SELECTED.add(id):SELECTED.delete(id); render(); }
+function toggleAll(on){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  const sf=document.getElementById('statusFilter').value, lf=document.getElementById('linkFilter').value;
+  PRODUCTS.forEach(p=>{
+    if(sf!=='all'&&p.status!==sf) return;
+    if(lf==='linked'&&!isLinked(p)) return;
+    if(lf==='unlinked'&&isLinked(p)) return;
+    if(q&&!((p.sku+' '+p.name+' '+p.salla).toLowerCase().includes(q))) return;
+    on?SELECTED.add(p.id):SELECTED.delete(p.id);
+  });
+  render();
+}
+
+/* actions */
+function publishOne(id){ const p=PRODUCTS.find(x=>x.id===id); if(!isValid(p)){ toast('لا يمكن النشر — الدليل ناقص قياسات'); return; } p.status='published'; p.updated=today(); setDirty(true); render(); toast('تم النشر (تجريبي)'); }
+function publishSelected(){ if(!SELECTED.size){ toast('حدّد دليلًا واحدًا على الأقل'); return; } let bad=0; SELECTED.forEach(id=>{ const p=PRODUCTS.find(x=>x.id===id); if(isValid(p)){ p.status='published'; p.updated=today(); } else bad++; }); setDirty(true); render(); toast(bad?`نُشر ما صحّ، و ${bad} ناقص القياسات`:'تم نشر المحدد (تجريبي)'); }
+function delProduct(id){ if(!confirm('حذف هذا الدليل بالكامل؟')) return; PRODUCTS=PRODUCTS.filter(x=>x.id!==id); SELECTED.delete(id); setDirty(true); render(); toast('تم الحذف'); }
+function saveAll(){ setDirty(false); toast('تم الحفظ (تجريبي) — سيُربط بالـ API عند التنفيذ'); }
+
+/* product drawer (add + edit share one drawer) */
+const DEFAULT_SIZES=['S','M','L','XL','XXL'];
+let drawerMode='add', drawerId=null;
+let dSizes=[], dVals={};   /* dVals[size][measureKey] = value */
+
+function getVal(s,k){ return (dVals[s]&&dVals[s][k]!==undefined)?dVals[s][k]:''; }
+function putVal(s,k,v){ (dVals[s]=dVals[s]||{})[k]=String(v).trim(); }
+
+function openAdd(){ openDrawer('add'); }
+function openEdit(id){ openDrawer('edit',id); }
+
+function openDrawer(mode,id){
+  drawerMode=mode; drawerId=id||null;
+  const t=document.getElementById('d-title'), s=document.getElementById('d-sub');
+  if(mode==='add'){
+    t.textContent='منتج جديد'; s.textContent='أدخل بيانات المنتج وقياساته ثم احفظ';
+    document.getElementById('d-sku').value='';
+    document.getElementById('d-salla').value='';
+    document.getElementById('d-name').value='';
+    dSizes=[...DEFAULT_SIZES];
+    dVals={};
+  }else{
+    const p=PRODUCTS.find(x=>x.id===id);
+    t.textContent='تعديل الدليل — '+(p.sku||'');
+    s.textContent=p.name||'بدون اسم';
+    document.getElementById('d-sku').value=p.sku||'';
+    document.getElementById('d-salla').value=p.salla||'';
+    document.getElementById('d-name').value=p.name||'';
+    dSizes=p.rows.map(r=>r.size).filter(Boolean);
+    if(!dSizes.length) dSizes=[...DEFAULT_SIZES];
+    dVals={};
+    p.rows.forEach(r=>{
+      if(!r.size) return; dVals[r.size]={};
+      MEASURES.forEach(m=>{ const v=r[m.key]; if(v!==undefined&&v!==''){ dVals[r.size][m.key]=String(v); } });
+    });
+  }
+  renderMatrix();
+  document.getElementById('drawer').classList.add('open');
+}
+
+function renderMatrix(){
+  document.getElementById('d-thead').innerHTML=
+    `<th class="mcol">القياس</th>${dSizes.map(s=>`<th>${s}</th>`).join('')}`;
+
+  document.getElementById('d-rows').innerHTML=MEASURES.map((m,ri)=>`<tr>
+      <td class="mcol">
+        <span class="mlabel">${m.label}</span>
+        <button class="fillbtn" title="تعبئة باقي المقاسات تلقائيًا" onclick="fillRow('${m.key}')">⇢</button>
+      </td>
+      ${dSizes.map((s,ci)=>`<td><input class="cell" inputmode="decimal" data-r="${ri}" data-c="${ci}"
+          value="${getVal(s,m.key)}" oninput="putVal('${s}','${m.key}',this.value); checkDrawerValid()"
+          onkeydown="cellKey(event)"></td>`).join('')}
+    </tr>`).join('');
+
+  checkDrawerValid();
+}
+
+/* اكتب أصغر مقاس ثم املأ الباقي بفارق ثابت */
+function fillRow(k){
+  const nums=dSizes.map(s=>{ const v=parseFloat(getVal(s,k)); return isNaN(v)?null:v; });
+  const i0=nums.findIndex(v=>v!==null);
+  if(i0===-1){ toast('أدخل قيمة في أول مقاس ثم اضغط ⇢'); return; }
+  const i1=nums.findIndex((v,i)=>v!==null&&i>i0);
+  const step=(i1>-1)?(nums[i1]-nums[i0])/(i1-i0):2;
+  let n=0;
+  dSizes.forEach((s,i)=>{ if(i>i0&&nums[i]===null){ putVal(s,k,+(nums[i0]+step*(i-i0)).toFixed(1)); n++; } });
+  renderMatrix();
+  toast(n?`تمت تعبئة ${n} مقاس بفارق ${step}`:'كل المقاسات معبّأة');
+}
+
+/* تنقّل بالأسهم و Enter */
+function cellKey(e){
+  const k=e.key;
+  if(!['ArrowUp','ArrowDown','ArrowRight','ArrowLeft','Enter'].includes(k)) return;
+  const r=+e.target.dataset.r, c=+e.target.dataset.c;
+  let nr=r, nc=c;
+  if(k==='ArrowUp') nr=r-1;
+  else if(k==='ArrowDown'||k==='Enter') nr=r+1;
+  else if(k==='ArrowRight') nc=c-1;   /* RTL: يمين = العمود السابق */
+  else if(k==='ArrowLeft') nc=c+1;
+  const next=document.querySelector(`#d-rows input[data-r="${nr}"][data-c="${nc}"]`);
+  if(next){ e.preventDefault(); next.focus(); next.select(); }
+}
+
+function checkDrawerValid(){
+  const ok=dSizes.some(s=>getVal(s,'chest')!==''||getVal(s,'waist')!=='');
+  document.getElementById('d-valnote').classList.toggle('show',!ok);
+  return ok;
+}
+function closeDrawer(){ document.getElementById('drawer').classList.remove('open'); drawerId=null; }
+function saveDrawer(status){
+  const sku=document.getElementById('d-sku').value.trim();
+  if(!sku){ toast('أدخل رمز المنتج (SKU)'); return; }
+  if(status==='published' && !checkDrawerValid()){ toast('لا يمكن النشر — أدخل قياس صدر أو خصر'); return; }
+  const salla=document.getElementById('d-salla').value.trim();
+  const name=document.getElementById('d-name').value.trim();
+  const rows=dSizes.map(s=>{
+    const r={size:s};
+    MEASURES.forEach(m=>{ const v=getVal(s,m.key); if(v!=='') r[m.key]=v; });
+    return r;
+  });
+  if(drawerMode==='add'){
+    PRODUCTS.unshift({ id:'p'+(seq++), sku, salla, name, status: status==='published'?'published':'draft', updated:today(), rows });
+  }else{
+    const p=PRODUCTS.find(x=>x.id===drawerId); if(!p) return;
+    p.sku=sku; p.salla=salla; p.name=name; p.rows=rows;
+    p.status = status==='published' ? 'published' : (p.status==='published'?'published':'draft');
+    p.updated=today();
+  }
+  setDirty(true); closeDrawer(); render();
+  toast(status==='published'?'تم الحفظ والنشر (تجريبي)':'تم الحفظ كمسودة (تجريبي)');
+}
+
+/* import / export */
+function exportCSV(){
+  const cols=['sku','salla_product_id','name','size',...MEASURES.map(m=>m.key),'status','updated'];
+  const lines=[cols.join(',')];
+  PRODUCTS.forEach(p=>p.rows.forEach(r=>{
+    lines.push([p.sku,p.salla,`"${(p.name||'').replace(/"/g,'""')}"`,r.size,...MEASURES.map(m=>r[m.key]??''),p.status,p.updated].join(','));
+  }));
+  const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='size-guides.csv'; a.click();
+  toast('تم تصدير CSV');
+}
+function importFromFile(file){
+  if(!file) return;
+  if(!/\.csv$/i.test(file.name)){ toast('يُقبل ملف .csv فقط في هذا النموذج'); return; }
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const rows=rd.result.split(/\r?\n/).filter(x=>x.trim());
+      const header=rows.shift().split(',').map(h=>h.trim().toLowerCase());
+      const idx=k=>header.indexOf(k), map={};
+      rows.forEach(line=>{
+        const c=line.split(','); const sku=(c[idx('sku')]||'').trim(); if(!sku) return;
+        if(!map[sku]) map[sku]={ id:'p'+(seq++), sku, salla:(c[idx('salla_product_id')]||'').trim(), name:(c[idx('name')]||'').replace(/^"|"$/g,''), status:'draft', updated:today(), rows:[] };
+        const r={size:(c[idx('size')]||'').trim()};
+        MEASURES.forEach(m=>{ const v=(c[idx(m.key)]||'').trim(); if(v) r[m.key]=v; });
+        map[sku].rows.push(r);
+      });
+      const added=Object.values(map);
+      if(!added.length){ toast('لم يُعثر على صفوف صالحة في الملف'); return; }
+      PRODUCTS=[...added,...PRODUCTS]; setDirty(true); render();
+      toast(`تم استيراد ${added.length} دليل`);
+    }catch(err){ toast('تعذّر قراءة الملف — تأكد من الصيغة'); }
+  };
+  rd.readAsText(file,'utf-8');
+}
+document.getElementById('importFile').addEventListener('change',e=>{ importFromFile(e.target.files[0]); e.target.value=''; });
+(function(){
+  const dz=document.getElementById('dropzone'); if(!dz) return;
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{ e.preventDefault(); dz.classList.add('drag'); }));
+  ['dragleave','dragend'].forEach(ev=>dz.addEventListener(ev,e=>{ e.preventDefault(); dz.classList.remove('drag'); }));
+  dz.addEventListener('drop',e=>{ e.preventDefault(); dz.classList.remove('drag'); importFromFile(e.dataTransfer.files[0]); });
+})();
+
+render();
+</script>
+</body>
+</html>

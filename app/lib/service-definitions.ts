@@ -343,6 +343,17 @@ const serviceDefinitionsData = [
     assignable: false,
   },
   {
+    key: 'employee-performance',
+    title: 'أداء الموظفين',
+    description: 'تقرير موحد للتحضير والشحن ومسح المستودع مع السجل التحفيزي',
+    icon: '📈',
+    href: '/employee-performance',
+    color: 'from-cyan-600 to-blue-600',
+    defaultRoles: ['admin'],
+    grantsRoles: [],
+    assignable: false,
+  },
+  {
     key: 'my-recognition',
     title: 'سجلي التحفيزي',
     description: 'عرض المخالفات والمكافآت الخاصة بي',
