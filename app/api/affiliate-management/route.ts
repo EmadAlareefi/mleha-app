@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
-import { calculateNetAmount, getMonthKey, getMonthLabel, isDelivered } from '@/app/lib/affiliate-metrics';
+import {
+  calculateCommissionableNetAmount,
+  calculateNetAmount,
+  getAffiliateCommissionRate,
+  getMonthKey,
+  getMonthLabel,
+  isDelivered,
+} from '@/app/lib/affiliate-metrics';
+import { getExcludedNationalDayAmounts } from '@/app/lib/affiliate-category-commission';
 import { Prisma } from '@prisma/client';
 import { requireAffiliateManagementSession } from './authorization';
 
@@ -237,6 +245,7 @@ export async function GET(request: NextRequest) {
 
     let orders: Array<{
       id: string;
+      merchantId: string;
       orderId: string;
       orderNumber: string | null;
       statusSlug: string | null;
@@ -247,6 +256,7 @@ export async function GET(request: NextRequest) {
       campaignName: string | null;
       currency: string | null;
       affiliateCommission: Prisma.Decimal | number | null;
+      items: Array<{ productId: string | null; totalAmount: Prisma.Decimal | number | null }>;
     }> = [];
 
     if (affiliateConditions.length) {
@@ -254,6 +264,7 @@ export async function GET(request: NextRequest) {
         where,
         select: {
           id: true,
+          merchantId: true,
           orderId: true,
           orderNumber: true,
           statusSlug: true,
@@ -264,10 +275,13 @@ export async function GET(request: NextRequest) {
           campaignName: true,
           currency: true,
           affiliateCommission: true,
+          items: { select: { productId: true, totalAmount: true } },
         },
         orderBy: { placedAt: 'desc' },
       });
     }
+
+    const excludedNationalDayAmounts = await getExcludedNationalDayAmounts(orders);
 
     let payouts: Array<
       Prisma.AffiliatePayoutGetPayload<{
@@ -375,11 +389,17 @@ export async function GET(request: NextRequest) {
       }
 
       const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
-      const commissionRate =
-        order.affiliateCommission === null || order.affiliateCommission === undefined
-          ? bucket.meta.commissionRate
-          : Number(order.affiliateCommission);
-      const potentialCommission = netAmount * (commissionRate / 100);
+      const commissionableNetAmount = calculateCommissionableNetAmount(
+        order.totalAmount,
+        order.shippingAmount,
+        excludedNationalDayAmounts.get(order.id)
+      );
+      const commissionRate = getAffiliateCommissionRate(
+        order.placedAt,
+        order.affiliateCommission,
+        bucket.meta.commissionRate
+      );
+      const potentialCommission = commissionableNetAmount * (commissionRate / 100);
       const delivered = isDelivered(order.statusSlug, order.statusName);
       const realizedCommission = delivered ? potentialCommission : 0;
 

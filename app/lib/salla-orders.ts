@@ -4,6 +4,7 @@ import { sallaMakeRequest } from './salla-oauth';
 import { log } from './logger';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
+import { getAffiliateCommissionRate } from '@/app/lib/affiliate-metrics';
 
 type AnyRecord = Record<string, any>;
 
@@ -473,6 +474,9 @@ async function syncOrdersForMerchant(
         if (normalizedCampaignName && affiliateMap.has(normalizedCampaignName)) {
           affiliateCommission = affiliateMap.get(normalizedCampaignName)!;
         }
+        affiliateCommission = new Prisma.Decimal(
+          getAffiliateCommissionRate(dates.created, affiliateCommission)
+        );
 
         await prisma.sallaOrder.upsert({
           where: {

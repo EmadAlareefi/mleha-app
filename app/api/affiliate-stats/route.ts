@@ -5,7 +5,14 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { Prisma } from '@prisma/client';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
-import { calculateNetAmount, decimalToNumber, isDelivered } from '@/app/lib/affiliate-metrics';
+import {
+  calculateCommissionableNetAmount,
+  calculateNetAmount,
+  decimalToNumber,
+  getAffiliateCommissionRate,
+  isDelivered,
+} from '@/app/lib/affiliate-metrics';
+import { getExcludedNationalDayAmounts } from '@/app/lib/affiliate-category-commission';
 
 export const runtime = 'nodejs';
 
@@ -55,11 +62,15 @@ export async function GET(request: NextRequest) {
         where,
         select: {
           id: true,
+          merchantId: true,
+          orderId: true,
           totalAmount: true,
           shippingAmount: true,
           affiliateCommission: true,
+          placedAt: true,
           statusSlug: true,
           statusName: true,
+          items: { select: { productId: true, totalAmount: true } },
         },
       }),
       prisma.sallaOrder.findMany({
@@ -82,6 +93,8 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    const excludedNationalDayAmounts = await getExcludedNationalDayAmounts(ordersForStats);
+
     const totalCount = ordersForStats.length;
 
     type StatusAccumulator = {
@@ -99,14 +112,16 @@ export async function GET(request: NextRequest) {
 
     for (const order of ordersForStats) {
       const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
+      const commissionableNetAmount = calculateCommissionableNetAmount(
+        order.totalAmount,
+        order.shippingAmount,
+        excludedNationalDayAmounts.get(order.id)
+      );
       totalSales += netAmount;
 
-      const commissionRate =
-        order.affiliateCommission === null || order.affiliateCommission === undefined
-          ? 10
-          : Number(order.affiliateCommission);
+      const commissionRate = getAffiliateCommissionRate(order.placedAt, order.affiliateCommission);
       const eligibleForCommission = isDelivered(order.statusSlug, order.statusName);
-      const commissionEarned = eligibleForCommission ? netAmount * (commissionRate / 100) : 0;
+      const commissionEarned = eligibleForCommission ? commissionableNetAmount * (commissionRate / 100) : 0;
 
       if (eligibleForCommission) {
         totalCommissionEarned += commissionEarned;
@@ -140,12 +155,14 @@ export async function GET(request: NextRequest) {
       const totalAmount = decimalToNumber(order.totalAmount);
       const shippingAmount = decimalToNumber(order.shippingAmount);
       const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
-      const commissionRate =
-        order.affiliateCommission === null || order.affiliateCommission === undefined
-          ? 10
-          : Number(order.affiliateCommission);
+      const commissionableNetAmount = calculateCommissionableNetAmount(
+        order.totalAmount,
+        order.shippingAmount,
+        excludedNationalDayAmounts.get(order.id)
+      );
+      const commissionRate = getAffiliateCommissionRate(order.placedAt, order.affiliateCommission);
       const eligibleForCommission = isDelivered(order.statusSlug, order.statusName);
-      const commissionAmount = eligibleForCommission ? netAmount * (commissionRate / 100) : 0;
+      const commissionAmount = eligibleForCommission ? commissionableNetAmount * (commissionRate / 100) : 0;
       return {
         ...order,
         placedAt: order.placedAt?.toISOString(),
@@ -154,10 +171,7 @@ export async function GET(request: NextRequest) {
         netAmount,
         isDelivered: eligibleForCommission,
         commissionAmount,
-        affiliateCommission:
-          order.affiliateCommission === null || order.affiliateCommission === undefined
-            ? null
-            : commissionRate,
+        affiliateCommission: commissionRate,
       };
     });
 

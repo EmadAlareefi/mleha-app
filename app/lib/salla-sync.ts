@@ -20,6 +20,7 @@ import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { extractItemsFromWebhookPayload, upsertSallaOrderItems } from '@/app/lib/salla-order-items';
 import { normalizePhoneWithDialCode } from '@/app/lib/phone';
+import { getAffiliateCommissionRate } from '@/app/lib/affiliate-metrics';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   success: boolean;
@@ -92,6 +93,9 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       affiliateCommission = affiliateUser.affiliateCommission;
     }
   }
+  affiliateCommission = new Prisma.Decimal(
+    getAffiliateCommissionRate(dates.created, affiliateCommission)
+  );
 
   await prisma.sallaOrder.upsert({
     where: {
