@@ -8,6 +8,10 @@ type AnyRecord = Record<string, any>;
 
 const RESERVATION_STATUS_ID =
   process.env.SALLA_UNDER_REVIEW_RESERVATION_ID || '1576217163';
+// Moving exchange orders to "تحت المراجعة حجز قطعة" is disabled by default.
+// Set SALLA_EXCHANGE_RESERVATION_HOLD=true to re-enable the automatic hold.
+const RESERVATION_HOLD_ENABLED =
+  (process.env.SALLA_EXCHANGE_RESERVATION_HOLD || '').toLowerCase() === 'true';
 const UNDER_REVIEW_STATUS_ID =
   process.env.SALLA_UNDER_REVIEW_STATUS_ID || '1065456688';
 
@@ -295,7 +299,11 @@ export async function linkExchangeOrderFromWebhook(
     currentlyActive: returnRequest.exchangeOrderHoldActive,
   });
 
-  if (requiresHold && (holdOutdated || !returnRequest.exchangeOrderHoldActive)) {
+  if (
+    RESERVATION_HOLD_ENABLED &&
+    requiresHold &&
+    (holdOutdated || !returnRequest.exchangeOrderHoldActive)
+  ) {
     const statusResult = await updateSallaOrderStatus(merchantId, orderId, {
       statusId: RESERVATION_STATUS_ID,
     });

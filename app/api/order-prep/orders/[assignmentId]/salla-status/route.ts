@@ -32,6 +32,8 @@ const TARGET_STATUSES = {
 
 type TargetKey = keyof typeof TARGET_STATUSES;
 const NOTE_REQUIRED_TARGETS: TargetKey[] = ['under_review_a', 'under_review_x4'];
+// Moving orders to "تحت المراجعة حجز قطعة" is disabled.
+const DISABLED_TARGETS: TargetKey[] = ['under_review_reservation'];
 
 export async function POST(
   request: NextRequest,
@@ -61,6 +63,12 @@ export async function POST(
 
     if (!target || !(target in TARGET_STATUSES)) {
       return NextResponse.json({ error: 'حالة سلة غير مدعومة' }, { status: 400 });
+    }
+    if (DISABLED_TARGETS.includes(target)) {
+      return NextResponse.json(
+        { error: `تم تعطيل تحويل الطلبات إلى "${TARGET_STATUSES[target].label}"` },
+        { status: 400 },
+      );
     }
     if (NOTE_REQUIRED_TARGETS.includes(target) && !note) {
       return NextResponse.json(
