@@ -362,6 +362,28 @@ const getItemName = (item: any): string => {
   return getStringValue(item?.name || item?.product?.name) || 'منتج بدون اسم';
 };
 
+const NATIONAL_DAY_OFFERS_CATEGORY = 'عروض اليوم الوطني';
+
+const normalizeCategoryName = (value: unknown): string =>
+  getStringValue(value).replace(/\s+/g, ' ').trim();
+
+const getItemCategoryNames = (item: any): string[] => {
+  const categoryValues = [
+    item?.category,
+    item?.product?.category,
+    ...(Array.isArray(item?.categories) ? item.categories : []),
+    ...(Array.isArray(item?.product?.categories) ? item.product.categories : []),
+  ];
+
+  return categoryValues.map(normalizeCategoryName).filter(Boolean);
+};
+
+const getItemProductId = (item: any): string =>
+  getFirstStringValue(item?.product_id, item?.productId, item?.product?.id);
+
+const hasNationalDayOffersCategory = (categoryNames: string[]): boolean =>
+  categoryNames.some((name) => normalizeCategoryName(name) === NATIONAL_DAY_OFFERS_CATEGORY);
+
 const getItemImage = (item: any): string | null => {
   const candidates = [
     item?.thumbnail,
@@ -656,6 +678,7 @@ export default function OrderShippingPage() {
   const [productLocations, setProductLocations] = useState<Record<string, ProductLocation>>({});
   const [loadingProductLocations, setLoadingProductLocations] = useState(false);
   const [productLocationError, setProductLocationError] = useState<string | null>(null);
+  const [onlyNationalDayOfferProducts, setOnlyNationalDayOfferProducts] = useState(false);
 
   const [confirmationDialog, setConfirmationDialog] = useState<ConfirmationState | null>(null);
 
@@ -731,6 +754,66 @@ export default function OrderShippingPage() {
     }
     return '';
   }, [currentOrder]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const items = Array.isArray(currentOrder?.orderData?.items)
+      ? currentOrder.orderData.items
+      : [];
+
+    setOnlyNationalDayOfferProducts(false);
+    if (items.length === 0 || !resolvedMerchantId) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const checkCategories = async () => {
+      const results = await Promise.all(
+        items.map(async (item: any) => {
+          const embeddedCategories = getItemCategoryNames(item);
+          if (hasNationalDayOffersCategory(embeddedCategories)) {
+            return true;
+          }
+
+          const productId = getItemProductId(item);
+          if (!productId) {
+            return false;
+          }
+
+          try {
+            const response = await fetch(
+              `/api/products/category?merchantId=${encodeURIComponent(resolvedMerchantId)}&productId=${encodeURIComponent(productId)}`,
+            );
+            const data = await parseJsonResponse<{
+              category?: string;
+              categories?: Array<{ name?: string } | string>;
+            }>(response, 'GET /api/products/category');
+            if (!response.ok) {
+              return false;
+            }
+            const categoryNames = [
+              data.category,
+              ...(Array.isArray(data.categories) ? data.categories : []),
+            ].map(normalizeCategoryName).filter(Boolean);
+            return hasNationalDayOffersCategory(categoryNames);
+          } catch (error) {
+            console.error('Failed to check National Day offer category', { productId, error });
+            return false;
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setOnlyNationalDayOfferProducts(results.length > 0 && results.every(Boolean));
+      }
+    };
+
+    void checkCategories();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentOrder, resolvedMerchantId]);
 
   const resolvedShippingCompanyName = useMemo(() => {
     const normalize = (value: unknown): string | null => {
@@ -1886,6 +1969,14 @@ const handleRefreshItems = async () => {
                 {productLocationError && (
                   <Alert variant="destructive">
                     <AlertDescription>{productLocationError}</AlertDescription>
+                  </Alert>
+                )}
+                {onlyNationalDayOfferProducts && (
+                  <Alert className="border-2 border-orange-500 bg-orange-50 text-orange-950">
+                    <AlertTitle className="text-lg font-bold">تنبيه التغليف</AlertTitle>
+                    <AlertDescription className="font-semibold">
+                      هذا الطلب يحتوي فقط على منتجات من فئة عروض اليوم الوطني. يرجى عدم استخدام الباكج البريميوم.
+                    </AlertDescription>
                   </Alert>
                 )}
                 {locationSummary.length > 0 && (
