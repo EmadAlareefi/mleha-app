@@ -28,6 +28,7 @@ import {
   getOutletProductIds,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
+import { hasActiveReturnWindowOverride } from '@/lib/returns/window-override';
 
 export const runtime = 'nodejs';
 
@@ -259,10 +260,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if shipment delivery date exceeds the category-specific return window.
+    // An admin override exempts only this time-window check.
+    const windowOverride = await hasActiveReturnWindowOverride(
+      body.merchantId,
+      String(body.orderId),
+    );
     const deliveryDateResult = await resolveReturnDeliveryDate(body.merchantId, order as any);
     const deliveryDate = deliveryDateResult.date;
 
-    if (!deliveryDate) {
+    if (!deliveryDate && !windowOverride) {
       log.error('No delivery date found for return window validation', {
         merchantId: body.merchantId,
         orderId: body.orderId,
@@ -279,16 +285,18 @@ export async function POST(request: NextRequest) {
     // Evaluate the return window per selected item using each product's own category, so a
     // mix of evening dresses (24h) and other categories (3 days) only blocks the items whose
     // own window has expired — not the whole selection.
-    const selectedWindowEvaluations = evaluateReturnWindowByProductId({
-      categoriesByProductId: selectedCategoriesByProductId,
-      deliveryDate,
-    });
+    const selectedWindowEvaluations = deliveryDate
+      ? evaluateReturnWindowByProductId({
+          categoriesByProductId: selectedCategoriesByProductId,
+          deliveryDate,
+        })
+      : {};
 
     log.info('Using shipment delivery date for return window validation', {
       merchantId: body.merchantId,
       orderId: body.orderId,
       dateSource: deliveryDateResult.source,
-      normalizedDate: deliveryDate.toISOString(),
+      normalizedDate: deliveryDate?.toISOString() || null,
       selectedCategoriesByProductId,
     });
 
@@ -297,7 +305,7 @@ export async function POST(request: NextRequest) {
       return evaluation && !evaluation.eligible;
     });
 
-    if (expiredItem) {
+    if (expiredItem && !windowOverride) {
       const evaluation = selectedWindowEvaluations[expiredItem.productId];
 
       log.warn('Selected item exceeds allowed return window', {
@@ -305,7 +313,7 @@ export async function POST(request: NextRequest) {
         orderId: body.orderId,
         productId: expiredItem.productId,
         productName: expiredItem.productName,
-        deliveryDate: deliveryDate.toISOString(),
+        deliveryDate: deliveryDate!.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
         elapsedHours: evaluation.elapsedHours.toFixed(2),
         policyWindowHours: evaluation.policy.windowHours,
@@ -320,7 +328,7 @@ export async function POST(request: NextRequest) {
         daysSinceDelivery: Math.floor(evaluation.daysSinceDelivery),
         elapsedHours: Math.floor(evaluation.elapsedHours),
         allowedHours: evaluation.policy.windowHours,
-        deliveryDate: deliveryDate.toISOString(),
+        deliveryDate: deliveryDate!.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
       }, { status: 400 });
     }

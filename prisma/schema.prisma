@@ -1011,6 +1011,23 @@ model ReturnRequest {
   @@index([exchangeOrderId])
 }
 
+// An explicit, revocable admin exception to the category-specific return
+// window. Other return eligibility rules continue to apply.
+model ReturnWindowOverride {
+  id          String    @id @default(cuid())
+  merchantId  String
+  orderId     String
+  orderNumber String?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  revokedBy   String?
+  revokedAt   DateTime?
+
+  @@unique([merchantId, orderId])
+  @@index([merchantId, orderNumber])
+  @@index([revokedAt, createdAt])
+}
+
 model ReturnItem {
   id              String        @id @default(cuid())
   returnRequestId String

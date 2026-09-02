@@ -13,6 +13,7 @@ import {
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
+import { hasActiveReturnWindowOverride } from '@/lib/returns/window-override';
 
 export const runtime = 'nodejs';
 
@@ -60,8 +61,9 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
+    const windowOverride = await hasActiveReturnWindowOverride(merchantId, String(orderId));
     const deliveryDateResult = await resolveReturnDeliveryDate(merchantId, order as any);
-    if (!deliveryDateResult.date) {
+    if (!deliveryDateResult.date && !windowOverride) {
       log.warn('No delivery date found for return validation', {
         merchantId,
         orderId,
@@ -94,14 +96,13 @@ export async function GET(request: NextRequest) {
     // Evaluate the return window per item using each product's own category, so evening
     // dresses (24h) and other categories (3 days) are judged independently. Only block the
     // whole order when every item is past its own window.
-    const windowExpiredProductIds = getWindowExpiredProductIds(
-      categoriesByProductId,
-      deliveryDateResult.date
-    );
+    const windowExpiredProductIds = deliveryDateResult.date
+      ? getWindowExpiredProductIds(categoriesByProductId, deliveryDateResult.date)
+      : new Set<string>();
     const allProductsExpired =
       productIds.length > 0 && productIds.every((productId) => windowExpiredProductIds.has(productId));
 
-    if (allProductsExpired) {
+    if (allProductsExpired && !windowOverride) {
       // Use the evening-dress message only when every product is an evening dress; otherwise
       // the default 3-day window is the binding constraint.
       const orderPolicy = getReturnWindowPolicy(Object.values(categoriesByProductId).flat());
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
       log.warn('Shipment delivery date exceeds allowed return window for all items', {
         merchantId,
         orderId,
-        deliveryDate: deliveryDateResult.date.toISOString(),
+        deliveryDate: deliveryDateResult.date!.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
         policyWindowHours: orderPolicy.windowHours,
       });
@@ -119,7 +120,7 @@ export async function GET(request: NextRequest) {
         errorCode: 'RETURN_PERIOD_EXPIRED',
         message: orderPolicy.message,
         allowedHours: orderPolicy.windowHours,
-        deliveryDate: deliveryDateResult.date.toISOString(),
+        deliveryDate: deliveryDateResult.date!.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
         canCreateNew: false,
       }, { status: 400 });
@@ -161,7 +162,8 @@ export async function GET(request: NextRequest) {
         returns: [],
         allowMultipleRequests: allowMultiple,
         canCreateNew: true,
-        windowExpiredProductIds: Array.from(windowExpiredProductIds),
+        returnWindowOverridden: windowOverride,
+        windowExpiredProductIds: windowOverride ? [] : Array.from(windowExpiredProductIds),
       });
     }
 
@@ -243,7 +245,8 @@ export async function GET(request: NextRequest) {
       })),
       allowMultipleRequests: allowMultiple,
       canCreateNew: allowMultiple, // Can create new only if multiple requests are allowed
-      windowExpiredProductIds: Array.from(windowExpiredProductIds),
+      returnWindowOverridden: windowOverride,
+      windowExpiredProductIds: windowOverride ? [] : Array.from(windowExpiredProductIds),
     });
 
   } catch (error) {

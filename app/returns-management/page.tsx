@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
@@ -82,6 +83,15 @@ interface ReturnRequest {
   } | null;
 }
 
+interface ReturnWindowOverride {
+  id: string;
+  merchantId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
 const gregorianDateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
   day: '2-digit',
   month: 'long',
@@ -158,10 +168,18 @@ type NoteEditorState = {
 };
 
 export default function ReturnsManagementPage() {
+  const { data: session } = useSession();
+  const isAdmin =
+    (session?.user as any)?.role === 'admin' ||
+    ((session?.user as any)?.roles || []).includes('admin');
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [autoCompleting, setAutoCompleting] = useState(false);
+  const [overrideOrderNumber, setOverrideOrderNumber] = useState('');
+  const [overrides, setOverrides] = useState<ReturnWindowOverride[]>([]);
+  const [overrideLoading, setOverrideLoading] = useState(false);
+  const [overrideMessage, setOverrideMessage] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectionFilters, setInspectionFilters] = useState<{ inspected: boolean; review: boolean }>({
@@ -211,6 +229,63 @@ export default function ReturnsManagementPage() {
   // Selected request for modal
   const [selectedRequest, setSelectedRequest] = useState<ReturnRequest | null>(null);
   const [noteEditor, setNoteEditor] = useState<NoteEditorState | null>(null);
+
+  const loadOverrides = useCallback(async () => {
+    if (!isAdmin) return;
+    const response = await fetch('/api/returns/window-overrides');
+    const data = await response.json();
+    if (response.ok) setOverrides(data.overrides || []);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    loadOverrides();
+  }, [loadOverrides]);
+
+  const allowLateReturn = async () => {
+    const orderNumber = overrideOrderNumber.trim();
+    if (!orderNumber) return;
+    setOverrideLoading(true);
+    setOverrideMessage('');
+    try {
+      const response = await fetch('/api/returns/window-overrides', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchantId: process.env.NEXT_PUBLIC_MERCHANT_ID || '1234509876',
+          orderNumber,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'تعذر إضافة الاستثناء');
+      setOverrideOrderNumber('');
+      setOverrideMessage(`تم السماح للطلب #${data.override.orderNumber || orderNumber} بتجاوز مدة الإرجاع.`);
+      await loadOverrides();
+    } catch (err) {
+      setOverrideMessage(err instanceof Error ? err.message : 'تعذر إضافة الاستثناء');
+    } finally {
+      setOverrideLoading(false);
+    }
+  };
+
+  const revokeLateReturn = async (id: string) => {
+    setOverrideLoading(true);
+    setOverrideMessage('');
+    try {
+      const response = await fetch('/api/returns/window-overrides', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'تعذر إلغاء الاستثناء');
+      setOverrideMessage('تم إلغاء الاستثناء.');
+      await loadOverrides();
+    } catch (err) {
+      setOverrideMessage(err instanceof Error ? err.message : 'تعذر إلغاء الاستثناء');
+    } finally {
+      setOverrideLoading(false);
+    }
+  };
 
 
   const handleInspectionFilterChange = (key: 'inspected' | 'review') => {
@@ -666,6 +741,58 @@ export default function ReturnsManagementPage() {
             </Button>
           </div>
         </div>
+
+        {isAdmin && (
+          <Card>
+            <CardHeader>
+              <CardTitle>استثناء مدة الإرجاع</CardTitle>
+              <CardDescription>
+                اسمح لطلب محدد بتجاوز حد 24 ساعة أو 3 أيام. تبقى بقية شروط الإرجاع مطبقة.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={overrideOrderNumber}
+                  onChange={(event) => setOverrideOrderNumber(event.target.value)}
+                  placeholder="رقم الطلب في سلة"
+                  disabled={overrideLoading}
+                />
+                <Button
+                  onClick={allowLateReturn}
+                  disabled={overrideLoading || !overrideOrderNumber.trim()}
+                >
+                  {overrideLoading ? 'جارٍ الحفظ...' : 'السماح بالإرجاع المتأخر'}
+                </Button>
+              </div>
+              {overrideMessage && <p className="text-sm text-muted-foreground">{overrideMessage}</p>}
+              {overrides.length > 0 && (
+                <div className="space-y-2">
+                  <FieldLabel>الاستثناءات النشطة</FieldLabel>
+                  {overrides.map((override) => (
+                    <div
+                      key={override.id}
+                      className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="text-sm">
+                        <strong>طلب #{override.orderNumber || override.orderId}</strong>
+                        <span className="mr-2 text-muted-foreground">بواسطة {override.createdBy}</span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => revokeLateReturn(override.id)}
+                        disabled={overrideLoading}
+                      >
+                        إلغاء الاستثناء
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
