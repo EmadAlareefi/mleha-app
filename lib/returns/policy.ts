@@ -9,6 +9,7 @@ import {
   EVENING_DRESS_CATEGORY,
   isEveningDressCategory,
   isDiscountedCategory,
+  isNationalDayOffersCategory,
   isOutletCategory,
   normalizeCategoryName,
 } from '@/lib/returns/categories';
@@ -350,6 +351,18 @@ export const getOutletProductIds = (categoriesByProductId: Record<string, string
   const productIds = new Set<string>();
   Object.entries(categoriesByProductId).forEach(([productId, categoryNames]) => {
     if (categoryNames.some(isOutletCategory)) {
+      productIds.add(productId);
+    }
+  });
+  return productIds;
+};
+
+export const getNationalDayOffersProductIds = (
+  categoriesByProductId: Record<string, string[]>
+): Set<string> => {
+  const productIds = new Set<string>();
+  Object.entries(categoriesByProductId).forEach(([productId, categoryNames]) => {
+    if (categoryNames.some(isNationalDayOffersCategory)) {
       productIds.add(productId);
     }
   });

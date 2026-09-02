@@ -25,6 +25,7 @@ import {
   evaluateReturnWindowByProductId,
   getCategoryNamesByProductId,
   getDiscountedProductIds,
+  getNationalDayOffersProductIds,
   getOutletProductIds,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
@@ -235,6 +236,31 @@ export async function POST(request: NextRequest) {
         message: 'لا يمكن إرجاع منتجات اوتليت مليحة. يمكنك إنشاء طلب استبدال فقط.',
         productId: outletItem.productId,
         productName: outletItem.productName,
+      }, { status: 400 });
+    }
+
+    const nationalDayOffersProductIds = getNationalDayOffersProductIds(
+      selectedCategoriesByProductId,
+    );
+    const nationalDayOffersItem = resolvedItems.find((item) =>
+      nationalDayOffersProductIds.has(item.productId),
+    );
+    if (nationalDayOffersItem && body.type === 'return') {
+      log.warn('Rejected return request for National Day offers category item', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        productId: nationalDayOffersItem.productId,
+        productName: nationalDayOffersItem.productName,
+        categories: selectedCategoriesByProductId[nationalDayOffersItem.productId],
+        type: body.type,
+      });
+
+      return NextResponse.json({
+        error: 'منتجات عروض اليوم الوطني متاحة للاستبدال فقط',
+        errorCode: 'NATIONAL_DAY_OFFERS_CATEGORY_EXCHANGE_ONLY',
+        message: 'لا يمكن إرجاع منتجات عروض اليوم الوطني. يمكنك إنشاء طلب استبدال فقط.',
+        productId: nationalDayOffersItem.productId,
+        productName: nationalDayOffersItem.productName,
       }, { status: 400 });
     }
 

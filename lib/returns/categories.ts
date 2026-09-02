@@ -6,6 +6,10 @@ export const OUTLET_CATEGORY_ALIASES = new Set([
   'اوتليت مليحة',
 ]);
 
+export const NATIONAL_DAY_OFFERS_CATEGORY_ALIASES = new Set([
+  'عروض اليوم الوطني',
+]);
+
 export const DISCOUNTED_CATEGORY_ALIASES = new Set([
   'فساتين بـ 195 ريال',
   'فستانين بـ 95 ريال',
@@ -33,4 +37,9 @@ export const isDiscountedCategory = (value: unknown): boolean => {
 export const isOutletCategory = (value: unknown): boolean => {
   const categoryName = normalizeCategoryName(value);
   return Boolean(categoryName && OUTLET_CATEGORY_ALIASES.has(categoryName));
+};
+
+export const isNationalDayOffersCategory = (value: unknown): boolean => {
+  const categoryName = normalizeCategoryName(value);
+  return Boolean(categoryName && NATIONAL_DAY_OFFERS_CATEGORY_ALIASES.has(categoryName));
 };

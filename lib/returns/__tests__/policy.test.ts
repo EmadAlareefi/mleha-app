@@ -2,13 +2,26 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   evaluateReturnWindowByProductId,
+  getNationalDayOffersProductIds,
   getReturnWindowPolicy,
   getWindowExpiredProductIds,
 } from '../policy';
+import { isNationalDayOffersCategory } from '../categories';
 
 const EVENING_DRESS = 'فساتين سهرة';
 const OTHER_CATEGORY = 'نواعم';
 const DAY_MS = 1000 * 60 * 60 * 24;
+
+test('National Day offers are identified as exchange-only products', () => {
+  assert.equal(isNationalDayOffersCategory(' عروض  اليوم الوطني '), true);
+  assert.equal(isNationalDayOffersCategory('عروض أخرى'), false);
+
+  const productIds = getNationalDayOffersProductIds({
+    national: ['فساتين', 'عروض اليوم الوطني'],
+    regular: ['فساتين'],
+  });
+  assert.deepEqual([...productIds], ['national']);
+});
 
 const daysAgo = (days: number, from = new Date('2026-06-21T12:00:00.000Z')): Date =>
   new Date(from.getTime() - days * DAY_MS);

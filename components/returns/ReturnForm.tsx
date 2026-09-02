@@ -12,7 +12,11 @@ import {
 } from '@/lib/returns/fees';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { getOrderItemUnitPrice } from '@/lib/returns/item-price';
-import { isDiscountedCategory, isOutletCategory } from '@/lib/returns/categories';
+import {
+  isDiscountedCategory,
+  isNationalDayOffersCategory,
+  isOutletCategory,
+} from '@/lib/returns/categories';
 
 interface OrderItem {
   id: number;
@@ -190,6 +194,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
+  const [nationalDayOffersProducts, setNationalDayOffersProducts] = useState<Record<string, boolean>>({});
   const orderCurrency = order.returnFeeQuotes?.return?.currency || order.amounts?.total?.currency || 'SAR';
   const fallbackReturnQuote = buildReturnFeeQuote('return', orderCurrency, 1, 'sar');
   const fallbackExchangeQuote = buildReturnFeeQuote('exchange', orderCurrency, 1, 'sar');
@@ -253,6 +258,19 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     });
     return ids;
   }, [order, itemCategories, outletCategoryProducts]);
+  const nationalDayOffersItemIds = useMemo(() => {
+    const ids = new Set<number>();
+    order.items?.forEach((item) => {
+      const productId = getOrderItemProductId(item);
+      if (
+        productId &&
+        (nationalDayOffersProducts[productId] || isNationalDayOffersCategory(itemCategories[productId]))
+      ) {
+        ids.add(item.id);
+      }
+    });
+    return ids;
+  }, [order, itemCategories, nationalDayOffersProducts]);
   // Items whose own return window has already expired (e.g. evening dresses past 24h while the
   // rest of the order is still within the 3-day window). Computed server-side in /api/returns/check.
   const windowExpiredItemIds = useMemo(() => {
@@ -277,12 +295,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         setItemCategories({});
         setDiscountedCategoryProducts({});
         setOutletCategoryProducts({});
+        setNationalDayOffersProducts({});
         return;
       }
 
       const categories: Record<string, string> = {};
       const discountedCategories: Record<string, boolean> = {};
       const outletCategories: Record<string, boolean> = {};
+      const nationalDayOffersCategories: Record<string, boolean> = {};
       const productIds = new Set<string>();
 
       // Get unique product IDs
@@ -297,6 +317,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         setItemCategories({});
         setDiscountedCategoryProducts({});
         setOutletCategoryProducts({});
+        setNationalDayOffersProducts({});
         return;
       }
 
@@ -334,6 +355,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
               if (hasOutletCategory) {
                 outletCategories[productId] = true;
               }
+              const hasNationalDayOffersCategory = availableCategories.some(
+                isNationalDayOffersCategory,
+              );
+              if (hasNationalDayOffersCategory) {
+                nationalDayOffersCategories[productId] = true;
+              }
               if (data.category && typeof data.category === 'string') {
                 const normalizedCategory = data.category.trim();
                 if (normalizedCategory) {
@@ -352,6 +379,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       setItemCategories(categories);
       setDiscountedCategoryProducts(discountedCategories);
       setOutletCategoryProducts(outletCategories);
+      setNationalDayOffersProducts(nationalDayOffersCategories);
     };
 
     fetchCategories();
@@ -364,7 +392,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     const nextSelectedItems = new Map(selectedItems);
     let changed = false;
     for (const itemId of selectedItems.keys()) {
-      if (outletCategoryItemIds.has(itemId)) {
+      if (outletCategoryItemIds.has(itemId) || nationalDayOffersItemIds.has(itemId)) {
         nextSelectedItems.delete(itemId);
         changed = true;
       }
@@ -372,13 +400,14 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     if (changed) {
       setSelectedItems(nextSelectedItems);
     }
-  }, [type, selectedItems, outletCategoryItemIds]);
+  }, [type, selectedItems, outletCategoryItemIds, nationalDayOffersItemIds]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
     if (
       discountedCategoryItemIds.has(itemId) ||
       windowExpiredItemIds.has(itemId) ||
-      (type === 'return' && outletCategoryItemIds.has(itemId))
+      (type === 'return' &&
+        (outletCategoryItemIds.has(itemId) || nationalDayOffersItemIds.has(itemId)))
     ) {
       return;
     }
@@ -433,6 +462,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       }
       if (type === 'return' && outletCategoryItemIds.has(itemId)) {
         setError('منتجات اوتليت مليحة متاحة للاستبدال فقط.');
+        return;
+      }
+      if (type === 'return' && nationalDayOffersItemIds.has(itemId)) {
+        setError('منتجات عروض اليوم الوطني متاحة للاستبدال فقط.');
         return;
       }
     }
@@ -577,7 +610,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                 isDiscountedProduct || isDiscountedCategory(category) || discountedCategoryItemIds.has(item.id);
               const isOutletCategoryItem =
                 isOutletProduct || isOutletCategory(category) || outletCategoryItemIds.has(item.id);
-              const isExchangeOnlyUnavailable = type === 'return' && isOutletCategoryItem;
+              const isNationalDayOffersItem =
+                isNationalDayOffersCategory(category) || nationalDayOffersItemIds.has(item.id);
+              const isExchangeOnlyUnavailable =
+                type === 'return' && (isOutletCategoryItem || isNationalDayOffersItem);
               const isWindowExpiredItem = windowExpiredItemIds.has(item.id);
               const isItemDisabled =
                 isDiscountedCategoryItem || isExchangeOnlyUnavailable || isWindowExpiredItem;
