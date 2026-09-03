@@ -35,6 +35,7 @@ import {
 } from '@/app/lib/returns/status';
 import type { SmsaLiveStatus } from '@/types/smsa';
 import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import { hasServiceAccess } from '@/app/lib/service-access';
 
 interface ReturnItem {
   id: string;
@@ -169,9 +170,7 @@ type NoteEditorState = {
 
 export default function ReturnsManagementPage() {
   const { data: session } = useSession();
-  const isAdmin =
-    (session?.user as any)?.role === 'admin' ||
-    ((session?.user as any)?.roles || []).includes('admin');
+  const canManageReturnWindows = hasServiceAccess(session, 'returns-management');
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -231,11 +230,11 @@ export default function ReturnsManagementPage() {
   const [noteEditor, setNoteEditor] = useState<NoteEditorState | null>(null);
 
   const loadOverrides = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canManageReturnWindows) return;
     const response = await fetch('/api/returns/window-overrides');
     const data = await response.json();
     if (response.ok) setOverrides(data.overrides || []);
-  }, [isAdmin]);
+  }, [canManageReturnWindows]);
 
   useEffect(() => {
     loadOverrides();
@@ -742,7 +741,7 @@ export default function ReturnsManagementPage() {
           </div>
         </div>
 
-        {isAdmin && (
+        {canManageReturnWindows && (
           <Card>
             <CardHeader>
               <CardTitle>استثناء مدة الإرجاع</CardTitle>

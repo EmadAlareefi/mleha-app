@@ -3,29 +3,24 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
 import { normalizeOrderReference } from '@/app/lib/salla-order-reference';
+import { hasServiceAccess } from '@/app/lib/service-access';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 
-function isAdmin(session: any) {
-  const role = session?.user?.role;
-  const roles = session?.user?.roles ?? (role ? [role] : []);
-  return role === 'admin' || roles.includes('admin');
-}
-
 function actorName(session: any) {
-  return session?.user?.username || session?.user?.name || session?.user?.email || 'admin';
+  return session?.user?.username || session?.user?.name || session?.user?.email || 'user';
 }
 
-async function authorizeAdmin() {
+async function authorizeReturnsManagement() {
   const session = await getServerSession(authOptions);
-  return isAdmin(session) ? session : null;
+  return hasServiceAccess(session, 'returns-management') ? session : null;
 }
 
 export async function GET() {
-  const session = await authorizeAdmin();
+  const session = await authorizeReturnsManagement();
   if (!session) {
-    return NextResponse.json({ error: 'هذه الصلاحية متاحة للمسؤول فقط' }, { status: 403 });
+    return NextResponse.json({ error: 'ليست لديك صلاحية لإدارة طلبات الإرجاع' }, { status: 403 });
   }
 
   const overrides = await prisma.returnWindowOverride.findMany({
@@ -37,9 +32,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await authorizeAdmin();
+  const session = await authorizeReturnsManagement();
   if (!session) {
-    return NextResponse.json({ error: 'هذه الصلاحية متاحة للمسؤول فقط' }, { status: 403 });
+    return NextResponse.json({ error: 'ليست لديك صلاحية لإدارة طلبات الإرجاع' }, { status: 403 });
   }
 
   const body = await request.json();
@@ -72,9 +67,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const session = await authorizeAdmin();
+  const session = await authorizeReturnsManagement();
   if (!session) {
-    return NextResponse.json({ error: 'هذه الصلاحية متاحة للمسؤول فقط' }, { status: 403 });
+    return NextResponse.json({ error: 'ليست لديك صلاحية لإدارة طلبات الإرجاع' }, { status: 403 });
   }
 
   const body = await request.json();
