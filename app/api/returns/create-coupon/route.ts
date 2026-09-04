@@ -4,12 +4,16 @@ import { createSallaCoupon, generateCouponCode } from '@/app/lib/salla-coupons';
 import { log } from '@/app/lib/logger';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 import { getSallaOrder } from '@/app/lib/salla-api';
-import { calculateExchangeCouponAmount } from '@/lib/returns/exchange-coupon-amount';
+import {
+  applyCouponAmountOverride,
+  calculateExchangeCouponAmount,
+  SALLA_CUSTOMER_MARKUP,
+} from '@/lib/returns/exchange-coupon-amount';
+import { shouldGrantCouponFreeShipping } from '@/lib/returns/fees';
 import { getReturnFeeQuoteForOrder } from '@/app/lib/returns/fee-quote';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
-const SALLA_CUSTOMER_MARKUP = 0.15; // Salla adds 15% to coupon value, so we compensate by dividing
 
 /**
  * POST /api/returns/create-coupon
@@ -74,11 +78,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const currentCalculation = calculateExchangeCouponAmount(
-      returnRequest,
-      liveOrderAmounts,
-      feeQuote,
-      liveOrderOptions,
+    // An agent-set credit wins over the policy calculation: some order shapes
+    // (a 1+1 bundle whose discount Salla books entirely against one line) price
+    // the exchanged item at 0, which would otherwise deadlock the coupon behind
+    // the >0 guard below.
+    const currentCalculation = applyCouponAmountOverride(
+      calculateExchangeCouponAmount(
+        returnRequest,
+        liveOrderAmounts,
+        feeQuote,
+        liveOrderOptions,
+      ),
+      returnRequest.couponAmountOverride,
     );
     const couponAmount = currentCalculation.fullAmountSar;
     const customerCouponAmount = currentCalculation.fullAmount;
@@ -136,13 +147,16 @@ export async function POST(request: NextRequest) {
       couponCode,
       amountBeforeDiscount: sanitizedAmount,
       amountAfterDiscount: discountedAmount,
+      amountSource: currentCalculation.amountSource,
     });
 
     const result = await createSallaCoupon(returnRequest.merchantId, {
       code: couponCode,
       type: 'fixed',
       amount: discountedAmount,
-      free_shipping: true,
+      // The credit already refunds the original outbound shipping; granting it
+      // again here would pay for that leg twice and eat into the exchange fee.
+      free_shipping: shouldGrantCouponFreeShipping(currentCalculation.originalShipping),
       exclude_sale_products: false,
       expiry_date: expiryDate.toISOString(),
       usage_limit: 1,

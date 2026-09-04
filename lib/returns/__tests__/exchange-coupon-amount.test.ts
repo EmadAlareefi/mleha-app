@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildReturnFeeQuote } from '../fees';
-import { calculateExchangeCouponAmount } from '../exchange-coupon-amount';
+import {
+  applyCouponAmountOverride,
+  calculateExchangeCouponAmount,
+  toSallaCouponAmount,
+} from '../exchange-coupon-amount';
 
 test('uses the current 40 SAR exchange fee with live order shipping', () => {
   const result = calculateExchangeCouponAmount(
@@ -93,4 +97,58 @@ test('calculates customer and SAR coupon amounts for non-SAR exchanges', () => {
   assert.equal(result.fullAmount, 89.33);
   assert.equal(result.fullAmountSar, 335);
   assert.equal(result.currency, 'USD');
+});
+
+test('an agent-set amount replaces the credit but keeps the fee breakdown', () => {
+  // A National Day 1+1 line Salla priced at 0: the calculation collapses to 0
+  // and the agent states the real credit instead.
+  const calculated = calculateExchangeCouponAmount(
+    { items: [{ price: 0, quantity: 1 }], shippingAmount: 16 },
+    undefined,
+  );
+  assert.equal(calculated.fullAmount, 0);
+
+  const overridden = applyCouponAmountOverride(calculated, 72);
+
+  assert.equal(overridden.amountSource, 'override');
+  assert.equal(overridden.fullAmount, 72);
+  assert.equal(overridden.fullAmountSar, 72);
+  assert.equal(overridden.processingFee, calculated.processingFee);
+  assert.equal(overridden.originalShipping, 16);
+  assert.equal(overridden.itemsTotal, 0);
+});
+
+test('converts a foreign-currency override into its SAR equivalent', () => {
+  const calculated = calculateExchangeCouponAmount(
+    {
+      items: [{ price: 0, quantity: 1 }],
+      currency: 'AED',
+      feeExchangeRate: 1.02,
+      feeExchangeRateSource: 'salla',
+    },
+    undefined,
+  );
+
+  const overridden = applyCouponAmountOverride(calculated, 100);
+
+  assert.equal(overridden.fullAmount, 100);
+  assert.equal(overridden.fullAmountSar, 102);
+});
+
+test('ignores an absent or non-positive override', () => {
+  const calculated = calculateExchangeCouponAmount(
+    { items: [{ price: 200, quantity: 1 }], shippingAmount: 16 },
+    undefined,
+  );
+
+  for (const override of [null, undefined, 0, -5, 'abc']) {
+    const result = applyCouponAmountOverride(calculated, override);
+    assert.equal(result.amountSource, 'calculated');
+    assert.equal(result.fullAmount, calculated.fullAmount);
+  }
+});
+
+test('strips Salla 15% markup from the amount sent to the coupon API', () => {
+  assert.equal(toSallaCouponAmount(72), 62.61);
+  assert.equal(toSallaCouponAmount(171.99), 149.56);
 });

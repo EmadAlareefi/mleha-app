@@ -17,6 +17,13 @@ export interface ReturnLabelNotificationInput {
   trackingNumber?: string | null;
   shipmentData?: unknown;
   source?: string;
+  /**
+   * Bypasses the already-sent guard. Only for the deliberate admin resend — the
+   * webhook and backfill paths must stay idempotent.
+   */
+  force?: boolean;
+  /** Restricts the lookup to one request instead of the order's latest. */
+  returnRequestId?: string;
 }
 
 export interface ReturnLabelNotificationResult {
@@ -122,9 +129,24 @@ const hasReturnMarker = (source: unknown, depth = 0): boolean => {
   });
 };
 
+/**
+ * A native `shipment.created` webhook (and the objects Salla's `/shipments`
+ * endpoint returns) carry `label` / `tracking_number` / `type` at the top level
+ * rather than nested under `shipping.shipment`. Without this, such payloads
+ * always resolved to `missing_label_url` and the WhatsApp was silently skipped.
+ */
+const looksLikeShipment = (data: AnyRecord): boolean =>
+  Boolean(data.label || data.tracking_number || data.trackingNumber || data.tracking_link) &&
+  !data.shipping &&
+  !data.shipment;
+
 const getShipmentCandidates = (payload: unknown): AnyRecord[] => {
   const data = (payload && typeof payload === 'object' ? payload : {}) as AnyRecord;
   const candidates: AnyRecord[] = [];
+
+  if (looksLikeShipment(data)) {
+    candidates.push(data);
+  }
 
   if (data.shipping?.shipment && typeof data.shipping.shipment === 'object') {
     candidates.push(data.shipping.shipment);
@@ -199,11 +221,33 @@ const providerIsSalla = (response: unknown) => {
   return normalizeText((response as AnyRecord).provider)?.toLowerCase() === 'salla';
 };
 
+const RETURN_REQUEST_NOTIFICATION_FIELDS = {
+  id: true,
+  merchantId: true,
+  orderId: true,
+  orderNumber: true,
+  customerName: true,
+  customerPhone: true,
+  type: true,
+  status: true,
+  smsaTrackingNumber: true,
+  smsaResponse: true,
+  returnLabelNotificationSentAt: true,
+} as const;
+
 async function findReturnRequest(input: {
   merchantId: string;
   orderId?: string | null;
   orderNumber?: string | null;
+  returnRequestId?: string | null;
 }): Promise<ReturnRequestForNotification | null> {
+  if (input.returnRequestId) {
+    return prisma.returnRequest.findUnique({
+      where: { id: input.returnRequestId },
+      select: RETURN_REQUEST_NOTIFICATION_FIELDS,
+    }) as Promise<ReturnRequestForNotification | null>;
+  }
+
   const identifiers = Array.from(
     new Set([input.orderId, input.orderNumber].map((value) => normalizeText(value)).filter((value): value is string => Boolean(value)))
   );
@@ -222,19 +266,7 @@ async function findReturnRequest(input: {
       ]),
     },
     orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      merchantId: true,
-      orderId: true,
-      orderNumber: true,
-      customerName: true,
-      customerPhone: true,
-      type: true,
-      status: true,
-      smsaTrackingNumber: true,
-      smsaResponse: true,
-      returnLabelNotificationSentAt: true,
-    },
+    select: RETURN_REQUEST_NOTIFICATION_FIELDS,
   }) as Promise<ReturnRequestForNotification | null>;
 }
 
@@ -282,13 +314,14 @@ export async function maybeNotifyReturnLabelCreated(
       merchantId,
       orderId: input.orderId,
       orderNumber: input.orderNumber,
+      returnRequestId: input.returnRequestId,
     });
 
     if (!returnRequest) {
       return { status: 'skipped', reason: 'no_matching_return_request' };
     }
 
-    if (returnRequest.returnLabelNotificationSentAt) {
+    if (returnRequest.returnLabelNotificationSentAt && !input.force) {
       return {
         status: 'skipped',
         reason: 'already_sent',

@@ -12,6 +12,10 @@
     {
       "path": "/api/customer-journey/process",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/returns/label-backfill",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

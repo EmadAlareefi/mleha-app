@@ -739,11 +739,10 @@ export async function process_salla_shipment_created(data: AnyObj, meta?: Webhoo
     merchantId,
     orderId,
     orderNumber,
-    labelUrl:
-      data?.shipping?.shipment?.label?.url ||
-      data?.shipping?.shipment?.label_url ||
-      data?.shipping?.shipment?.labelUrl ||
-      (typeof data?.shipping?.shipment?.label === "string" ? data.shipping.shipment.label : null),
+    // Left to extractReturnLabelPayload: a native `shipment.created` payload
+    // carries `label` at the top level of `data`, not under `shipping.shipment`,
+    // so reading only the nested path always resolved to `missing_label_url` and
+    // the waybill was never sent.
     trackingNumber,
     shipmentData: data,
     source: "salla-shipment-created-generic-webhook",

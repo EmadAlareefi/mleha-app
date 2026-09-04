@@ -36,6 +36,7 @@ import {
 import type { SmsaLiveStatus } from '@/types/smsa';
 import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import { CouponAmountDialog } from './components/coupon-amount-dialog';
 
 interface ReturnItem {
   id: string;
@@ -68,11 +69,19 @@ interface ReturnRequest {
   smsaAwbNumber?: string;
   smsaLiveStatus?: SmsaLiveStatus | null;
   smsaLiveStatusUpdatedAt?: string | null;
+  returnLabelUrl?: string | null;
+  returnLabelNotificationSentAt?: string | null;
+  returnLabelNotificationError?: string | null;
   totalRefundAmount?: number | string | null;
   returnFee?: number;
+  shippingAmount?: number | string | null;
   currency?: string | null;
   couponCode?: string;
   couponId?: string;
+  couponAmountOverride?: number | string | null;
+  couponAmountOverrideBy?: string | null;
+  couponAmountOverrideAt?: string | null;
+  couponAmountOverrideNote?: string | null;
   adminNotes?: string;
   reviewedBy?: string;
   reviewedAt?: string;
@@ -228,6 +237,8 @@ export default function ReturnsManagementPage() {
   // Selected request for modal
   const [selectedRequest, setSelectedRequest] = useState<ReturnRequest | null>(null);
   const [noteEditor, setNoteEditor] = useState<NoteEditorState | null>(null);
+  const [couponAmountRequest, setCouponAmountRequest] = useState<ReturnRequest | null>(null);
+  const [labelActionBusy, setLabelActionBusy] = useState<string | null>(null);
 
   const loadOverrides = useCallback(async () => {
     if (!canManageReturnWindows) return;
@@ -582,6 +593,60 @@ export default function ReturnsManagementPage() {
     }
   };
 
+
+  const LABEL_ACTION_LABELS: Record<string, string> = {
+    sync: 'تحديث من سلة',
+    reissue: 'إعادة إصدار البوليصة',
+    resend: 'إعادة إرسال الواتساب',
+  };
+
+  const LABEL_SYNC_MESSAGES: Record<string, string> = {
+    notified: 'تم العثور على البوليصة وإرسالها للعميل.',
+    already_notified: 'البوليصة موجودة وسبق إرسالها للعميل.',
+    tracking_only: 'تم تحديث رقم التتبع، لكن سلة لم تصدر البوليصة بعد.',
+    pending: 'سلة ما زالت تُنشئ شحنة المرتجع. حاول بعد قليل.',
+    stuck: 'سلة لم تُصدر البوليصة رغم قبول الطلب. استخدم "إعادة إصدار البوليصة".',
+    error: 'تعذر الاتصال بسلة.',
+  };
+
+  const runLabelAction = async (request: ReturnRequest, action: 'sync' | 'reissue' | 'resend') => {
+    if (action === 'reissue') {
+      const confirmed = window.confirm(
+        'سيتم طلب بوليصة إرجاع جديدة من سلة لهذا الطلب. المتابعة؟',
+      );
+      if (!confirmed) return;
+    }
+
+    setLabelActionBusy(`${request.id}:${action}`);
+    try {
+      const response = await fetch('/api/returns/label-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnRequestId: request.id, action }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || `فشل ${LABEL_ACTION_LABELS[action]}`);
+      }
+
+      if (action === 'resend') {
+        alert(
+          data.notification?.status === 'sent'
+            ? 'تم إرسال البوليصة على الواتساب.'
+            : `لم يتم الإرسال: ${data.notification?.reason || data.notification?.error || 'سبب غير معروف'}`,
+        );
+      } else {
+        alert(LABEL_SYNC_MESSAGES[data.sync?.status] || 'تم تنفيذ الإجراء.');
+      }
+
+      loadReturnRequests();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'حدث خطأ');
+    } finally {
+      setLabelActionBusy(null);
+    }
+  };
 
   const createCoupon = async (
     requestId: string,
@@ -1051,8 +1116,15 @@ export default function ReturnsManagementPage() {
                           <div className="mt-3 pt-3 border-t">
                             <div className="flex justify-between font-semibold">
                               <span>المبلغ المسترد:</span>
-                              <span className="text-green-600">
-                                {formatPrice(request.totalRefundAmount ?? 0, request.currency)}
+                              <span className="flex items-center gap-2">
+                                {request.couponAmountOverride != null && (
+                                  <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                                    قيمة معدّلة يدوياً
+                                  </Badge>
+                                )}
+                                <span className="text-green-600">
+                                  {formatPrice(request.totalRefundAmount ?? 0, request.currency)}
+                                </span>
                               </span>
                             </div>
                           </div>
@@ -1102,6 +1174,75 @@ export default function ReturnsManagementPage() {
                             <option value="exchange">استبدال بكوبون</option>
                           </NativeSelect>
                         </div>
+
+                        <div className="rounded-lg border p-3 space-y-2">
+                          <div className="flex items-center justify-between text-sm font-semibold">
+                            <span>بوليصة الإرجاع</span>
+                            {request.returnLabelNotificationSentAt ? (
+                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                تم الإرسال
+                              </Badge>
+                            ) : request.returnLabelUrl ? (
+                              <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                                لم تُرسل
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
+                                لا توجد بوليصة
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            رقم التتبع: {request.smsaTrackingNumber || '—'}
+                          </p>
+                          {request.returnLabelUrl && (
+                            <a
+                              href={request.returnLabelUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 underline"
+                            >
+                              فتح البوليصة
+                            </a>
+                          )}
+                          {request.returnLabelNotificationError && (
+                            <p className="text-xs text-red-600">
+                              خطأ الإرسال: {request.returnLabelNotificationError}
+                            </p>
+                          )}
+                          <div className="grid grid-cols-1 gap-2">
+                            {(['sync', 'reissue', 'resend'] as const).map((action) => (
+                              <Button
+                                key={action}
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={
+                                  labelActionBusy !== null ||
+                                  (action === 'resend' && !request.returnLabelUrl)
+                                }
+                                onClick={() => runLabelAction(request, action)}
+                              >
+                                {labelActionBusy === `${request.id}:${action}`
+                                  ? 'جاري التنفيذ...'
+                                  : LABEL_ACTION_LABELS[action]}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Available after completion too: a wrong credit is
+                            usually only noticed once the customer complains. */}
+                        {request.type === 'exchange' && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => setCouponAmountRequest(request)}
+                          >
+                            تعديل قيمة الكوبون
+                          </Button>
+                        )}
 
                         {request.status !== 'completed' ? (
                           <>
@@ -1202,6 +1343,15 @@ export default function ReturnsManagementPage() {
             )}
           </>
         )}
+
+        <CouponAmountDialog
+          request={couponAmountRequest}
+          onClose={() => setCouponAmountRequest(null)}
+          onSaved={(message) => {
+            alert(message);
+            loadReturnRequests();
+          }}
+        />
 
         {/* Details Modal */}
         {selectedRequest && (

@@ -44,6 +44,20 @@ export function getProcessingFee(type: ReturnRequestType): number {
   return getShipmentLegFee(type) * 2;
 }
 
+/**
+ * Whether the exchange coupon should also grant free shipping on the replacement
+ * order.
+ *
+ * The coupon amount already refunds the original outbound shipping (it is part of
+ * `refundableSubtotal` in `./exchange-coupon-amount.ts`). Granting free shipping on
+ * top of that credits the same leg twice and quietly cuts the 40 SAR exchange fee
+ * down to ~24. Only orders that shipped free to begin with carry no shipping inside
+ * the coupon, so only those get free shipping back.
+ */
+export function shouldGrantCouponFreeShipping(originalShipping: number): boolean {
+  return !(Number.isFinite(originalShipping) && originalShipping > 0);
+}
+
 export function normalizeReturnCurrency(value: unknown): string {
   if (typeof value !== 'string') {
     return BASE_FEE_CURRENCY;

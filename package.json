@@ -29,6 +29,7 @@
     "test:notify-script-editor": "node --test --import tsx app/lib/__tests__/notify-me-script.test.ts app/embed/__tests__/notify-me-widget.test.ts",
     "test:order-reference": "node --test --import tsx app/lib/__tests__/salla-order-reference.test.ts",
     "test:returns-pricing": "node --test --import tsx lib/returns/__tests__/item-price.test.ts lib/returns/__tests__/resolve-return-items.test.ts",
+    "test:returns-coupon": "node --test --import tsx lib/returns/__tests__/fees.test.ts lib/returns/__tests__/exchange-coupon-amount.test.ts app/lib/__tests__/return-label-notification.test.ts",
     "test:returns-phone": "node --test --import tsx app/lib/__tests__/returns-customer-phone.test.ts",
     "test:product-reviews": "node --test --import tsx app/lib/__tests__/product-review-presets.test.ts app/lib/__tests__/salla-product-reviews.test.ts app/embed/__tests__/product-reviews-widget.test.ts",
     "test:size-guides": "node --test --import tsx app/lib/__tests__/salla-size-guides.test.ts app/embed/__tests__/size-guide-widget.test.ts",

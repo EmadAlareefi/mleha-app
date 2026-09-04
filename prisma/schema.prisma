@@ -983,6 +983,14 @@ model ReturnRequest {
   couponId        String? // Salla coupon ID
   couponCreatedAt DateTime? // When coupon was created
 
+  // Credit set by hand in returns-management, in the order currency. Kept apart
+  // from totalRefundAmount because every coupon action recomputes and overwrites
+  // that field, which would silently discard an agent's decision.
+  couponAmountOverride     Decimal?  @db.Decimal(10, 2)
+  couponAmountOverrideBy   String?
+  couponAmountOverrideAt   DateTime?
+  couponAmountOverrideNote String?   @db.Text
+
   // Exchange order tracking
   exchangeOrderId         String?
   exchangeOrderNumber     String?

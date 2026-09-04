@@ -93,6 +93,61 @@ export async function createSallaCoupon(
   }
 }
 
+export type UpdateCouponRequest = Partial<CreateCouponRequest>;
+
+/**
+ * Update an existing coupon in Salla (used when an agent revises an exchange
+ * credit after the coupon was already handed to the customer — the code stays
+ * the same, only its value moves).
+ */
+export async function updateSallaCoupon(
+  merchantId: string,
+  couponId: string,
+  patch: UpdateCouponRequest
+): Promise<{ success: boolean; coupon?: SallaCoupon; error?: string }> {
+  try {
+    log.info('Updating Salla coupon', { merchantId, couponId, patch });
+
+    const response = await sallaMakeRequest<{
+      status: number;
+      success: boolean;
+      data: SallaCoupon;
+      error?: string;
+    }>(merchantId, `/coupons/${couponId}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+
+    if (!response || !response.success) {
+      log.error('Failed to update Salla coupon', { merchantId, couponId, response });
+
+      const errorMsg = response?.error || 'فشل تحديث الكوبون';
+      if (errorMsg.includes('Unauthorized') || errorMsg.includes('marketing')) {
+        return {
+          success: false,
+          error: 'صلاحيات غير كافية. يتطلب تعديل الكوبونات صلاحية marketing.read_write من سلة',
+        };
+      }
+
+      return { success: false, error: errorMsg };
+    }
+
+    log.info('Salla coupon updated successfully', {
+      merchantId,
+      couponId,
+      amount: response.data?.amount,
+    });
+
+    return { success: true, coupon: response.data };
+  } catch (error) {
+    log.error('Error updating Salla coupon', { error, merchantId, couponId });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'خطأ غير متوقع',
+    };
+  }
+}
+
 /**
  * Get a coupon by ID
  */

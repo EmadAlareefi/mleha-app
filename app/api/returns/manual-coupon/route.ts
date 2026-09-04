@@ -3,12 +3,15 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 import { getSallaOrder } from '@/app/lib/salla-api';
-import { calculateExchangeCouponAmount } from '@/lib/returns/exchange-coupon-amount';
+import {
+  applyCouponAmountOverride,
+  calculateExchangeCouponAmount,
+  SALLA_CUSTOMER_MARKUP,
+} from '@/lib/returns/exchange-coupon-amount';
 import { getReturnFeeQuoteForOrder } from '@/app/lib/returns/fee-quote';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
-const SALLA_CUSTOMER_MARKUP = 0.15; // Salla adds 15% (VAT) to coupon value
 
 /**
  * POST /api/returns/manual-coupon
@@ -65,11 +68,14 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const currentCalculation = calculateExchangeCouponAmount(
-      returnRequest,
-      liveOrderAmounts,
-      feeQuote,
-      liveOrderOptions,
+    const currentCalculation = applyCouponAmountOverride(
+      calculateExchangeCouponAmount(
+        returnRequest,
+        liveOrderAmounts,
+        feeQuote,
+        liveOrderOptions,
+      ),
+      returnRequest.couponAmountOverride,
     );
     const couponAmount = currentCalculation.fullAmount;
 
@@ -100,6 +106,7 @@ export async function POST(request: NextRequest) {
       returnRequestId,
       couponCode: couponCode.trim(),
       couponAmount,
+      amountSource: currentCalculation.amountSource,
       processingFee: currentCalculation.processingFee,
       originalShipping: currentCalculation.originalShipping,
     });

@@ -275,6 +275,27 @@ export default async function ReturnOrderDetailsPage({
                   <dt>المبلغ المسترد</dt>
                   <dd>{returnRequest.totalRefundAmount ? formatPrice(returnRequest.totalRefundAmount, returnRequest.currency) : '—'}</dd>
                 </div>
+                {returnRequest.couponAmountOverride != null && (
+                  <div className="flex justify-between">
+                    <dt>قيمة معدّلة يدوياً</dt>
+                    <dd className="text-left">
+                      <span className="font-medium">
+                        {formatPrice(returnRequest.couponAmountOverride, returnRequest.currency)}
+                      </span>
+                      <span className="block text-xs text-gray-500">
+                        {returnRequest.couponAmountOverrideBy || '—'}
+                        {returnRequest.couponAmountOverrideAt
+                          ? ` • ${returnRequest.couponAmountOverrideAt.toLocaleString('ar-SA')}`
+                          : ''}
+                      </span>
+                      {returnRequest.couponAmountOverrideNote && (
+                        <span className="block text-xs text-gray-500">
+                          {returnRequest.couponAmountOverrideNote}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                )}
                 {returnRequest.couponCode && (
                   <div className="flex justify-between">
                     <dt>كود الكوبون</dt>

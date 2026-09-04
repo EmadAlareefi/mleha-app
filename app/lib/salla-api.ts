@@ -321,6 +321,10 @@ export interface SallaShipmentRecord {
   label?: { url?: string } | string;
 }
 
+export type SallaOrderShipmentsResult =
+  | { ok: true; shipments: SallaShipmentRecord[] }
+  | { ok: false; error: string };
+
 /**
  * Fetches the shipments associated with an order from Salla.
  *
@@ -328,11 +332,15 @@ export interface SallaShipmentRecord {
  * `create_return_policy` action, so the tracking number is not present in the
  * action response. Once issued, the return appears here as a `type: "return"`
  * shipment.
+ *
+ * Uses the order-scoped route rather than `/shipments?order_id=`: the latter
+ * needs the `shippings.read` scope, which this app's token does not carry, so it
+ * answered 401 on every call and the caller silently saw "no shipments".
  */
-export async function getSallaOrderShipments(
+export async function fetchSallaOrderShipments(
   merchantId: string,
   orderId: string
-): Promise<SallaShipmentRecord[]> {
+): Promise<SallaOrderShipmentsResult> {
   try {
     const response = await sallaMakeRequest<{
       status: number;
@@ -340,19 +348,28 @@ export async function getSallaOrderShipments(
       data: SallaShipmentRecord[];
     }>(
       merchantId,
-      `/shipments?order_id=${encodeURIComponent(orderId)}`
+      `/orders/${encodeURIComponent(orderId)}/shipments`
     );
 
     if (!response || !response.success || !Array.isArray(response.data)) {
       log.warn('Failed to fetch Salla order shipments', { merchantId, orderId });
-      return [];
+      return { ok: false, error: 'salla_request_failed' };
     }
 
-    return response.data;
+    return { ok: true, shipments: response.data };
   } catch (error) {
     log.error('Error fetching Salla order shipments', { merchantId, orderId, error });
-    return [];
+    return { ok: false, error: error instanceof Error ? error.message : 'unknown_error' };
   }
+}
+
+/** Convenience wrapper for callers that treat a failure as "nothing to do". */
+export async function getSallaOrderShipments(
+  merchantId: string,
+  orderId: string
+): Promise<SallaShipmentRecord[]> {
+  const result = await fetchSallaOrderShipments(merchantId, orderId);
+  return result.ok ? result.shipments : [];
 }
 
 export interface SallaOrderHistoryEntry {

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
-import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { getOrderOptionsTotal, getOriginalShippingFee } from '@/lib/returns/fees';
 import { resolveReturnItems } from '@/lib/returns/resolve-return-items';
@@ -30,10 +29,12 @@ import {
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
 import { hasActiveReturnWindowOverride } from '@/lib/returns/window-override';
+import {
+  CREATE_RETURN_POLICY_ACTION,
+  requestSallaReturnPolicy,
+} from '@/app/lib/returns/salla-return-policy';
 
 export const runtime = 'nodejs';
-
-const CREATE_RETURN_POLICY_ACTION = 'create_return_policy';
 
 interface ReturnItemRequest {
   /**
@@ -67,25 +68,6 @@ interface CreateReturnRequest {
   merchantPostalCode?: string;
   merchantCountry?: string;
   merchantCoordinates?: string;
-}
-
-interface SallaOrderActionOperation {
-  operation_id?: string;
-  action_name?: string;
-  status?: string;
-  message?: string;
-  [key: string]: unknown;
-}
-
-interface SallaOrderActionsResponse {
-  status?: number;
-  success?: boolean;
-  data?: SallaOrderActionOperation[];
-  message?: string;
-  error?: {
-    message?: string;
-    [key: string]: unknown;
-  };
 }
 
 /**
@@ -406,94 +388,21 @@ export async function POST(request: NextRequest) {
 
     const parsedOrderId = parseInt(body.orderId, 10);
     const normalizedOrderId = Number.isNaN(parsedOrderId) ? body.orderId : parsedOrderId;
-    const actionRequestData = {
-      operations: [
-        {
-          action_name: CREATE_RETURN_POLICY_ACTION,
-          value: [normalizedOrderId],
-        },
-      ],
-      filters: {
-        order_ids: [normalizedOrderId],
-      },
-    };
 
-    log.info('Creating Salla return policy', {
-      orderId: body.orderId,
-      orderReference,
-      actionRequestData,
-    });
+    const policyResult = await requestSallaReturnPolicy(body.merchantId, body.orderId);
 
-    const actionResponse = await sallaMakeRequest<SallaOrderActionsResponse>(
-      body.merchantId,
-      '/orders/actions',
-      {
-        method: 'POST',
-        body: JSON.stringify(actionRequestData),
-      }
-    );
-
-    if (!actionResponse || !actionResponse.success) {
-      const errorMessage =
-        actionResponse?.error?.message ||
-        actionResponse?.message ||
-        'فشل إنشاء سياسة الإرجاع';
-
-      log.error('Salla return policy creation failed', {
-        orderId: body.orderId,
-        error: errorMessage,
-        response: actionResponse,
-      });
-
+    if (!policyResult.success) {
       return NextResponse.json(
-        {
-          error: errorMessage,
-          details: actionResponse?.error || undefined,
-        },
+        { error: policyResult.error, details: policyResult.details },
         { status: 400 }
       );
     }
 
-    const operations = Array.isArray(actionResponse.data) ? actionResponse.data : [];
-    const returnPolicyOperation =
-      operations.find((op) => op.action_name === CREATE_RETURN_POLICY_ACTION) ??
-      (operations.length === 1 ? operations[0] : undefined);
-
-    if (!returnPolicyOperation) {
-      log.error('No return policy operation found in Salla response', {
-        orderId: body.orderId,
-        operations,
-      });
-
-      return NextResponse.json(
-        { error: 'لم يتم العثور على عملية إنشاء سياسة الإرجاع في استجابة سلة' },
-        { status: 400 }
-      );
-    }
-
-    const operationStatus = String(returnPolicyOperation.status || '').toLowerCase();
-    const operationId = returnPolicyOperation.operation_id;
-    const operationMessage =
-      typeof returnPolicyOperation.message === 'string'
-        ? returnPolicyOperation.message
-        : typeof actionResponse.message === 'string'
-          ? actionResponse.message
-          : undefined;
-
-    if (operationStatus !== 'success' && operationStatus !== 'in_progress') {
-      log.error('Salla return policy operation failed', {
-        orderId: body.orderId,
-        operation: returnPolicyOperation,
-      });
-
-      return NextResponse.json(
-        {
-          error: operationMessage || 'فشل إنشاء سياسة الإرجاع',
-          details: `status=${operationStatus || 'unknown'} | opId=${operationId ?? 'n/a'}`,
-        },
-        { status: 400 }
-      );
-    }
+    const actionRequestData = policyResult.request;
+    const actionResponse = policyResult.response;
+    const returnPolicyOperation = policyResult.operation;
+    const operationStatus = policyResult.operationStatus;
+    const operationId = policyResult.operationId;
 
     // The `create_return_policy` action response echoes the existing order, which
     // still carries the ORIGINAL (outbound) shipment's tracking number/link. Salla

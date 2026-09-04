@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
-import { getSallaOrderShipments } from '@/app/lib/salla-api';
-import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
+import { syncReturnShipment } from '@/app/lib/returns/return-shipment-sync';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +31,11 @@ export async function GET(request: NextRequest) {
         id: true,
         merchantId: true,
         orderId: true,
+        orderNumber: true,
+        createdAt: true,
         smsaTrackingNumber: true,
+        returnLabelUrl: true,
+        returnLabelNotificationSentAt: true,
       },
     });
 
@@ -50,39 +53,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    try {
-      const shipments = await getSallaOrderShipments(
-        returnRequest.merchantId,
-        String(returnRequest.orderId)
-      );
-      const trackingNumber =
-        shipments
-          .filter((shipment) => String(shipment?.type || '').toLowerCase() === 'return')
-          .map((shipment) => extractTrackingFromShipment(shipment))
-          .find((tracking): tracking is string => Boolean(tracking)) ?? null;
+    // The full sync, not just the tracking number: while the customer waits on
+    // the success screen this is often the first place the label shows up, and
+    // it is what actually gets the بوليصة onto their WhatsApp.
+    const sync = await syncReturnShipment(returnRequest, { source: 'returns-tracking-status' });
 
-      if (trackingNumber) {
-        try {
-          await prisma.returnRequest.update({
-            where: { id: returnRequest.id },
-            data: { smsaTrackingNumber: trackingNumber },
-          });
-        } catch (updateError) {
-          // smsaTrackingNumber is unique; ignore conflicts but still surface it.
-          log.warn('Failed to persist return tracking number', {
-            returnRequestId,
-            trackingNumber,
-            error: updateError,
-          });
-        }
-
-        return NextResponse.json({ ready: true, trackingNumber });
-      }
-    } catch (error) {
-      log.warn('Failed to fetch return shipment tracking from Salla', {
-        returnRequestId,
-        error,
-      });
+    if (sync.trackingNumber) {
+      return NextResponse.json({ ready: true, trackingNumber: sync.trackingNumber });
     }
 
     return NextResponse.json({ ready: false, trackingNumber: null });

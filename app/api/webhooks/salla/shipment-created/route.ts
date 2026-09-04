@@ -225,45 +225,21 @@ export async function POST(request: NextRequest) {
         hasLabelUrl: !!shipmentUrl,
       });
 
-      // Only the shipment-create events carry a freshly issued label; order.updated
-      // payloads are re-deliveries of order state and must not trigger a re-send.
-      if (!isOrderUpdatedEvent) {
-        const returnLabelNotification = await maybeNotifyReturnLabelCreated({
+      if (!isOrderUpdatedEvent && !isReturnShipment) {
+        await enqueueCustomerJourneyEvent({
+          event: eventType,
           merchantId,
-          orderId: resolvedOrderId,
-          orderNumber: referenceId || resolvedOrderId,
-          labelUrl: shipmentUrl,
-          trackingNumber: trackingNumberValue,
-          shipmentData: data,
-          source: 'salla-shipment-created-webhook',
-        });
-
-        if (returnLabelNotification.status !== 'skipped') {
-          log.info('Return label notification result from shipment webhook', {
-            referenceId,
-            orderId: resolvedOrderId,
-            result: returnLabelNotification.status,
-            reason: returnLabelNotification.reason,
-            returnRequestId: returnLabelNotification.returnRequestId,
-          });
-        }
-
-        if (!isReturnShipment) {
-          await enqueueCustomerJourneyEvent({
-            event: eventType,
-            merchantId,
-            order: (storedOrderSnapshot?.rawOrder as any) || {
-              id: resolvedOrderId,
-              reference_id: referenceId,
-              customer: {
-                name: receiver.name,
-                mobile: receiver.phone,
-              },
+          order: (storedOrderSnapshot?.rawOrder as any) || {
+            id: resolvedOrderId,
+            reference_id: referenceId,
+            customer: {
+              name: receiver.name,
+              mobile: receiver.phone,
             },
-            data,
-            status: 'shipped',
-          });
-        }
+          },
+          data,
+          status: 'shipped',
+        });
       }
     } catch (dbError) {
       log.error('Failed to store shipment in database', {
@@ -271,6 +247,34 @@ export async function POST(request: NextRequest) {
         error: dbError,
       });
       alreadyPrinted = false;
+    }
+
+    // Outside the storage try/catch on purpose: a failed shipment upsert used to
+    // swallow the customer's return waybill message under a "failed to store
+    // shipment" log line.
+    //
+    // Only the shipment-create events carry a freshly issued label; order.updated
+    // payloads are re-deliveries of order state and must not trigger a re-send.
+    if (!isOrderUpdatedEvent) {
+      const returnLabelNotification = await maybeNotifyReturnLabelCreated({
+        merchantId,
+        orderId: resolvedOrderId,
+        orderNumber: referenceId || resolvedOrderId,
+        labelUrl: shipmentUrl,
+        trackingNumber: trackingNumberValue,
+        shipmentData: data,
+        source: 'salla-shipment-created-webhook',
+      });
+
+      if (returnLabelNotification.status !== 'skipped') {
+        log.info('Return label notification result from shipment webhook', {
+          referenceId,
+          orderId: resolvedOrderId,
+          result: returnLabelNotification.status,
+          reason: returnLabelNotification.reason,
+          returnRequestId: returnLabelNotification.returnRequestId,
+        });
+      }
     }
 
     // Send label to PrintNode if URL is available

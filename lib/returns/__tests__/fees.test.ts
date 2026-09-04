@@ -9,6 +9,7 @@ import {
   getOriginalShippingFee,
   getOrderOptionsTotal,
   splitReturnFee,
+  shouldGrantCouponFreeShipping,
   RETURN_SHIPMENT_LEG_FEE,
   EXCHANGE_SHIPMENT_LEG_FEE,
 } from '../fees';
@@ -20,6 +21,15 @@ test('charges two flat shipment legs per request type', () => {
   assert.equal(getShipmentLegFee('exchange'), 20);
   assert.equal(getProcessingFee('return'), 60);
   assert.equal(getProcessingFee('exchange'), 40);
+});
+
+test('grants coupon free shipping only when the order shipped free', () => {
+  // The coupon already refunds paid shipping, so re-granting it would credit the
+  // same leg twice and shrink the 40 SAR exchange fee.
+  assert.equal(shouldGrantCouponFreeShipping(0), true);
+  assert.equal(shouldGrantCouponFreeShipping(16), false);
+  assert.equal(shouldGrantCouponFreeShipping(30), false);
+  assert.equal(shouldGrantCouponFreeShipping(Number.NaN), true);
 });
 
 test('grosses up the original shipping by VAT when tax is not itemized', () => {

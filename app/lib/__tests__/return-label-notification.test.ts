@@ -79,3 +79,23 @@ test('builds Zoko template arguments with Arabic customer fallback', () => {
     ['عميلنا العزيز', '123456', 'https://labels.example/return.pdf']
   );
 });
+
+test('extracts a return label from a flat shipment.created payload', () => {
+  // Salla's native shipment webhook — and its /shipments response — put these
+  // fields at the top level, with no `shipping` wrapper.
+  const payload = {
+    id: 2121166014,
+    type: 'return',
+    status: 'creating',
+    tracking_number: '233014692868',
+    courier_name: 'سمسا - شحن عادي',
+    label: { url: 'https://cdn.salla.sa/shipping-policy/return.pdf', format: 'pdf' },
+  };
+
+  assert.deepEqual(extractReturnLabelPayload(payload), {
+    labelUrl: 'https://cdn.salla.sa/shipping-policy/return.pdf',
+    trackingNumber: '233014692868',
+    courierName: 'سمسا - شحن عادي',
+    hasReturnMarker: true,
+  });
+});
