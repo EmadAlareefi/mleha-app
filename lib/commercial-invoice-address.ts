@@ -1,5 +1,7 @@
 const ADDRESS_LINE_KEYS = [
   'address',
+  'shipping_address',
+  'street_address',
   'address_1',
   'address1',
   'address_2',
@@ -62,7 +64,7 @@ const normalizeText = (value: unknown): string => {
   }
   if (typeof value === 'object') {
     const obj = value as UnknownRecord;
-    return normalizeText(obj.value) || normalizeText(obj.name) || normalizeText(obj.label) || normalizeText(obj.title);
+    return normalizeText(obj.name) || normalizeText(obj.label) || normalizeText(obj.title) || normalizeText(obj.value);
   }
   return '';
 };
@@ -107,7 +109,12 @@ const buildPhone = (records: Array<UnknownRecord | null>) => {
     const phoneNumber = getFirstValue([record], PHONE_NUMBER_KEYS);
     if (!phoneNumber) continue;
     const phoneCode = getFirstValue([record], PHONE_CODE_KEYS);
-    return [phoneCode, phoneNumber].filter(Boolean).join('').trim();
+    const digits = phoneNumber.replace(/\D/g, '');
+    const codeDigits = phoneCode.replace(/\D/g, '').replace(/^00/, '');
+    if (!codeDigits || phoneNumber.startsWith('+') || digits.startsWith('00') || digits.startsWith(codeDigits)) {
+      return phoneNumber;
+    }
+    return `${phoneCode}${digits.replace(/^0+/, '')}`;
   }
   return '';
 };
@@ -117,15 +124,19 @@ const getShipmentDestinationRecords = (value: unknown) => {
     return [];
   }
 
-  return value.flatMap((shipment) => {
+  for (const shipment of value) {
     const record = asRecord(shipment);
-    return [
+    // A return shipment's destination is the warehouse, not the customer.
+    if (/return|refund|مرتجع/i.test(normalizeText(record?.type))) continue;
+    const destinations = [
       asRecord(record?.ship_to),
       asRecord(record?.shipTo),
       asRecord(record?.receiver),
       asRecord(record?.destination),
-    ];
-  });
+    ].filter((destination) => destination && Object.values(destination).some(Boolean));
+    if (destinations.length) return destinations;
+  }
+  return [];
 };
 
 const getPrimaryDestinationRecords = (orderData: UnknownRecord) => {
@@ -177,6 +188,9 @@ const getPrimaryDestinationRecords = (orderData: UnknownRecord) => {
     asRecord(nestedOrder?.ship_to),
     asRecord(nestedOrder?.shipTo),
     asRecord(nestedOrder?.receiver),
+    shipping,
+    delivery,
+    nestedShipping,
   ];
 };
 
@@ -210,17 +224,16 @@ export const resolveCommercialInvoiceConsignee = (orderData: unknown): Commercia
   const primaryDestinationRecords = getPrimaryDestinationRecords(root);
   const legacyShippingRecords = getLegacyShippingRecords(root);
   const fallbackRecords = [customerAddress, customer, billingAddress];
-  const allRecords = [...primaryDestinationRecords, ...legacyShippingRecords, ...fallbackRecords];
+  const destinationRecords = [...primaryDestinationRecords, ...legacyShippingRecords];
+  const allRecords = [...destinationRecords, ...fallbackRecords];
+  const hasDestinationLocation = destinationRecords.some((record) =>
+    collectAddressParts([record]).length || getFirstValue([record], CITY_FIELD_KEYS) || getFirstValue([record], COUNTRY_FIELD_KEYS)
+  );
+  const locationRecords = hasDestinationLocation ? destinationRecords : fallbackRecords;
 
-  const primaryAddressParts = collectAddressParts(primaryDestinationRecords);
-  const legacyAddressParts = collectAddressParts(legacyShippingRecords);
-  const fallbackAddressParts = collectAddressParts(fallbackRecords);
-  const addressParts =
-    primaryAddressParts.length > 0
-      ? primaryAddressParts
-      : legacyAddressParts.length > 0
-        ? legacyAddressParts
-        : fallbackAddressParts;
+  // Keep street details from one destination rather than merging addresses
+  // from different shipments, legacy addresses and the customer profile.
+  const addressParts = locationRecords.map((record) => collectAddressParts([record])).find((parts) => parts.length) || [];
 
   const destinationName = [...primaryDestinationRecords, ...legacyShippingRecords].map(buildFullName).find(Boolean) || '';
   const customerName = buildFullName(customer);
@@ -229,9 +242,9 @@ export const resolveCommercialInvoiceConsignee = (orderData: unknown): Commercia
   return {
     name: destinationName || customerName,
     address: addressParts.join(', '),
-    city: getFirstValue(allRecords, CITY_FIELD_KEYS),
-    country: getFirstValue(allRecords, COUNTRY_FIELD_KEYS),
-    postalCode: getFirstValue(allRecords, POSTAL_FIELD_KEYS),
+    city: getFirstValue(locationRecords, CITY_FIELD_KEYS),
+    country: getFirstValue(locationRecords, COUNTRY_FIELD_KEYS),
+    postalCode: getFirstValue(locationRecords, POSTAL_FIELD_KEYS),
     phone,
     email: normalizeText(customer?.email),
   };

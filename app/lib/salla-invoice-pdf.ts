@@ -8,6 +8,7 @@ import { ArabicShaper } from 'arabic-persian-reshaper';
 
 import type { SallaOrder, SallaOrderItem } from './salla-api';
 import { encodeCode128 } from './barcode-code128';
+import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
 
 // ---------------------------------------------------------------------------
 // Page / theme constants. The layout mirrors the Salla "فاتورة" tax-invoice
@@ -185,14 +186,12 @@ const MONTHS = [
 
 /** Splits a Salla date string into the "Thursday 25 June 2026" / "02:16 AM" parts. */
 function formatDateParts(raw: string): { dateIso: string; dateLabel: string; timeLabel: string } {
-  const m = raw.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
-  let Y: number, Mo: number, D: number, H: number, Mi: number;
-  if (m) {
-    Y = +m[1]; Mo = +m[2]; D = +m[3]; H = +m[4]; Mi = +m[5];
-  } else {
-    const now = new Date();
-    Y = now.getUTCFullYear(); Mo = now.getUTCMonth() + 1; D = now.getUTCDate();
-    H = now.getUTCHours(); Mi = now.getUTCMinutes();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return { dateIso: '', dateLabel: '—', timeLabel: '' };
+  const Y = +m[1], Mo = +m[2], D = +m[3], H = +(m[4] || 0), Mi = +(m[5] || 0);
+  const date = new Date(Date.UTC(Y, Mo - 1, D));
+  if (date.getUTCFullYear() !== Y || date.getUTCMonth() !== Mo - 1 || date.getUTCDate() !== D || H > 23 || Mi > 59) {
+    return { dateIso: '', dateLabel: '—', timeLabel: '' };
   }
   // Use UTC accessors so the printed time matches the stored (store-local) value.
   const dow = new Date(Date.UTC(Y, Mo - 1, D)).getUTCDay();
@@ -201,7 +200,21 @@ function formatDateParts(raw: string): { dateIso: string; dateLabel: string; tim
   const h12 = H % 12 === 0 ? 12 : H % 12;
   const timeLabel = `${String(h12).padStart(2, '0')}:${String(Mi).padStart(2, '0')} ${ampm}`;
   const dateIso = `${Y}-${String(Mo).padStart(2, '0')}-${String(D).padStart(2, '0')}`;
-  return { dateIso, dateLabel, timeLabel };
+  return { dateIso, dateLabel, timeLabel: m[4] ? timeLabel : '' };
+}
+
+/** Never substitute a refund/credit invoice for the customer's sales invoice. */
+export function selectCustomerSalesInvoice(invoices: AnyRecord[], orderId: string | number): AnyRecord | null {
+  const candidates = invoices.filter((invoice) => {
+    if (invoice.order_id != null && String(invoice.order_id) !== String(orderId)) return false;
+    return !/refund|return|credit|مرتجع|دائن/i.test(`${str(invoice.type)} ${str(invoice.slug)}`);
+  });
+  return candidates.find((invoice) => /tax|ضريب/i.test(str(invoice.type))) || candidates[0] || null;
+}
+
+export function invoiceTotalMatchesOrder(data: InvoiceData, order: SallaOrder): boolean {
+  const total = order.amounts?.total;
+  return total == null || Math.abs(data.total - amountOf(total)) <= 0.02;
 }
 
 function pickImageUrl(item: SallaOrderItem): string {
@@ -255,29 +268,11 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
     };
   });
 
-  const customer = order.customer || ({} as SallaOrder['customer']);
-  const buyerName =
-    customer.full_name ||
-    customer.name ||
-    [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim() ||
-    'عميل';
-
-  // Resolve the receiver / shipping address.
-  const ship =
-    (orderAny.ship_to as AnyRecord | undefined) ||
-    ((orderAny.shipping as AnyRecord | undefined)?.['address'] as AnyRecord | undefined) ||
-    (orderAny.shipping as AnyRecord | undefined) ||
-    {};
-  const shipAny = ship as AnyRecord;
-  const buyerCountry = str(shipAny.country) || str((customer as AnyRecord).country) || 'السعودية';
-  const buyerCity = str(shipAny.city) || str(customer.city) || '';
-  const addressParts = [
-    str(shipAny.address_line) || str(shipAny.shipping_address) || str(shipAny.street_address),
-    str(shipAny.block) && `حي ${str(shipAny.block)}`,
-    str(shipAny.district),
-    str(shipAny.postal_code) || str(shipAny.postcode),
-  ].filter((p): p is string => Boolean(p && p.trim()));
-  const buyerAddress = addressParts.join('، ');
+  const consignee = resolveCommercialInvoiceConsignee(order);
+  const buyerName = consignee.name || 'عميل';
+  const buyerCountry = consignee.country;
+  const buyerCity = consignee.city;
+  const buyerAddress = [consignee.address, consignee.postalCode].filter(Boolean).join('، ');
 
   // Shipping company + expectations.
   const shippingNode = (orderAny.shipping as AnyRecord | undefined) || {};
@@ -305,27 +300,14 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
   const itemsTax = items.reduce((s, i) => s + i.taxAmount * i.quantity, 0);
   const itemsTotal = items.reduce((s, i) => s + i.total, 0);
 
-  const subtotal = invoice
-    ? amountOf(inv.sub_total)
-    : amountOf(orderAmounts.sub_total ?? orderAmounts.subtotal) || itemsSubtotal;
-  const shipping = invoice
-    ? amountOf(inv.shipping_cost)
-    : amountOf(orderAmounts.shipping_cost ?? orderAmounts.shipping);
-  const codFee = invoice
-    ? amountOf(inv.cod_cost)
-    : amountOf(orderAmounts.cash_on_delivery ?? orderAmounts.cod_cost);
-  const discount = invoice
-    ? amountOf(inv.discount)
-    : amountOf(orderAmounts.total_discount ?? orderAmounts.discount);
+  const subtotal = amountOf(inv.sub_total ?? orderAmounts.sub_total ?? orderAmounts.subtotal ?? itemsSubtotal);
+  const shipping = amountOf(inv.shipping_cost ?? orderAmounts.shipping_cost ?? orderAmounts.shipping);
+  const codFee = amountOf(inv.cod_cost ?? orderAmounts.cash_on_delivery ?? orderAmounts.cod_cost);
+  const discount = amountOf(inv.discount ?? orderAmounts.total_discount ?? orderAmounts.discount);
   const orderTaxNode = (orderAmounts.tax || {}) as AnyRecord;
-  const taxAmount = invoice
-    ? amountOf(taxNode.amount)
-    : amountOf(orderTaxNode.amount ?? orderAmounts.tax_amount) || itemsTax;
-  const taxPercent =
-    Number(str(taxNode.percent || orderTaxNode.percent)) || items[0]?.taxPercent || 15;
-  const total = invoice
-    ? amountOf(inv.total)
-    : amountOf(orderAmounts.total) || itemsTotal + shipping + codFee - discount;
+  const taxAmount = amountOf(taxNode.amount ?? orderTaxNode.amount ?? orderAmounts.tax_amount ?? itemsTax);
+  const taxPercent = amountOf(taxNode.percent ?? orderTaxNode.percent ?? items[0]?.taxPercent);
+  const total = amountOf(inv.total ?? orderAmounts.total ?? (itemsTotal + shipping + codFee - discount));
 
   // Coupon row (shown when the order carries a coupon).
   const coupon = (orderAny.coupon as AnyRecord | undefined) || (inv.coupon as AnyRecord | undefined);
@@ -335,8 +317,9 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
     const typeLabel = str((coupon.type as unknown) === 'fixed' ? 'كوبون عادي' : coupon.type) || 'كوبون عادي';
     couponLabel = code ? `كوبون خصم ${code} ( ${typeLabel} )` : '';
   }
+  if (!couponLabel && discount > 0) couponLabel = 'خصم';
 
-  const dateRaw = str(inv.date) || str((order.date as AnyRecord | undefined)?.created);
+  const dateRaw = str(inv.date) || str((inv.date as AnyRecord | undefined)?.date) || str((order.date as AnyRecord | undefined)?.created);
   const { dateIso, dateLabel, timeLabel } = formatDateParts(dateRaw);
 
   // Order-level options (e.g. gift wrapping).
@@ -361,13 +344,15 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
     orderNumber: str(order.reference_id) || str(order.order_number) || str(order.id),
     orderId: str(order.id),
     paymentMethod: translatePaymentMethod(str(inv.payment_method) || str(orderAny.payment_method)),
-    currency: items[0] ? str((order.items[0].amounts.total as AnyRecord).currency) || 'SAR' : 'SAR',
+    currency: str((inv.total as AnyRecord | undefined)?.currency) || str(inv.currency) ||
+      str((orderAmounts.total as AnyRecord | undefined)?.currency) || str(orderAny.currency) ||
+      str(order.items?.[0]?.amounts?.total?.currency) || str(order.items?.[0]?.currency) || 'SAR',
     buyerName,
     buyerCountry,
     buyerCity,
     buyerAddress,
-    buyerPhone: str(customer.mobile),
-    buyerEmail: str(customer.email),
+    buyerPhone: consignee.phone,
+    buyerEmail: consignee.email,
     shippingCourier,
     shippingExpected,
     totalWeight,
@@ -727,10 +712,11 @@ function drawOrderDetails(ctx: RenderCtx, seller: SellerInfo, data: InvoiceData)
   draw(ctx, 'تفاصيل الطلب', RIGHT, T(111.8), { size: 9.8, align: 'right', bold: true });
   metaRow(ctx, 'رقم الطلب', data.orderNumber, RIGHT, T(126.8));
   metaRow(ctx, 'الرقم الضريبي', seller.vatNumber, RIGHT, T(141.8));
+  metaRow(ctx, 'رقم الفاتورة', data.invoiceNumber, RIGHT, T(156), 8.5);
 
   // Left column: date label + barcode.
   const leftRight = 205;
-  const dateLabelW = draw(ctx, 'تاريخ الطلب: |', leftRight, T(110.2), { size: 8.3, align: 'right' });
+  const dateLabelW = draw(ctx, 'تاريخ الفاتورة: |', leftRight, T(110.2), { size: 8.3, align: 'right' });
   draw(ctx, data.dateLabel, leftRight - dateLabelW - 4, T(110.2), { size: 8.3, align: 'right' });
   draw(ctx, data.timeLabel, leftRight, T(123), { size: 8.3, align: 'right' });
   drawBarcode(ctx, data.orderNumber, 130, T(152), 20, 150);

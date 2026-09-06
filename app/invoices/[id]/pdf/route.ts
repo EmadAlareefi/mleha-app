@@ -9,6 +9,8 @@ import {
 import {
   buildInvoiceData,
   generateSallaInvoicePdf,
+  invoiceTotalMatchesOrder,
+  selectCustomerSalesInvoice,
 } from '@/app/lib/salla-invoice-pdf';
 
 export const runtime = 'nodejs';
@@ -49,12 +51,12 @@ export async function GET(
 
     // Pull the official tax invoice for this order (totals + invoice number).
     const invoices = await getSallaOrderInvoices(MERCHANT_ID, order.id).catch(() => []);
-    const taxInvoice =
-      invoices.find((inv) => typeof inv?.type === 'string' && inv.type.includes('ضريبية')) ||
-      invoices[0] ||
-      null;
+    const taxInvoice = selectCustomerSalesInvoice(invoices, order.id);
 
     const data = buildInvoiceData(order, taxInvoice);
+    if (!invoiceTotalMatchesOrder(data, order)) {
+      return NextResponse.json({ error: 'Invoice totals do not reconcile' }, { status: 409 });
+    }
     const pdf = await generateSallaInvoicePdf(data);
 
     const download = request.nextUrl.searchParams.get('download');
