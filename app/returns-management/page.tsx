@@ -17,6 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -794,7 +795,71 @@ export default function ReturnsManagementPage() {
               إجمالي الطلبات: {total}
             </p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            {canManageReturnWindows && (
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    استثناء مدة الإرجاع
+                    {overrides.length > 0 && (
+                      <Badge variant="secondary" aria-label={`${overrides.length} استثناءات نشطة`}>
+                        {overrides.length}
+                      </Badge>
+                    )}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent dir="rtl" className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+                  <DialogHeader className="pr-6 text-right sm:text-right">
+                    <DialogTitle>استثناء مدة الإرجاع</DialogTitle>
+                    <DialogDescription>
+                      اسمح لطلب محدد بتجاوز حد 24 ساعة أو 3 أيام. تبقى بقية شروط الإرجاع مطبقة.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        aria-label="رقم الطلب في سلة"
+                        value={overrideOrderNumber}
+                        onChange={(event) => setOverrideOrderNumber(event.target.value)}
+                        placeholder="رقم الطلب في سلة"
+                        disabled={overrideLoading}
+                      />
+                      <Button
+                        onClick={allowLateReturn}
+                        disabled={overrideLoading || !overrideOrderNumber.trim()}
+                      >
+                        {overrideLoading ? 'جارٍ الحفظ...' : 'السماح بالإرجاع المتأخر'}
+                      </Button>
+                    </div>
+                    {overrideMessage && <p role="status" className="text-sm text-muted-foreground">{overrideMessage}</p>}
+                    {overrides.length > 0 && (
+                      <div className="space-y-2">
+                        <FieldLabel>الاستثناءات النشطة</FieldLabel>
+                        {overrides.map((override) => (
+                          <div
+                            key={override.id}
+                            className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="text-sm">
+                              <strong>طلب #{override.orderNumber || override.orderId}</strong>
+                              <span className="mr-2 text-muted-foreground">بواسطة {override.createdBy}</span>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => revokeLateReturn(override.id)}
+                              disabled={overrideLoading}
+                            >
+                              إلغاء الاستثناء
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
             <Button asChild className="bg-orange-600 text-white hover:bg-orange-700">
               <Link href="/returns-priority">
                 ⚡ الطلبات عالية الأولوية
@@ -805,58 +870,6 @@ export default function ReturnsManagementPage() {
             </Button>
           </div>
         </div>
-
-        {canManageReturnWindows && (
-          <Card>
-            <CardHeader>
-              <CardTitle>استثناء مدة الإرجاع</CardTitle>
-              <CardDescription>
-                اسمح لطلب محدد بتجاوز حد 24 ساعة أو 3 أيام. تبقى بقية شروط الإرجاع مطبقة.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  value={overrideOrderNumber}
-                  onChange={(event) => setOverrideOrderNumber(event.target.value)}
-                  placeholder="رقم الطلب في سلة"
-                  disabled={overrideLoading}
-                />
-                <Button
-                  onClick={allowLateReturn}
-                  disabled={overrideLoading || !overrideOrderNumber.trim()}
-                >
-                  {overrideLoading ? 'جارٍ الحفظ...' : 'السماح بالإرجاع المتأخر'}
-                </Button>
-              </div>
-              {overrideMessage && <p className="text-sm text-muted-foreground">{overrideMessage}</p>}
-              {overrides.length > 0 && (
-                <div className="space-y-2">
-                  <FieldLabel>الاستثناءات النشطة</FieldLabel>
-                  {overrides.map((override) => (
-                    <div
-                      key={override.id}
-                      className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="text-sm">
-                        <strong>طلب #{override.orderNumber || override.orderId}</strong>
-                        <span className="mr-2 text-muted-foreground">بواسطة {override.createdBy}</span>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => revokeLateReturn(override.id)}
-                        disabled={overrideLoading}
-                      >
-                        إلغاء الاستثناء
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         <Card>
           <CardHeader>
