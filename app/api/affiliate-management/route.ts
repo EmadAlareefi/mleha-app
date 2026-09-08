@@ -11,6 +11,7 @@ import {
   isDelivered,
 } from '@/app/lib/affiliate-metrics';
 import { getExcludedNationalDayAmounts } from '@/app/lib/affiliate-category-commission';
+import { loadAffiliateOrderItems } from '@/app/lib/affiliate-order-items';
 import { Prisma } from '@prisma/client';
 import { requireAffiliateManagementSession } from './authorization';
 
@@ -256,7 +257,6 @@ export async function GET(request: NextRequest) {
       campaignName: string | null;
       currency: string | null;
       affiliateCommission: Prisma.Decimal | number | null;
-      items: Array<{ productId: string | null; totalAmount: Prisma.Decimal | number | null }>;
     }> = [];
 
     if (affiliateConditions.length) {
@@ -275,13 +275,14 @@ export async function GET(request: NextRequest) {
           campaignName: true,
           currency: true,
           affiliateCommission: true,
-          items: { select: { productId: true, totalAmount: true } },
         },
         orderBy: { placedAt: 'desc' },
       });
     }
 
-    const excludedNationalDayAmounts = await getExcludedNationalDayAmounts(orders);
+    const excludedNationalDayAmounts = await getExcludedNationalDayAmounts(
+      await loadAffiliateOrderItems(orders)
+    );
 
     let payouts: Array<
       Prisma.AffiliatePayoutGetPayload<{

@@ -13,6 +13,7 @@ import {
   isDelivered,
 } from '@/app/lib/affiliate-metrics';
 import { getExcludedNationalDayAmounts } from '@/app/lib/affiliate-category-commission';
+import { loadAffiliateOrderItems } from '@/app/lib/affiliate-order-items';
 
 export const runtime = 'nodejs';
 
@@ -70,7 +71,6 @@ export async function GET(request: NextRequest) {
           placedAt: true,
           statusSlug: true,
           statusName: true,
-          items: { select: { productId: true, totalAmount: true } },
         },
       }),
       prisma.sallaOrder.findMany({
@@ -93,7 +93,9 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    const excludedNationalDayAmounts = await getExcludedNationalDayAmounts(ordersForStats);
+    const excludedNationalDayAmounts = await getExcludedNationalDayAmounts(
+      await loadAffiliateOrderItems(ordersForStats)
+    );
 
     const totalCount = ordersForStats.length;
 

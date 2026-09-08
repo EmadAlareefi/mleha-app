@@ -228,22 +228,6 @@ export default function AffiliateStatsPage() {
     );
   }
 
-  if (error) {
-    return (
-      <AppPageShell title="إحصائيات المسوق">
-        <div className="mx-auto w-full max-w-4xl">
-          <Alert variant="destructive">
-            <AlertTitle>تنبيه</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-            <Button onClick={() => router.push('/')} className="mt-4" variant="outline">
-              العودة للرئيسية
-            </Button>
-          </Alert>
-        </div>
-      </AppPageShell>
-    );
-  }
-
   return (
     <AppPageShell title="إحصائيات المسوق" subtitle={`المسوق: ${(session?.user as any)?.affiliateName}`}>
       <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -277,8 +261,18 @@ export default function AffiliateStatsPage() {
           </CardContent>
         </Card>
 
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>تنبيه</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+            <Button onClick={() => fetchStats()} disabled={loading} className="mt-4" variant="outline">
+              إعادة المحاولة
+            </Button>
+          </Alert>
+        )}
+
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {!error && <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="rounded-lg">
             <CardContent className="flex items-center gap-4 p-6">
             <div className="rounded-lg bg-muted p-4 text-primary">
@@ -517,7 +511,7 @@ export default function AffiliateStatsPage() {
               </Table>
             </CardContent>
           </Card>
-        </div>
+        </div>}
       </div>
     </AppPageShell>
   );
