@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { missingReturnShipmentWhere, needsManualReturnShipment } from '@/lib/returns/missing-shipment';
 
 export const runtime = 'nodejs';
 
@@ -12,19 +13,22 @@ export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const now = new Date();
+    const missingShipmentOnly = searchParams.get('shipment') === 'missing';
 
     // Filters
     const typeParams = searchParams.getAll('type').filter(Boolean); // 'return' | 'exchange'
-    const statusParams = searchParams.getAll('status').filter(Boolean); // allow multiple statuses
+    const statusParams = missingShipmentOnly ? [] : searchParams.getAll('status').filter(Boolean);
     const search = searchParams.get('search'); // search by order number, customer name, tracking number
-    const excludeStatusParams = searchParams.getAll('excludeStatus'); // statuses to exclude
-    const inspectionParams = searchParams.getAll('inspection'); // inspection filters
+    const excludeStatusParams = missingShipmentOnly ? [] : searchParams.getAll('excludeStatus');
+    const inspectionParams = missingShipmentOnly ? [] : searchParams.getAll('inspection');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: Prisma.ReturnRequestWhereInput = {};
+    const missingShipmentWhere = missingReturnShipmentWhere(now);
+    const where: Prisma.ReturnRequestWhereInput = missingShipmentOnly ? { ...missingShipmentWhere } : {};
 
     if (typeParams.length === 1) {
       const [singleType] = typeParams;
@@ -106,7 +110,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Get total count
-    const total = await prisma.returnRequest.count({ where });
+    const [total, missingShipmentCount] = await Promise.all([
+      prisma.returnRequest.count({ where }),
+      prisma.returnRequest.count({ where: missingShipmentWhere }),
+    ]);
 
     // Get paginated results
     const returnRequests = await prisma.returnRequest.findMany({
@@ -184,6 +191,7 @@ export async function GET(request: NextRequest) {
       const statusKey = `${request.merchantId}:${request.orderId}`;
       return {
         ...request,
+        needsManualShipment: needsManualReturnShipment(request, now),
         sallaStatus: sallaStatuses[statusKey] || null,
       };
     });
@@ -191,6 +199,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: enrichedRequests,
+      missingShipmentCount,
       pagination: {
         total,
         page,

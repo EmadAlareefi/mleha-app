@@ -348,6 +348,14 @@ All operations are logged using the structured logger:
 
 ## Support
 
+### Missing return shipments in Returns Management
+
+The amber **طلبات بدون شحنة مرتجع** notice counts active requests older than 30 minutes that have no tracking number, legacy AWB, or label URL. Its dedicated view includes uninspected requests regardless of the normal inspection/status filters; cancelled, rejected, delivered, and completed requests are excluded. Search and request-type filters still apply within that view.
+
+Open the flagged order in Salla, check whether a return shipment already exists, and create the return label manually if needed. Then use **تحديث من سلة** on the request to retrieve the label and clear the warning.
+
+Regression fixtures in `lib/returns/__tests__/missing-shipment.test.ts` use synthetic requests and mocked Prisma reads to cover the grace period, existing shipment evidence, terminal statuses, and filtering/counting before pagination. Run with `node --test --import tsx lib/returns/__tests__/missing-shipment.test.ts`.
+
 For issues or questions:
 1. Check the logs in Vercel dashboard
 2. Review database tables for stuck states
