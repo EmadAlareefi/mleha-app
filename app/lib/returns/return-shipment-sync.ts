@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { fetchSallaOrderShipments } from '@/app/lib/salla-api';
 import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
+import { RETURN_LABEL_GRACE_MS } from '@/lib/returns/missing-shipment';
 import {
   extractReturnLabelPayload,
   maybeNotifyReturnLabelCreated,
@@ -14,7 +15,7 @@ type AnyRecord = Record<string, any>;
  * How long Salla is given to actually produce the waybill before a request is
  * called stuck. Healthy orders get tracking + label within seconds.
  */
-export const RETURN_LABEL_GRACE_MS = 30 * 60 * 1000;
+export { RETURN_LABEL_GRACE_MS } from '@/lib/returns/missing-shipment';
 
 export type ReturnShipmentSyncStatus =
   /** Label found and the WhatsApp send was attempted on this pass. */

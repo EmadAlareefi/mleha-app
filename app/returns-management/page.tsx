@@ -73,6 +73,7 @@ interface ReturnRequest {
   returnLabelUrl?: string | null;
   returnLabelNotificationSentAt?: string | null;
   returnLabelNotificationError?: string | null;
+  needsManualShipment?: boolean;
   totalRefundAmount?: number | string | null;
   returnFee?: number;
   shippingAmount?: number | string | null;
@@ -191,6 +192,8 @@ export default function ReturnsManagementPage() {
   const [overrideMessage, setOverrideMessage] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [missingShipmentOnly, setMissingShipmentOnly] = useState(false);
+  const [missingShipmentCount, setMissingShipmentCount] = useState(0);
   const [inspectionFilters, setInspectionFilters] = useState<{ inspected: boolean; review: boolean }>({
     inspected: true,
     review: false,
@@ -388,6 +391,9 @@ export default function ReturnsManagementPage() {
         page: page.toString(),
         limit: '100',
       });
+      if (missingShipmentOnly) {
+        params.set('shipment', 'missing');
+      }
 
       const activeTypes = TYPE_FILTER_OPTIONS.filter((option) => typeFilters[option.key]).map(
         (option) => option.key,
@@ -423,6 +429,7 @@ export default function ReturnsManagementPage() {
       }
 
       setReturnRequests(data.data);
+      setMissingShipmentCount(data.missingShipmentCount ?? 0);
       const hadAutoUpdates = await checkAndAutoCompleteFromSalla(data.data);
       if (hadAutoUpdates) {
         await loadReturnRequests();
@@ -435,7 +442,7 @@ export default function ReturnsManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [checkAndAutoCompleteFromSalla, inspectionFilters, page, searchQuery, statusFilters, typeFilters]);
+  }, [checkAndAutoCompleteFromSalla, inspectionFilters, missingShipmentOnly, page, searchQuery, statusFilters, typeFilters]);
 
   useEffect(() => {
     loadReturnRequests();
@@ -606,7 +613,7 @@ export default function ReturnsManagementPage() {
     already_notified: 'البوليصة موجودة وسبق إرسالها للعميل.',
     tracking_only: 'تم تحديث رقم التتبع، لكن سلة لم تصدر البوليصة بعد.',
     pending: 'سلة ما زالت تُنشئ شحنة المرتجع. حاول بعد قليل.',
-    stuck: 'سلة لم تُصدر البوليصة رغم قبول الطلب. استخدم "إعادة إصدار البوليصة".',
+    stuck: 'لم تتوفر شحنة المرتجع بعد. افتح الطلب في سلة وتحقق من الشحنة، ثم أنشئ بوليصة المرتجع يدوياً إن لم تكن موجودة.',
     error: 'تعذر الاتصال بسلة.',
   };
 
@@ -871,6 +878,38 @@ export default function ReturnsManagementPage() {
           </div>
         </div>
 
+        {(missingShipmentCount > 0 || missingShipmentOnly) && (
+          <Card className="border-amber-300 bg-amber-50">
+            <CardHeader>
+              <CardTitle className="text-amber-950">
+                طلبات بدون شحنة مرتجع ({missingShipmentCount})
+              </CardTitle>
+              <CardDescription className="text-amber-900">
+                طلبات مضى عليها أكثر من 30 دقيقة ولم يصل لها رقم تتبع أو بوليصة.
+                افتح الطلب في سلة وتحقق من وجود شحنة مرتجع، ثم أنشئ البوليصة يدوياً إن لم تكن موجودة.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-3">
+              <Button
+                type="button"
+                variant={missingShipmentOnly ? 'outline' : 'default'}
+                aria-pressed={missingShipmentOnly}
+                onClick={() => {
+                  setMissingShipmentOnly((value) => !value);
+                  setSearchQuery('');
+                  setTypeFilters({ return: true, exchange: true });
+                  setPage(1);
+                }}
+              >
+                {missingShipmentOnly ? 'العودة لجميع الطلبات' : 'عرض الطلبات بدون شحنة'}
+              </Button>
+              <Button type="button" variant="outline" disabled={loading} onClick={() => void loadReturnRequests()}>
+                تحديث القائمة
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle>تدفق مبسط للطلبات</CardTitle>
@@ -891,7 +930,7 @@ export default function ReturnsManagementPage() {
               placeholder="رقم الطلب، اسم العميل، رقم التتبع..."
             />
           </Field>
-          <div>
+          <fieldset disabled={missingShipmentOnly} className="disabled:opacity-50">
             <FieldLabel className="mb-2">تصفية حسب حالة الفحص</FieldLabel>
             <div className="flex flex-wrap gap-4">
               {[
@@ -910,7 +949,7 @@ export default function ReturnsManagementPage() {
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
           <div>
             <FieldLabel className="mb-2">تصفية حسب نوع الطلب</FieldLabel>
             <div className="flex flex-wrap gap-4">
@@ -928,7 +967,7 @@ export default function ReturnsManagementPage() {
               ))}
             </div>
           </div>
-          <div>
+          <fieldset disabled={missingShipmentOnly} className="disabled:opacity-50">
             <FieldLabel className="mb-2">تصفية حسب حالة الطلب</FieldLabel>
             <div className="flex flex-wrap gap-4">
               {STATUS_FILTER_OPTIONS.map((option) => (
@@ -944,7 +983,12 @@ export default function ReturnsManagementPage() {
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
+          {missingShipmentOnly && (
+            <p className="text-sm text-amber-900">
+              تعرض هذه القائمة الطلبات النشطة بدون شحنة بغض النظر عن حالة الفحص.
+            </p>
+          )}
           </CardContent>
         </Card>
 
@@ -959,7 +1003,7 @@ export default function ReturnsManagementPage() {
         {loading ? (
           <LoadingState />
         ) : returnRequests.length === 0 ? (
-          <EmptyState title="لا توجد طلبات" />
+          <EmptyState title={missingShipmentOnly ? 'لا توجد طلبات بدون شحنة تطابق البحث' : 'لا توجد طلبات'} />
         ) : (
           <>
             {/* Return Requests List */}
@@ -982,7 +1026,22 @@ export default function ReturnsManagementPage() {
                 ).length;
                 const hasPendingInspectorNotes = inspectorNotesCount > 0;
                 return (
-                  <Card key={request.id} className="p-6 hover:shadow-lg transition-shadow">
+                  <Card key={request.id} className={`p-6 hover:shadow-lg transition-shadow ${request.needsManualShipment ? 'border-amber-400' : ''}`}>
+                    {request.needsManualShipment && (
+                      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                        <p className="font-semibold">يتطلب إنشاء شحنة مرتجع في سلة</p>
+                        <p className="mt-1">
+                          لم يصل رقم تتبع أو بوليصة لهذا الطلب. تحقق من الشحنة في سلة وأنشئ بوليصة المرتجع يدوياً إن لم تكن موجودة، ثم اضغط «تحديث من سلة» أدناه.
+                        </p>
+                        {request.orderId && (
+                          <Button asChild size="sm" className="mt-3 bg-amber-800 text-white hover:bg-amber-900">
+                            <a href={`https://s.salla.sa/orders/order/${request.orderId}`} target="_blank" rel="noopener noreferrer">
+                              فتح سلة لإنشاء شحنة المرتجع
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
                       {/* Request Info */}
                       <div className="lg:col-span-2">
