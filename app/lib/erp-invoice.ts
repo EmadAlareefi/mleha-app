@@ -5,12 +5,14 @@
  */
 
 import type { SallaOrder } from '@prisma/client';
+import type { ERPInvalidLineReason } from '@/lib/erp-order-sync';
 import { getERPAccessToken } from './erp-auth';
 import { log as logger } from './logger';
 import { sallaMakeRequest } from './salla-oauth';
 import {
   buildFreeOrderInternalTransferMessage,
   buildNegativeERPInvoiceIdError,
+  classifyERPProcedureInvalidLine,
   extractERPInvoiceId,
   extractERPInvoiceIdFromText,
   hasSuccessfulERPSync,
@@ -32,9 +34,17 @@ export interface ERPInvoiceItem {
   cmbkey: string;      // SKU
   barcode: string;     // Barcode from ERP
   qty: number;         // Quantity
-  fqty: number;        // Free quantity (always 0)
+  fqty: number;        // Free quantity (always 0; the ERP procedure rejects qty=0)
   price: number;       // Original price with taxes before discounts
   discpc: number;      // Discount percentage
+}
+
+export interface ERPManualTransferItem {
+  sku: string;
+  quantity: number;
+  name: string | null;
+  reason: ERPInvalidLineReason;
+  originalPrice: number;
 }
 
 export interface ERPInvoicePayload {
@@ -66,6 +76,7 @@ export interface ERPInvoiceResult {
   erpInvoiceId?: string;
   error?: string;
   message?: string;
+  manualTransferItems?: ERPManualTransferItem[];
 }
 
 interface ERPBarcodeResult {
@@ -77,7 +88,12 @@ interface ERPBarcodeResult {
 interface ExtractOrderItemsResult {
   items: ERPInvoiceItem[];
   explicitOptionNetTotal: number;
+  manualTransferItems: ERPManualTransferItem[];
 }
+
+type ERPInvoicePayloadWithMetadata = ERPInvoicePayload & {
+  manualTransferItems?: ERPManualTransferItem[];
+};
 
 class BarcodeNotFoundError extends Error {
   itemNo: string;
@@ -504,6 +520,7 @@ async function fetchOrderItemsFromSalla(merchantId: string, orderId: string): Pr
 async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<ExtractOrderItemsResult> {
   const items: ERPInvoiceItem[] = [];
   let explicitOptionNetTotal = 0;
+  const manualTransferItems: ERPManualTransferItem[] = [];
 
   // Try to fetch items from Salla API first
   let orderItems = await fetchOrderItemsFromSalla(order.merchantId, order.orderId);
@@ -583,19 +600,44 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
       }
     }
 
-    // Fetch barcode from ERP (with fallback for missing SKUs)
+    const netLineHalalas = grossLineHalalas - Math.round(grossLineHalalas * (discpc / 100));
+    const invalidReason = classifyERPProcedureInvalidLine({
+      quantity: qty,
+      price,
+      netAmount: netLineHalalas / 100,
+      discountPercentage: discpc,
+    });
+
+    if (invalidReason) {
+      manualTransferItems.push({
+        sku,
+        quantity: Math.max(qty, 0),
+        name: typeof item.name === 'string' ? item.name : null,
+        reason: invalidReason,
+        originalPrice: price,
+      });
+
+      logger.warn('Excluding ERP-invalid free item from invoice payload', {
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        sku,
+        quantity: qty,
+        price,
+        discpc,
+        reason: invalidReason,
+      });
+
+      continue;
+    }
+
+    // The ERP procedure rejects zero-quantity, zero-price, and 100%-discounted
+    // lines with RET_ID=-12. Keep those products out of the invoice and record
+    // them for a manual internal stock transfer instead.
     const { barcode, itemNoUsed, isFallback } = await fetchBarcodeFromERP(sku);
     const erpSku = itemNoUsed;
-
-    // A line whose net value is 0 (fully discounted, or a genuinely free/gift
-    // item with no original price) is a free item, not a discounted sale.
-    // Record it via fqty (free quantity) rather than qty + discpc, since the
-    // ERP appears to reject invoices whose net total settles to 0 SAR.
-    const netLineHalalas = grossLineHalalas - Math.round(grossLineHalalas * (discpc / 100));
-    const isFullyFree = qty > 0 && netLineHalalas === 0;
-    const finalQty = isFullyFree ? 0 : qty;
-    const finalFqty = isFullyFree ? qty : 0;
-    const finalDiscpc = isFullyFree ? 0 : discpc;
+    const finalQty = qty;
+    const finalFqty = 0;
+    const finalDiscpc = discpc;
 
     logger.info('Extracted item for ERP', {
       orderId: order.orderId,
@@ -608,7 +650,6 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
       fqty: finalFqty,
       price,
       discpc: finalDiscpc,
-      isFullyFree,
       itemName: item.name,
     });
 
@@ -653,6 +694,7 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
   return {
     items,
     explicitOptionNetTotal: roundMoney(explicitOptionNetTotal),
+    manualTransferItems,
   };
 }
 
@@ -934,7 +976,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
   // Use the original Salla order date if available
   const orderDate = getSallaOrderDate(order);
 
-  return {
+  const payload: ERPInvoicePayloadWithMetadata = {
     ltrtype: invoiceType,
     SLCNTR: salesCenter,
     BRANCH: '05',
@@ -957,6 +999,16 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     other_acct: '',
     API_Inv: items,
   };
+
+  // Keep operational metadata available to the sync caller without sending it
+  // to the ERP endpoint as an unknown request property.
+  Object.defineProperty(payload, 'manualTransferItems', {
+    value: extractedItems.manualTransferItems,
+    enumerable: false,
+    configurable: false,
+  });
+
+  return payload;
 }
 
 /**
@@ -996,6 +1048,7 @@ export async function postInvoiceToERP(payload: ERPInvoicePayload): Promise<ERPI
         success: true,
         erpInvoiceId: 'DEBUG-' + Math.floor(Math.random() * 10000),
         message: 'DEBUG MODE: Invoice logged but not sent to ERP',
+        manualTransferItems: (payload as ERPInvoicePayloadWithMetadata).manualTransferItems,
       };
     }
 
@@ -1060,10 +1113,11 @@ export async function postInvoiceToERP(payload: ERPInvoicePayload): Promise<ERPI
       };
     }
 
-    return {
-      success: true,
-      erpInvoiceId: erpInvoiceId || undefined,
-      message:
+      return {
+        success: true,
+        erpInvoiceId: erpInvoiceId || undefined,
+        manualTransferItems: (payload as ERPInvoicePayloadWithMetadata).manualTransferItems,
+        message:
         parsedResult?.message ||
         parsedResult?.status ||
         (responseText.trim() || 'Invoice posted to ERP successfully'),

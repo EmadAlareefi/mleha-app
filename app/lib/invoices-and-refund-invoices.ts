@@ -9,11 +9,11 @@ import {
   syncOrderToERP,
   transformOrderToERPInvoice,
 } from '@/app/lib/erp-invoice';
+import type { ERPManualTransferItem } from '@/app/lib/erp-invoice';
 import { syncSallaInvoices } from '@/app/lib/salla-invoices-v2';
 import { syncSallaOrders } from '@/app/lib/salla-orders';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
 import {
-  NEGATIVE_ERP_INVOICE_ID_PREFIX,
   buildFreeOrderInternalTransferMessage,
   getERPOrderSyncError,
   hasSuccessfulERPSync,
@@ -51,6 +51,8 @@ export type PendingERPOrderRow = {
   erpSyncedAt: string | null;
   erpSyncError: string | null;
   erpSyncAttempts: number;
+  erpManualTransferRequired: boolean;
+  erpManualTransferItems: ERPManualTransferItem[] | null;
   queueStatus: PendingERPOrderRowStatus;
   queueStatusLabel: string;
   queueStatusMessage: string | null;
@@ -114,6 +116,7 @@ export type SyncInvoicesAndRefundInvoicesResult =
       message: string;
       orderId: string;
       orderNumber: string | null;
+      manualTransferItems: ERPManualTransferItem[];
     }
   | {
       queueType: 'refund';
@@ -223,17 +226,34 @@ function hasCompletedRefundSync(
 }
 
 function mapOrderQueueStatus(
-  order: Pick<SallaOrder, 'erpSyncedAt' | 'erpInvoiceId' | 'erpSyncError' | 'totalAmount'>,
+  order: Pick<
+    SallaOrder,
+    | 'erpSyncedAt'
+    | 'erpInvoiceId'
+    | 'erpSyncError'
+    | 'totalAmount'
+    | 'erpManualTransferRequired'
+    | 'erpManualTransferItems'
+  >,
   options: {
     supportedCurrency?: boolean;
     currencyMessage?: string;
   } = {}
 ): Pick<PendingERPOrderRow, 'queueStatus' | 'queueStatusLabel' | 'queueStatusMessage' | 'canSync'> {
   if (hasSuccessfulERPSync(order)) {
+    const manualTransferCount = Array.isArray(order.erpManualTransferItems)
+      ? order.erpManualTransferItems.length
+      : 0;
+    const manualTransferLabel = manualTransferCount
+      ? `${manualTransferCount} منتج مجاني`
+      : 'المنتجات المجانية';
+
     return {
       queueStatus: 'synced',
       queueStatusLabel: 'تم إرسال فاتورة البيع',
-      queueStatusMessage: null,
+      queueStatusMessage: order.erpManualTransferRequired
+        ? `تم إرسال الفاتورة، لكن يجب إنشاء تحويل مخزني يدوي لـ${manualTransferLabel}.`
+        : null,
       canSync: false,
     };
   }
@@ -565,6 +585,8 @@ async function listPendingERPOrders(dateRange: DateRangeInput = {}): Promise<Pen
       erpSyncedAt: true,
       erpSyncError: true,
       erpSyncAttempts: true,
+      erpManualTransferRequired: true,
+      erpManualTransferItems: true,
     },
   });
 
@@ -596,6 +618,10 @@ async function listPendingERPOrders(dateRange: DateRangeInput = {}): Promise<Pen
       erpSyncedAt: order.erpSyncedAt?.toISOString() ?? null,
       erpSyncError: getERPOrderSyncError(order),
       erpSyncAttempts: order.erpSyncAttempts,
+      erpManualTransferRequired: order.erpManualTransferRequired,
+      erpManualTransferItems: Array.isArray(order.erpManualTransferItems)
+        ? (order.erpManualTransferItems as unknown as ERPManualTransferItem[])
+        : null,
       queueStatus: queueStatus.queueStatus,
       queueStatusLabel: queueStatus.queueStatusLabel,
       queueStatusMessage:
@@ -1048,12 +1074,19 @@ async function syncPendingOrder(input: {
     );
   }
 
+  const manualTransferItems = result.manualTransferItems || [];
+
   await prisma.sallaOrder.update({
     where: { id: order.id },
     data: {
       erpSyncedAt: new Date(),
       erpInvoiceId,
       erpSyncError: null,
+      erpManualTransferRequired: manualTransferItems.length > 0,
+      erpManualTransferItems:
+        manualTransferItems.length > 0
+          ? (manualTransferItems as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
       erpSyncAttempts: {
         increment: 1,
       },
@@ -1067,6 +1100,7 @@ async function syncPendingOrder(input: {
     message: result.message || 'تم إرسال الطلب إلى ERP بنجاح.',
     orderId: order.orderId,
     orderNumber: order.orderNumber,
+    manualTransferItems,
   };
 }
 

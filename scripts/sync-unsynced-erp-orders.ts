@@ -6,7 +6,8 @@ import { createInterface } from 'readline/promises';
 import { prisma } from '@/lib/prisma';
 import { syncOrderToERP } from '@/app/lib/erp-invoice';
 import { log as logger } from '@/app/lib/logger';
-import type { Prisma, SallaOrder } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { SallaOrder } from '@prisma/client';
 import {
   NEGATIVE_ERP_INVOICE_ID_PREFIX,
   hasSuccessfulERPSync,
@@ -354,6 +355,11 @@ async function processBatch(options: CliOptions): Promise<BatchSummary> {
             erpSyncedAt: new Date(),
             erpInvoiceId: result.erpInvoiceId ? String(result.erpInvoiceId) : null,
             erpSyncError: null,
+            erpManualTransferRequired: (result.manualTransferItems?.length ?? 0) > 0,
+            erpManualTransferItems:
+              result.manualTransferItems && result.manualTransferItems.length > 0
+                ? (result.manualTransferItems as unknown as Prisma.InputJsonValue)
+                : Prisma.JsonNull,
             erpSyncAttempts: { increment: 1 },
           },
         });

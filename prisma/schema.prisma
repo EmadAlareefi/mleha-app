@@ -535,6 +535,8 @@ model SallaOrder {
   erpInvoiceId    String?
   erpSyncError    String?   @db.Text
   erpSyncAttempts Int       @default(0)
+  erpManualTransferRequired Boolean @default(false)
+  erpManualTransferItems    Json?
 
   erpRefundOrderSync ERPRefundOrderSync?
   settlements        OrderSettlement[]

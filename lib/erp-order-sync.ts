@@ -1,5 +1,31 @@
 export const NEGATIVE_ERP_INVOICE_ID_PREFIX = '-';
 
+export type ERPInvalidLineReason =
+  | 'zero-quantity'
+  | 'zero-price'
+  | 'fully-discounted';
+
+export function classifyERPProcedureInvalidLine(input: {
+  quantity: number;
+  price: number;
+  netAmount: number;
+  discountPercentage: number;
+}): ERPInvalidLineReason | null {
+  if (input.quantity <= 0) {
+    return 'zero-quantity';
+  }
+
+  if (input.price <= 0) {
+    return 'zero-price';
+  }
+
+  if (input.netAmount <= 0 || input.discountPercentage >= 100) {
+    return 'fully-discounted';
+  }
+
+  return null;
+}
+
 type ERPInvoiceCarrier = {
   id?: unknown;
   invoice_id?: unknown;
@@ -59,6 +85,10 @@ export function isNegativeERPInvoiceId(value: unknown): boolean {
 
 export function buildNegativeERPInvoiceIdError(value: unknown): string {
   const invoiceId = normalizeERPInvoiceId(value);
+  if (invoiceId === '-12') {
+    return 'رفض ERP الفاتورة بسبب سطر غير صالح: الكمية أو السعر يساوي صفراً، أو نسبة الخصم 100٪.';
+  }
+
   return invoiceId
     ? `ERP returned a negative invoice ID (${invoiceId})`
     : 'ERP returned an invalid invoice ID';

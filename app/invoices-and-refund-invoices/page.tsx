@@ -358,6 +358,7 @@ export default function InvoicesAndRefundInvoicesPage() {
 
     return {
       pendingOrders: orders.filter((order) => order.canSync).length,
+      readyOrders: orders.filter((order) => order.queueStatus === 'ready').length,
       orderErrors: orders.filter((order) => order.queueStatus === 'error').length,
       internalTransferOrders: orders.filter((order) => order.queueStatus === 'internal-transfer').length,
       pendingRefunds: refunds.filter((refund) => refund.canSync).length,
@@ -660,7 +661,7 @@ export default function InvoicesAndRefundInvoicesPage() {
   const handleSyncAllOrders = async () => {
     await syncOrderBatch(pendingOrders, {
       kind: 'orders',
-      emptyMessage: 'لا توجد فواتير بيع جاهزة للإرسال إلى ERP.',
+      emptyMessage: 'لا توجد فواتير بيع معلقة للإرسال إلى ERP.',
       confirmMessage: `سيتم إرسال ${pendingOrders.length} فاتورة بيع من SallaOrder إلى ERP. هل تريد المتابعة؟`,
       successMessage: (successCount) => `تم إرسال ${successCount} فاتورة بيع إلى ERP.`,
       partialMessage: (successCount, failedCount, failedOrders) =>
@@ -892,7 +893,7 @@ export default function InvoicesAndRefundInvoicesPage() {
         <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
           <Card className="rounded-3xl border border-indigo-100 bg-white/95 p-5 shadow-sm">
             <p className="text-sm text-slate-500">طلبات بيع جاهزة للإرسال</p>
-            <p className="mt-2 text-3xl font-bold text-indigo-700">{summary.pendingOrders}</p>
+            <p className="mt-2 text-3xl font-bold text-indigo-700">{summary.readyOrders}</p>
           </Card>
           <Card className="rounded-3xl border border-rose-100 bg-white/95 p-5 shadow-sm">
             <p className="text-sm text-slate-500">طلبات بيع تحتاج إعادة محاولة</p>

@@ -5,7 +5,7 @@
  * Controlled by application settings
  */
 
-import { SallaOrder } from '@prisma/client';
+import { Prisma, SallaOrder } from '@prisma/client';
 import { syncOrderToERP } from './erp-invoice';
 import { shouldAutoSyncForStatus } from './settings';
 import { prisma } from '@/lib/prisma';
@@ -78,6 +78,11 @@ export async function handleOrderWebhookSync(
           erpSyncedAt: new Date(),
           erpInvoiceId: result.erpInvoiceId ? String(result.erpInvoiceId) : null,
           erpSyncError: null,
+          erpManualTransferRequired: (result.manualTransferItems?.length ?? 0) > 0,
+          erpManualTransferItems:
+            result.manualTransferItems && result.manualTransferItems.length > 0
+              ? (result.manualTransferItems as unknown as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
           erpSyncAttempts: { increment: 1 },
         },
       });
