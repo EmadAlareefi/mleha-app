@@ -379,7 +379,8 @@ export async function sallaMakeRequest<T>(
         merchantId,
         endpoint,
         status: response.status,
-        error: errorText
+        // Rate-limit responses can be full HTML pages; don't log hundreds of KB per call.
+        error: errorText.slice(0, 2000)
       });
       if (throwOnError) {
         throw new Error(`Salla API ${response.status} for ${endpoint}: ${errorText.slice(0, 500)}`);
