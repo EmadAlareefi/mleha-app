@@ -17,6 +17,7 @@ import {
 } from '@/app/lib/local-shipping/messenger';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import { detectInternationalOrder } from '@/app/lib/order-destination';
+import { normalizePhoneWithDialCode } from '@/app/lib/phone';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
   '1': 75062490,
@@ -385,7 +386,21 @@ export async function POST(request: NextRequest) {
       `${order.customer?.first_name ?? ''} ${order.customer?.last_name ?? ''}`.trim() ||
       order.customer?.full_name ||
       'عميل غير معروف';
-    const customerPhone = `${order.customer?.mobile ?? ''}`.trim() || '0000000000';
+    // Salla splits the number into `mobile` (`5xxxxxxxx`) and `mobile_code`.
+    // Storing `mobile` raw left every local shipment without a country code,
+    // which broke delivery OTPs and any lookup keyed on the stored number.
+    const rawCustomerPhone = `${order.customer?.mobile ?? ''}`.trim();
+    const customerPhone =
+      normalizePhoneWithDialCode(
+        rawCustomerPhone,
+        order.customer?.mobile_code ??
+          order.customer?.mobileCode ??
+          order.customer?.phone_code ??
+          order.customer?.dial_code ??
+          ''
+      ) ||
+      rawCustomerPhone ||
+      '0000000000';
 
     // Create local shipment in database
     const localShipment = await prisma.localShipment.create({

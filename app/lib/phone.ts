@@ -13,6 +13,10 @@ export function normalizeKSA(msisdn?: string | number | null): string {
   if (p.startsWith("00")) p = p.replace(/^00/, "");
   if (p.startsWith("966")) return "+" + p;
   if (p.length === 10 && p.startsWith("05")) return "+966" + p.substring(1);
+  // Salla returns Saudi mobiles as a bare `5xxxxxxxx`, with the country code in
+  // a separate field. Without this the number fell through to `"+" + p` and
+  // became `+5xxxxxxxx`, which no gateway can deliver to.
+  if (p.length === 9 && p.startsWith("5")) return "+966" + p;
   return "+" + p;
 }
 

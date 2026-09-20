@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { normalizePhoneWithDialCode } from "../phone";
+import { normalizeE164Phone, normalizeKSA, normalizePhoneWithDialCode } from "../phone";
 
 describe("normalizePhoneWithDialCode", () => {
   it("uses Kuwait's dialing code for a local number beginning with 05", () => {
@@ -30,5 +30,37 @@ describe("normalizePhoneWithDialCode", () => {
 
   it("rejects invalid international numbers", () => {
     assert.equal(normalizePhoneWithDialCode("123", "+965"), "");
+  });
+});
+
+describe("normalizeKSA", () => {
+  it("adds the country code to a bare Saudi mobile", () => {
+    // Salla returns `mobile` without the country code; before this the number
+    // became "+540426074" and every OTP was dropped by the gateway.
+    assert.equal(normalizeKSA("540426074"), "+966540426074");
+  });
+
+  it("still handles the local trunk-prefixed form", () => {
+    assert.equal(normalizeKSA("0540426074"), "+966540426074");
+  });
+
+  it("leaves an already-qualified Saudi number alone", () => {
+    assert.equal(normalizeKSA("+966540426074"), "+966540426074");
+    assert.equal(normalizeKSA("00966540426074"), "+966540426074");
+    assert.equal(normalizeKSA("966540426074"), "+966540426074");
+  });
+
+  it("does not claim nine-digit numbers that are not Saudi mobiles", () => {
+    assert.equal(normalizeKSA("412345678"), "+412345678");
+  });
+});
+
+describe("normalizeE164Phone", () => {
+  it("accepts a bare Saudi mobile as the SMS gateway now receives it", () => {
+    assert.equal(normalizeE164Phone("540426074"), "+966540426074");
+  });
+
+  it("rejects a Saudi number that is not a mobile", () => {
+    assert.equal(normalizeE164Phone("966126543210"), "");
   });
 });

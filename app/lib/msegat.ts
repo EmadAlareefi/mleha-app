@@ -1,5 +1,7 @@
 import { env } from './env';
-import { normalizeKSA } from './phone';
+import { log } from './logger';
+import { maskPhoneNumber } from './delivery-otp';
+import { normalizeE164Phone } from './phone';
 import { withBackoff } from './retry';
 
 type SendSmsArgs = {
@@ -14,6 +16,23 @@ type MsegatResponse = {
   data?: unknown;
 };
 
+/**
+ * Redirects every message to a single test handset. This exists for local
+ * debugging only: left set in production it silently swallows every customer
+ * OTP, so it is ignored outside development regardless of configuration.
+ */
+function debugRecipientOverride(): string | null {
+  const override = env.MSEGAT_DEBUG_RECIPIENT?.trim();
+  if (!override) return null;
+  if (process.env.NODE_ENV === 'production') {
+    log.warn('Ignoring MSEGAT_DEBUG_RECIPIENT in production', {
+      maskedOverride: maskPhoneNumber(override),
+    });
+    return null;
+  }
+  return override;
+}
+
 function ensureCredentials() {
   if (!env.MSEGAT_USERNAME || !env.MSEGAT_API_KEY || !env.MSEGAT_SENDER_ID) {
     throw new Error('بيانات اتصال مسجات غير مكتملة');
@@ -21,8 +40,12 @@ function ensureCredentials() {
 }
 
 function formatRecipient(msisdn: string): string {
-  const normalized = normalizeKSA(msisdn).replace(/^\+/, '');
-  if (!/^\d{9,15}$/.test(normalized)) {
+  // `normalizeE164Phone` validates strictly: a Saudi number must end up as
+  // 9665xxxxxxxx. The previous `/^\d{9,15}$/` gate accepted anything with
+  // enough digits, so a country-code-less `5xxxxxxxx` was handed to Msegat
+  // verbatim and the message was silently dropped by the gateway.
+  const normalized = normalizeE164Phone(msisdn).replace(/^\+/, '');
+  if (!normalized) {
     throw new Error('رقم الهاتف غير صالح أو غير مدعوم');
   }
   return normalized;
@@ -70,8 +93,7 @@ async function postToMsegat(payload: Record<string, unknown>) {
 
 export async function sendMsegatSms({ to, body }: SendSmsArgs) {
   ensureCredentials();
-  const target = env.MSEGAT_DEBUG_RECIPIENT?.trim() || to;
-  const recipient = formatRecipient(target);
+  const recipient = formatRecipient(debugRecipientOverride() || to);
   if (!body || body.trim().length === 0) {
     throw new Error('نص الرسالة مطلوب');
   }
