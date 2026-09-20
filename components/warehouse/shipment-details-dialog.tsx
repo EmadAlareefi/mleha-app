@@ -17,7 +17,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import { resolveShipmentLiveStatus } from '@/lib/shipment-live-status';
 
 interface ShipmentDetailsDialogProps {
   open: boolean;
@@ -50,12 +50,10 @@ export function ShipmentDetailsDialog({
     ? `${shipment.warehouse.name}${shipment.warehouse.code ? ` (${shipment.warehouse.code})` : ''}`
     : 'غير مرتبط بمستودع';
   const hasMultipleMatches = matchCount > 1;
-  const smsaStatus = shipment.smsaLiveStatus || null;
-  const smsaStatusLabel =
-    resolveMajorSmsaStatus(smsaStatus) || smsaStatus?.description || smsaStatus?.code || null;
-  const smsaStatusTimestamp =
-    smsaStatus?.timestamp && !Number.isNaN(Date.parse(smsaStatus.timestamp))
-      ? format(new Date(smsaStatus.timestamp), 'EEEE، d MMMM yyyy HH:mm', { locale: ar })
+  const liveStatus = resolveShipmentLiveStatus(shipment);
+  const liveStatusTimestamp =
+    liveStatus?.timestamp && !Number.isNaN(Date.parse(liveStatus.timestamp))
+      ? format(new Date(liveStatus.timestamp), 'EEEE، d MMMM yyyy HH:mm', { locale: ar })
       : null;
 
   return (
@@ -140,20 +138,23 @@ export function ShipmentDetailsDialog({
               />
             </div>
 
-            {smsaStatus ? (
+            {liveStatus ? (
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-indigo-900">
                   <SatelliteDish className="h-5 w-5" />
-                  أحدث حالة من سمسا
+                  {`أحدث حالة من ${liveStatus.carrierLabel}`}
                 </div>
                 <p className="mt-3 text-base font-bold text-indigo-900">
-                  {smsaStatusLabel || '—'}
+                  {liveStatus.label || '—'}
                 </p>
-                {(smsaStatus.city || smsaStatusTimestamp) && (
+                {liveStatus.detail && (
+                  <p className="mt-1 text-sm text-indigo-800">{liveStatus.detail}</p>
+                )}
+                {(liveStatus.city || liveStatusTimestamp) && (
                   <p className="mt-1 text-sm text-indigo-800">
-                    {smsaStatus.city || ''}
-                    {smsaStatus.city && smsaStatusTimestamp ? ' • ' : ''}
-                    {smsaStatusTimestamp || ''}
+                    {liveStatus.city || ''}
+                    {liveStatus.city && liveStatusTimestamp ? ' • ' : ''}
+                    {liveStatusTimestamp || ''}
                   </p>
                 )}
               </div>

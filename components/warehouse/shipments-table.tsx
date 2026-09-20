@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
-import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import { resolveShipmentLiveStatus } from '@/lib/shipment-live-status';
 import { Trash2, Package, CheckCircle, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -87,7 +87,7 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                   <TableHead>النوع</TableHead>
                   <TableHead>وقت المسح</TableHead>
                   <TableHead>تسليم شركة الشحن</TableHead>
-                  <TableHead>حالة سمسا</TableHead>
+                  <TableHead>حالة الشحنة</TableHead>
                   <TableHead>ملاحظات</TableHead>
                   <TableHead className="w-[100px]">إجراءات</TableHead>
                 </TableRow>
@@ -96,9 +96,8 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                 {shipments.map((shipment) => {
                   const company = getCompanyInfo(shipment.company);
                   const isHighlighted = highlightedId === shipment.id;
-                  const smsaStatus = shipment.smsaLiveStatus || null;
-                  const statusLabel = resolveMajorSmsaStatus(smsaStatus);
-                  const statusTimestamp = formatStatusTimestamp(smsaStatus?.timestamp);
+                  const liveStatus = resolveShipmentLiveStatus(shipment);
+                  const statusTimestamp = formatStatusTimestamp(liveStatus?.timestamp);
                   return (
                     <TableRow
                       key={shipment.id}
@@ -151,18 +150,22 @@ export function ShipmentsTable({ shipments, onDelete, highlightedId }: Shipments
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-slate-600">
-                        {smsaStatus ? (
+                        {liveStatus ? (
                           <div className="space-y-0.5">
                             <div className="font-medium text-slate-900">
-                              {statusLabel || smsaStatus.description || smsaStatus.code || '—'}
+                              {liveStatus.label || '—'}
                             </div>
-                            {(smsaStatus.city || statusTimestamp) && (
+                            {liveStatus.detail && (
+                              <div className="text-[11px] text-slate-500">{liveStatus.detail}</div>
+                            )}
+                            {(liveStatus.city || statusTimestamp) && (
                               <div className="text-[11px] text-slate-500">
-                                {smsaStatus.city || ''}
-                                {smsaStatus.city && statusTimestamp ? ' • ' : ''}
+                                {liveStatus.city || ''}
+                                {liveStatus.city && statusTimestamp ? ' • ' : ''}
                                 {statusTimestamp || ''}
                               </div>
                             )}
+                            <div className="text-[11px] text-slate-400">{liveStatus.carrierLabel}</div>
                           </div>
                         ) : (
                           <span className="text-slate-400">—</span>

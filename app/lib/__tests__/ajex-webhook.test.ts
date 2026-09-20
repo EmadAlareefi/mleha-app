@@ -46,3 +46,17 @@ test('rejects non-JSON content type', async () => {
 test('does not acknowledge failed persistence', async () => {
   assert.equal((await receiveAjexWebhook(request(), 'secret', async () => { throw new Error('database unavailable'); })).status, 500);
 });
+test('links stored events to shipments and still acknowledges a failed link', async () => {
+  const linked: string[] = [];
+  const order: string[] = [];
+  const ok = await receiveAjexWebhook(request(), 'secret',
+    async () => order.push('store'),
+    async e => { order.push('link'); linked.push(e.trackingId); });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(order, ['store', 'link']);
+  assert.deepEqual(linked, ['AJEX-TEST']);
+
+  const failed = await receiveAjexWebhook(request(), 'secret', async () => {},
+    async () => { throw new Error('database unavailable'); });
+  assert.equal(failed.status, 200);
+});

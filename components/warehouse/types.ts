@@ -1,3 +1,4 @@
+import type { AjexLiveStatus } from '@/types/ajex';
 import type { SmsaLiveStatus } from '@/types/smsa';
 
 export interface WarehouseInfo {
@@ -26,4 +27,6 @@ export interface Shipment {
   warehouse?: ShipmentWarehouseDetails | null;
   smsaLiveStatus?: SmsaLiveStatus | null;
   smsaLiveStatusUpdatedAt?: string | null;
+  ajexLiveStatus?: AjexLiveStatus | null;
+  ajexLiveStatusUpdatedAt?: string | null;
 }

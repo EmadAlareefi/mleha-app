@@ -344,6 +344,9 @@ model Shipment {
   notes                   String?    @db.Text
   smsaLiveStatus          Json?
   smsaLiveStatusUpdatedAt DateTime?
+  ajexLiveStatus          Json?
+  ajexLiveStatusUpdatedAt DateTime?
+  ajexLiveStatusEventAt   DateTime?
   warehouseId             String?
   warehouse               Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 

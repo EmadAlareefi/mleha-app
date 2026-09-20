@@ -391,6 +391,8 @@ export async function GET(request: NextRequest) {
         notes: true,
         smsaLiveStatus: true,
         smsaLiveStatusUpdatedAt: true,
+        ajexLiveStatus: true,
+        ajexLiveStatusUpdatedAt: true,
         warehouse: {
           select: {
             id: true,

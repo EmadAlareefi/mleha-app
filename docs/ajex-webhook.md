@@ -14,7 +14,28 @@ Only POST is supported.
 
 Each accepted delivery is stored in the existing WebhookLog table with event
 `ajex.tracking` and verified=true. Retries are retained as separate log entries.
-Authorization headers are never stored. This receiver does not update shipments
-or order statuses. No database migration is required.
+Authorization headers are never stored.
 
-Test: `node --test --import tsx app/lib/__tests__/ajex-webhook.test.ts`.
+## Warehouse shipment linking
+
+After the callback is stored, it is applied to the scanned warehouse shipments
+(both الواردة and الصادرة) that carry the same waybill, mirroring the SMSA scan
+feed. The normalized status is written to `Shipment.ajexLiveStatus`, with
+`ajexLiveStatusUpdatedAt` (when it was written) and `ajexLiveStatusEventAt` (the
+carrier event time). `Shipment` rows are matched by tracking-number prefix,
+because warehouse scans capture the piece barcode (`AJA…001`) while callbacks
+report the shipment waybill (`AJA…`). A callback older than the stored
+`ajexLiveStatusEventAt` is ignored, so retries and out-of-order deliveries never
+roll a shipment back to an earlier status. A failed link is logged but still
+acknowledged with 200, because the event is already stored and can be replayed.
+
+`/app/warehouse` renders the AJEX status in the same column and details dialog as
+SMSA via `resolveShipmentLiveStatus` (`lib/shipment-live-status.ts`); AJEX status
+codes map to Arabic labels in `lib/ajex-status.ts`, and unknown codes fall back to
+the raw `status` text.
+
+Migration: `prisma/migrations/20260920120000_shipment_ajex_live_status`.
+Replay stored callbacks onto existing shipments with
+`npm run backfill:ajex-live-status` (add `-- --dry-run` to preview).
+
+Test: `npm run test:ajex`.

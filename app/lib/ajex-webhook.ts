@@ -1,12 +1,19 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
+import { normalizeAjexTrackingEvent, type AjexTrackingEvent } from '@/app/lib/ajex-tracking';
 
 type StoreEvent = (data: Prisma.WebhookLogCreateInput) => Promise<unknown>;
+type LinkEvent = (event: AjexTrackingEvent) => Promise<unknown>;
 const reply = (code: number, message: string) => Response.json(
   { responseCode: String(code), responseMessage: message }, { status: code },
 );
 
-export async function receiveAjexWebhook(request: Request, token: string | undefined, store: StoreEvent) {
+export async function receiveAjexWebhook(
+  request: Request,
+  token: string | undefined,
+  store: StoreEvent,
+  link?: LinkEvent,
+) {
   if (!token) return reply(503, 'Callback authentication is not configured');
   const parts = (request.headers.get('authorization') || '').trim().split(/\s+/);
   const supplied = Buffer.from(parts[1] || '');
@@ -42,6 +49,12 @@ export async function receiveAjexWebhook(request: Request, token: string | undef
   } catch {
     console.error('AJEX callback storage failed');
     return reply(500, 'Unable to store tracking event');
+  }
+  if (link) {
+    const event = normalizeAjexTrackingEvent(payload);
+    // The event is already stored, so a failed link is retried by the backfill
+    // script rather than by asking AJEX to resend the callback.
+    if (event) await link(event).catch(() => console.error('AJEX shipment link failed', event.trackingId));
   }
   return reply(200, 'Success');
 }

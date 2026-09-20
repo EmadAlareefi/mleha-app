@@ -231,6 +231,10 @@ async function loadWarehouseSnapshot({
       smsaLiveStatusUpdatedAt: (shipment as any).smsaLiveStatusUpdatedAt
         ? (shipment as any).smsaLiveStatusUpdatedAt.toISOString()
         : null,
+      ajexLiveStatus: ((shipment as any).ajexLiveStatus as any) || null,
+      ajexLiveStatusUpdatedAt: (shipment as any).ajexLiveStatusUpdatedAt
+        ? (shipment as any).ajexLiveStatusUpdatedAt.toISOString()
+        : null,
       warehouse: shipment.warehouse
         ? {
             id: shipment.warehouse.id,
