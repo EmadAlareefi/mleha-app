@@ -68,6 +68,7 @@ export async function POST(
       assignment: result.assignment,
       sallaStatusSynced: result.sallaStatusSynced,
       sallaError: result.sallaError ?? null,
+      isInternational: Boolean(result.isInternational),
     });
   } catch (error) {
     log.error('Failed to update order prep status', {

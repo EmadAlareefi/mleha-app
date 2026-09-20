@@ -342,7 +342,11 @@ export default function OrderPrepClient() {
         if (status === 'completed') {
           toast({ description: '🎉 تم إنهاء الطلب، جارٍ تحميل الطلب التالي' });
         } else if (status === 'preparing') {
-          toast({ description: '🔄 تم تحديث الطلب إلى جاري التجهيز' });
+          toast({
+            description: data.isInternational
+              ? '🌍 تم تحديث الطلب إلى جاري التجهيز الدولي'
+              : '🔄 تم تحديث الطلب إلى جاري التجهيز',
+          });
         } else if (status === 'waiting') {
           toast({ description: '⌛ تم وضع الطلب في قائمة الانتظار' });
         }

@@ -3,6 +3,7 @@ const ALLOWED_ORDER_STATUS_IDS = new Set([
   '566146469', // Original "تحت المراجعة / طلب جديد"
   '1956875584', // Custom "جاري التجهيز"
   '1939592358', // Original "قيد التنفيذ / جاري التجهيز"
+  '523521855', // Custom "جاري التجهيز الدولي" (sub-status of جاري التجهيز)
 ]);
 
 const ALLOWED_ORDER_STATUS_SLUGS = new Set(['under_review', 'in_progress']);
@@ -13,11 +14,12 @@ const ALLOWED_ORDER_STATUS_NAMES = new Set(
     'new order',
     'under review',
     'جاري التجهيز',
+    'جاري التجهيز الدولي',
     'in progress',
     'processing',
     'preparing',
     'قيد التنفيذ',
-  ].map((value) => value.trim().toLowerCase()),
+  ].map((value) => value.trim().replace(/\s+/g, ' ').toLowerCase()),
 );
 
 const normalizeStatusId = (value: unknown): string | null => {
@@ -41,7 +43,8 @@ const normalizeStatusName = (value: unknown): string | null => {
   if (typeof value !== 'string') {
     return null;
   }
-  const normalized = value.trim().toLowerCase();
+  // Some Salla status names contain repeated spaces (e.g. "جاري التجهيز  الدولي").
+  const normalized = value.trim().replace(/\s+/g, ' ').toLowerCase();
   return normalized || null;
 };
 

@@ -40,6 +40,7 @@
     "backfill:fabric-stock-grand-total": "node --import tsx scripts/backfill-fabric-stock-grand-total.ts",
     "backfill:ajex-live-status": "node --import tsx scripts/backfill-ajex-live-status.ts",
     "backfill:local-shipment-phones": "node --import tsx scripts/backfill-local-shipment-phones.ts",
+    "test:order-prep-status": "node --test --import tsx app/lib/__tests__/order-prep-salla-status.test.ts app/lib/__tests__/order-destination.test.ts",
     "test:ajex": "node --test --import tsx app/lib/__tests__/ajex-webhook.test.ts app/lib/__tests__/ajex-tracking.test.ts"
   },
   "dependencies": {

@@ -4,7 +4,7 @@ import { log } from '@/app/lib/logger';
 import { getSallaAccessToken } from '@/app/lib/salla-oauth';
 import { fetchSallaWithRetry } from '@/app/lib/fetch-with-retry';
 import { getSallaOrderStatuses, getNewOrderStatusFilters } from '@/app/lib/salla-statuses';
-import { STATUS_IDS, STATUS_SLUGS } from '@/SALLA_ORDER_STATUSES';
+import { STATUS_SLUGS } from '@/SALLA_ORDER_STATUSES';
 import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
 import {
   extractSallaStatus,
@@ -12,6 +12,11 @@ import {
   isOrderStatusAssignable,
 } from '@/app/lib/order-prep-status-guard';
 import { updateSallaOrder, type SallaShipToUpdate } from '@/app/lib/salla-api';
+import { detectInternationalOrder } from '@/app/lib/order-destination';
+import {
+  resolveOrderPrepSallaStatusId,
+  resolveOrderPrepStatusName,
+} from '@/app/lib/order-prep-salla-status';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -211,6 +216,7 @@ export async function updateAssignmentStatus(options: {
   sallaStatusSynced: boolean;
   sallaError?: string;
   blocked?: boolean;
+  isInternational?: boolean;
 } | null> {
   const { assignmentId, userId, targetStatus, skipSallaSync, itemStatuses } = options;
 
@@ -231,6 +237,8 @@ export async function updateAssignmentStatus(options: {
     }
   }
 
+  const isInternational = detectInternationalOrder(currentOrderData).isInternational;
+
   const now = new Date();
   const data: Prisma.OrderPrepAssignmentUpdateInput = {
     status: targetStatus,
@@ -245,7 +253,7 @@ export async function updateAssignmentStatus(options: {
     data.completedAt = now;
   }
 
-  const nextSallaStatusId = mapStatusToSalla(targetStatus);
+  const nextSallaStatusId = resolveOrderPrepSallaStatusId(targetStatus, isInternational);
   let sallaStatusSynced = false;
   let sallaError: string | undefined;
 
@@ -268,13 +276,24 @@ export async function updateAssignmentStatus(options: {
           sallaStatusSynced: false,
           sallaError: 'تعذر تحديث حالة الطلب في سلة. يرجى المحاولة مرة أخرى.',
           blocked: true,
+          isInternational,
         };
       }
     } else if (result.success) {
-      data.orderData = updateStoredOrderStatus(currentOrderData, targetStatus, itemStatuses);
+      data.orderData = updateStoredOrderStatus(
+        currentOrderData,
+        targetStatus,
+        itemStatuses,
+        isInternational,
+      );
     }
   } else if (targetStatus === 'completed') {
-    data.orderData = updateStoredOrderStatus(currentOrderData, targetStatus, itemStatuses);
+    data.orderData = updateStoredOrderStatus(
+      currentOrderData,
+      targetStatus,
+      itemStatuses,
+      isInternational,
+    );
   }
 
   const updated = await prisma.orderPrepAssignment.update({
@@ -301,6 +320,7 @@ export async function updateAssignmentStatus(options: {
     assignment: serializeAssignment(updated),
     sallaStatusSynced,
     sallaError,
+    isInternational,
   };
 }
 
@@ -308,18 +328,24 @@ function updateStoredOrderStatus(
   orderData: Prisma.JsonValue,
   targetStatus: string,
   itemStatuses?: ItemStatusPayload[],
+  isInternational = false,
 ): Prisma.InputJsonValue {
   if (typeof orderData !== 'object' || orderData === null) {
     return orderData as Prisma.InputJsonValue;
   }
 
-  const statusMap: Record<string, { slug: string; name: string }> = {
-    preparing: { slug: STATUS_SLUGS.IN_PROGRESS, name: 'جاري التجهيز' },
-    waiting: { slug: STATUS_SLUGS.UNDER_REVIEW, name: 'قيد الانتظار' },
-    completed: { slug: STATUS_SLUGS.COMPLETED, name: 'تم التنفيذ' },
+  const slugMap: Record<string, string> = {
+    preparing: STATUS_SLUGS.IN_PROGRESS,
+    waiting: STATUS_SLUGS.UNDER_REVIEW,
+    completed: STATUS_SLUGS.COMPLETED,
   };
+  const slug = slugMap[targetStatus];
+  const name = resolveOrderPrepStatusName(
+    targetStatus as 'preparing' | 'waiting' | 'completed',
+    isInternational,
+  );
+  const match = slug && name ? { slug, name } : null;
 
-  const match = statusMap[targetStatus];
   const normalizedStatuses =
     Array.isArray(itemStatuses) && itemStatuses.length > 0
       ? itemStatuses
@@ -369,19 +395,6 @@ function updateStoredOrderStatus(
   }
 
   return nextData as Prisma.InputJsonValue;
-}
-
-function mapStatusToSalla(status: 'preparing' | 'waiting' | 'completed'): number | null {
-  switch (status) {
-    case 'preparing':
-      return STATUS_IDS.IN_PROGRESS ?? null;
-    case 'waiting':
-      return STATUS_IDS.UNDER_REVIEW ?? null;
-    case 'completed':
-      return STATUS_IDS.IN_PROGRESS ?? null;
-    default:
-      return null;
-  }
 }
 
 const DEFAULT_POSTAL_CODE = '000000';

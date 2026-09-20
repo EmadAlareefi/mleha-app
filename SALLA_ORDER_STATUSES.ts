@@ -176,6 +176,19 @@ export const SUB_STATUSES = {
     originalId: 566146469
   },
 
+  // Under "In Progress" (جاري التجهيز)
+  IN_PROGRESS_INTERNATIONAL: {
+    id: 523521855,
+    slug: 'in_progress',
+    name: 'جاري التجهيز  الدولي',
+    nameEn: 'In Progress - International',
+    icon: 'sicon-earth',
+    type: 'custom',
+    parentId: 1956875584,
+    parentName: 'جاري التجهيز',
+    originalId: 1939592358
+  },
+
   // Under "Completed" (تم التنفيذ)
   DELIVERING: {
     id: 1647503939,
@@ -367,6 +380,7 @@ export const STATUS_IDS = {
   UNDER_REVIEW_RESERVATION: 1576217163,
   UNDER_REVIEW_A: 1882207425,
   UNDER_REVIEW_X4: 2046404155,
+  IN_PROGRESS_INTERNATIONAL: 523521855,
   DELIVERING: 1647503939,
   DELIVERED: 1008666956,
   SHIPPED: 165947469,
