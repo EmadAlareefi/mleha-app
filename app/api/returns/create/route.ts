@@ -4,6 +4,7 @@ import { getSallaOrder } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
 import { getOrderOptionsTotal, getOriginalShippingFee } from '@/lib/returns/fees';
 import { resolveReturnItems } from '@/lib/returns/resolve-return-items';
+import { validateRibbonItems } from '@/lib/returns/protection-ribbon';
 import {
   isPhoneProofRequired,
   orderBelongsToPhone,
@@ -46,6 +47,7 @@ interface ReturnItemRequest {
   orderItemId: number | string;
   productId: string;
   quantity: number;
+  ribbonRemoved: boolean[];
 }
 
 interface CreateReturnRequest {
@@ -83,7 +85,7 @@ export async function POST(request: NextRequest) {
     const body: CreateReturnRequest = await request.json();
 
     // Validate required fields
-    if (!body.merchantId || !body.orderId || !body.type || !body.reason || !body.items || body.items.length === 0) {
+    if (!body.merchantId || !body.orderId || !body.type || !body.reason || !Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json(
         { error: 'الرجاء تقديم جميع الحقول المطلوبة' },
         { status: 400 }
@@ -197,6 +199,11 @@ export async function POST(request: NextRequest) {
     }
 
     const resolvedItems = resolution.items;
+
+    const ribbonValidation = validateRibbonItems(order, body.items);
+    if (!ribbonValidation.ok) {
+      return NextResponse.json({ error: ribbonValidation.error }, { status: 400 });
+    }
 
     const selectedProductIds = resolvedItems.map((item) => item.productId).filter(Boolean);
     const selectedCategoriesByProductId = await getCategoryNamesByProductId(body.merchantId, selectedProductIds);

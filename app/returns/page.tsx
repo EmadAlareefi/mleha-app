@@ -642,6 +642,7 @@ export default function ReturnsPage() {
               ← العودة للبحث
             </Button>
             <ReturnForm
+              key={`${MERCHANT_CONFIG.merchantId}:${order.id}`}
               order={order}
               merchantId={MERCHANT_CONFIG.merchantId}
               merchantInfo={{

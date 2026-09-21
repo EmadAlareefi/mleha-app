@@ -362,6 +362,14 @@ For issues or questions:
 3. Verify all environment variables are set correctly
 4. Test API endpoints individually
 
+## Protection ribbon eligibility
+
+The customer form requires a yes/no protection-ribbon declaration for each otherwise eligible piece before product selection, for both returns and exchanges. Removed ribbons exclude only the affected pieces; quantities and refund estimates are capped to intact pieces. Answers can be corrected and reset when looking up a different order.
+
+`POST /api/returns/create` requires `ribbonRemoved: boolean[]` on every submitted item, with one entry per ordered piece (`true` means removed). Missing or malformed declarations, duplicate order-item entries, and quantities above the intact-piece count are rejected before creating a return or shipment. This is a customer declaration, not a physical inspection; no database migration is required.
+
+Synthetic fixtures in `lib/returns/__tests__/protection-ribbon.test.ts` cover missing answers, partial quantities, mixed products, duplicate lines, invalid quantities, and answer corrections. Run with `node --test --import tsx lib/returns/__tests__/protection-ribbon.test.ts` alongside `npm run test:returns-pricing`.
+
 ## Next Steps
 
 Optional enhancements you can add:

@@ -13,6 +13,12 @@ import {
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { getOrderItemUnitPrice } from '@/lib/returns/item-price';
 import {
+  getRibbonEligibility,
+  RIBBON_REMOVED_MESSAGE,
+  RIBBON_UNANSWERED_MESSAGE,
+  validateRibbonItems,
+} from '@/lib/returns/protection-ribbon';
+import {
   isDiscountedCategory,
   isNationalDayOffersCategory,
   isOutletCategory,
@@ -189,12 +195,15 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const [reason, setReason] = useState('');
   const [reasonDetails, setReasonDetails] = useState('');
   const [selectedItems, setSelectedItems] = useState<Map<number, number>>(new Map());
+  const [ribbonAnswers, setRibbonAnswers] = useState<Record<number, (boolean | undefined)[]>>({});
+  const [ribbonStepComplete, setRibbonStepComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [itemCategories, setItemCategories] = useState<Record<string, string>>({});
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
   const [nationalDayOffersProducts, setNationalDayOffersProducts] = useState<Record<string, boolean>>({});
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const orderCurrency = order.returnFeeQuotes?.return?.currency || order.amounts?.total?.currency || 'SAR';
   const fallbackReturnQuote = buildReturnFeeQuote('return', orderCurrency, 1, 'sar');
   const fallbackExchangeQuote = buildReturnFeeQuote('exchange', orderCurrency, 1, 'sar');
@@ -288,14 +297,47 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     return ids;
   }, [order, windowExpiredProductIds]);
 
+  const ribbonCheckItems = useMemo(() => (order.items ?? []).filter((item) =>
+    !discountedCategoryItemIds.has(item.id) && !windowExpiredItemIds.has(item.id) &&
+    !(type === 'return' && (outletCategoryItemIds.has(item.id) || nationalDayOffersItemIds.has(item.id)))
+  ), [order, type, discountedCategoryItemIds, windowExpiredItemIds, outletCategoryItemIds, nationalDayOffersItemIds]);
+  const eligibleQuantities = useMemo(() => new Map(ribbonCheckItems.map((item) => [
+    item.id, getRibbonEligibility(ribbonAnswers[item.id], item.quantity).intactQuantity,
+  ])), [ribbonCheckItems, ribbonAnswers]);
+  const allRibbonsAnswered = ribbonCheckItems.length > 0 && ribbonCheckItems.every((item) =>
+    getRibbonEligibility(ribbonAnswers[item.id], item.quantity).complete
+  );
+  const hasEligiblePieces = Array.from(eligibleQuantities.values()).some((quantity) => quantity > 0);
+  const showSelection = ribbonStepComplete && allRibbonsAnswered && hasEligiblePieces && !categoriesLoading;
+
+  const changeRequestType = (nextType: 'return' | 'exchange') => {
+    if (nextType !== type) {
+      setType(nextType);
+      setRibbonStepComplete(false);
+      setError('');
+    }
+  };
+
+  const answerRibbon = (item: OrderItem, pieceIndex: number, removed: boolean) => {
+    setRibbonAnswers((previous) => {
+      const answers = Array.from({ length: item.quantity }, (_, index) => previous[item.id]?.[index]);
+      answers[pieceIndex] = removed;
+      return { ...previous, [item.id]: answers };
+    });
+    setRibbonStepComplete(false);
+    setError('');
+  };
+
   // Fetch categories for all items
   useEffect(() => {
     const fetchCategories = async () => {
+      setCategoriesLoading(true);
       if (!order.items || order.items.length === 0) {
         setItemCategories({});
         setDiscountedCategoryProducts({});
         setOutletCategoryProducts({});
         setNationalDayOffersProducts({});
+        setCategoriesLoading(false);
         return;
       }
 
@@ -318,6 +360,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         setDiscountedCategoryProducts({});
         setOutletCategoryProducts({});
         setNationalDayOffersProducts({});
+        setCategoriesLoading(false);
         return;
       }
 
@@ -380,30 +423,36 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       setDiscountedCategoryProducts(discountedCategories);
       setOutletCategoryProducts(outletCategories);
       setNationalDayOffersProducts(nationalDayOffersCategories);
+      setCategoriesLoading(false);
     };
 
     fetchCategories();
   }, [order, merchantId]);
 
   useEffect(() => {
-    if (type !== 'return' || selectedItems.size === 0) {
+    if (selectedItems.size === 0) {
       return;
     }
     const nextSelectedItems = new Map(selectedItems);
     let changed = false;
-    for (const itemId of selectedItems.keys()) {
-      if (outletCategoryItemIds.has(itemId) || nationalDayOffersItemIds.has(itemId)) {
+    for (const [itemId, quantity] of selectedItems) {
+      const allowedQuantity = eligibleQuantities.get(itemId) ?? 0;
+      if (allowedQuantity === 0) {
         nextSelectedItems.delete(itemId);
+        changed = true;
+      } else if (quantity > allowedQuantity) {
+        nextSelectedItems.set(itemId, allowedQuantity);
         changed = true;
       }
     }
     if (changed) {
       setSelectedItems(nextSelectedItems);
     }
-  }, [type, selectedItems, outletCategoryItemIds, nationalDayOffersItemIds]);
+  }, [selectedItems, eligibleQuantities]);
 
   const handleItemClick = (itemId: number, maxQuantity: number) => {
     if (
+      !showSelection || maxQuantity < 1 ||
       discountedCategoryItemIds.has(itemId) ||
       windowExpiredItemIds.has(itemId) ||
       (type === 'return' &&
@@ -430,6 +479,19 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!showSelection) {
+      setError(RIBBON_UNANSWERED_MESSAGE);
+      return;
+    }
+
+    const ribbonValidation = validateRibbonItems(order, Array.from(selectedItems, ([orderItemId, quantity]) => ({
+      orderItemId, quantity, ribbonRemoved: ribbonAnswers[orderItemId],
+    })));
+    if (!ribbonValidation.ok) {
+      setError(ribbonValidation.error);
+      return;
+    }
 
     if (selectedItems.size === 0) {
       setError('الرجاء اختيار منتج واحد على الأقل');
@@ -473,7 +535,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
     setLoading(true);
 
     try {
-      // Only identifiers and quantities are sent. The server looks each line up
+      // Identifiers, quantities and ribbon declarations are sent. The server looks each line up
       // on the order by `orderItemId` and derives the name, SKU, variant and
       // price from Salla, so nothing here can influence the refund amount.
       const items = Array.from(selectedItems.entries()).map(([itemId, quantity]) => {
@@ -486,6 +548,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
           // object, which the server cannot resolve an id from on its own.
           productId: getOrderItemProductIdWithFallback(orderItem, itemId),
           quantity,
+          ribbonRemoved: ribbonAnswers[itemId],
         };
       });
 
@@ -556,7 +619,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         <div className="flex gap-4">
           <button
             type="button"
-            onClick={() => setType('return')}
+            onClick={() => changeRequestType('return')}
             className={`flex-1 py-3 px-4 rounded-lg border-2 transition-colors ${
               type === 'return'
                 ? 'border-blue-600 bg-blue-50 text-blue-700'
@@ -570,7 +633,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
           </button>
           <button
             type="button"
-            onClick={() => setType('exchange')}
+            onClick={() => changeRequestType('exchange')}
             className={`relative flex-1 py-3 px-4 rounded-lg border-2 transition-colors ${
               type === 'exchange'
                 ? 'border-green-600 bg-green-50 text-green-700'
@@ -588,6 +651,51 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         </div>
       </Card>
 
+      {!showSelection ? (
+        <Card className="p-6 space-y-4">
+          <h3 className="text-lg font-semibold">التحقق من شريط الحماية</h3>
+          <p className="text-sm text-gray-600">حددي حالة شريط الحماية لكل قطعة. يمكن متابعة الطلب للقطع التي لم تتم إزالة شريط الحماية منها فقط.</p>
+          {categoriesLoading ? <p role="status">جاري التحقق من المنتجات...</p> : ribbonCheckItems.map((item) => {
+            const { color, size } = getItemAttributes(item);
+            const imageSrc = item.images?.[0]?.image || item.product?.thumbnail || item.thumbnail;
+            return (
+              <div key={item.id} className="rounded-lg border p-4 space-y-4">
+                <div className="flex items-start gap-3">
+                  {imageSrc && <Image src={imageSrc} alt={item.name || item.product?.name || 'منتج'} width={64} height={64} sizes="64px" className="h-16 w-16 rounded-lg object-cover" />}
+                  <div>
+                    <h4 className="font-medium">{item.name || item.product?.name || 'منتج'}</h4>
+                    <p className="text-sm text-gray-600">{[color && `اللون: ${color}`, size && `المقاس: ${size}`, item.variant?.name].filter(Boolean).join(' — ')}</p>
+                  </div>
+                </div>
+                {Array.from({ length: item.quantity }, (_, pieceIndex) => (
+                  <fieldset key={pieceIndex} className="rounded-md border p-3">
+                    <legend className="px-1 text-sm font-medium">
+                      {item.quantity > 1 && `القطعة ${pieceIndex + 1}: `}هل تم إزالة شريط الحماية من الفستان؟
+                    </legend>
+                    <div className="flex gap-6">
+                      {[{ label: 'نعم', removed: true }, { label: 'لا', removed: false }].map(({ label, removed }) => (
+                        <label key={label} className="flex cursor-pointer items-center gap-2 py-2">
+                          <input type="radio" name={`ribbon-${item.id}-${pieceIndex}`} checked={ribbonAnswers[item.id]?.[pieceIndex] === removed} onChange={() => answerRibbon(item, pieceIndex, removed)} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    {ribbonAnswers[item.id]?.[pieceIndex] === true && <p role="status" className="text-sm text-red-700">{RIBBON_REMOVED_MESSAGE}</p>}
+                  </fieldset>
+                ))}
+              </div>
+            );
+          })}
+          {!categoriesLoading && ribbonCheckItems.length === 0 && <p className="text-sm text-red-700">لا توجد منتجات مؤهلة لنوع الطلب المحدد.</p>}
+          {allRibbonsAnswered && !hasEligiblePieces && <p role="status" className="text-sm text-red-700">{RIBBON_REMOVED_MESSAGE}</p>}
+          {!categoriesLoading && !allRibbonsAnswered && ribbonCheckItems.length > 0 && <p className="text-sm text-gray-600">{RIBBON_UNANSWERED_MESSAGE}</p>}
+          <Button type="button" className="w-full" disabled={categoriesLoading || !allRibbonsAnswered || !hasEligiblePieces} onClick={() => { setRibbonStepComplete(true); setError(''); }}>
+            متابعة لاختيار المنتجات
+          </Button>
+        </Card>
+      ) : (
+        <>
+      <Button type="button" variant="outline" onClick={() => setRibbonStepComplete(false)}>تعديل إجابات شريط الحماية</Button>
       {/* Select Items */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4">اختر المنتجات</h3>
@@ -597,7 +705,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
             order.items.map((item: OrderItem, index: number) => {
               const selectedQuantity = selectedItems.get(item.id) || 0;
               const isSelected = selectedQuantity > 0;
-              const maxQuantity = item.quantity || 1;
+              const maxQuantity = eligibleQuantities.get(item.id) ?? 0;
               const productIdForCategory = getOrderItemProductId(item);
               const category = productIdForCategory ? itemCategories[productIdForCategory] : undefined;
               const isDiscountedProduct = productIdForCategory
@@ -616,7 +724,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                 type === 'return' && (isOutletCategoryItem || isNationalDayOffersItem);
               const isWindowExpiredItem = windowExpiredItemIds.has(item.id);
               const isItemDisabled =
-                isDiscountedCategoryItem || isExchangeOnlyUnavailable || isWindowExpiredItem;
+                isDiscountedCategoryItem || isExchangeOnlyUnavailable || isWindowExpiredItem || maxQuantity === 0;
               const { color, size } = getItemAttributes(item);
               const imageSrc = item.images?.[0]?.image || item.product?.thumbnail || item.thumbnail;
 
@@ -706,6 +814,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                       <p className="text-xs text-red-600 font-medium">
                         انتهت مدة إرجاع فساتين السهرة (24 ساعة من وقت التسليم)
                       </p>
+                    )}
+                    {ribbonAnswers[item.id]?.some((removed) => removed === true) && (
+                      <p className="text-xs text-red-700">{RIBBON_REMOVED_MESSAGE}</p>
                     )}
                     <p className="text-xs text-gray-500">
                       الكمية المتوفرة: {maxQuantity}
@@ -875,6 +986,8 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       >
         {loading ? 'جاري المعالجة...' : `إرسال طلب ${type === 'return' ? 'الإرجاع' : 'الاستبدال'}`}
       </Button>
+        </>
+      )}
     </form>
   );
 }
