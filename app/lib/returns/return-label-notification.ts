@@ -216,9 +216,12 @@ const getResponseId = (response: unknown): string | undefined => {
   );
 };
 
-const providerIsSalla = (response: unknown) => {
+/** The request's shipment was issued as a return, by Salla's policy or directly with AJEX. */
+const RETURN_LABEL_PROVIDERS = new Set(['salla', 'ajex']);
+const providerIssuedReturnLabel = (response: unknown) => {
   if (!response || typeof response !== 'object') return false;
-  return normalizeText((response as AnyRecord).provider)?.toLowerCase() === 'salla';
+  const provider = normalizeText((response as AnyRecord).provider)?.toLowerCase();
+  return Boolean(provider && RETURN_LABEL_PROVIDERS.has(provider));
 };
 
 const RETURN_REQUEST_NOTIFICATION_FIELDS = {
@@ -330,7 +333,7 @@ export async function maybeNotifyReturnLabelCreated(
     }
 
     const hasExplicitReturnMarker = extracted.hasReturnMarker || hasReturnMarker(input.shipmentData);
-    if (!hasExplicitReturnMarker && !providerIsSalla(returnRequest.smsaResponse)) {
+    if (!hasExplicitReturnMarker && !providerIssuedReturnLabel(returnRequest.smsaResponse)) {
       return {
         status: 'skipped',
         reason: 'not_return_label',

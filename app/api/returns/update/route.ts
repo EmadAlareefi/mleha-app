@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
 import { recalculateReturnRequestFinancials } from '@/lib/returns/request-financials';
+import { cancelAjexReturnShipment } from '@/app/lib/returns/return-shipment-provider';
 
 export const runtime = 'nodejs';
 
@@ -106,6 +107,13 @@ export async function POST(request: NextRequest) {
       updateData.feeExchangeRateSource = financials.feeExchangeRateSource;
     }
 
+    const previous = status === 'cancelled' || status === 'rejected'
+      ? await prisma.returnRequest.findUnique({
+          where: { id },
+          select: { id: true, status: true, smsaTrackingNumber: true, smsaResponse: true },
+        })
+      : null;
+
     const returnRequest = await prisma.returnRequest.update({
       where: { id },
       data: updateData,
@@ -113,6 +121,11 @@ export async function POST(request: NextRequest) {
         items: true,
       },
     });
+
+    // Rejecting or cancelling before pickup must also call off the AJEX courier.
+    if (previous && !['cancelled', 'rejected'].includes(previous.status)) {
+      await cancelAjexReturnShipment(previous);
+    }
 
     if (returnRequest.type === 'exchange') {
       await maybeReleaseExchangeOrderHold(returnRequest.id);

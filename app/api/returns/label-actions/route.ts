@@ -6,6 +6,10 @@ import { log } from '@/app/lib/logger';
 import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-notification';
 import { requestSallaReturnPolicy } from '@/app/lib/returns/salla-return-policy';
 import { syncReturnShipment } from '@/app/lib/returns/return-shipment-sync';
+import {
+  getReturnShipmentProvider,
+  reissueAjexReturnShipment,
+} from '@/app/lib/returns/return-shipment-provider';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -35,8 +39,9 @@ async function authorizeReturnsManagement() {
  *
  * Manual counterparts to the label backfill cron:
  *  - `sync`    pull the return shipment from Salla now
- *  - `reissue` ask Salla for the waybill again (for requests it accepted but
- *              never fulfilled — the shipment sits at `creating` forever)
+ *  - `reissue` issue the waybill again: a fresh AJEX waybill when returns go
+ *              through AJEX directly, otherwise ask Salla again (for requests
+ *              it accepted but never fulfilled — stuck at `creating` forever)
  *  - `resend`  re-send the WhatsApp even though it was already sent once
  */
 export async function POST(request: NextRequest) {
@@ -65,6 +70,38 @@ export async function POST(request: NextRequest) {
 
     if (!returnRequest) {
       return NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 });
+    }
+
+    if (action === 'reissue' && getReturnShipmentProvider() === 'ajex') {
+      const reissued = await reissueAjexReturnShipment(returnRequest.id);
+
+      if (!reissued.success) {
+        return NextResponse.json(
+          { error: reissued.error, details: reissued.details },
+          { status: reissued.status }
+        );
+      }
+
+      log.info('AJEX return waybill re-issued', {
+        returnRequestId,
+        orderNumber: returnRequest.orderNumber,
+        trackingNumber: reissued.trackingNumber,
+        cancelledTrackingNumber: reissued.cancelledTrackingNumber,
+        by: session.user?.name || session.user?.email,
+      });
+
+      return NextResponse.json({
+        success: true,
+        action,
+        sync: {
+          returnRequestId,
+          orderNumber: returnRequest.orderNumber,
+          status: reissued.notification ? 'notified' : 'tracking_only',
+          trackingNumber: reissued.trackingNumber,
+          labelUrl: reissued.labelUrl,
+          ...(reissued.notification ? { notification: reissued.notification } : {}),
+        },
+      });
     }
 
     if (action === 'reissue') {

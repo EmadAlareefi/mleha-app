@@ -34,6 +34,12 @@ import {
   CREATE_RETURN_POLICY_ACTION,
   requestSallaReturnPolicy,
 } from '@/app/lib/returns/salla-return-policy';
+import {
+  createAjexReturnShipment,
+  getReturnShipmentProvider,
+} from '@/app/lib/returns/return-shipment-provider';
+import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-notification';
+import { cancelAjexShipments } from '@/app/lib/ajex-api';
 
 export const runtime = 'nodejs';
 
@@ -77,7 +83,8 @@ interface CreateReturnRequest {
  *
  * Creates a return/exchange request:
  * 1. Validates the order
- * 2. Creates Salla return policy
+ * 2. Issues the return waybill — directly with AJEX, or through Salla's
+ *    return policy (see `RETURN_SHIPMENT_PROVIDER`)
  * 3. Stores return request in database
  */
 export async function POST(request: NextRequest) {
@@ -396,54 +403,101 @@ export async function POST(request: NextRequest) {
     const parsedOrderId = parseInt(body.orderId, 10);
     const normalizedOrderId = Number.isNaN(parsedOrderId) ? body.orderId : parsedOrderId;
 
-    const policyResult = await requestSallaReturnPolicy(body.merchantId, body.orderId);
+    const shipmentProvider = getReturnShipmentProvider();
+    let returnTrackingNumber: string | null = null;
+    let returnLabelUrl: string | null = null;
+    let shipmentRecord: Record<string, unknown>;
+    let operationId: string | undefined;
+    let operationStatus: string | undefined;
 
-    if (!policyResult.success) {
-      return NextResponse.json(
-        { error: policyResult.error, details: policyResult.details },
-        { status: 400 }
+    if (shipmentProvider === 'ajex') {
+      // AJEX issues the waybill synchronously, so tracking and label are known
+      // before the request is stored and no Salla return policy is requested.
+      const ajexShipment = await createAjexReturnShipment({
+        order: order as any,
+        orderNumber: orderReference,
+        currency: feeQuote.currency,
+        items: resolvedItems,
+      });
+
+      if (!ajexShipment.success) {
+        log.error('Failed to create AJEX return shipment', {
+          merchantId: body.merchantId,
+          orderId: body.orderId,
+          error: ajexShipment.error,
+          details: ajexShipment.details,
+        });
+        return NextResponse.json(
+          { error: ajexShipment.error, errorCode: 'RETURN_SHIPMENT_FAILED' },
+          { status: 502 }
+        );
+      }
+
+      returnTrackingNumber = ajexShipment.trackingNumber;
+      returnLabelUrl = ajexShipment.labelUrl;
+      shipmentRecord = ajexShipment.record;
+    } else {
+      const policyResult = await requestSallaReturnPolicy(body.merchantId, body.orderId);
+
+      if (!policyResult.success) {
+        return NextResponse.json(
+          { error: policyResult.error, details: policyResult.details },
+          { status: 400 }
+        );
+      }
+
+      const actionRequestData = policyResult.request;
+      const actionResponse = policyResult.response;
+      const returnPolicyOperation = policyResult.operation;
+      operationStatus = policyResult.operationStatus;
+      operationId = policyResult.operationId;
+
+      // The `create_return_policy` action response echoes the existing order, which
+      // still carries the ORIGINAL (outbound) shipment's tracking number/link. Salla
+      // issues the return waybill (بوليصة الرجيع) asynchronously, so it is usually not
+      // in this response yet. Without excluding the outbound tracking, the extractor
+      // would latch onto it and link the original shipment's label to the return
+      // request. Collect every tracking value already present on the order and exclude
+      // it, so we only accept a genuinely new (return) tracking number here — otherwise
+      // the value stays null and the return-type-filtered backfill in
+      // /api/returns/check and /api/returns/tracking-status populates it later.
+      const originalOrderTrackingNumbers = Array.from(
+        new Set(
+          [
+            extractSallaTrackingNumber(order as any),
+            ...extractGeneratedReturnTrackingNumbers(order),
+          ].filter((value): value is string => Boolean(value))
+        )
       );
-    }
 
-    const actionRequestData = policyResult.request;
-    const actionResponse = policyResult.response;
-    const returnPolicyOperation = policyResult.operation;
-    const operationStatus = policyResult.operationStatus;
-    const operationId = policyResult.operationId;
-
-    // The `create_return_policy` action response echoes the existing order, which
-    // still carries the ORIGINAL (outbound) shipment's tracking number/link. Salla
-    // issues the return waybill (بوليصة الرجيع) asynchronously, so it is usually not
-    // in this response yet. Without excluding the outbound tracking, the extractor
-    // would latch onto it and link the original shipment's label to the return
-    // request. Collect every tracking value already present on the order and exclude
-    // it, so we only accept a genuinely new (return) tracking number here — otherwise
-    // the value stays null and the return-type-filtered backfill in
-    // /api/returns/check and /api/returns/tracking-status populates it later.
-    const originalOrderTrackingNumbers = Array.from(
-      new Set(
+      const generatedReturnTrackingNumber = extractGeneratedReturnTrackingNumber(
+        {
+          operation: returnPolicyOperation,
+          response: actionResponse,
+        },
         [
-          extractSallaTrackingNumber(order as any),
-          ...extractGeneratedReturnTrackingNumbers(order),
-        ].filter((value): value is string => Boolean(value))
-      )
-    );
+          body.orderId,
+          normalizedOrderId,
+          order.id,
+          order.reference_id,
+          orderReference,
+          operationId,
+          ...originalOrderTrackingNumbers,
+        ]
+      );
 
-    const generatedReturnTrackingNumber = extractGeneratedReturnTrackingNumber(
-      {
+      returnTrackingNumber = generatedReturnTrackingNumber;
+      shipmentRecord = {
+        provider: 'salla',
+        action: CREATE_RETURN_POLICY_ACTION,
+        operationId: operationId ?? null,
+        operationStatus,
+        trackingNumber: generatedReturnTrackingNumber,
         operation: returnPolicyOperation,
+        request: actionRequestData,
         response: actionResponse,
-      },
-      [
-        body.orderId,
-        normalizedOrderId,
-        order.id,
-        order.reference_id,
-        orderReference,
-        operationId,
-        ...originalOrderTrackingNumbers,
-      ]
-    );
+      };
+    }
 
     // Update Salla order status to 'restoring' (قيد الاسترجاع)
     try {
@@ -487,77 +541,101 @@ export async function POST(request: NextRequest) {
     // Store return request in database
     log.info('Storing return request in database', {
       orderId: body.orderId,
+      shipmentProvider,
+      returnTrackingNumber,
       sallaReturnPolicyOperationId: operationId,
     });
 
-    const returnRequest = await prisma.returnRequest.create({
-      data: {
-        merchantId: body.merchantId,
-        orderId: body.orderId.toString(),
-        orderNumber: order.reference_id ? String(order.reference_id) : order.id.toString(),
-        customerId: order.customer.id.toString(),
-        customerName: `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim(),
-        customerEmail: order.customer.email ? String(order.customer.email) : '',
-        customerPhone: normalizePhoneWithDialCode(
-          order.customer.mobile ?? order.customer.phone,
-          order.customer.mobile_code ??
-            order.customer.mobileCode ??
-            order.customer.phone_code ??
-            order.customer.phoneCode ??
-            order.customer.dial_code ??
-            order.customer.dialCode ??
-            order.customer.country_code ??
-            order.customer.countryCode,
-        ),
+    let returnRequest;
+    try {
+      returnRequest = await prisma.returnRequest.create({
+        data: {
+          merchantId: body.merchantId,
+          orderId: body.orderId.toString(),
+          orderNumber: order.reference_id ? String(order.reference_id) : order.id.toString(),
+          customerId: order.customer.id.toString(),
+          customerName: `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim(),
+          customerEmail: order.customer.email ? String(order.customer.email) : '',
+          customerPhone: normalizePhoneWithDialCode(
+            order.customer.mobile ?? order.customer.phone,
+            order.customer.mobile_code ??
+              order.customer.mobileCode ??
+              order.customer.phone_code ??
+              order.customer.phoneCode ??
+              order.customer.dial_code ??
+              order.customer.dialCode ??
+              order.customer.country_code ??
+              order.customer.countryCode,
+          ),
 
-        type: body.type,
-        status: 'pending_review',
-        reason: body.reason,
-        reasonDetails: body.reasonDetails,
+          type: body.type,
+          status: 'pending_review',
+          reason: body.reason,
+          reasonDetails: body.reasonDetails,
 
-        smsaTrackingNumber: generatedReturnTrackingNumber,
-        smsaAwbNumber: generatedReturnTrackingNumber,
-        smsaResponse: {
-          provider: 'salla',
-          action: CREATE_RETURN_POLICY_ACTION,
-          operationId: operationId ?? null,
-          operationStatus,
-          trackingNumber: generatedReturnTrackingNumber,
-          operation: returnPolicyOperation,
-          request: actionRequestData,
-          response: actionResponse,
-        } as any,
+          smsaTrackingNumber: returnTrackingNumber,
+          smsaAwbNumber: returnTrackingNumber,
+          smsaResponse: shipmentRecord as any,
+          returnLabelUrl,
 
-        totalRefundAmount,
-        returnFee,
-        shippingAmount: originalShipping,
-        currency: feeQuote.currency,
-        feeExchangeRate: feeQuote.exchangeRate,
-        feeExchangeRateSource: feeQuote.exchangeRateSource,
+          totalRefundAmount,
+          returnFee,
+          shippingAmount: originalShipping,
+          currency: feeQuote.currency,
+          feeExchangeRate: feeQuote.exchangeRate,
+          feeExchangeRateSource: feeQuote.exchangeRateSource,
 
-        items: {
-          create: resolvedItems.map(item => ({
-            productId: item.productId,
-            productName: item.productName,
-            productSku: item.productSku,
-            variantId: item.variantId,
-            variantName: item.variantName,
-            quantity: item.quantity,
-            price: item.price,
-          })),
+          items: {
+            create: resolvedItems.map(item => ({
+              productId: item.productId,
+              productName: item.productName,
+              productSku: item.productSku,
+              variantId: item.variantId,
+              variantName: item.variantName,
+              quantity: item.quantity,
+              price: item.price,
+            })),
+          },
         },
-      },
-      include: {
-        items: true,
-      },
-    });
+        include: {
+          items: true,
+        },
+      });
+    } catch (error) {
+      // The AJEX waybill already exists; without a request pointing at it no
+      // one would ever cancel it, and the courier would still go to collect.
+      if (shipmentProvider === 'ajex' && returnTrackingNumber) {
+        await cancelAjexShipments([returnTrackingNumber]).catch((cancelError) =>
+          log.error('Failed to cancel orphaned AJEX return shipment', {
+            trackingNumber: returnTrackingNumber,
+            cancelError,
+          })
+        );
+      }
+      throw error;
+    }
 
     log.info('Return request created successfully', {
       returnRequestId: returnRequest.id,
+      shipmentProvider,
       sallaReturnPolicyOperationId: operationId,
       sallaReturnPolicyStatus: operationStatus,
-      generatedReturnTrackingNumber,
+      returnTrackingNumber,
     });
+
+    // AJEX hands the label back immediately, so the customer can get the
+    // waybill now instead of waiting for the backfill cron.
+    if (returnLabelUrl) {
+      await maybeNotifyReturnLabelCreated({
+        merchantId: returnRequest.merchantId,
+        orderId: returnRequest.orderId,
+        orderNumber: returnRequest.orderNumber,
+        returnRequestId: returnRequest.id,
+        labelUrl: returnLabelUrl,
+        trackingNumber: returnTrackingNumber,
+        source: 'returns-create-ajex',
+      });
+    }
 
     return NextResponse.json({
       success: true,
@@ -568,6 +646,8 @@ export async function POST(request: NextRequest) {
         status: returnRequest.status,
         smsaTrackingNumber: returnRequest.smsaTrackingNumber,
         smsaLabelDataUrl: null,
+        shipmentProvider,
+        returnLabelUrl,
         sallaReturnPolicyOperationId: operationId,
         sallaReturnPolicyStatus: operationStatus,
         totalRefundAmount: returnRequest.totalRefundAmount,

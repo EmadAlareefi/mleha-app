@@ -620,7 +620,7 @@ export default function ReturnsManagementPage() {
   const runLabelAction = async (request: ReturnRequest, action: 'sync' | 'reissue' | 'resend') => {
     if (action === 'reissue') {
       const confirmed = window.confirm(
-        'سيتم طلب بوليصة إرجاع جديدة من سلة لهذا الطلب. المتابعة؟',
+        'سيتم إصدار بوليصة إرجاع جديدة لهذا الطلب، وإلغاء بوليصة AJEX السابقة إن وُجدت. المتابعة؟',
       );
       if (!confirmed) return;
     }

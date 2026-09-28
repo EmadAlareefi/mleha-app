@@ -45,3 +45,4 @@ next-env.d.ts
 
 # Local operational imports (upload through the size-guide dashboard)
 /sizes.xlsx
+/ajex-test-shipments/

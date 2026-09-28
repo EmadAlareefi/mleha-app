@@ -99,6 +99,13 @@ export async function syncReturnShipment(
     return { ...base, status: 'notified', notification };
   }
 
+  // Label and tracking are both known and the customer has the message —
+  // there is nothing left to pull. This is also the normal state of a request
+  // whose waybill came straight from AJEX, which Salla knows nothing about.
+  if (request.returnLabelUrl && request.smsaTrackingNumber && request.returnLabelNotificationSentAt) {
+    return { ...base, status: 'already_notified' };
+  }
+
   // A failed fetch must not read as "Salla never issued a waybill" — that would
   // send agents chasing re-issues for what is really an API problem.
   const fetched = await fetchSallaOrderShipments(request.merchantId, String(request.orderId));

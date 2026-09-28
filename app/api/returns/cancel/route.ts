@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { cancelAjexReturnShipment } from '@/app/lib/returns/return-shipment-provider';
 
 export const runtime = 'nodejs';
 
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // A waybill issued directly with AJEX would otherwise still send a courier.
+    await cancelAjexReturnShipment(returnRequest);
 
     // Update status to cancelled
     const updatedRequest = await prisma.returnRequest.update({

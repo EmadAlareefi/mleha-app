@@ -117,6 +117,73 @@ Set `RETURNS_REQUIRE_PHONE=false` to restore the old order-number-only flow.
 - The webhook at `/app/salla/webhook/route.ts` handles the `app.store.authorize` event
 - Tokens auto-refresh (at most once every 10 days per merchant) via the scheduled cron job, using a database mutex so duplicate refreshes never overlap
 
+## AJEX Return Shipments (direct API)
+
+Return waybills can be issued directly with AJEX instead of through Salla's
+`create_return_policy`. AJEX answers synchronously, so the tracking number and
+the waybill PDF link are stored on the request immediately and the customer is
+sent the WhatsApp label right away (no backfill wait).
+
+```env
+# Which carrier issues return waybills: ajex | salla (default salla).
+RETURN_SHIPMENT_PROVIDER=ajex
+
+AJEX_API_ENVIRONMENT=sandbox          # sandbox | production
+AJEX_CLIENT_ID=
+AJEX_CLIENT_SECRET=
+AJEX_CUSTOMER_ACCOUNT=                # defaults to AJEX_CLIENT_ID
+AJEX_RETURN_PRODUCT_CODE=AJEX RPU     # reverse pickup product
+AJEX_RETURN_ITEM_WEIGHT_KG=0.5        # per unit, used for the package weight
+
+# Warehouse the returns are delivered to. Falls back to NEXT_PUBLIC_MERCHANT_NAME,
+# _PHONE, _CITY and _ADDRESS. Read on the server only.
+AJEX_RETURN_WAREHOUSE_NAME=
+AJEX_RETURN_WAREHOUSE_PHONE=
+AJEX_RETURN_WAREHOUSE_CITY=Riyadh
+AJEX_RETURN_WAREHOUSE_DISTRICT=
+AJEX_RETURN_WAREHOUSE_ADDRESS=
+AJEX_RETURN_WAREHOUSE_ADDRESS_LINE2=
+AJEX_RETURN_WAREHOUSE_POSTAL_CODE=
+AJEX_RETURN_WAREHOUSE_SHORT_ADDRESS=  # national short address, mandatory for KSA
+AJEX_RETURN_WAREHOUSE_COORDINATES=    # "lat,lng"
+AJEX_RETURN_WAREHOUSE_EMAIL=
+```
+
+What happens per request:
+
+- **Create** (`/api/returns/create`): the customer's Salla shipping address is the
+  pickup address, the warehouse is the delivery address, `cod=false`. The
+  Salla order is still moved to `restoring`.
+- **Address mapping**: city and district are matched against AJEX's master list
+  (`lib/ajex/data/sa-cities-districts.json`, from
+  `https://files.aj-ex.com/Saudi_Cities_Districts.xlsx`) in Arabic or English.
+  A full match is sent as `CUSTOMER_MAPPINGS` with `cityCode`/`districtCode`;
+  otherwise the original text is sent as `FREE_TEXT`. Arabic city spellings
+  live in `CITY_ALIASES` in `lib/ajex/locations.ts` — add one there when a city
+  shows up unmapped.
+- **Re-issue** (returns-management → إعادة إصدار البوليصة): cancels the previous
+  AJEX waybill, creates a new one and re-sends the WhatsApp label.
+- **Cancel / reject**: cancels the AJEX waybill so no courier is sent. AJEX
+  refuses once the parcel is picked up; that is logged and does not block.
+- **Tracking**: AJEX pushes status to `/api/webhooks/ajex/tracking` (see
+  `docs/ajex-webhook.md`).
+
+Only Saudi addresses are mapped; returns are already limited to Saudi orders.
+
+### Sandbox test shipments (go-live checklist)
+
+AJEX's pre-production checklist needs one COD and one prepaid (PP) waybill with
+their PDFs:
+
+```bash
+AJEX_CLIENT_ID=... AJEX_CLIENT_SECRET=... AJEX_CUSTOMER_ACCOUNT=... \
+  npm run ajex:test-shipments -- ./ajex-test-shipments
+```
+
+This creates a COD and a PP outbound shipment (`AJEX DCE`) plus a return pickup
+(`AJEX RPU`), saves each waybill PDF, and writes `summary.json` with the
+waybill numbers and COD value for the form. Tests: `npm run test:ajex`.
+
 ## API Endpoints
 
 ### 1. Order Lookup
