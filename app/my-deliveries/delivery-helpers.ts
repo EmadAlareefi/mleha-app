@@ -3,6 +3,7 @@ import {
   buildAddressSearchUrl,
   buildNavigationUrl,
   extractCoordinatesFromMapUrl,
+  isRedundantAddressNote,
   isUsableCoordinatePair,
   parseCoordinate,
 } from '@/app/lib/local-shipping/ship-to-location';
@@ -322,6 +323,23 @@ export const getWhatsAppLink = (
   const message = `السلام عليكم${greeting}،\nمعك مندوب مليحة 👗\n${ask}\n\n🔹 رقم الطلب: ${shipment.orderNumber}${codLine}`;
 
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+};
+
+/** The customer's own address note, hidden when it only repeats the national address. */
+export const getAddressNote = (shipment: LocalShipment) => {
+  const meta = shipment.orderItems?.meta;
+  const note = meta?.shipToAddressNote?.trim();
+  if (!note) return null;
+  const known = [
+    meta?.shipToStreet,
+    meta?.shipToAddressLine,
+    meta?.shipToDistrict,
+    meta?.shipToCity || shipment.shippingCity,
+    meta?.shipToBuildingNumber,
+    meta?.shipToShortAddress,
+    meta?.shipToPostalCode,
+  ];
+  return isRedundantAddressNote(note, known) ? null : note;
 };
 
 export const maskPhoneForDisplay = (value?: string | null) => {

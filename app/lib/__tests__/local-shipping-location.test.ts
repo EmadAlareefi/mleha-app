@@ -5,6 +5,7 @@ import {
   buildAddressSearchQuery,
   extractCoordinatesFromMapUrl,
   extractShipToLocation,
+  isRedundantAddressNote,
 } from "../local-shipping/ship-to-location";
 import { extractPrimaryShipTo } from "../local-shipping/messenger";
 
@@ -135,5 +136,36 @@ describe("distanceKm / formatDistance", () => {
     assert.equal(formatDistance(3.456), "3.5 كم");
     assert.equal(formatDistance(0.42), "400 م");
     assert.equal(formatDistance(0.01), "50 م");
+  });
+});
+
+describe("isRedundantAddressNote", () => {
+  const known = ["الصالحية 134", "الصالحية", "جدة", "7739", "JGAD7739", "23764"];
+
+  it("drops Salla's reformatted national address", () => {
+    assert.equal(
+      isRedundantAddressNote("JGAD7739, Building 7739, الصالحية 134, 4727, الصالحية, جدة, منطقة مكة المكرمة", known),
+      true,
+    );
+    assert.equal(
+      isRedundantAddressNote("JDSD6629، 6629 هند بنت عمرو، 4170، الصفا، جدة 23455، السعودية", [
+        "هند بنت عمرو", "الصفا", "جدة", "6629", "JDSD6629", "23455",
+      ]),
+      true,
+    );
+  });
+
+  it("keeps notes that tell the courier something new", () => {
+    assert.equal(isRedundantAddressNote("الباب أخضر فلا دوبلكس رقم ١٢", known), false);
+    assert.equal(isRedundantAddressNote("جده منصور النمري رقم العماره 8948 الدور الأرضي شقه يسار", known), false);
+  });
+});
+
+describe("street cleanup", () => {
+  it("strips a building number Salla put before the street name", () => {
+    const location = extractShipToLocation({
+      shipping: { address: { city: "جدة", street_number: "4997,يوسف البنقالي", building_number: "4997" } },
+    });
+    assert.equal(location?.street, "يوسف البنقالي");
   });
 });

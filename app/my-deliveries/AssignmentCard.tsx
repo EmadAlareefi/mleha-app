@@ -10,6 +10,7 @@ import {
   formatDate,
   formatDistance,
   getAddressDetails,
+  getAddressNote,
   getAreaLabel,
   getCallLink,
   getCollectAmount,
@@ -111,7 +112,7 @@ export function AssignmentCard({ assignment, distance, isReturn, onDeliver, onFa
   const mapTarget = getMapTarget(shipment);
   const collectAmount = getCollectAmount(assignment);
   const couponCode = getExchangeCouponCode(shipment);
-  const addressNote = meta?.shipToAddressNote?.trim();
+  const addressNote = getAddressNote(shipment);
   const recipientName = meta?.shipToName || shipment.customerName;
 
   return (

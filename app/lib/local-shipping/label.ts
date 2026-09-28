@@ -9,6 +9,8 @@ import { ArabicShaper } from 'arabic-persian-reshaper';
 
 import type { LocalShipmentMeta } from './serializer';
 import { normalizeOrderItems } from './serializer';
+import { fillMissingPins } from './order-shipping-snapshot';
+import { isRedundantAddressNote } from './ship-to-location';
 
 type LocalLabelArgs = {
   orderNo: string;
@@ -104,7 +106,10 @@ export async function generateLocalShipmentLabelPdf(
   shipment: LocalShipment,
   merchant: MerchantLabelInfo = getMerchantLabelInfo(),
 ) {
-  const normalized = normalizeOrderItems(shipment.orderItems);
+  // Shipments created before the address fix only have the city; fill the rest
+  // from the stored Salla order.
+  const storedAddress = await fillMissingPins([shipment]);
+  const normalized = normalizeOrderItems(storedAddress.get(shipment.id) ?? shipment.orderItems);
   const labelArgs = mapShipmentToLabelArgs(shipment, normalized.meta);
   return buildLocalShipmentLabel(labelArgs, merchant);
 }
@@ -450,43 +455,80 @@ function mapShipmentToLabelArgs(shipment: LocalShipment, meta: LocalShipmentMeta
   };
 }
 
-function buildRecipientAddressLines(shipment: LocalShipment, meta: LocalShipmentMeta): string[] {
-  const lines: string[] = [];
-  const seen = new Set<string>();
+const MAX_ADDRESS_LINES = 7;
+const REGION_CODE_PATTERN = /^[A-Z]{2}$/;
+// Filler the create route stores when Salla sent no address.
+const PLACEHOLDER_PATTERN = /^(مدينة العميل\s*:.*|لم يتم توفير العنوان)$/u;
+// shipToArabicText repeats the recipient's name and phone, which have their own fields.
+const CONTACT_LINE_PATTERN = /^(المستلم|Phone|الهاتف)\s*:/iu;
 
-  const pushSegments = (value?: string | null) => {
-    if (!value) {
-      return;
+const splitAddressSegments = (value?: string | null) =>
+  (value ?? '')
+    .split(/\r?\n|[،,]+/u)
+    .map((segment) => segment.trim())
+    .filter(
+      (segment) =>
+        segment.length > 0 &&
+        !REGION_CODE_PATTERN.test(segment) &&
+        !PLACEHOLDER_PATTERN.test(segment) &&
+        !CONTACT_LINE_PATTERN.test(segment),
+    );
+
+/**
+ * Recipient address as a courier reads it:
+ *   6629 هند بنت عمرو / حي الصفا / الرمز البريدي 23455 /
+ *   العنوان المختصر JDSD6629 · إضافي 4170 / <customer's floor/apartment note>
+ * The city is printed in its own field.
+ */
+export function buildRecipientAddressLines(shipment: LocalShipment, meta: LocalShipmentMeta): string[] {
+  const city = cleanValue(meta.shipToCity) ?? cleanValue(shipment.shippingCity);
+  const district = cleanValue(meta.shipToDistrict);
+  const building = cleanValue(meta.shipToBuildingNumber);
+  const skip = new Set([city, district, building].filter((value): value is string => Boolean(value)));
+
+  const lines: string[] = [];
+  const push = (value?: string | null) => {
+    const cleaned = cleanValue(value);
+    if (cleaned && !lines.includes(cleaned)) {
+      lines.push(cleaned);
     }
-    value
-      .split(/\r?\n/)
-      .map((segment) => segment.split(/[،,]+/))
-      .forEach((segments) => {
-        segments
-          .map((segment) => segment.trim())
-          .filter((segment) => segment.length > 0)
-          .forEach((segment) => {
-            if (!seen.has(segment)) {
-              seen.add(segment);
-              lines.push(segment);
-            }
-          });
-      });
   };
 
-  pushSegments(meta.shipToArabicText);
-  pushSegments(meta.shipToAddressLine);
-  pushSegments(shipment.shippingAddress);
-  pushSegments(meta.shipToDistrict);
+  const street =
+    cleanValue(meta.shipToStreet) ??
+    (splitAddressSegments(meta.shipToAddressLine)
+      .filter((segment) => !skip.has(segment))
+      .join(' ') || null);
+  push([building, street].filter(Boolean).join(' '));
 
-  const cityParts = [meta.shipToCity || shipment.shippingCity, meta.shipToPostalCode || shipment.shippingPostcode].filter(
-    (part): part is string => typeof part === 'string' && part.trim().length > 0,
-  );
-  if (cityParts.length > 0) {
-    pushSegments(cityParts.join(' '));
+  if (district) {
+    push(district.startsWith('حي') ? district : `حي ${district}`);
   }
 
-  return lines;
+  const postal = cleanValue(meta.shipToPostalCode) ?? cleanValue(shipment.shippingPostcode);
+  if (postal) {
+    push(`الرمز البريدي ${postal}`);
+  }
+
+  const shortAddress = cleanValue(meta.shipToShortAddress);
+  if (shortAddress) {
+    push(`العنوان المختصر ${shortAddress}`);
+  }
+
+  const note = cleanValue(meta.shipToAddressNote);
+  if (note && !isRedundantAddressNote(note, [street, district, city, building, shortAddress, postal])) {
+    push(note);
+  }
+
+  // Nothing structured: fall back to whatever free text Salla gave us.
+  if (lines.length === 0) {
+    [meta.shipToArabicText, shipment.shippingAddress]
+      .flatMap(splitAddressSegments)
+      .filter((segment) => segment !== city)
+      .forEach(push);
+  }
+
+  return lines.slice(0, MAX_ADDRESS_LINES);
 }
 
 function sanitizeCustomerNote(shipment: LocalShipment): string | null {

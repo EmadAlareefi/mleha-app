@@ -3,7 +3,7 @@
 import { MapPin, PackageCheck, RotateCcw, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContactActions, DistanceBadge } from './AssignmentCard';
-import { type DeliveryAgentTask, formatDate, getAddressDetails, getAreaLabel } from './delivery-helpers';
+import { type DeliveryAgentTask, formatDate, getAddressDetails, getAddressNote, getAreaLabel } from './delivery-helpers';
 
 interface ReturnPickupCardProps {
   task: DeliveryAgentTask & { relatedShipment: NonNullable<DeliveryAgentTask['relatedShipment']> };
@@ -15,7 +15,7 @@ interface ReturnPickupCardProps {
 export function ReturnPickupCard({ task, distance, onPickedUp, onFail }: ReturnPickupCardProps) {
   const shipment = task.relatedShipment;
   const meta = shipment.orderItems?.meta;
-  const addressNote = meta?.shipToAddressNote?.trim();
+  const addressNote = getAddressNote(shipment);
 
   return (
     <article className="rounded-xl border border-teal-200 bg-white p-4 shadow-sm">

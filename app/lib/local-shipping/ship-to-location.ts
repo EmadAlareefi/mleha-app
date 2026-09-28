@@ -137,12 +137,50 @@ const collectAddressRecords = (order: UnknownRecord): UnknownRecord[] => {
   );
 };
 
-/** Salla's `street_number` sometimes carries the building number too ("هند بنت عمرو,6629"). */
+/** Salla's `street_number` sometimes carries the building number too ("هند بنت عمرو,6629" or "4997,يوسف البنقالي"). */
 const cleanStreet = (street: string | null, buildingNumber: string | null) => {
   if (!street) return null;
-  let cleaned = street.replace(/\s*[,،]\s*\d+\s*$/u, '').trim();
+  let cleaned = street
+    .replace(/\s*[,،]\s*\d+\s*$/u, '')
+    .replace(/^\s*\d+\s*[,،]\s*/u, '')
+    .trim();
   if (buildingNumber && cleaned === buildingNumber) cleaned = '';
   return cleaned || null;
+};
+
+const NOTE_FILLER_WORDS = new Set([
+  'حي', 'شارع', 'السعودية', 'المملكة', 'العربية', 'جدة', 'جده',
+  'منطقة', 'مكة', 'المكرمة', 'المكرمه', 'building', 'saudi', 'arabia',
+]);
+
+const noteWords = (value: string) =>
+  value
+    .replace(/[()\-–,،.:|/]+/gu, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+/**
+ * Salla's `address_line_two` is often just the national address reformatted
+ * ("JDSD6629، 6629 هند بنت عمرو، 4170، الصفا، جدة 23455، السعودية"). Treat it as
+ * a real note (floor, apartment, landmark) only when it says something the
+ * structured fields don't.
+ */
+export const isRedundantAddressNote = (
+  note: string | null | undefined,
+  known: Array<string | null | undefined>,
+): boolean => {
+  if (!note?.trim()) return true;
+  const knownWords = new Set(known.filter(Boolean).flatMap((value) => noteWords(value as string)));
+  const extra = noteWords(note).filter(
+    (word) =>
+      !knownWords.has(word) &&
+      !NOTE_FILLER_WORDS.has(word.toLowerCase()) &&
+      !/^\d+$/.test(word) &&
+      !/^[A-Z]{4}\d{4}$/i.test(word) &&
+      !/^[A-Z]{2}$/.test(word),
+  );
+  return extra.length < 2;
 };
 
 export const extractShipToLocation = (order: unknown): ShipToLocation | null => {
@@ -177,6 +215,19 @@ export const extractShipToLocation = (order: unknown): ShipToLocation | null => 
     additionalNumber: first((r) => toText(r.additional_number) || toText(r.additionalNumber)),
     addressNote: first((r) => toText(r.address_line_two) || toText(r.addressLineTwo)),
   };
+
+  if (
+    isRedundantAddressNote(location.addressNote, [
+      location.street,
+      location.district,
+      location.city,
+      location.buildingNumber,
+      location.shortAddress,
+      location.postalCode,
+    ])
+  ) {
+    location.addressNote = null;
+  }
 
   const hasAnything = Object.values(location).some((value) => value !== null);
   return hasAnything ? location : null;
