@@ -338,3 +338,37 @@ export const FAILURE_REASONS = [
   'العميل رفض الاستلام',
   'العميل غير موجود في الموقع',
 ];
+
+// ---------------------------------------------------------------------------
+// Distance
+// ---------------------------------------------------------------------------
+
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
+/** The customer's exact pin, or a pin parsed from a pasted maps link. */
+export const getShipmentPoint = (shipment: LocalShipment): GeoPoint | null => {
+  const meta = shipment.orderItems?.meta ?? {};
+  const lat = parseCoordinate(meta.shipToLatitude);
+  const lng = parseCoordinate(meta.shipToLongitude);
+  if (isUsableCoordinatePair(lat, lng)) {
+    return { lat: lat as number, lng: lng as number };
+  }
+  return extractCoordinatesFromMapUrl(meta.mapsLink) ?? extractCoordinatesFromMapUrl(extractUrl(meta.shipToAddressNote));
+};
+
+/** Straight-line (haversine) distance; roads are usually 20–40% longer. */
+export const distanceKm = (from: GeoPoint, to: GeoPoint) => {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(to.lat - from.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+export const formatDistance = (km: number) =>
+  km < 1 ? `${Math.max(Math.round(km * 1000 / 50) * 50, 50)} م` : `${km < 10 ? km.toFixed(1) : Math.round(km)} كم`;

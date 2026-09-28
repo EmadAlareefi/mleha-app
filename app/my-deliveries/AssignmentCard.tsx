@@ -8,6 +8,7 @@ import {
   type LocalShipment,
   formatCurrency,
   formatDate,
+  formatDistance,
   getAddressDetails,
   getAreaLabel,
   getCallLink,
@@ -19,6 +20,8 @@ import {
 
 interface AssignmentCardProps {
   assignment: Assignment;
+  /** km from the agent; null when the shipment has no pin, undefined while GPS is unknown. */
+  distance?: number | null;
   isReturn: boolean;
   onDeliver: (assignment: Assignment) => void;
   onFail: (assignment: Assignment) => void;
@@ -33,6 +36,19 @@ interface AssignmentCardProps {
 
 const actionLinkClass =
   'flex h-12 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg border text-xs font-semibold transition-colors';
+
+/** Large distance readout so the agent can pick the next stop at a glance. */
+export function DistanceBadge({ distance }: { distance?: number | null }) {
+  if (distance === undefined) return null;
+  if (distance === null) {
+    return <p className="text-xs font-medium text-gray-400">بدون موقع</p>;
+  }
+  return (
+    <p className="text-3xl font-extrabold leading-none text-blue-700" aria-label="المسافة التقريبية">
+      {formatDistance(distance)}
+    </p>
+  );
+}
 
 /** The three one-tap buttons every stop needs: navigate, call, WhatsApp. */
 export function ContactActions({
@@ -89,7 +105,7 @@ export function ContactActions({
   );
 }
 
-export function AssignmentCard({ assignment, isReturn, onDeliver, onFail, admin }: AssignmentCardProps) {
+export function AssignmentCard({ assignment, distance, isReturn, onDeliver, onFail, admin }: AssignmentCardProps) {
   const { shipment } = assignment;
   const meta = shipment.orderItems?.meta;
   const mapTarget = getMapTarget(shipment);
@@ -113,7 +129,8 @@ export function AssignmentCard({ assignment, isReturn, onDeliver, onFail, admin 
             {getAreaLabel(shipment)}
           </p>
         </div>
-        <div className="shrink-0 text-left">
+        <div className="flex shrink-0 flex-col items-end gap-2 text-left">
+          <DistanceBadge distance={distance} />
           {collectAmount > 0 ? (
             <div className="rounded-lg bg-orange-50 px-3 py-1.5 text-center">
               <p className="text-[11px] font-medium text-orange-700">حصّل</p>
@@ -125,7 +142,7 @@ export function AssignmentCard({ assignment, isReturn, onDeliver, onFail, admin 
             </span>
           )}
           {admin && (
-            <label className="mt-2 flex items-center justify-end gap-1.5 text-xs text-emerald-700">
+            <label className="flex items-center justify-end gap-1.5 text-xs text-emerald-700">
               <Checkbox checked={admin.selected} onCheckedChange={admin.onToggle} disabled={admin.disabled} />
               تحديد
             </label>

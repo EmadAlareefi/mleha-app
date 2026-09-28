@@ -2,16 +2,17 @@
 
 import { MapPin, PackageCheck, RotateCcw, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ContactActions } from './AssignmentCard';
+import { ContactActions, DistanceBadge } from './AssignmentCard';
 import { type DeliveryAgentTask, formatDate, getAddressDetails, getAreaLabel } from './delivery-helpers';
 
 interface ReturnPickupCardProps {
   task: DeliveryAgentTask & { relatedShipment: NonNullable<DeliveryAgentTask['relatedShipment']> };
+  distance?: number | null;
   onPickedUp: (task: DeliveryAgentTask) => void;
   onFail: (task: DeliveryAgentTask) => void;
 }
 
-export function ReturnPickupCard({ task, onPickedUp, onFail }: ReturnPickupCardProps) {
+export function ReturnPickupCard({ task, distance, onPickedUp, onFail }: ReturnPickupCardProps) {
   const shipment = task.relatedShipment;
   const meta = shipment.orderItems?.meta;
   const addressNote = meta?.shipToAddressNote?.trim();
@@ -27,10 +28,13 @@ export function ReturnPickupCard({ task, onPickedUp, onFail }: ReturnPickupCardP
             {getAreaLabel(shipment)}
           </p>
         </div>
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
-          <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-          استلام مرتجع
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <DistanceBadge distance={distance} />
+          <span className="flex items-center gap-1 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+            استلام مرتجع
+          </span>
+        </div>
       </header>
 
       {task.requestedItem && (

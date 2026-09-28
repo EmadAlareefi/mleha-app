@@ -124,3 +124,16 @@ describe("extractCoordinatesFromMapUrl", () => {
     assert.equal(extractCoordinatesFromMapUrl("https://maps.app.goo.gl/abc123"), null);
   });
 });
+
+describe("distanceKm / formatDistance", () => {
+  it("measures straight-line distance between two Jeddah pins", async () => {
+    const { distanceKm, formatDistance } = await import("../../my-deliveries/delivery-helpers");
+    // Al Safa → Al Manarat, about 29 km apart.
+    const km = distanceKm({ lat: 21.58530926333, lng: 39.213156230096 }, { lat: 21.8442574, lng: 39.10315782 });
+    assert.ok(km > 28 && km < 31, `got ${km}`);
+    assert.equal(formatDistance(km), `${Math.round(km)} كم`);
+    assert.equal(formatDistance(3.456), "3.5 كم");
+    assert.equal(formatDistance(0.42), "400 م");
+    assert.equal(formatDistance(0.01), "50 م");
+  });
+});

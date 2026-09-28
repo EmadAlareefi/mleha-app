@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { RefreshCw } from 'lucide-react';
+import { LocateFixed, RefreshCw } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -27,10 +27,13 @@ import {
   type Assignment,
   type DeliveryAgentTask,
   type DeliveryAgentWalletInfo,
+  type GeoPoint,
   type LocalShipment,
   FINAL_STATUSES,
+  distanceKm,
   formatCurrency,
   getCollectAmount,
+  getShipmentPoint,
   isReturnAssignment,
   isReturnPickupTask,
 } from './delivery-helpers';
@@ -38,6 +41,40 @@ import {
 const ASSIGNMENTS_PAGE_LIMIT = 200;
 
 type TabKey = 'deliveries' | 'returns' | 'done' | 'tasks';
+type SortMode = 'nearest' | 'oldest';
+
+// Ignore GPS jitter so the list doesn't reshuffle while the agent is scrolling.
+const MIN_POSITION_CHANGE_KM = 0.2;
+
+/** Tracks the agent's position while the page is open. */
+function useAgentPosition() {
+  const [position, setPosition] = useState<GeoPoint | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setError('المتصفح لا يدعم تحديد الموقع');
+      return;
+    }
+    const watchId = navigator.geolocation.watchPosition(
+      ({ coords }) => {
+        setError('');
+        const next = { lat: coords.latitude, lng: coords.longitude };
+        setPosition((prev) => (prev && distanceKm(prev, next) < MIN_POSITION_CHANGE_KM ? prev : next));
+      },
+      (err) =>
+        setError(
+          err.code === err.PERMISSION_DENIED
+            ? 'فعّل إذن الموقع للمتصفح لعرض المسافات والترتيب حسب الأقرب'
+            : 'تعذّر تحديد موقعك حالياً'
+        ),
+      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 20_000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  return { position, error };
+}
 
 const digitsOf = (value: string) => value.replace(/[^\d]/g, '');
 
@@ -92,6 +129,23 @@ export default function MyDeliveriesPage() {
 
   const [tab, setTab] = useState<TabKey>('deliveries');
   const [search, setSearch] = useState('');
+  const [sortMode, setSortMode] = useState<SortMode>('nearest');
+  const { position, error: positionError } = useAgentPosition();
+
+  /** km to the shipment; null = no pin, undefined = agent position unknown. */
+  const distanceTo = (shipment: LocalShipment | null | undefined) => {
+    if (!position || !shipment) return undefined;
+    const point = getShipmentPoint(shipment);
+    return point ? distanceKm(position, point) : null;
+  };
+
+  const sortStops = <T,>(items: T[], getShipment: (item: T) => LocalShipment | null | undefined) => {
+    if (sortMode !== 'nearest' || !position) return items;
+    return items
+      .map((item) => ({ item, km: distanceTo(getShipment(item)) }))
+      .sort((a, b) => (a.km ?? Infinity) - (b.km ?? Infinity))
+      .map(({ item }) => item);
+  };
   const [deliverTarget, setDeliverTarget] = useState<Assignment | null>(null);
   const [failTarget, setFailTarget] = useState<Assignment | null>(null);
   const [pickupTarget, setPickupTarget] = useState<DeliveryAgentTask | null>(null);
@@ -282,7 +336,10 @@ export default function MyDeliveriesPage() {
   // ---- Rendering ----------------------------------------------------------
 
   const renderList = (list: Assignment[], isReturn: boolean) => {
-    const visible = list.filter((assignment) => matchesSearch(assignment.shipment, search));
+    const visible = sortStops(
+      list.filter((assignment) => matchesSearch(assignment.shipment, search)),
+      (assignment) => assignment.shipment
+    );
     const selectable = isAdminUser
       ? visible.filter((assignment) => ADMIN_DELIVERABLE_STATUSES.includes(assignment.status))
       : [];
@@ -336,6 +393,7 @@ export default function MyDeliveriesPage() {
           <AssignmentCard
             key={assignment.id}
             assignment={assignment}
+            distance={distanceTo(assignment.shipment)}
             isReturn={isReturn}
             onDeliver={setDeliverTarget}
             onFail={setFailTarget}
@@ -410,18 +468,51 @@ export default function MyDeliveriesPage() {
             />
           )}
 
+          {(tab === 'deliveries' || tab === 'returns') && (
+            <div className="mt-2 space-y-1">
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1">
+                {(
+                  [
+                    ['nearest', 'الأقرب أولاً'],
+                    ['oldest', 'الأقدم أولاً'],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setSortMode(mode)}
+                    aria-pressed={sortMode === mode}
+                    className={`flex h-10 items-center justify-center gap-1.5 rounded-md text-sm font-semibold ${
+                      sortMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                    }`}
+                  >
+                    {mode === 'nearest' && <LocateFixed className="h-4 w-4" aria-hidden />}
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {sortMode === 'nearest' && !position && (
+                <p className="text-center text-xs text-amber-700">
+                  {positionError || 'جاري تحديد موقعك...'}
+                </p>
+              )}
+            </div>
+          )}
+
           <TabsContent value="deliveries" className="mt-3">
             {renderList(deliveries, false)}
           </TabsContent>
           <TabsContent value="returns" className="mt-3 space-y-3">
-            {returnPickups
-              .filter((task) =>
+            {sortStops(
+              returnPickups.filter((task) =>
                 task.relatedShipment ? matchesSearch(task.relatedShipment, search) : false
-              )
-              .map((task) => (
+              ),
+              (task) => task.relatedShipment
+            ).map((task) => (
                 <ReturnPickupCard
                   key={task.id}
                   task={task as Parameters<typeof ReturnPickupCard>[0]['task']}
+                  distance={distanceTo(task.relatedShipment)}
                   onPickedUp={setPickupTarget}
                   onFail={setPickupFailTarget}
                 />
