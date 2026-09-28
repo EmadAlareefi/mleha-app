@@ -12,6 +12,7 @@ import { authOptions } from '@/app/lib/auth';
 import { resolveWarehouseIds, hasWarehouseFeatureAccess } from '@/app/api/shipments/utils';
 import { markSallaOrderDelivering } from '@/app/lib/local-shipping/salla-status';
 import { log } from '@/app/lib/logger';
+import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
 
 interface AutoMarkAssignmentResult {
   updated: boolean;
@@ -233,6 +234,8 @@ async function runPostCreateShipmentSideEffects({
         updatedAt: new Date(),
       },
     });
+
+    await syncLocalReturnPickupTask(returnRequest.id);
 
     log.info('Updated return request status from warehouse scan', {
       returnRequestId: returnRequest.id,

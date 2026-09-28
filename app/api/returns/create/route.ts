@@ -34,6 +34,7 @@ import {
   CREATE_RETURN_POLICY_ACTION,
   requestSallaReturnPolicy,
 } from '@/app/lib/returns/salla-return-policy';
+import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
 
 export const runtime = 'nodejs';
 
@@ -551,6 +552,9 @@ export async function POST(request: NextRequest) {
         items: true,
       },
     });
+
+    // Jeddah orders delivered by our own agent are collected by that agent.
+    await syncLocalReturnPickupTask(returnRequest.id);
 
     log.info('Return request created successfully', {
       returnRequestId: returnRequest.id,

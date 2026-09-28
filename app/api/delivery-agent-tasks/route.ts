@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { fillMissingPins } from '@/app/lib/local-shipping/order-shipping-snapshot';
+import { RETURN_PICKUP_REQUEST_TYPE } from '@/app/lib/returns/local-return-pickup';
 
 export const runtime = 'nodejs';
 
@@ -25,9 +27,18 @@ const TASK_INCLUDE = {
   relatedShipment: {
     select: {
       id: true,
+      merchantId: true,
+      orderId: true,
       orderNumber: true,
       trackingNumber: true,
       status: true,
+      // Return pickups need the customer's address and phone on the agent's card.
+      customerName: true,
+      customerPhone: true,
+      shippingCity: true,
+      shippingAddress: true,
+      shippingPostcode: true,
+      orderItems: true,
     },
   },
 };
@@ -159,7 +170,19 @@ export async function GET(request: NextRequest) {
       { total: 0, pending: 0, inProgress: 0, awaitingConfirmation: 0, completed: 0, cancelled: 0 }
     );
 
-    return NextResponse.json({ success: true, tasks, summary });
+    // `tasks` is typed without its include, hence the cast.
+    const pickupShipments = (tasks as Array<(typeof tasks)[number] & { relatedShipment?: any }>)
+      .filter((task) => task.requestType === RETURN_PICKUP_REQUEST_TYPE && task.relatedShipment)
+      .map((task) => task.relatedShipment);
+    const pinnedOrderItems = await fillMissingPins(pickupShipments);
+    const tasksWithPins = tasks.map((task: any) => {
+      const pinnedItems = task.relatedShipment ? pinnedOrderItems.get(task.relatedShipment.id) : undefined;
+      return pinnedItems
+        ? { ...task, relatedShipment: { ...task.relatedShipment, orderItems: pinnedItems } }
+        : task;
+    });
+
+    return NextResponse.json({ success: true, tasks: tasksWithPins, summary });
   } catch (error) {
     log.error('Error fetching delivery agent tasks', {
       error: error instanceof Error ? error.message : error,

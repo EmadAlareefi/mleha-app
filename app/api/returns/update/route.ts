@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
 import { recalculateReturnRequestFinancials } from '@/lib/returns/request-financials';
+import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
 
 export const runtime = 'nodejs';
 
@@ -116,6 +117,10 @@ export async function POST(request: NextRequest) {
 
     if (returnRequest.type === 'exchange') {
       await maybeReleaseExchangeOrderHold(returnRequest.id);
+    }
+
+    if (status) {
+      await syncLocalReturnPickupTask(returnRequest.id);
     }
 
     log.info('Return request updated successfully', { id, status, type: returnRequest.type });

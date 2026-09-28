@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
 
 export const runtime = 'nodejs';
 
@@ -67,6 +68,8 @@ export async function POST(request: NextRequest) {
         updatedAt: new Date(),
       },
     });
+
+    await syncLocalReturnPickupTask(updatedRequest.id);
 
     log.info('Return request cancelled successfully', {
       returnRequestId,
