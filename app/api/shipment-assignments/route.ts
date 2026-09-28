@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { fillMissingPins } from '@/app/lib/local-shipping/order-shipping-snapshot';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +25,8 @@ function getPagination(searchParams: URLSearchParams) {
     skip: (page - 1) * limit,
   };
 }
+
+const FINAL_ASSIGNMENT_STATUSES = new Set(['delivered', 'failed', 'cancelled']);
 
 /**
  * GET /api/shipment-assignments
@@ -224,14 +227,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const pinnedOrderItems = await fillMissingPins(
+      assignments
+        .filter((assignment) => !FINAL_ASSIGNMENT_STATUSES.has(assignment.status) && assignment.shipment)
+        .map((assignment) => assignment.shipment)
+    );
+
     const enrichedAssignments = assignments.map((assignment) => {
       const trackingNumber = assignment.shipment?.trackingNumber;
       const orderNumber = assignment.shipment?.orderNumber;
       const direction = trackingNumber ? directionMap.get(trackingNumber) : null;
       const exchangeRequest = orderNumber ? exchangeMap.get(orderNumber) : null;
+      const pinnedItems = assignment.shipment ? pinnedOrderItems.get(assignment.shipment.id) : undefined;
 
       return {
         ...assignment,
+        shipment: pinnedItems ? { ...assignment.shipment, orderItems: pinnedItems } : assignment.shipment,
         shipmentDirection: direction === 'incoming' ? 'incoming' : 'outgoing',
         exchangeRequest: exchangeRequest
           ? {

@@ -5,8 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { getSallaOrder } from '@/app/lib/salla-api';
 import { buildOrderItemsPayload, normalizeOrderItems } from '@/app/lib/local-shipping/serializer';
-
-const MAPS_SEARCH_BASE = 'https://www.google.com/maps/search/?api=1&query=';
+import { withStoredShippingSnapshot } from '@/app/lib/local-shipping/order-shipping-snapshot';
+import { extractShipToLocation } from '@/app/lib/local-shipping/ship-to-location';
 
 const isAdminSession = (sessionUser: any) => {
   const roles: string[] = Array.isArray(sessionUser?.roles) ? sessionUser.roles : [];
@@ -26,7 +26,7 @@ const extractLocationCode = (value?: string | null) => {
   }
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const firstSegment = trimmed.split(',')[0]?.trim();
+  const firstSegment = trimmed.split(/[,،]/u)[0]?.trim();
   if (!firstSegment) return null;
   return /^[A-Za-z0-9]+$/.test(firstSegment) ? firstSegment : null;
 };
@@ -58,19 +58,21 @@ export async function POST(
       );
     }
 
-    const order = await getSallaOrder(shipment.merchantId, shipment.orderId);
-    if (!order) {
+    const liveOrder = await getSallaOrder(shipment.merchantId, shipment.orderId);
+    if (!liveOrder) {
       return NextResponse.json(
         { error: 'تعذر جلب بيانات الطلب من سلة' },
         { status: 502 }
       );
     }
+    const order = await withStoredShippingSnapshot(shipment.merchantId, liveOrder);
 
     const locationText =
       typeof order.customer?.location === 'string'
         ? order.customer.location.trim()
         : '';
-    if (!locationText) {
+    const shipToLocation = extractShipToLocation(order);
+    if (!locationText && !shipToLocation) {
       return NextResponse.json(
         { error: 'لا يحتوي الطلب على موقع العميل' },
         { status: 404 }
@@ -81,11 +83,15 @@ export async function POST(
     const normalized = normalizeOrderItems(shipment.orderItems);
     const updatedMeta = {
       ...normalized.meta,
-      shipToLocationText: locationText,
-      shipToLocationCode: locationCode || null,
-      mapsLink:
-        normalized.meta?.mapsLink ||
-        (locationCode ? `${MAPS_SEARCH_BASE}${encodeURIComponent(locationCode)}` : normalized.meta?.mapsLink),
+      shipToLocationText: locationText || normalized.meta?.shipToLocationText,
+      shipToLocationCode: locationCode || normalized.meta?.shipToLocationCode,
+      shipToLatitude: shipToLocation?.latitude ?? normalized.meta?.shipToLatitude,
+      shipToLongitude: shipToLocation?.longitude ?? normalized.meta?.shipToLongitude,
+      shipToBuildingNumber: shipToLocation?.buildingNumber ?? normalized.meta?.shipToBuildingNumber,
+      shipToStreet: shipToLocation?.street ?? normalized.meta?.shipToStreet,
+      shipToDistrict: normalized.meta?.shipToDistrict ?? shipToLocation?.district ?? undefined,
+      shipToShortAddress: shipToLocation?.shortAddress ?? normalized.meta?.shipToShortAddress,
+      shipToAddressNote: shipToLocation?.addressNote ?? normalized.meta?.shipToAddressNote,
     };
     const updatedOrderItems = buildOrderItemsPayload(normalized.items, updatedMeta);
 
@@ -96,9 +102,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      locationText,
-      locationCode,
-      mapsLink: updatedMeta.mapsLink || null,
+      meta: updatedMeta,
     });
   } catch (error) {
     log.error('Error refreshing Salla location for local shipment', {

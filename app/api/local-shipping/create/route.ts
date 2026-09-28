@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withStoredShippingSnapshot } from '@/app/lib/local-shipping/order-shipping-snapshot';
+import { extractShipToLocation } from '@/app/lib/local-shipping/ship-to-location';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
 import {
@@ -214,8 +216,12 @@ export async function POST(request: NextRequest) {
       orderNumber: body.orderNumber
     });
 
-    // Fetch order from Salla
-    const order = await getSallaOrderByReference(body.merchantId, body.orderNumber);
+    // Fetch order from Salla. The live response lacks shipping/shipments, so
+    // merge the webhook-stored copy to recover the address and map pin.
+    const liveOrder = await getSallaOrderByReference(body.merchantId, body.orderNumber);
+    const order = liveOrder
+      ? await withStoredShippingSnapshot(body.merchantId, liveOrder)
+      : null;
 
     if (!order) {
       return NextResponse.json(
@@ -248,7 +254,9 @@ export async function POST(request: NextRequest) {
     const shipToArabicText = buildShipToArabicLabel(primaryShipTo);
     const customerLocation =
       typeof order.customer?.location === 'string' ? order.customer.location.trim() : '';
-    const locationShortCodeCandidate = customerLocation.split(',')[0]?.trim();
+    const shipToLocation = extractShipToLocation(order);
+    // Salla formats this text with the Arabic comma ("JDSD6629، 6629 ...").
+    const locationShortCodeCandidate = customerLocation.split(/[,،]/u)[0]?.trim();
     const locationShortCode =
       locationShortCodeCandidate && /^[A-Za-z0-9]+$/.test(locationShortCodeCandidate)
         ? locationShortCodeCandidate
@@ -426,14 +434,14 @@ export async function POST(request: NextRequest) {
           shipToAddressLine: primaryShipTo?.addressLine || null,
           shipToPostalCode: primaryShipTo?.postalCode || null,
           messengerCourierLabel: messengerShipments[0]?.courierLabel || null,
-          shipToLatitude: primaryShipTo?.raw?.latitude || primaryShipTo?.raw?.lat || null,
-          shipToLongitude: primaryShipTo?.raw?.longitude || primaryShipTo?.raw?.lng || null,
-          mapsLink:
-            primaryShipTo?.raw?.maps_link ||
-            primaryShipTo?.raw?.map_link ||
-            (locationShortCode
-              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(locationShortCode)}`
-              : null),
+          shipToLatitude: shipToLocation?.latitude ?? null,
+          shipToLongitude: shipToLocation?.longitude ?? null,
+          shipToBuildingNumber: shipToLocation?.buildingNumber ?? null,
+          shipToStreet: shipToLocation?.street ?? null,
+          shipToShortAddress: shipToLocation?.shortAddress ?? primaryShipTo?.shortAddress ?? null,
+          shipToAddressNote: shipToLocation?.addressNote ?? null,
+          // Google Maps cannot resolve national short codes, so only keep real links.
+          mapsLink: primaryShipTo?.raw?.maps_link || primaryShipTo?.raw?.map_link || null,
           shipToLocationText: customerLocation || null,
           shipToLocationCode: locationShortCode || null,
           hasExchangeCoupon: hasExchangeCoupon || undefined,

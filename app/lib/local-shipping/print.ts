@@ -20,6 +20,7 @@ import {
   buildShipToArabicLabel,
   type ShipToDetails,
 } from './messenger';
+import { withStoredShippingSnapshot } from './order-shipping-snapshot';
 import { getSallaOrderByReference } from '@/app/lib/salla-api';
 
 interface PrintLocalShipmentOptions {
@@ -117,9 +118,12 @@ const enrichMessengerMetaIfNeeded = async (
   }
 
   try {
-    const orderData =
+    const liveOrder =
       options.orderData ||
       (await getSallaOrderByReference(shipment.merchantId, shipment.orderNumber));
+    const orderData = liveOrder
+      ? await withStoredShippingSnapshot(shipment.merchantId, liveOrder)
+      : null;
     if (!orderData) {
       return nextMeta;
     }

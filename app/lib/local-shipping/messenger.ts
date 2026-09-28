@@ -81,12 +81,13 @@ const normalizeShipToDetails = (shipTo: any): ShipToDetails | null => {
         .join(' ')
         .trim() || null,
     city: toStringValue(shipTo.city),
-    district: district || null,
+    district: district || toStringValue(shipTo.block) || null,
     region: region || null,
     addressLine:
       toStringValue(shipTo.address_line) ||
       toStringValue(shipTo.addressLine) ||
       toStringValue(shipTo.street) ||
+      toStringValue(shipTo.shipping_address) ||
       toStringValue(shipTo.short_address) ||
       toStringValue(shipTo.shortAddress) ||
       null,
@@ -187,11 +188,17 @@ export const detectMessengerShipments = (orderData: any): MessengerShipmentInfo[
   return results;
 };
 
+// `receiver` blocks only carry name/phone; picking one of those hides the real address.
+const hasAddressContent = (shipTo: ShipToDetails | null): shipTo is ShipToDetails =>
+  Boolean(shipTo && (shipTo.addressLine || shipTo.district || shipTo.city || shipTo.shortAddress));
+
 export const extractPrimaryShipTo = (orderData: any): ShipToDetails | null => {
   if (!orderData || typeof orderData !== 'object') {
     return null;
   }
-  const messenger = detectMessengerShipments(orderData).find((entry) => entry.shipTo);
+  const messenger = detectMessengerShipments(orderData).find((entry) =>
+    hasAddressContent(entry.shipTo),
+  );
   if (messenger?.shipTo) {
     return messenger.shipTo;
   }
@@ -202,6 +209,7 @@ export const extractPrimaryShipTo = (orderData: any): ShipToDetails | null => {
     ...topLevel.map((entry: any) => entry?.ship_to ?? entry?.shipTo),
     ...shippingShipments.map((entry: any) => entry?.ship_to ?? entry?.shipTo),
     shippingSection?.ship_to,
+    shippingSection?.address,
     shippingSection?.receiver,
     orderData?.ship_to,
     orderData?.shipTo,
@@ -210,14 +218,16 @@ export const extractPrimaryShipTo = (orderData: any): ShipToDetails | null => {
     orderData?.delivery?.receiver,
   ];
 
+  let fallback: ShipToDetails | null = null;
   for (const candidate of candidates) {
     const normalized = normalizeShipToDetails(candidate);
-    if (normalized) {
+    if (hasAddressContent(normalized)) {
       return normalized;
     }
+    fallback = fallback ?? normalized;
   }
 
-  return null;
+  return fallback;
 };
 
 export const buildShipToArabicLabel = (shipTo: ShipToDetails | null | undefined): string | null => {

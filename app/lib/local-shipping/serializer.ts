@@ -16,6 +16,10 @@ export interface LocalShipmentMeta {
   shipToDistrict?: string | null;
   shipToAddressLine?: string | null;
   shipToPostalCode?: string | null;
+  shipToBuildingNumber?: string | null;
+  shipToStreet?: string | null;
+  shipToShortAddress?: string | null;
+  shipToAddressNote?: string | null;
   messengerCourierLabel?: string | null;
   shipToLatitude?: string | number | null;
   shipToLongitude?: string | number | null;
@@ -92,6 +96,11 @@ const sanitizeMeta = (meta: LocalShipmentMeta): Prisma.JsonObject => {
   if (typeof meta.shipToPostalCode === 'string') {
     payload.shipToPostalCode = meta.shipToPostalCode;
   }
+  for (const key of ['shipToBuildingNumber', 'shipToStreet', 'shipToShortAddress', 'shipToAddressNote'] as const) {
+    if (typeof meta[key] === 'string') {
+      payload[key] = meta[key];
+    }
+  }
   if (typeof meta.messengerCourierLabel === 'string') {
     payload.messengerCourierLabel = meta.messengerCourierLabel;
   }
@@ -160,6 +169,13 @@ export const normalizeOrderItems = (raw: any): NormalizedOrderItems => {
           typeof meta.shipToAddressLine === 'string' ? meta.shipToAddressLine : undefined,
         shipToPostalCode:
           typeof meta.shipToPostalCode === 'string' ? meta.shipToPostalCode : undefined,
+        shipToBuildingNumber:
+          typeof meta.shipToBuildingNumber === 'string' ? meta.shipToBuildingNumber : undefined,
+        shipToStreet: typeof meta.shipToStreet === 'string' ? meta.shipToStreet : undefined,
+        shipToShortAddress:
+          typeof meta.shipToShortAddress === 'string' ? meta.shipToShortAddress : undefined,
+        shipToAddressNote:
+          typeof meta.shipToAddressNote === 'string' ? meta.shipToAddressNote : undefined,
         messengerCourierLabel:
           typeof meta.messengerCourierLabel === 'string' ? meta.messengerCourierLabel : undefined,
         shipToLatitude:
