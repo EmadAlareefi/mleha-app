@@ -62,6 +62,7 @@ export async function GET(request: NextRequest) {
         smsaTrackingNumber: true,
         returnLabelUrl: true,
         returnLabelNotificationSentAt: true,
+        smsaResponse: true,
       },
     });
 

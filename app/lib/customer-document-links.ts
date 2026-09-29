@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 
 import { env } from '@/app/lib/env';
 
-export type CustomerDocumentKind = 'invoice';
+/** `return-label` links carry the return request id in the `orderId` slot. */
+export type CustomerDocumentKind = 'invoice' | 'return-label';
 
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
 

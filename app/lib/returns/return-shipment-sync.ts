@@ -3,6 +3,8 @@ import { log } from '@/app/lib/logger';
 import { fetchSallaOrderShipments } from '@/app/lib/salla-api';
 import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
 import { RETURN_LABEL_GRACE_MS } from '@/lib/returns/missing-shipment';
+import { isAjexReturnRequest } from '@/lib/returns/return-provider';
+import { publishAjexReturnLabel } from '@/app/lib/returns/ajex-return-shipment';
 import {
   extractReturnLabelPayload,
   maybeNotifyReturnLabelCreated,
@@ -49,6 +51,8 @@ export interface SyncableReturnRequest {
   smsaTrackingNumber: string | null;
   returnLabelUrl?: string | null;
   returnLabelNotificationSentAt: Date | null;
+  /** Tells AJEX-booked requests apart; they have nothing to pull from Salla. */
+  smsaResponse?: unknown;
 }
 
 const isReturnShipment = (shipment: AnyRecord) =>
@@ -97,6 +101,24 @@ export async function syncReturnShipment(
     });
 
     return { ...base, status: 'notified', notification };
+  }
+
+  // AJEX returns are booked directly and carry their waybill from creation; the
+  // only thing left to retry (above) is the WhatsApp send.
+  if (isAjexReturnRequest(request.smsaResponse)) {
+    if (request.returnLabelNotificationSentAt) return { ...base, status: 'already_notified' };
+    if (!request.smsaTrackingNumber) return { ...base, status: 'stuck' };
+    if (options.dryRun) return { ...base, status: 'tracking_only' };
+
+    // The label link was never stored (e.g. signing was misconfigured at create time).
+    const notification = await publishAjexReturnLabel(
+      request,
+      { success: true, trackingNumber: request.smsaTrackingNumber },
+      source
+    );
+    return notification
+      ? { ...base, status: 'notified', notification }
+      : { ...base, status: 'tracking_only' };
   }
 
   // A failed fetch must not read as "Salla never issued a waybill" — that would

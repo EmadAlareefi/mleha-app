@@ -39,10 +39,11 @@
     "cleanup:erp-2026": "node scripts/run-remove-2026-erp-invoices.js",
     "backfill:fabric-stock-grand-total": "node --import tsx scripts/backfill-fabric-stock-grand-total.ts",
     "backfill:ajex-live-status": "node --import tsx scripts/backfill-ajex-live-status.ts",
+    "ajex:sandbox-labels": "DOTENV_CONFIG_PATH=.env.local node -r dotenv/config --import tsx scripts/ajex-sandbox-labels.ts",
     "backfill:local-shipment-phones": "node --import tsx scripts/backfill-local-shipment-phones.ts",
     "test:order-prep-status": "node --test --import tsx app/lib/__tests__/order-prep-salla-status.test.ts app/lib/__tests__/order-destination.test.ts",
     "test:local-shipping-location": "node --test --import tsx app/lib/__tests__/local-shipping-location.test.ts",
-    "test:ajex": "node --test --import tsx app/lib/__tests__/ajex-webhook.test.ts app/lib/__tests__/ajex-tracking.test.ts"
+    "test:ajex": "node --test --import tsx app/lib/__tests__/ajex-webhook.test.ts app/lib/__tests__/ajex-tracking.test.ts app/lib/__tests__/ajex-api.test.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",

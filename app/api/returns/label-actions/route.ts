@@ -7,6 +7,14 @@ import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-no
 import { requestSallaReturnPolicy } from '@/app/lib/returns/salla-return-policy';
 import { syncReturnShipment } from '@/app/lib/returns/return-shipment-sync';
 import { prisma } from '@/lib/prisma';
+import { cancelAjexShipment } from '@/app/lib/ajex-api';
+import { getSallaOrder } from '@/app/lib/salla-api';
+import {
+  bookAjexReturnShipment,
+  buildAjexSmsaResponse,
+  publishAjexReturnLabel,
+} from '@/app/lib/returns/ajex-return-shipment';
+import { isAjexReturnRequest } from '@/lib/returns/return-provider';
 
 export const runtime = 'nodejs';
 
@@ -22,6 +30,7 @@ const REQUEST_FIELDS = {
   smsaTrackingNumber: true,
   returnLabelUrl: true,
   returnLabelNotificationSentAt: true,
+  smsaResponse: true,
 } as const;
 
 /** `/api/returns` is a public middleware prefix, so this route guards itself. */
@@ -65,6 +74,10 @@ export async function POST(request: NextRequest) {
 
     if (!returnRequest) {
       return NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 });
+    }
+
+    if (action === 'reissue' && isAjexReturnRequest(returnRequest.smsaResponse)) {
+      return reissueAjexReturnLabel(returnRequest, session.user?.name || session.user?.email);
     }
 
     if (action === 'reissue') {
@@ -135,4 +148,74 @@ export async function POST(request: NextRequest) {
     log.error('Return label action failed', { error });
     return NextResponse.json({ error: 'حدث خطأ أثناء تنفيذ الإجراء' }, { status: 500 });
   }
+}
+
+/** Books a fresh AJEX pickup and cancels the one it replaces. */
+async function reissueAjexReturnLabel(
+  returnRequest: { id: string; merchantId: string; orderId: string; orderNumber: string | null; smsaTrackingNumber: string | null },
+  by: string | null | undefined
+) {
+  const [order, stored] = await Promise.all([
+    getSallaOrder(returnRequest.merchantId, returnRequest.orderId),
+    prisma.returnRequest.findUnique({
+      where: { id: returnRequest.id },
+      select: { totalRefundAmount: true, currency: true, items: { select: { quantity: true } } },
+    }),
+  ]);
+  if (!order || !stored) {
+    return NextResponse.json({ error: 'تعذر جلب بيانات الطلب من سلة' }, { status: 502 });
+  }
+
+  const result = await bookAjexReturnShipment({
+    order,
+    quantity: stored.items.reduce((sum, item) => sum + item.quantity, 0),
+    declaredValue: Number(stored.totalRefundAmount) || 0,
+    currency: stored.currency || 'SAR',
+  });
+  if (!result.success || !result.trackingNumber) {
+    return NextResponse.json(
+      { error: 'تعذر إعادة إصدار بوليصة أجكس', details: result.error },
+      { status: 502 }
+    );
+  }
+
+  const previousTrackingNumber = returnRequest.smsaTrackingNumber;
+  const updated = await prisma.returnRequest.update({
+    where: { id: returnRequest.id },
+    data: {
+      smsaTrackingNumber: result.trackingNumber,
+      smsaAwbNumber: result.trackingNumber,
+      smsaResponse: buildAjexSmsaResponse(result) as any,
+      returnLabelUrl: null,
+      returnLabelNotificationSentAt: null,
+    },
+  });
+
+  if (previousTrackingNumber) {
+    const cancelled = await cancelAjexShipment(previousTrackingNumber);
+    if (!cancelled.success) {
+      log.warn('Failed to cancel replaced AJEX return shipment', {
+        returnRequestId: returnRequest.id,
+        previousTrackingNumber,
+        error: cancelled.error,
+      });
+    }
+  }
+
+  const notification = await publishAjexReturnLabel(updated, result, 'returns-management-reissue');
+
+  log.info('AJEX return waybill re-issued', {
+    returnRequestId: returnRequest.id,
+    orderNumber: returnRequest.orderNumber,
+    previousTrackingNumber,
+    trackingNumber: result.trackingNumber,
+    by,
+  });
+
+  return NextResponse.json({
+    success: true,
+    action: 'reissue',
+    trackingNumber: result.trackingNumber,
+    notification,
+  });
 }

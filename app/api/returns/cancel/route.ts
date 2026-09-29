@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
+import { cancelAjexShipment } from '@/app/lib/ajex-api';
+import { isAjexReturnRequest } from '@/lib/returns/return-provider';
 
 export const runtime = 'nodejs';
 
@@ -70,6 +72,19 @@ export async function POST(request: NextRequest) {
     });
 
     await syncLocalReturnPickupTask(updatedRequest.id);
+
+    // AJEX pickups were booked by us, so release the courier too. Best effort:
+    // the request is already cancelled either way.
+    if (isAjexReturnRequest(returnRequest.smsaResponse) && returnRequest.smsaTrackingNumber) {
+      const cancelled = await cancelAjexShipment(returnRequest.smsaTrackingNumber);
+      if (!cancelled.success) {
+        log.warn('Failed to cancel AJEX return shipment', {
+          returnRequestId,
+          trackingNumber: returnRequest.smsaTrackingNumber,
+          error: cancelled.error,
+        });
+      }
+    }
 
     log.info('Return request cancelled successfully', {
       returnRequestId,
