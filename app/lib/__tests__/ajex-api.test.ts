@@ -88,6 +88,23 @@ test('books returns as an RPU pickup from the customer to the warehouse', () => 
   });
 });
 
+test('sends each returned product with the quantity the customer chose', () => {
+  const payload = buildAjexReturnOrderPayload({
+    ...input,
+    pieces: 99, // ignored: the lines decide the piece count
+    items: [
+      { description: 'Abaya Black - L', quantity: 2, unitPrice: 300, sku: 'AB-BLK-L' },
+      { description: 'Scarf', quantity: 1, unitPrice: 80 },
+      { description: 'Deselected', quantity: 0, unitPrice: 50 },
+    ],
+  }, { ...readAjexConfig(), customerAccount: 'ACC' });
+
+  assert.deepEqual(payload.items, [
+    { description: 'Abaya Black - L', quantity: '2', unitPrice: 300, currency: 'SAR', sku: 'AB-BLK-L', packageSequence: 1 },
+    { description: 'Scarf', quantity: '1', unitPrice: 80, currency: 'SAR', packageSequence: 1 },
+  ]);
+});
+
 test('flags cash on delivery with its amount', () => {
   const payload = buildAjexOrderPayload({
     referenceNumber: 'X', productCode: 'AJEX DCE', pickup: warehouse, delivery: customer,

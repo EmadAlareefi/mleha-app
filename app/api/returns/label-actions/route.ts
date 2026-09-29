@@ -159,7 +159,14 @@ async function reissueAjexReturnLabel(
     getSallaOrder(returnRequest.merchantId, returnRequest.orderId),
     prisma.returnRequest.findUnique({
       where: { id: returnRequest.id },
-      select: { totalRefundAmount: true, currency: true, items: { select: { quantity: true } } },
+      select: {
+        totalRefundAmount: true,
+        currency: true,
+        // The stored lines hold the quantities the customer chose on /returns.
+        items: {
+          select: { productName: true, productSku: true, variantName: true, quantity: true, price: true },
+        },
+      },
     }),
   ]);
   if (!order || !stored) {
@@ -168,7 +175,7 @@ async function reissueAjexReturnLabel(
 
   const result = await bookAjexReturnShipment({
     order,
-    quantity: stored.items.reduce((sum, item) => sum + item.quantity, 0),
+    items: stored.items,
     declaredValue: Number(stored.totalRefundAmount) || 0,
     currency: stored.currency || 'SAR',
   });

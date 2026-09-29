@@ -425,7 +425,8 @@ export async function POST(request: NextRequest) {
     if (shipmentProvider === 'ajex') {
       ajexShipment = await bookAjexReturnShipment({
         order,
-        quantity: resolvedItems.reduce((sum, item) => sum + item.quantity, 0),
+        // The lines and quantities the customer selected on /returns.
+        items: resolvedItems,
         declaredValue: totalRefundAmount,
         currency: feeQuote.currency,
       });

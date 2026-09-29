@@ -13,9 +13,18 @@ import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-no
 const WEIGHT_PER_ITEM_KG = 0.5;
 const RETURN_LABEL_LINK_TTL_SECONDS = 30 * 24 * 60 * 60;
 
+/** A returned line, with the quantity the customer chose on /returns. */
+export interface AjexReturnLine {
+  productName: string;
+  productSku?: string | null;
+  variantName?: string | null;
+  quantity: number;
+  price: number | { toString(): string };
+}
+
 export interface BookAjexReturnInput {
   order: SallaOrder;
-  quantity: number;
+  items: AjexReturnLine[];
   declaredValue: number;
   currency: string;
 }
@@ -23,10 +32,20 @@ export interface BookAjexReturnInput {
 /**
  * Books the reverse pickup with AJEX. The customer is the pickup point and the
  * warehouse (`SMSA_MERCHANT_*` / `NEXT_PUBLIC_MERCHANT_*`) the destination.
+ * Each returned product is its own AJEX item line carrying the customer's
+ * chosen quantity, so the courier collects exactly those pieces.
  */
 export async function bookAjexReturnShipment(input: BookAjexReturnInput): Promise<AjexShipmentResult> {
   const orderReference = String(input.order.reference_id || input.order.id);
-  const quantity = Math.max(1, input.quantity);
+  const items = input.items
+    .filter((item) => item.quantity >= 1)
+    .map((item) => ({
+      description: [item.productName, item.variantName].filter(Boolean).join(' - '),
+      quantity: item.quantity,
+      unitPrice: Number(item.price) || 0,
+      sku: item.productSku || undefined,
+    }));
+  const quantity = Math.max(1, items.reduce((sum, item) => sum + item.quantity, 0));
 
   return createAjexReturnShipment({
     // Unique per attempt so a re-issue or a second return on the same order is
@@ -40,6 +59,7 @@ export async function bookAjexReturnShipment(input: BookAjexReturnInput): Promis
     declaredValue: input.declaredValue,
     currency: input.currency,
     description: `Return for Order ${orderReference}`,
+    items,
   });
 }
 

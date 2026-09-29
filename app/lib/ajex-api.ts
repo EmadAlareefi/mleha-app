@@ -108,6 +108,14 @@ export function toAjexAddress(address: ShipmentAddress) {
   };
 }
 
+/** One product line on the shipment. */
+export interface AjexOrderItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  sku?: string;
+}
+
 export interface AjexOrderInput {
   /** Unique per request, max 40 characters. */
   referenceNumber: string;
@@ -119,12 +127,42 @@ export interface AjexOrderInput {
   declaredValue: number;
   currency: string;
   description: string;
+  /**
+   * Product lines. When given, each becomes its own AJEX item and `pieces` is
+   * their total quantity; otherwise one `description` line carries `pieces`.
+   */
+  items?: AjexOrderItem[];
   /** Cash on delivery amount, in `currency`. Omit or 0 for prepaid. */
   codAmount?: number;
 }
 
+const toAjexItems = (input: AjexOrderInput, pieces: number, declaredValue: number) => {
+  const lines = (input.items ?? []).filter((item) => item.quantity >= 1);
+  if (lines.length === 0) {
+    return [
+      {
+        description: input.description,
+        // AJEX's table types quantity as a string.
+        quantity: String(pieces),
+        unitPrice: Number((declaredValue / pieces).toFixed(2)),
+        currency: input.currency,
+        packageSequence: 1,
+      },
+    ];
+  }
+  return lines.map((item) => ({
+    description: item.description.slice(0, 200),
+    quantity: String(Math.round(item.quantity)),
+    unitPrice: Math.max(0, Number(item.unitPrice.toFixed(2))),
+    currency: input.currency,
+    ...(item.sku ? { sku: item.sku } : {}),
+    packageSequence: 1,
+  }));
+};
+
 export function buildAjexOrderPayload(input: AjexOrderInput, config: AjexConfig = readAjexConfig()) {
-  const pieces = Math.max(1, Math.round(input.pieces));
+  const itemPieces = (input.items ?? []).reduce((sum, item) => sum + Math.max(0, Math.round(item.quantity)), 0);
+  const pieces = Math.max(1, itemPieces || Math.round(input.pieces));
   const codAmount = input.codAmount && input.codAmount > 0 ? Number(input.codAmount.toFixed(2)) : 0;
   const declaredValue = Math.max(0, Number(input.declaredValue.toFixed(2)));
 
@@ -150,16 +188,7 @@ export function buildAjexOrderPayload(input: AjexOrderInput, config: AjexConfig 
         weightUnit: 'KG',
       },
     ],
-    items: [
-      {
-        description: input.description,
-        // AJEX's table types quantity as a string.
-        quantity: String(pieces),
-        unitPrice: Number((declaredValue / pieces).toFixed(2)),
-        currency: input.currency,
-        packageSequence: 1,
-      },
-    ],
+    items: toAjexItems(input, pieces, declaredValue),
   };
 }
 
@@ -173,6 +202,7 @@ export interface AjexReturnShipmentInput {
   declaredValue: number;
   currency: string;
   description: string;
+  items?: AjexOrderItem[];
 }
 
 /** A reverse pickup (AJEX RPU): AJEX collects from the customer and delivers to the warehouse. */
@@ -191,6 +221,7 @@ export const buildAjexReturnOrderPayload = (
       declaredValue: input.declaredValue,
       currency: input.currency,
       description: input.description,
+      items: input.items,
     },
     config,
   );
