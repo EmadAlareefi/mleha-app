@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { getSallaOrderShipments } from '@/app/lib/salla-api';
 import { buildOrderItemsPayload, normalizeOrderItems } from './serializer';
 import {
   extractShipToLocation,
@@ -47,6 +48,30 @@ export async function withStoredShippingSnapshot<T>(merchantId: string, order: T
     });
     return order;
   }
+}
+
+const isReturnShipment = (shipment: UnknownRecord) =>
+  /return|refund|مرتجع/i.test(String(shipment?.type ?? ''));
+
+/**
+ * Attaches the address the order actually ships to. The live `/orders/{id}`
+ * response has no `shipping` section, so without this the customer's profile
+ * city is all that is left, and that is often a different address. Prefers the
+ * live order shipments (they reflect address edits after checkout) and falls
+ * back to the stored webhook snapshot.
+ */
+export async function withOrderShipTo<T>(merchantId: string, order: T): Promise<T> {
+  const record = order as unknown as UnknownRecord | null;
+  if (!record || typeof record !== 'object' || hasShippingSections(record) || !record.id) {
+    return order;
+  }
+
+  const shipments = (await getSallaOrderShipments(merchantId, String(record.id)).catch(() => []))
+    .filter((shipment) => !isReturnShipment(shipment as UnknownRecord) && (shipment as UnknownRecord)?.ship_to);
+  if (shipments.length > 0) {
+    return { ...record, shipments } as T;
+  }
+  return withStoredShippingSnapshot(merchantId, order);
 }
 
 const locationKey = (merchantId: string, orderId: string) => `${merchantId}:${orderId}`;

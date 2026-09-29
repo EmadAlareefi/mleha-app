@@ -5,6 +5,7 @@ import {
   verifyCustomerDocumentSignature,
 } from '@/app/lib/customer-document-links';
 import { log } from '@/app/lib/logger';
+import { withOrderShipTo } from '@/app/lib/local-shipping/order-shipping-snapshot';
 import { getSallaOrder, getSallaOrderInvoices } from '@/app/lib/salla-api';
 import {
   buildInvoiceData,
@@ -43,8 +44,9 @@ export async function GET(
   }
 
   try {
-    const order = await getSallaOrder(merchantId, orderId);
-    if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    const liveOrder = await getSallaOrder(merchantId, orderId);
+    if (!liveOrder) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    const order = await withOrderShipTo(merchantId, liveOrder);
     const invoices = await getSallaOrderInvoices(merchantId, orderId);
     const officialInvoice = selectCustomerSalesInvoice(invoices, order.id);
     const data = buildInvoiceData(order, officialInvoice);

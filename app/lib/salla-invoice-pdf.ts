@@ -9,6 +9,7 @@ import { ArabicShaper } from 'arabic-persian-reshaper';
 import type { SallaOrder, SallaOrderItem } from './salla-api';
 import { encodeCode128 } from './barcode-code128';
 import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
+import { extractShipToLocation } from '@/app/lib/local-shipping/ship-to-location';
 
 // ---------------------------------------------------------------------------
 // Page / theme constants. The layout mirrors the Salla "فاتورة" tax-invoice
@@ -271,8 +272,28 @@ export function buildInvoiceData(order: SallaOrder, invoice: AnyRecord | null): 
   const consignee = resolveCommercialInvoiceConsignee(order);
   const buyerName = consignee.name || 'عميل';
   const buyerCountry = consignee.country;
-  const buyerCity = consignee.city;
-  const buyerAddress = [consignee.address, consignee.postalCode].filter(Boolean).join('، ');
+  // Prefer the structured ship-to address over the free-text consignee lines,
+  // which repeat the same national address in several formats.
+  // A return shipment's ship_to is the warehouse, not the customer.
+  const outboundShipments = Array.isArray(orderAny.shipments)
+    ? (orderAny.shipments as AnyRecord[]).filter((s) => !/return|refund|مرتجع/i.test(str(s?.type)))
+    : orderAny.shipments;
+  const shipTo = extractShipToLocation({ ...orderAny, shipments: outboundShipments });
+  const buyerCity = shipTo?.city || consignee.city;
+  const hasStreetDetails = Boolean(
+    shipTo && (shipTo.street || shipTo.district || shipTo.buildingNumber || shipTo.shortAddress),
+  );
+  const buyerAddress = shipTo && hasStreetDetails
+    ? [
+        [shipTo.buildingNumber, shipTo.street].filter(Boolean).join(' '),
+        shipTo.district !== shipTo.street ? shipTo.district : null,
+        shipTo.shortAddress,
+        shipTo.postalCode,
+        shipTo.addressNote,
+      ]
+        .filter(Boolean)
+        .join('، ')
+    : [consignee.address, consignee.postalCode].filter(Boolean).join('، ');
 
   // Shipping company + expectations.
   const shippingNode = (orderAny.shipping as AnyRecord | undefined) || {};

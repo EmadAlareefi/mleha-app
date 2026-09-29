@@ -6,6 +6,7 @@ import {
   getSallaOrderInvoices,
   type SallaOrder,
 } from '@/app/lib/salla-api';
+import { withOrderShipTo } from '@/app/lib/local-shipping/order-shipping-snapshot';
 import {
   buildInvoiceData,
   generateSallaInvoicePdf,
@@ -53,7 +54,7 @@ export async function GET(
     const invoices = await getSallaOrderInvoices(MERCHANT_ID, order.id).catch(() => []);
     const taxInvoice = selectCustomerSalesInvoice(invoices, order.id);
 
-    const data = buildInvoiceData(order, taxInvoice);
+    const data = buildInvoiceData(await withOrderShipTo(MERCHANT_ID, order), taxInvoice);
     if (!invoiceTotalMatchesOrder(data, order)) {
       return NextResponse.json({ error: 'Invoice totals do not reconcile' }, { status: 409 });
     }

@@ -221,6 +221,8 @@ export const extractShipToLocation = (order: unknown): ShipToLocation | null => 
       location.street,
       location.district,
       location.city,
+      // The city's Arabic name is often only in the region ("منطقة المدينة المنورة").
+      first((r) => toText(r.region)),
       location.buildingNumber,
       location.shortAddress,
       location.postalCode,

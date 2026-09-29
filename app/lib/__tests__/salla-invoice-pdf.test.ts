@@ -120,3 +120,18 @@ test('total reconciliation also protects zero-value orders', () => {
   assert.equal(invoiceTotalMatchesOrder(buildInvoiceData(order(), null), zeroOrder), false);
   assert.equal(invoiceTotalMatchesOrder(buildInvoiceData(order(), { total: 134 }), order()), false);
 });
+
+test('buyer address comes from the order ship_to, not the customer profile', () => {
+  const data = buildInvoiceData(order({
+    customer: { full_name: 'Buyer', city: 'رياض الخبراء', location: 'QNWC3376، 3376 ذبيان بن سعد الاسدي، النزهة' },
+    shipments: [
+      { type: 'shipment', ship_to: {
+        name: 'Receiver', city: 'Riyadh Al Khabra', region: { name: 'منطقة القصيم' }, district: { name: 'القادسية' },
+        street_number: 'القادسية,7556', block: 'القادسية', building_number: '7556', short_address: 'QNWA7556',
+        postal_code: '54662', address_line_two: 'بجانب دوار ميدان الكتاب',
+      } },
+    ],
+  }), null);
+  assert.equal(data.buyerCity, 'Riyadh Al Khabra');
+  assert.equal(data.buyerAddress, '7556 القادسية، QNWA7556، 54662، بجانب دوار ميدان الكتاب');
+});
