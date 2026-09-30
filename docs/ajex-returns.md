@@ -65,8 +65,26 @@ AJEX can answer HTTP 200 with a failure body.
   our side.
 - **Short address:** AJEX requires the Saudi national short address
   (`shortAddress`) from 2026-01-01. It comes from the Salla address `short_code`,
-  and from `SMSA_MERCHANT_SHORT_CODE` for the warehouse. Set that, plus
-  `SMSA_MERCHANT_DISTRICT`, before going live.
+  and from `SMSA_MERCHANT_SHORT_CODE` for the warehouse.
+
+### Warehouse address
+
+Returns go to the Salla main branch (الرئيسي), the same ship-from address that
+Salla's outbound shipments carry. It is set in Vercel production:
+
+| Variable | Value |
+| --- | --- |
+| `SMSA_MERCHANT_CITY` | `Jeddah` |
+| `SMSA_MERCHANT_DISTRICT` | `Al Baghdadiyah Al Gharbiyah` (البغدادية الغربية) |
+| `SMSA_MERCHANT_SHORT_CODE` | `JABA4130` |
+| `SMSA_MERCHANT_POSTAL_CODE` | `22234` |
+| `SMSA_MERCHANT_COORDINATES` | `21.5027564,39.1810784` |
+
+With these, the warehouse resolves to AJEX's own mapping (`JED`,
+`SAU-WESTERN-JED-AL BAGHDADIYAH AL GHARBIYAH`). Set `SMSA_MERCHANT_CITY`
+explicitly: without it the city falls back to `NEXT_PUBLIC_MERCHANT_CITY`, and
+then to `Riyadh`. The same values are used as the shipper on manual SMSA
+shipments.
 
 The env vars are listed in `.env.example`: `AJEX_ENVIRONMENT`, `AJEX_CLIENT_ID`,
 `AJEX_CLIENT_SECRET` and `AJEX_CUSTOMER_ACCOUNT`. Without the credentials,
