@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { EXPENSE_CREDENTIAL_SETTINGS_PREFIX, isPrivateExpenseSetting } from '@/app/lib/expenses/settings-keys';
 import { authOptions } from '@/app/lib/auth';
 
 export const runtime = 'nodejs';
@@ -29,6 +30,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
+    if (isPrivateExpenseSetting(key)) return NextResponse.json({ error: 'استخدم إعدادات ربط الإعلانات' }, { status: 403 });
+
     if (key) {
       // Get specific setting
       const setting = await prisma.settings.findUnique({
@@ -54,6 +57,7 @@ export async function GET(request: NextRequest) {
 
     // Get all settings
     const settings = await prisma.settings.findMany({
+      where: { NOT: { key: { startsWith: EXPENSE_CREDENTIAL_SETTINGS_PREFIX } } },
       orderBy: { key: 'asc' },
     });
 
@@ -90,6 +94,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { key, value, description } = body;
+
+    if (isPrivateExpenseSetting(key)) return NextResponse.json({ error: 'استخدم إعدادات ربط الإعلانات' }, { status: 403 });
 
     if (!key || value === undefined) {
       return NextResponse.json(

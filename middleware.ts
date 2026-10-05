@@ -50,6 +50,8 @@ const PUBLIC_PATHS = [
   // Called by Vercel Cron, which carries no session; guarded by CRON_SECRET.
   '/api/salla/availability-requests/check-stock',
   '/api/customer-journey/process',
+  '/api/expenses/process-subscriptions',
+  '/api/expenses/sync-invoices',
   '/salla/webhook',
   '/logo.png',
   '/manifest.webmanifest',
@@ -207,7 +209,7 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/api\/salla\/products(\/.*)?$/,
     ],
   ],
-  ['settings', [/^\/settings(\/.*)?$/, /^\/erp-settings(\/.*)?$/]],
+  ['settings', [/^\/settings(\/.*)?$/, /^\/erp-settings(\/.*)?$/, /^\/api\/settings\/ad-credentials$/]],
   [
     'order-users-management',
     [/^\/order-users-management(\/.*)?$/, /^\/api\/printers(\/.*)?$/],

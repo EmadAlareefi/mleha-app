@@ -1,5 +1,6 @@
 'use client';
 
+import ExpenseAutomation from './ExpenseAutomation';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
@@ -36,6 +37,7 @@ type Expense = {
 
 type ExpenseSummary = {
   category: string;
+  currency: string;
   _sum: { amount: number };
   _count: number;
 };
@@ -70,6 +72,8 @@ const STATUS_OPTIONS = [
 
 export default function ExpensesPage() {
   const { data: session } = useSession();
+  const [tab, setTab] = useState<'expenses' | 'subscriptions' | 'ads'>('expenses');
+  useEffect(() => { if (new URLSearchParams(window.location.search).get('tab') === 'ads') setTab('ads'); }, []);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [summary, setSummary] = useState<ExpenseSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -289,19 +293,27 @@ export default function ExpensesPage() {
     XLSX.writeFile(workbook, `expenses-${timestamp}.xlsx`);
   };
 
-  const totalAmount = expenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
+  const currencyTotals = summary.reduce<Record<string, { amount: number; count: number }>>((totals, row) => {
+    const current = totals[row.currency] || { amount: 0, count: 0 };
+    totals[row.currency] = { amount: current.amount + Number(row._sum.amount), count: current.count + row._count };
+    return totals;
+  }, {});
   const userRole = (session?.user as any)?.role;
   const isAdmin = userRole === 'admin';
 
   return (
     <AppPageShell title="إدارة المصروفات" subtitle="تتبع وإدارة جميع مصروفات المتجر">
-      <div className="space-y-8">
+      <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="أقسام المصروفات">
+        {([['expenses', 'المصروفات'], ['subscriptions', 'الاشتراكات'], ['ads', 'فواتير الإعلانات']] as const).map(([key, label]) => <Button key={key} role="tab" aria-selected={tab === key} variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{label}</Button>)}
+      </div>
+      {tab !== 'expenses' && <ExpenseAutomation tab={tab} isAdmin={isAdmin} onChange={() => void fetchExpenses()} />}
+      <div className={tab === 'expenses' ? 'space-y-8' : 'hidden'}>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <Card>
             <CardContent className="p-6">
               <div className="text-sm text-muted-foreground mb-2">إجمالي المصروفات</div>
               <div className="text-3xl font-bold text-foreground">
-              {totalAmount.toFixed(2)} ر.س
+              {Object.entries(currencyTotals).map(([code, value]) => <div key={code}>{value.amount.toFixed(2)} {code}</div>)}
               </div>
             </CardContent>
           </Card>
@@ -315,7 +327,7 @@ export default function ExpensesPage() {
             <CardContent className="p-6">
               <div className="text-sm text-muted-foreground mb-2">متوسط المصروف</div>
               <div className="text-3xl font-bold text-foreground">
-              {total > 0 ? (totalAmount / total).toFixed(2) : '0.00'} ر.س
+              {Object.entries(currencyTotals).map(([code, value]) => <div key={code}>{(value.count ? value.amount / value.count : 0).toFixed(2)} {code}</div>)}
               </div>
             </CardContent>
           </Card>
@@ -612,14 +624,14 @@ export default function ExpensesPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {summary.map((item) => (
                 <div
-                  key={item.category}
+                  key={`${item.category}-${item.currency}`}
                   className="p-4 bg-muted/40 rounded-md border"
                 >
                   <div className="text-sm text-muted-foreground">
                     {getCategoryLabel(item.category)}
                   </div>
                   <div className="text-2xl font-bold text-foreground mt-1">
-                    {Number(item._sum.amount).toFixed(2)} ر.س
+                    {Number(item._sum.amount).toFixed(2)} {item.currency}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
                     {item._count} مصروف

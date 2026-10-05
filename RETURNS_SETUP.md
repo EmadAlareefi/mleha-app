@@ -379,3 +379,7 @@ Optional enhancements you can add:
 - Barcode printing for return labels
 - Return analytics and reporting
 - WhatsApp notifications using existing Zoko integration
+
+## Expense automation fixtures
+
+Expense automation uses synthetic, in-memory fixtures in `app/lib/expenses/__tests__/` for provider invoice responses, subscription schedules, and transaction behavior. They contain no customer identifiers or credentials and do not contact Prisma databases or external carriers/providers. Run `npm run test:expenses`; deployment and manual verification are described in `EXPENSE_AUTOMATION_SETUP.md`.

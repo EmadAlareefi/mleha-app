@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     // Get summary statistics
     const summary = await prisma.expense.groupBy({
-      by: ['category'],
+      by: ['category', 'currency'],
       where,
       _sum: {
         amount: true,

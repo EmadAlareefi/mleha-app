@@ -4,6 +4,7 @@
  * Provides utilities for managing application settings stored in the database.
  */
 
+import { EXPENSE_CREDENTIAL_SETTINGS_PREFIX } from './expenses/settings-keys';
 import { prisma } from '@/lib/prisma';
 import { log as logger } from './logger';
 
@@ -172,6 +173,7 @@ export async function getAllSettings(): Promise<
 > {
   try {
     const settings = await prisma.settings.findMany({
+      where: { NOT: { key: { startsWith: EXPENSE_CREDENTIAL_SETTINGS_PREFIX } } },
       orderBy: { key: 'asc' },
     });
     return settings;
