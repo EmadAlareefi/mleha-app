@@ -4,6 +4,11 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { missingReturnShipmentWhere, needsManualReturnShipment } from '@/lib/returns/missing-shipment';
 
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/lib/auth';
+import { hasServiceAccess } from '@/app/lib/service-access';
+import { localTrackingSelect } from '@/app/lib/local-shipping/tracking-query';
+
 export const runtime = 'nodejs';
 
 /**
@@ -12,6 +17,10 @@ export const runtime = 'nodejs';
  */
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!hasServiceAccess(session, ['returns-management', 'returns-analytics'])) {
+      return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
+    }
     const { searchParams } = new URL(request.url);
     const now = new Date();
     const missingShipmentOnly = searchParams.get('shipment') === 'missing';
@@ -187,12 +196,26 @@ export async function GET(request: NextRequest) {
       }, {} as Record<string, { name?: string; slug?: string }>);
     }
 
+    const localShipments = uniqueOrders.length ? await prisma.localShipment.findMany({
+      where: { OR: uniqueOrders },
+      select: localTrackingSelect,
+      orderBy: { createdAt: 'desc' },
+    }) : [];
+    const localShipmentsByOrder = new Map<string, typeof localShipments>();
+    for (const shipment of localShipments) {
+      const key = `${shipment.merchantId}:${shipment.orderId}`;
+      const shipments = localShipmentsByOrder.get(key) || [];
+      shipments.push(shipment);
+      localShipmentsByOrder.set(key, shipments);
+    }
+
     const enrichedRequests = returnRequests.map(request => {
       const statusKey = `${request.merchantId}:${request.orderId}`;
       return {
         ...request,
         needsManualShipment: needsManualReturnShipment(request, now),
         sallaStatus: sallaStatuses[statusKey] || null,
+        localShipments: localShipmentsByOrder.get(statusKey) || [],
       };
     });
 

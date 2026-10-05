@@ -76,6 +76,7 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     'order-shipping',
     [
       /^\/order-shipping(\/.*)?$/,
+      /^\/local-shipping\/tracking$/,
       /^\/api\/salla\/create-shipment(\/.*)?$/,
       /^\/api\/salla\/shipments(\/.*)?$/,
       /^\/api\/local-shipping(\/.*)?$/,
@@ -143,7 +144,7 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/api\/delivery-agent-wallets(\/.*)?$/,
     ],
   ],
-  ['returns-management', [/^\/returns-management(\/.*)?$/, /^\/cancel-shipment(\/.*)?$/]],
+  ['returns-management', [/^\/returns-management(\/.*)?$/, /^\/cancel-shipment(\/.*)?$/, /^\/local-shipping\/tracking$/, /^\/api\/local-shipping\/tracking$/]],
   ['returns-inspection', [/^\/returns-inspection(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   ['returns-priority', [/^\/returns-priority(\/.*)?$/]],
   ['returns-gifts', [/^\/returns-gifts(\/.*)?$/]],

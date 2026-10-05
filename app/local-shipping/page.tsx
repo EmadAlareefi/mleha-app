@@ -280,6 +280,9 @@ export default function LocalShippingPage() {
           <Button asChild>
             <Link href="/local-shipping" prefetch={false}>شحن محلي</Link>
           </Button>
+          <Button variant="outline" asChild>
+            <Link href="/local-shipping/tracking" prefetch={false}>تتبع الشحنات المحلية</Link>
+          </Button>
         </nav>
 
         {!shipment && (
