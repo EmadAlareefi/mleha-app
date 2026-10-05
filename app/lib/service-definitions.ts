@@ -305,7 +305,7 @@ const serviceDefinitionsData = [
     color: 'from-purple-500 to-purple-600',
     defaultRoles: ['admin'],
     grantsRoles: [],
-    assignable: false,
+    assignable: true,
   },
   {
     key: 'order-users-management',

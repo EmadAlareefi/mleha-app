@@ -1565,6 +1565,9 @@ model OrderHistory {
 }
 
 model Expense {
+  occurrence ExpenseOccurrence?
+  adInvoice AdImportedInvoice?
+  source String @default("manual")
   id String @id @default(cuid())
 
   // Basic info
@@ -2115,4 +2118,109 @@ model DeliveryAgentWalletTransaction {
   @@unique([referenceType, referenceId])
   @@index([deliveryAgentId])
   @@index([type])
+}
+
+model ExpenseSubscription {
+  id          String   @id @default(cuid())
+  merchantId  String   @default("default")
+  title       String
+  amount      Decimal  @db.Decimal(10, 2)
+  currency    String   @default("SAR")
+  category    String
+  frequency   String
+  startDate   String
+  endDate     String?
+  nextDate    String
+  state       String   @default("active")
+  notes       String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  occurrences ExpenseOccurrence[]
+
+  @@index([state, nextDate])
+}
+
+// Kept even when the generated expense is deleted.
+model ExpenseOccurrence {
+  id             String @id @default(cuid())
+  subscriptionId String
+  dueDate        String
+  expenseId      String? @unique
+  subscription   ExpenseSubscription @relation(fields: [subscriptionId], references: [id])
+  expense        Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+
+  @@unique([subscriptionId, dueDate])
+}
+
+model AdInvoiceConnection {
+  id                   String @id @default(cuid())
+  provider             String
+  billingOwnerId       String
+  label                String
+  merchantId           String @default("default")
+  importFrom           String
+  state                String @default("setup")
+  encryptedCredentials String? @db.Text
+  oauthStateHash       String?
+  oauthExpiresAt       DateTime?
+  cursor               String? @db.Text
+  syncStartedAt        DateTime?
+  lastSuccessAt        DateTime?
+  nextAttemptAt        DateTime @default(now())
+  failureCount         Int @default(0)
+  lastError            String?
+  lockToken            String?
+  lockedUntil          DateTime?
+  createdBy            String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  invoices             AdImportedInvoice[]
+  runs                 ExpenseSyncRun[]
+
+  @@unique([provider, billingOwnerId])
+  @@index([state, nextAttemptAt])
+}
+
+model AdImportedInvoice {
+  id             String @id @default(cuid())
+  connectionId   String
+  provider       String
+  billingOwnerId String
+  providerId     String
+  number         String
+  issueDate      String
+  amount         Decimal @db.Decimal(10, 2)
+  currency       String
+  billingPeriod  String?
+  taxDetails     Json?
+  fingerprint    String
+  state          String @default("imported")
+  reviewReason   String?
+  latestMetadata Json?
+  expenseId      String? @unique
+  document       Bytes?
+  documentError  String?
+  connection     AdInvoiceConnection @relation(fields: [connectionId], references: [id])
+  expense        Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([provider, billingOwnerId, providerId])
+  @@index([connectionId, issueDate])
+}
+
+model ExpenseSyncRun {
+  id           String @id @default(cuid())
+  connectionId String
+  connection   AdInvoiceConnection @relation(fields: [connectionId], references: [id])
+  state        String @default("running")
+  imported     Int @default(0)
+  reviewed     Int @default(0)
+  error        String?
+  startedAt    DateTime @default(now())
+  finishedAt   DateTime?
+
+  @@index([connectionId, startedAt])
 }

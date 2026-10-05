@@ -1,5 +1,7 @@
 {
-  "regions": ["syd1"],
+  "regions": [
+    "syd1"
+  ],
   "crons": [
     {
       "path": "/api/salla/refresh-tokens",
@@ -16,6 +18,14 @@
     {
       "path": "/api/returns/label-backfill",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/expenses/process-subscriptions",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/expenses/sync-invoices",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
+import AdCredentialsSettings from './AdCredentialsSettings';
 import Link from 'next/link';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -10,6 +12,9 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Switch } from '@/components/ui/switch';
 
 export default function SettingsPage() {
+  const { data: session } = useSession();
+  const user = session?.user as { role?: string; roles?: string[] } | undefined;
+  const isAdmin = user?.role === 'admin' || user?.roles?.includes('admin') === true;
   const [allowMultipleRequests, setAllowMultipleRequests] = useState(false);
   const [zokoWebhookProcessingEnabled, setZokoWebhookProcessingEnabled] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -17,12 +22,7 @@ export default function SettingsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Load settings on mount
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     setLoading(true);
     setError('');
 
@@ -50,7 +50,9 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => { if (isAdmin) void loadSettings(); }, [isAdmin, loadSettings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +106,7 @@ export default function SettingsPage() {
 
   return (
     <AppPageShell title="الإعدادات" subtitle="إدارة إعدادات النظام">
-      <form onSubmit={handleSave} className="mx-auto w-full max-w-4xl space-y-6">
+      {isAdmin && <form onSubmit={handleSave} className="mx-auto w-full max-w-4xl space-y-6">
         {/* Return Settings */}
         <Card className="rounded-lg">
           <CardHeader>
@@ -207,7 +209,8 @@ export default function SettingsPage() {
             ← العودة للصفحة الرئيسية
           </Link>
         </div>
-      </form>
+      </form>}
+      <AdCredentialsSettings />
     </AppPageShell>
   );
 }
