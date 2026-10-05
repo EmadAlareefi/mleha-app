@@ -39,6 +39,9 @@ import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { CouponAmountDialog } from './components/coupon-amount-dialog';
 
+import ShipmentTrackingSummary from '@/components/local-shipping/ShipmentTrackingSummary';
+import type { LocalTrackingShipment } from '@/app/lib/local-shipping/tracking-query';
+
 interface ReturnItem {
   id: string;
   productName: string;
@@ -55,6 +58,7 @@ interface ReturnItem {
 }
 
 interface ReturnRequest {
+  localShipments?: LocalTrackingShipment[];
   id: string;
   merchantId: string;
   orderId: string;
@@ -803,6 +807,9 @@ export default function ReturnsManagementPage() {
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <Button variant="outline" asChild>
+              <Link href="/local-shipping/tracking">تتبع الشحنات المحلية</Link>
+            </Button>
             {canManageReturnWindows && (
               <Dialog>
                 <DialogTrigger asChild>
@@ -1088,6 +1095,9 @@ export default function ReturnsManagementPage() {
                         <div className="text-sm text-gray-600 space-y-1">
                           <p><strong>العميل:</strong> {request.customerName}</p>
                           <p><strong>الهاتف:</strong> {request.customerPhone}</p>
+                          {request.localShipments?.map(shipment => (
+                            <ShipmentTrackingSummary key={shipment.id} shipment={shipment} />
+                          ))}
                           {displayTrackingNumber && (
                             <div>
                               <p><strong>رقم التتبع:</strong> {displayTrackingNumber}</p>
