@@ -424,6 +424,7 @@ export async function POST(request: NextRequest) {
 
     if (shipmentProvider === 'ajex') {
       ajexShipment = await bookAjexReturnShipment({
+        merchantId: body.merchantId,
         order,
         // The lines and quantities the customer selected on /returns.
         items: resolvedItems,

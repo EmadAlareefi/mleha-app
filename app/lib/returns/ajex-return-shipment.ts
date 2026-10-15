@@ -3,11 +3,12 @@ import { log } from '@/app/lib/logger';
 import type { SallaOrder } from '@/app/lib/salla-api';
 import { createAjexReturnShipment, type AjexShipmentResult } from '@/app/lib/ajex-api';
 import {
-  buildConsigneeAddressFromOrder,
   buildMerchantShipperAddress,
 } from '@/app/lib/manual-smsa/address';
 import { createSignedCustomerDocumentUrl } from '@/app/lib/customer-document-links';
 import { maybeNotifyReturnLabelCreated } from '@/app/lib/returns/return-label-notification';
+import { withOrderShipTo } from '@/app/lib/local-shipping/order-shipping-snapshot';
+import { buildAjexPickupAddress } from './ajex-pickup-address';
 
 /** Per-item weight used when the order carries none; same rule the SMSA C2B flow used. */
 const WEIGHT_PER_ITEM_KG = 0.5;
@@ -23,6 +24,7 @@ export interface AjexReturnLine {
 }
 
 export interface BookAjexReturnInput {
+  merchantId: string;
   order: SallaOrder;
   items: AjexReturnLine[];
   declaredValue: number;
@@ -36,6 +38,7 @@ export interface BookAjexReturnInput {
  * chosen quantity, so the courier collects exactly those pieces.
  */
 export async function bookAjexReturnShipment(input: BookAjexReturnInput): Promise<AjexShipmentResult> {
+  const order = await withOrderShipTo(input.merchantId, input.order);
   const orderReference = String(input.order.reference_id || input.order.id);
   const items = input.items
     .filter((item) => item.quantity >= 1)
@@ -52,7 +55,7 @@ export async function bookAjexReturnShipment(input: BookAjexReturnInput): Promis
     // not rejected as a duplicate; the `R-` prefix marks it as a return.
     referenceId: `R-${orderReference}-${Date.now().toString(36)}`,
     orderNumber: orderReference,
-    pickup: buildConsigneeAddressFromOrder(input.order),
+    pickup: buildAjexPickupAddress(order),
     receiver: buildMerchantShipperAddress(),
     pieces: quantity,
     weightKg: quantity * WEIGHT_PER_ITEM_KG,

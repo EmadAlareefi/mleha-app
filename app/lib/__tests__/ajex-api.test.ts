@@ -11,6 +11,7 @@ import {
   toAjexPhone,
 } from '../ajex-api';
 import { resolveAjexLocation } from '../ajex/address-mapper';
+import { buildAjexPickupAddress } from '../returns/ajex-pickup-address';
 import { isAjexReturnRequest, orderShippedWithAjex } from '../../../lib/returns/return-provider';
 
 const customer = {
@@ -33,6 +34,27 @@ const configure = () => {
 };
 
 const realFetch = globalThis.fetch;
+test('preserves Salla national addresses through the return payload and ignores return destinations', () => {
+  const shipTo = { short_address: 'REMA2766', city: 'Riyadh', block: 'Al Malaz',
+    street_number: 'Example Street,2766', building_number: '2766', postal_code: '12345' };
+  for (const fields of [
+    { shipments: [{ type: 'return', ship_to: { short_address: 'JIEA8567' } }, { type: 'shipment', ship_to: shipTo }] },
+    { shipping: { address: shipTo } },
+    { ship_to: shipTo },
+    { shipping_address: shipTo },
+    { shipping_address: { short_code: 'REMA2766' } },
+  ]) {
+    const pickup = buildAjexPickupAddress({ id: 1, customer: { first_name: 'Test' }, ...fields } as any);
+    const payload = buildAjexReturnOrderPayload({ ...input, pickup }, readAjexConfig());
+    assert.equal(payload.pickupAddress.shortAddress, 'REMA2766');
+    assert.equal(payload.deliveryAddress.shortAddress, 'JIEA8567');
+  }
+});
+
+test('does not fabricate a missing national address', () => {
+  assert.equal(buildAjexPickupAddress({ id: 1 } as any).ShortCode, undefined);
+});
+
 afterEach(() => {
   globalThis.fetch = realFetch;
   for (const key of ENV_KEYS) delete process.env[key];

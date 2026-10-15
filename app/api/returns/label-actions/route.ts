@@ -174,6 +174,7 @@ async function reissueAjexReturnLabel(
   }
 
   const result = await bookAjexReturnShipment({
+    merchantId: returnRequest.merchantId,
     order,
     items: stored.items,
     declaredValue: Number(stored.totalRefundAmount) || 0,
