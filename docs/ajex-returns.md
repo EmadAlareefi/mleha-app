@@ -16,7 +16,7 @@ API credentials are not configured, it falls back to Salla and logs a warning.
 1. `POST /api/returns/create` validates the order as before, then calls
    `bookAjexReturnShipment` (`app/lib/returns/ajex-return-shipment.ts`). The
    shipment is a reverse pickup: the pickup point is the customer's shipping
-   address (`buildConsigneeAddressFromOrder`) and the destination is the
+   address (`buildAjexPickupAddress`) and the destination is the
    warehouse (`buildMerchantShipperAddress`, i.e. `SMSA_MERCHANT_*` /
    `NEXT_PUBLIC_MERCHANT_*`). Pieces are the returned quantity, the weight is
    0.5 kg per item, and the declared value is the refund amount.
@@ -63,9 +63,19 @@ AJEX can answer HTTP 200 with a failure body.
   from AJEX's `Saudi_Cities_Districts.xlsx`, and accepts English or Arabic names.
   An unmatched district is sent as `FREE_TEXT`, so a return is never blocked on
   our side.
-- **Short address:** AJEX requires the Saudi national short address
-  (`shortAddress`) from 2026-01-01. It comes from the Salla address `short_code`,
-  and from `SMSA_MERCHANT_SHORT_CODE` for the warehouse.
+- **Short address:** The customer's `short_address` / `shortAddress` is read
+  from outbound `shipments[].ship_to`, `shipping.address`, or `ship_to` and
+  sent as AJEX `pickupAddress.shortAddress`. Legacy `shipping_address`
+  short-code fields remain supported. When the live order omits shipping
+  sections, booking loads order shipments, then falls back to the stored
+  webhook snapshot. Return shipment destinations are excluded. The warehouse
+  uses `SMSA_MERCHANT_SHORT_CODE`.
+
+The previous return mapper read only legacy `shortcode` / `short_code` fields
+and did not recover shipping sections omitted by the live order endpoint.
+This could omit the pickup national address even when Salla had it. The fix
+applies to new bookings and label reissues; existing AJEX bookings are not
+modified automatically.
 
 ### Warehouse address
 
