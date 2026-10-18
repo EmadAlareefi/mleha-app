@@ -2,13 +2,15 @@ export type ReturnItemCondition =
   | 'good'
   | 'worn'
   | 'missing_parts'
-  | 'damaged';
+  | 'damaged'
+  | 'policy_violation';
 
 export const CONDITION_LABELS: Record<ReturnItemCondition, string> = {
   good: 'سليم',
   worn: 'ملبوس',
   missing_parts: 'ناقص',
   damaged: 'تالف',
+  policy_violation: 'شريط الأمان مفتوح أو مخالف للسياسة',
 };
 
 export const CONDITION_DESCRIPTIONS: Record<ReturnItemCondition, string> = {
@@ -16,6 +18,7 @@ export const CONDITION_DESCRIPTIONS: Record<ReturnItemCondition, string> = {
   worn: 'تم ارتداؤه أو فتحه ويحتاج تنظيفاً أو تقييم سعره مجددًا',
   missing_parts: 'تم استلامه ناقص الملحقات أو بدون التغليف الكامل',
   damaged: 'تالف ولا يمكن بيعه مرة أخرى',
+  policy_violation: 'شريط الأمان مفتوح أو حالة المنتج مخالفة لسياسة الإرجاع',
 };
 
 export const CONDITION_ORDER: ReturnItemCondition[] = [
@@ -23,6 +26,7 @@ export const CONDITION_ORDER: ReturnItemCondition[] = [
   'worn',
   'missing_parts',
   'damaged',
+  'policy_violation',
 ];
 
 export function isReturnItemCondition(value: unknown): value is ReturnItemCondition {
@@ -53,6 +57,7 @@ const emptyBreakdown = (): Record<ReturnItemCondition, number> => ({
   worn: 0,
   missing_parts: 0,
   damaged: 0,
+  policy_violation: 0,
 });
 
 /**
@@ -112,7 +117,7 @@ export function summarizeItemConditions(items: InspectableItem[]): InspectionSum
     });
   }
 
-  (['worn', 'missing_parts', 'damaged'] as ReturnItemCondition[]).forEach((key) => {
+  CONDITION_ORDER.filter((key) => key !== 'good').forEach((key) => {
     if (summary.breakdown[key] > 0) {
       badges.push({
         label: `${summary.breakdown[key]} ${CONDITION_LABELS[key]}`,
