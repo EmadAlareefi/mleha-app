@@ -129,6 +129,7 @@ export default function MyDeliveriesPage() {
 
   const [tab, setTab] = useState<TabKey>('deliveries');
   const [search, setSearch] = useState('');
+  const [showPastReturns, setShowPastReturns] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('nearest');
   const { position, error: positionError } = useAgentPosition();
 
@@ -232,7 +233,10 @@ export default function MyDeliveriesPage() {
 
   // Returns filed on orders this agent delivered arrive as pickup tasks.
   const returnPickups = tasks.filter((task) => isReturnPickupTask(task) && isOpenTask(task));
-  const otherTasks = tasks.filter((task) => !returnPickups.includes(task));
+  const pastReturnPickups = tasks.filter((task) => isReturnPickupTask(task) && !isOpenTask(task));
+  const pastReturns = done.filter(isReturnAssignment);
+  const visibleReturnPickups = showPastReturns ? pastReturnPickups : returnPickups;
+  const otherTasks = tasks.filter((task) => !isReturnPickupTask(task));
   const openTaskCount = otherTasks.filter(isOpenTask).length;
   const toCollect = [...deliveries, ...returns].reduce((sum, assignment) => sum + getCollectAmount(assignment), 0);
   const cashInHand = assignments
@@ -504,7 +508,7 @@ export default function MyDeliveriesPage() {
           </TabsContent>
           <TabsContent value="returns" className="mt-3 space-y-3">
             {sortStops(
-              returnPickups.filter((task) =>
+              visibleReturnPickups.filter((task) =>
                 task.relatedShipment ? matchesSearch(task.relatedShipment, search) : false
               ),
               (task) => task.relatedShipment
@@ -513,11 +517,41 @@ export default function MyDeliveriesPage() {
                   key={task.id}
                   task={task as Parameters<typeof ReturnPickupCard>[0]['task']}
                   distance={distanceTo(task.relatedShipment)}
+                  historical={showPastReturns}
                   onPickedUp={setPickupTarget}
                   onFail={setPickupFailTarget}
                 />
               ))}
-            {(returns.length > 0 || returnPickups.length === 0) && renderList(returns, true)}
+            {tasksError && <Alert variant="destructive"><AlertDescription>{tasksError}</AlertDescription></Alert>}
+            {showPastReturns ? (
+              <>
+                {pastReturns.length > 0 && (
+                  <HistoryPanel
+                    assignments={pastReturns.filter((assignment) => matchesSearch(assignment.shipment, search))}
+                    wallet={null}
+                    walletError=""
+                    cashInHand={0}
+                    showWallet={false}
+                  />
+                )}
+                {pastReturns.length === 0 && pastReturnPickups.length === 0 && (
+                  <EmptyState title="لا توجد مرتجعات سابقة" />
+                )}
+              </>
+            ) : (
+              (returns.length > 0 || returnPickups.length === 0) && renderList(returns, true)
+            )}
+            <Button
+              variant="link"
+              size="sm"
+              className="w-full"
+              onClick={() => setShowPastReturns((prev) => !prev)}
+              aria-pressed={showPastReturns}
+            >
+              {showPastReturns
+                ? `عرض المرتجعات الحالية (${returns.length + returnPickups.length})`
+                : `عرض المرتجعات السابقة (${pastReturns.length + pastReturnPickups.length})`}
+            </Button>
           </TabsContent>
           <TabsContent value="done" className="mt-3">
             <HistoryPanel

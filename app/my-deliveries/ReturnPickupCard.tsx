@@ -5,14 +5,21 @@ import { Button } from '@/components/ui/button';
 import { ContactActions, DistanceBadge } from './AssignmentCard';
 import { type DeliveryAgentTask, formatDate, getAddressDetails, getAddressNote, getAreaLabel } from './delivery-helpers';
 
+const HISTORY_STATUS: Partial<Record<DeliveryAgentTask['status'], string>> = {
+  agent_completed: 'بانتظار تأكيد الإدارة',
+  completed: 'تم استلام المرتجع',
+  cancelled: 'ملغي',
+};
+
 interface ReturnPickupCardProps {
   task: DeliveryAgentTask & { relatedShipment: NonNullable<DeliveryAgentTask['relatedShipment']> };
   distance?: number | null;
+  historical?: boolean;
   onPickedUp: (task: DeliveryAgentTask) => void;
   onFail: (task: DeliveryAgentTask) => void;
 }
 
-export function ReturnPickupCard({ task, distance, onPickedUp, onFail }: ReturnPickupCardProps) {
+export function ReturnPickupCard({ task, distance, historical = false, onPickedUp, onFail }: ReturnPickupCardProps) {
   const shipment = task.relatedShipment;
   const meta = shipment.orderItems?.meta;
   const addressNote = getAddressNote(shipment);
@@ -32,7 +39,7 @@ export function ReturnPickupCard({ task, distance, onPickedUp, onFail }: ReturnP
           <DistanceBadge distance={distance} />
           <span className="flex items-center gap-1 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
             <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-            استلام مرتجع
+            {historical ? (HISTORY_STATUS[task.status] || 'استلام مرتجع') : 'استلام مرتجع'}
           </span>
         </div>
       </header>
@@ -56,7 +63,7 @@ export function ReturnPickupCard({ task, distance, onPickedUp, onFail }: ReturnP
 
       <ContactActions shipment={shipment} purpose="pickup" />
 
-      <div className="mt-2 flex gap-2">
+      {!historical && <div className="mt-2 flex gap-2">
         <Button
           className="h-12 flex-[2] bg-teal-600 text-base font-bold hover:bg-teal-700"
           onClick={() => onPickedUp(task)}
@@ -72,7 +79,7 @@ export function ReturnPickupCard({ task, distance, onPickedUp, onFail }: ReturnP
           <XCircle className="h-5 w-5" aria-hidden />
           تعذّر
         </Button>
-      </div>
+      </div>}
 
       <details className="mt-3 text-sm text-gray-600">
         <summary className="cursor-pointer select-none text-xs font-medium text-gray-500">التفاصيل</summary>
