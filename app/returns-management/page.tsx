@@ -1156,7 +1156,19 @@ export default function ReturnsManagementPage() {
                         <div className="space-y-1 text-sm">
                           {request.items.map((item) => (
                             <div key={item.id} className="flex items-center justify-between gap-3">
-                              <span>{item.productName} {item.variantName ? `(${item.variantName})` : ''}</span>
+                              <div className="min-w-0 flex-1">
+                                <p>{item.productName} {item.variantName ? `(${item.variantName})` : ''}</p>
+                                {item.conditionStatus && (
+                                  <p className="mt-1 text-xs text-gray-600">
+                                    حالة الفحص: {CONDITION_LABELS[item.conditionStatus]}
+                                  </p>
+                                )}
+                                {item.conditionNotes?.trim() && (
+                                  <p className="mt-1 whitespace-pre-wrap break-words text-xs text-gray-700">
+                                    <strong>ملاحظات الفحص:</strong> {item.conditionNotes.trim()}
+                                  </p>
+                                )}
+                              </div>
                               {item.damageImageData && (
                                 <div className="relative h-14 w-11 shrink-0 overflow-hidden rounded border border-red-200 bg-red-50">
                                   <Image

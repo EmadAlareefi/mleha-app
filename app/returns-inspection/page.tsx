@@ -143,6 +143,10 @@ const CONDITION_BUTTON_CLASSES: Record<
     active: 'bg-red-600 text-white border-red-600 hover:bg-red-600',
     inactive: 'border-red-200 text-red-700 hover:bg-red-50',
   },
+  policy_violation: {
+    active: 'bg-orange-600 text-white border-orange-600 hover:bg-orange-600',
+    inactive: 'border-orange-200 text-orange-700 hover:bg-orange-50',
+  },
 };
 
 const formatPrice = (value: string | number) => {
@@ -537,7 +541,7 @@ export default function ReturnInspectionPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">فحص المرتجعات الواردة</h1>
             <p className="text-muted-foreground">
-              خصص لكل منتج حالة (سليم، ملبوس، ناقص، تالف) ليتم عرضها فوراً للإدارة.
+              خصص لكل منتج حالة (سليم، ملبوس، ناقص، تالف، شريط الأمان مفتوح أو مخالف للسياسة) ليتم عرضها فوراً للإدارة.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
