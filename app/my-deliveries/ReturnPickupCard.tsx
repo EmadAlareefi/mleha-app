@@ -3,7 +3,7 @@
 import { MapPin, PackageCheck, RotateCcw, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContactActions, DistanceBadge } from './AssignmentCard';
-import { type DeliveryAgentTask, formatDate, getAddressDetails, getAddressNote, getAreaLabel } from './delivery-helpers';
+import { type DeliveryAgentTask, formatDate, hasFailedReturnPickup, getAddressDetails, getAddressNote, getAreaLabel } from './delivery-helpers';
 
 const HISTORY_STATUS: Partial<Record<DeliveryAgentTask['status'], string>> = {
   agent_completed: 'بانتظار تأكيد الإدارة',
@@ -39,7 +39,7 @@ export function ReturnPickupCard({ task, distance, historical = false, onPickedU
           <DistanceBadge distance={distance} />
           <span className="flex items-center gap-1 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
             <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-            {historical ? (HISTORY_STATUS[task.status] || 'استلام مرتجع') : 'استلام مرتجع'}
+            {historical ? (hasFailedReturnPickup(task) ? 'تعذّر الاستلام' : HISTORY_STATUS[task.status] || 'استلام مرتجع') : 'استلام مرتجع'}
           </span>
         </div>
       </header>

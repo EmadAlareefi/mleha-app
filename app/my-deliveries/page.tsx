@@ -36,6 +36,7 @@ import {
   getShipmentPoint,
   isReturnAssignment,
   isReturnPickupTask,
+  hasFailedReturnPickup,
 } from './delivery-helpers';
 
 const ASSIGNMENTS_PAGE_LIMIT = 200;
@@ -232,8 +233,8 @@ export default function MyDeliveriesPage() {
   }, [assignments]);
 
   // Returns filed on orders this agent delivered arrive as pickup tasks.
-  const returnPickups = tasks.filter((task) => isReturnPickupTask(task) && isOpenTask(task));
-  const pastReturnPickups = tasks.filter((task) => isReturnPickupTask(task) && !isOpenTask(task));
+  const returnPickups = tasks.filter((task) => isReturnPickupTask(task) && isOpenTask(task) && !hasFailedReturnPickup(task));
+  const pastReturnPickups = tasks.filter((task) => isReturnPickupTask(task) && (!isOpenTask(task) || hasFailedReturnPickup(task)));
   const pastReturns = done.filter(isReturnAssignment);
   const visibleReturnPickups = showPastReturns ? pastReturnPickups : returnPickups;
   const otherTasks = tasks.filter((task) => !isReturnPickupTask(task));
@@ -609,7 +610,7 @@ export default function MyDeliveriesPage() {
             await handleStatusDone('تم تسجيل تعذّر التسليم');
           } else if (pickupFailTarget) {
             await recordPickupAttemptFailed(pickupFailTarget.id, reason);
-            await handlePickupDone('تم تسجيل السبب، المرتجع باقٍ في قائمتك');
+            await handlePickupDone('تم تسجيل تعذّر الاستلام ونقل المرتجع إلى المرتجعات السابقة');
           }
         }}
       />
