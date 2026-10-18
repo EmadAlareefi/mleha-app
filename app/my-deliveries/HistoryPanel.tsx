@@ -28,12 +28,13 @@ interface HistoryPanelProps {
   wallet: DeliveryAgentWalletInfo | null;
   walletError: string;
   cashInHand: number;
+  showWallet?: boolean;
 }
 
-export function HistoryPanel({ assignments, wallet, walletError, cashInHand }: HistoryPanelProps) {
+export function HistoryPanel({ assignments, wallet, walletError, cashInHand, showWallet = true }: HistoryPanelProps) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">
+      {showWallet && <div className="grid grid-cols-2 gap-2">
         <div className="rounded-xl border bg-white p-3">
           <p className="text-xs text-gray-500">رصيدي</p>
           <p className="text-xl font-bold text-emerald-600">{formatCurrency(wallet?.balance ?? 0)}</p>
@@ -42,7 +43,7 @@ export function HistoryPanel({ assignments, wallet, walletError, cashInHand }: H
           <p className="text-xs text-gray-500">نقد بحوزتي (COD)</p>
           <p className="text-xl font-bold text-orange-600">{formatCurrency(cashInHand)}</p>
         </div>
-      </div>
+      </div>}
       {walletError && <p className="text-sm text-red-600">{walletError}</p>}
 
       {wallet && wallet.recentTransactions.length > 0 && (
