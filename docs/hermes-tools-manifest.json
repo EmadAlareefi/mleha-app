@@ -413,7 +413,7 @@
       "name": "get_order_operations_report",
       "operation_id": "getOrderOperationsReport",
       "endpoint": "GET /api/integrations/hermes/reports/order-operations",
-      "description": "Orders by status, paid vs unpaid, fulfilled vs unfulfilled, cancellations, returns and refunds, aging open orders and work awaiting action.",
+      "description": "Orders by status, paid vs unpaid, fulfilled vs unfulfilled, cancellations, returns and refunds, return/exchange requests by type, status and REASON (e.g. size issue, changed mind, defective), aging open orders and work awaiting action. Use this for questions like 'what were the main return reasons yesterday' (set from and to to that date).",
       "required_scope": "hermes:manager:reports",
       "audience": [
         "manager"
@@ -659,7 +659,7 @@
       "name": "get_product_report",
       "operation_id": "getProductReport",
       "endpoint": "GET /api/integrations/hermes/reports/products",
-      "description": "Best-selling products and variants, revenue by product, units sold, returns by product, low performers.",
+      "description": "Best-selling products and variants, revenue by product, units sold, returns by product with their return reasons, low performers.",
       "required_scope": "hermes:manager:reports",
       "audience": [
         "manager"

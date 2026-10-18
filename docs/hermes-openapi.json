@@ -2278,7 +2278,10 @@
           },
           "reason": {
             "type": "string",
-            "description": "Predefined reason code; free-text details are not returned."
+            "description": "Predefined reason code (size_issue, changed_mind, defective, wrong_item, other); free-text details are not returned."
+          },
+          "reason_label_ar": {
+            "type": "string"
           },
           "created_at": {
             "type": [
@@ -2358,6 +2361,7 @@
           "status",
           "status_label_ar",
           "reason",
+          "reason_label_ar",
           "created_at",
           "updated_at",
           "refund_amount",
@@ -3518,13 +3522,21 @@
                 "items": {
                   "$ref": "#/components/schemas/LabelledCount"
                 }
+              },
+              "by_reason": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LabelledCount"
+                },
+                "description": "Customer-selected return reason (size_issue, changed_mind, defective, wrong_item, other)."
               }
             },
             "additionalProperties": false,
             "required": [
               "total",
               "by_type",
-              "by_status"
+              "by_status",
+              "by_reason"
             ]
           },
           "awaiting_action": {
@@ -4194,6 +4206,29 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label_ar": {
+                            "type": "string"
+                          },
+                          "units": {
+                            "type": "integer"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "code",
+                          "label_ar",
+                          "units"
+                        ]
+                      }
                     }
                   },
                   "additionalProperties": false,
@@ -4203,7 +4238,8 @@
                     "units_returned",
                     "units_exchanged",
                     "units_sold_in_range",
-                    "return_rate_percent"
+                    "return_rate_percent",
+                    "reasons"
                   ]
                 }
               },

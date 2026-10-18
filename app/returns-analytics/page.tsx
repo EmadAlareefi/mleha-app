@@ -37,6 +37,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { STATUS_COLORS, STATUS_LABELS } from '@/app/lib/returns/status';
+import { FALLBACK_RETURN_REASON_LABEL, RETURN_REASON_LABELS } from '@/lib/returns/reasons';
 
 interface ReturnItem {
   id: string;
@@ -94,14 +95,8 @@ interface ReportRow {
 
 const ITEMS_PAGE_SIZE = 10;
 
-const FALLBACK_REASON = 'أسباب غير مصنفة';
-const REASON_LABELS: Record<string, string> = {
-  defective: 'معيب / تالف',
-  wrong_item: 'منتج خاطئ',
-  size_issue: 'مشكلة في المقاس',
-  changed_mind: 'تغيير في الرأي',
-  other: 'أخرى',
-};
+const FALLBACK_REASON = FALLBACK_RETURN_REASON_LABEL;
+const REASON_LABELS = RETURN_REASON_LABELS;
 const numberFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn');
 const currencyFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', {
   style: 'currency',

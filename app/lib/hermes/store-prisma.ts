@@ -555,7 +555,7 @@ export const prismaHermesStore: HermesStore = {
 
   async loadReportReturnItems(merchantId, range): Promise<ReportReturnItemRow[]> {
     return prisma.$queryRaw<ReportReturnItemRow[]>`
-      SELECT ri."productId", ri."productName", ri."productSku", ri.quantity, rr.type, rr.status
+      SELECT ri."productId", ri."productName", ri."productSku", ri.quantity, rr.type, rr.status, rr.reason
       FROM "ReturnItem" ri
       JOIN "ReturnRequest" rr ON rr.id = ri."returnRequestId"
       WHERE rr."merchantId" = ${merchantId} AND rr."createdAt" >= ${range.start} AND rr."createdAt" < ${range.end}`;
@@ -564,7 +564,8 @@ export const prismaHermesStore: HermesStore = {
   async loadReportReturnRequests(merchantId, range): Promise<ReportReturnRequestRow[]> {
     return prisma.returnRequest.findMany({
       where: { merchantId, createdAt: { gte: range.start, lt: range.end } },
-      select: { type: true, status: true, createdAt: true },
+      // reason is the predefined code; free-text reasonDetails is never read.
+      select: { type: true, status: true, reason: true, createdAt: true },
     });
   },
 

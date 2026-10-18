@@ -23,6 +23,7 @@ import {
   isNationalDayOffersCategory,
   isOutletCategory,
 } from '@/lib/returns/categories';
+import { RETURN_REASONS } from '@/lib/returns/reasons';
 
 interface OrderItem {
   id: number;
@@ -128,13 +129,6 @@ interface ReturnFormProps {
   onSuccess: (result: any) => void;
 }
 
-const RETURN_REASONS = [
-  { value: 'defective', label: 'معيب / تالف' },
-  { value: 'wrong_item', label: 'منتج خاطئ' },
-  { value: 'size_issue', label: 'مشكلة في المقاس' },
-  { value: 'changed_mind', label: 'تغيير في الرأي' },
-  { value: 'other', label: 'أخرى' },
-];
 const PRODUCT_OBJECT_ID_KEYS = ['id', 'product_id', 'productId', 'productID'] as const;
 const PRODUCT_ID_PROPERTY_KEYS = ['product_id', 'productId', 'productID'] as const;
 

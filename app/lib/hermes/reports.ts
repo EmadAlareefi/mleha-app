@@ -1,4 +1,5 @@
 import type { AjexLiveStatus } from '@/types/ajex';
+import { returnReasonLabel } from '@/lib/returns/reasons';
 import type { SmsaLiveStatus } from '@/types/smsa';
 import { cachedReport, reportCacheKey } from './cache';
 import { orderReference } from './dto';
@@ -367,7 +368,7 @@ export const orderOperationsReport = runReport({
     const count = (map: Map<string, number>, key: string) => map.get(key) ?? 0;
     const stageCount = (map: Map<string, number>, stages: readonly string[]) => stages.reduce((total, stage) => total + count(map, stage), 0);
     const bucket = (min: number, max: number) => computed.aging.filter((row) => row.age_hours >= min && row.age_hours < max).length;
-    const returnsBy = (keyOf: (row: { type: string; status: string }) => string, label: (key: string) => string) => {
+    const returnsBy = (keyOf: (row: { type: string; status: string; reason: string }) => string, label: (key: string) => string) => {
       const counts = new Map<string, number>();
       for (const row of computed.returnRequests) counts.set(keyOf(row), (counts.get(keyOf(row)) ?? 0) + 1);
       return asList(counts, label);
@@ -396,6 +397,7 @@ export const orderOperationsReport = runReport({
         total: computed.returnRequests.length,
         by_type: returnsBy((row) => row.type, returnTypeLabel),
         by_status: returnsBy((row) => row.status, returnStatusLabel),
+        by_reason: returnsBy((row) => row.reason, returnReasonLabel),
       },
       awaiting_action: {
         new_orders: computed.aging.filter((row) => row.status === 'new').length,
@@ -423,7 +425,7 @@ export const orderOperationsReport = runReport({
     fulfillment: 'fulfilled = handed to a carrier or later; unfulfilled = not yet shipped, including ready_to_ship.',
     aging_open_orders: 'As of now (not limited to the range): orders in new, processing or ready_to_ship status placed within the last 180 days; age is hours since placement. Filters apply.',
     awaiting_action: 'Open orders needing staff action now, plus return requests pending review (merchant-wide, filters not applied to returns).',
-    return_requests: 'Return/exchange requests created in the range (filters not applied).',
+    return_requests: 'Return/exchange requests created in the range (filters not applied). by_reason uses the predefined reason the customer picked on the returns form; free-text details are not exposed.',
   },
 });
 
@@ -759,12 +761,13 @@ async function computeProductStats(store: HermesStore, merchantId: string, range
     products.set(key, entry);
   }
 
-  const returned = new Map<string, { name: string; returned: number; exchanged: number }>();
+  const returned = new Map<string, { name: string; returned: number; exchanged: number; reasons: Map<string, number> }>();
   for (const item of returnItems) {
     if (item.status === 'cancelled' || item.status === 'rejected') continue;
-    const entry = returned.get(item.productId) ?? { name: item.productName, returned: 0, exchanged: 0 };
+    const entry = returned.get(item.productId) ?? { name: item.productName, returned: 0, exchanged: 0, reasons: new Map() };
     if (item.type === 'exchange') entry.exchanged += item.quantity;
     else entry.returned += item.quantity;
+    entry.reasons.set(item.reason, (entry.reasons.get(item.reason) ?? 0) + item.quantity);
     returned.set(item.productId, entry);
   }
 
@@ -818,6 +821,9 @@ export const productReport = runReport({
           units_exchanged: entry.exchanged,
           units_sold_in_range: sold,
           return_rate_percent: ratio(entry.returned + entry.exchanged, sold),
+          reasons: Array.from(entry.reasons.entries())
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .map(([code, units]) => ({ code, label_ar: returnReasonLabel(code), units })),
         };
       })
       .sort((a, b) => b.units_returned + b.units_exchanged - (a.units_returned + a.units_exchanged) || a.product_id.localeCompare(b.product_id));
@@ -839,7 +845,7 @@ export const productReport = runReport({
     revenue: 'Line totals as reported by Salla (VAT included, before order-level discounts), converted to SAR.',
     variants: 'Per SKU; each Salla variant has its own SKU.',
     low_performers: `The ${LOW_PERFORMERS} products with the fewest units among products that sold at least once in the range (products with zero sales are not visible here).`,
-    returns_by_product: 'Units on return/exchange requests created in the range (cancelled/rejected excluded). return_rate_percent compares them with units sold in the same range, so it is approximate.',
+    returns_by_product: 'Units on return/exchange requests created in the range (cancelled/rejected excluded), with the customer-selected reasons. return_rate_percent compares them with units sold in the same range, so it is approximate.',
   },
 });
 

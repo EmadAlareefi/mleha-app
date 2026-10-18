@@ -267,11 +267,14 @@ export interface ReportReturnItemRow {
   quantity: number;
   type: string;
   status: string;
+  /** Predefined reason code picked by the customer (see lib/returns/reasons.ts). */
+  reason: string;
 }
 
 export interface ReportReturnRequestRow {
   type: string;
   status: string;
+  reason: string;
   createdAt: Date;
 }
 

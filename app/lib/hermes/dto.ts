@@ -1,5 +1,6 @@
 import type { AjexLiveStatus } from '@/types/ajex';
 import type { SmsaLiveStatus } from '@/types/smsa';
+import { returnReasonLabel } from '@/lib/returns/reasons';
 import { buildTrackingUrl } from '@/lib/tracking-url';
 import { extractSallaOrderFacts } from '@/app/lib/salla-order-facts';
 import { formatMoney, toDecimal } from './money';
@@ -458,6 +459,7 @@ export function presentReturn(row: ReturnRow) {
     status_label_ar: returnStatusLabel(row.status),
     // Predefined reason code only; the customer's free-text details are not returned.
     reason: row.reason,
+    reason_label_ar: returnReasonLabel(row.reason),
     created_at: iso(row.createdAt),
     updated_at: iso(row.updatedAt),
     refund_amount: formatMoney(row.totalRefundAmount),
