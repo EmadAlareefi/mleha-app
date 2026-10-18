@@ -290,6 +290,7 @@ describe('support lookups', () => {
     assert.equal(data.refunds.partially_refunded_amount, '25.00');
     assert.deepEqual(data.timeline.map((entry: { salla_status: string }) => entry.salla_status), ['under_review', 'delivered']);
     assert.equal(data.returns[0].status_label_ar, 'قيد المراجعة');
+    assert.equal(data.returns[0].reason_label_ar, 'أسباب غير مصنفة', 'unknown codes get the shared fallback label');
     assert.equal(data.flags.high_priority, true);
     assert.equal(data.customer.email, 'cu***@example.test');
     assert.equal(data.shipping_address.city, 'الرياض');
@@ -559,6 +560,24 @@ describe('reports', () => {
     assert.equal(data.aging_open_orders.oldest_first.items[0].customer, undefined, 'no customer data in operations lists');
   });
 
+  test('order operations: return requests broken down by customer-selected reason', async () => {
+    const order = makeOrder();
+    db.orders.push(order);
+    const ret = (id: string, reason: string, type = 'return') =>
+      db.returns.push({
+        merchantId: MERCHANT_A, id, orderId: order.orderId, orderNumber: order.orderNumber, type, status: 'pending_review', reason, totalRefundAmount: null,
+        currency: 'SAR', couponIssued: false, returnTrackingNumber: null, exchangeOrderNumber: null, createdAt: new Date('2026-10-18T10:00:00Z'), updatedAt: new Date('2026-10-18T10:00:00Z'), items: [],
+      });
+    ret('a', 'size_issue', 'exchange'); ret('b', 'size_issue'); ret('c', 'changed_mind'); ret('d', 'defective');
+    const { apiKey } = addCredential(db, MANAGER);
+    const res = await call(operationsReport, '/api/integrations/hermes/reports/order-operations?from=2026-10-18&to=2026-10-18', { apiKey });
+    assert.deepEqual(res.body.data.return_requests.by_reason.map((row: { code: string; label_ar: string; count: number }) => [row.code, row.label_ar, row.count]), [
+      ['size_issue', 'مشكلة في المقاس', 2],
+      ['changed_mind', 'تغيير في الرأي', 1],
+      ['defective', 'معيب / تالف', 1],
+    ]);
+  });
+
   test('shipment performance: carrier tracking, delays, exceptions and success rate', async () => {
     const delivered = makeOrder({ fulfillmentCompany: 'سمسا', placedAt: new Date('2026-10-02T08:00:00Z') });
     const returned = makeOrder({ fulfillmentCompany: 'سمسا', placedAt: new Date('2026-10-02T08:00:00Z'), statusSlug: 'restored' });
@@ -636,6 +655,7 @@ describe('reports', () => {
     assert.equal(top.revenue, '300.00');
     assert.deepEqual(top.variants.map((variant: { sku: string }) => variant.sku), ['P1-52', 'P1-54']);
     assert.equal(data.returns_by_product.items[0].return_rate_percent, '33.33');
+    assert.deepEqual(data.returns_by_product.items[0].reasons, [{ code: 'size', label_ar: 'أسباب غير مصنفة', units: 1 }]);
     assert.equal(data.revenue_by_category.available, false);
   });
 });

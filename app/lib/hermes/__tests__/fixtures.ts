@@ -396,11 +396,11 @@ export function createMemoryStore(db: FixtureDb, calls: CallLog = {}): HermesSto
       count('loadReportReturnItems');
       return db.returns
         .filter((r) => r.merchantId === merchantId && inRange(r.createdAt, range))
-        .flatMap((r) => r.items.map((item) => ({ productId: item.productId, productName: item.productName, productSku: item.productSku, quantity: item.quantity, type: r.type, status: r.status })));
+        .flatMap((r) => r.items.map((item) => ({ productId: item.productId, productName: item.productName, productSku: item.productSku, quantity: item.quantity, type: r.type, status: r.status, reason: r.reason })));
     },
     async loadReportReturnRequests(merchantId, range) {
       count('loadReportReturnRequests');
-      return db.returns.filter((r) => r.merchantId === merchantId && inRange(r.createdAt, range)).map((r) => ({ type: r.type, status: r.status, createdAt: r.createdAt }));
+      return db.returns.filter((r) => r.merchantId === merchantId && inRange(r.createdAt, range)).map((r) => ({ type: r.type, status: r.status, reason: r.reason, createdAt: r.createdAt }));
     },
     async loadOpenOrders(merchantId, slugs, since) {
       count('loadOpenOrders');

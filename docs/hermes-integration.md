@@ -278,10 +278,10 @@ empty `shipments` list.
 | Path | Contents |
 |---|---|
 | `GET /reports/sales` | Gross and net sales, order count, average order value, discounts, shipping revenue, refunds (full and partial), VAT, cancelled orders. |
-| `GET /reports/order-operations` | Orders by status, paid vs unpaid, fulfilled vs unfulfilled, cancellations, returns and refunds, return requests, aging open orders, work awaiting action. |
+| `GET /reports/order-operations` | Orders by status, paid vs unpaid, fulfilled vs unfulfilled, cancellations, returns and refunds, return requests by type, status and customer-selected reason (`size_issue`, `changed_mind`, `defective`, `wrong_item`, `other`), aging open orders, work awaiting action. |
 | `GET /reports/shipment-performance` | Shipments by status, hours order→label, order→dispatch and dispatch→delivery, delayed shipments (> 5 days), delivery exceptions, per-carrier performance, delivery success rate, data coverage. |
 | `GET /reports/customers` | New vs returning, repeat purchase rate, customers by city; `top_customers` only with `hermes:manager:pii`. Lifetime value is reported as unavailable (history starts Sep 2025 and costs are not stored). |
-| `GET /reports/products` | Best sellers by units, revenue by product, variants (by SKU), low performers, returns by product, coverage. Categories and inventory are reported as unavailable (not stored locally). |
+| `GET /reports/products` | Best sellers by units, revenue by product, variants (by SKU), low performers, returns by product with their reasons, coverage. Categories and inventory are reported as unavailable (not stored locally). |
 | `GET /reports/daily-trend` | Per local day: orders, revenue, refunds, shipments, with an optional aligned comparison series. |
 
 **Common parameters:**
