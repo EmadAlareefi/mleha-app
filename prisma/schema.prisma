@@ -20,6 +20,7 @@ model WebhookEvent {
 
   @@index([receivedAt])
   @@index([orderId, status])
+  @@index([status, receivedAt])
 }
 
 model MessageLog {
@@ -541,6 +542,16 @@ model SallaOrder {
   erpManualTransferRequired Boolean @default(false)
   erpManualTransferItems    Json?
 
+  // Values derived from rawOrder at write time (app/lib/salla-order-facts.ts)
+  // so reports never have to de-TOAST the payload. Null factsComputedAt means
+  // the row predates them; readers then fall back to rawOrder.
+  discountTotal      Decimal?  @db.Decimal(12, 2)
+  refundedItemsTotal Decimal?  @db.Decimal(12, 2)
+  refundedItemsCount Int?
+  isPendingPayment   Boolean?
+  exchangeRate       Json?
+  factsComputedAt    DateTime?
+
   erpRefundOrderSync ERPRefundOrderSync?
   settlements        OrderSettlement[]
   items              SallaOrderItem[]
@@ -553,6 +564,9 @@ model SallaOrder {
   @@index([merchantId, orderNumber])
   @@index([merchantId, referenceId])
   @@index([merchantId, customerMobile])
+  @@index([merchantId, customerEmail])
+  @@index([merchantId, customerId, placedAt])
+  @@index([merchantId, trackingNumber])
   @@index([merchantId, statusSlug])
   @@index([merchantId, erpSyncedAt])
   @@index([merchantId, campaignSource])
@@ -2223,4 +2237,64 @@ model ExpenseSyncRun {
   finishedAt   DateTime?
 
   @@index([connectionId, startedAt])
+}
+
+/// Service credential for the read-only Hermes assistant API
+/// (`/api/integrations/hermes`). Only an HMAC of the secret is stored; the
+/// plaintext key is shown once by `scripts/hermes-credentials.ts`.
+model HermesApiCredential {
+  id            String    @id @default(cuid())
+  /// Public lookup handle embedded in the key (`hrm_<keyId>_<secret>`).
+  keyId         String    @unique
+  /// HMAC-SHA256 of the secret keyed with HERMES_API_KEY_PEPPER, hex.
+  secretHash    String
+  name          String
+  /// Tenant the credential may read. Every query is filtered by it.
+  merchantId    String
+  scopes        String[]
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime?
+  revokedAt     DateTime?
+  revokedBy     String?
+  revokeReason  String?
+  lastUsedAt    DateTime?
+  /// Set on the replacement when a key is rotated.
+  rotatedFromId String?
+
+  @@index([merchantId])
+  @@index([revokedAt])
+}
+
+/// One row per Hermes API request. Holds classifications and resolved record
+/// identifiers only — never response bodies, search inputs or secrets. Also
+/// serves as the per-credential rate-limit ledger.
+model HermesAuditLog {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  requestId      String
+  /// Null when the request failed before a credential was identified.
+  credentialId   String?
+  merchantId     String?
+  action         String
+  scopeUsed      String?
+  targetType     String?
+  targetId       String?
+  /// success | not_found | denied | unauthenticated | invalid | rate_limited | error
+  outcome        String
+  httpStatus     Int
+  /// e.g. "pii:masked", "pii:full", "aggregate", "none"
+  classification String
+  resultCount    Int?
+  durationMs     Int?
+  ipHash         String?
+  /// Employee context forwarded by the Hermes gateway. Audit-only: it never
+  /// grants access. `actorVerified` is true only for a valid gateway signature.
+  actorId        String?
+  actorChannel   String?
+  actorVerified  Boolean  @default(false)
+
+  @@index([credentialId, createdAt])
+  @@index([createdAt])
+  @@index([action, createdAt])
 }

@@ -44,7 +44,10 @@
     "test:order-prep-status": "node --test --import tsx app/lib/__tests__/order-prep-salla-status.test.ts app/lib/__tests__/order-destination.test.ts",
     "test:local-shipping-location": "node --test --import tsx app/lib/__tests__/local-shipping-location.test.ts",
     "test:ajex": "node --test --import tsx app/lib/__tests__/ajex-webhook.test.ts app/lib/__tests__/ajex-tracking.test.ts app/lib/__tests__/ajex-api.test.ts",
-    "test:expenses": "node --test --import tsx app/lib/expenses/__tests__/*.test.ts"
+    "test:expenses": "node --test --import tsx app/lib/expenses/__tests__/*.test.ts",
+    "test:hermes": "node --test --import tsx app/lib/hermes/__tests__/*.test.ts",
+    "hermes:credentials": "node --import tsx scripts/hermes-credentials.ts",
+    "backfill:salla-order-facts": "node --import tsx scripts/backfill-salla-order-facts.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",

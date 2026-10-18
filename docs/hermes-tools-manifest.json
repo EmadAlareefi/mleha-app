@@ -1,0 +1,823 @@
+{
+  "schema_version": "1.0",
+  "name": "mleha-hermes",
+  "description": "Read-only tools for the Hermes assistant over the Mleha store API. No tool can change data.",
+  "base_url": "https://{host}/api/integrations/hermes",
+  "openapi": "hermes-openapi.json",
+  "authentication": {
+    "type": "bearer",
+    "header": "Authorization",
+    "format": "Bearer hrm_<keyId>_<secret>",
+    "note": "Credentials live in the Hermes gateway secret store, one per audience. None are included here."
+  },
+  "audience_credentials": {
+    "support": [
+      "hermes:support:read"
+    ],
+    "manager": [
+      "hermes:support:read",
+      "hermes:manager:reports",
+      "hermes:manager:pii"
+    ]
+  },
+  "actor_headers": {
+    "X-Hermes-Actor-Id": "Employee id (audit only)",
+    "X-Hermes-Actor-Channel": "whatsapp | telegram | dashboard | api",
+    "X-Hermes-Actor-Timestamp": "Unix seconds",
+    "X-Hermes-Actor-Signature": "hex HMAC-SHA256(HERMES_GATEWAY_SIGNING_SECRET, `${timestamp}.${actorId}.${channel}.${path}`)"
+  },
+  "error_handling": {
+    "401": "Credential problem; stop and alert an operator.",
+    "403": "Tell the employee the request needs a manager; do not retry with other tools.",
+    "404": "Say nothing was found; do not try other identifiers on the customer's behalf.",
+    "429": "Wait Retry-After seconds.",
+    "503": "Temporary; retry once later."
+  },
+  "tools": [
+    {
+      "name": "find_order",
+      "operation_id": "findOrderPost",
+      "endpoint": "POST /api/integrations/hermes/orders/search",
+      "alternate_endpoint": "GET /api/integrations/hermes/orders/search",
+      "description": "Find a customer's orders using exactly ONE full identifier the customer gave: order number, phone number, email, or shipment tracking number. Never guess or iterate identifiers. Returns compact order summaries; call get_order for details.",
+      "required_scope": "hermes:support:read",
+      "audience": [
+        "support",
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "order_number"
+            ]
+          },
+          {
+            "required": [
+              "phone"
+            ]
+          },
+          {
+            "required": [
+              "email"
+            ]
+          },
+          {
+            "required": [
+              "tracking_number"
+            ]
+          }
+        ],
+        "properties": {
+          "order_number": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Customer-facing order number. Arabic-Indic digits, '#', spaces and dashes are normalised."
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Full phone number; normalised to E.164 (Saudi 05xxxxxxxx accepted). No partial matching."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 200,
+            "description": "Full email address; case-insensitive exact match."
+          },
+          "tracking_number": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]{4,40}$",
+            "description": "Exact carrier or local tracking number."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 10,
+            "description": "Max 50 for lookups."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "hermes-openapi.json#/components/schemas/OrderSummary"
+            }
+          }
+        }
+      },
+      "pii_classification": "customer_contact_masked (full with hermes:manager:pii)",
+      "display_rules": "May be shown to support staff and managers. Phone is masked for support credentials; do not try to reconstruct it."
+    },
+    {
+      "name": "get_order",
+      "operation_id": "getOrder",
+      "endpoint": "GET /api/integrations/hermes/orders/{orderReference}",
+      "description": "Full support view of one order: status timeline, payment and fulfillment state, items with variants and prices, discounts, shipping charge, totals, shipments with tracking links, returns and refunds. Use the order_reference from find_order or from the customer.",
+      "required_scope": "hermes:support:read",
+      "audience": [
+        "support",
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderReference"
+        ],
+        "properties": {
+          "orderReference": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Customer-facing order number."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/OrderDetail"
+      },
+      "pii_classification": "customer_contact_masked; street address only with hermes:manager:pii",
+      "display_rules": "May be shown to support staff and managers. Never read out discounts' internal codes as promises of future discounts."
+    },
+    {
+      "name": "find_customer",
+      "operation_id": "findCustomerPost",
+      "endpoint": "POST /api/integrations/hermes/customers/search",
+      "alternate_endpoint": "GET /api/integrations/hermes/customers/search",
+      "description": "Find a customer by exactly ONE full identifier: phone, email or Salla customer id. Returns at most 5 matches with an opaque customer_ref for get_customer_summary. Browsing or listing customers is not possible.",
+      "required_scope": "hermes:support:read",
+      "audience": [
+        "support",
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "phone"
+            ]
+          },
+          {
+            "required": [
+              "email"
+            ]
+          },
+          {
+            "required": [
+              "customer_id"
+            ]
+          }
+        ],
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Full phone number; normalised to E.164 (Saudi 05xxxxxxxx accepted). No partial matching."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 200,
+            "description": "Full email address; case-insensitive exact match."
+          },
+          "customer_id": {
+            "type": "string",
+            "pattern": "^\\d{1,20}$",
+            "description": "Salla customer id (exact)."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "hermes-openapi.json#/components/schemas/CustomerMatch"
+            }
+          }
+        }
+      },
+      "pii_classification": "customer_contact_masked (full with hermes:manager:pii)",
+      "display_rules": "May be shown to support staff and managers."
+    },
+    {
+      "name": "get_customer_summary",
+      "operation_id": "getCustomerSummary",
+      "endpoint": "GET /api/integrations/hermes/customers/{customerRef}/summary",
+      "description": "Support summary for one customer: order count, recent and active orders, active shipments, returns. customerRef must come from find_customer or an order response; it cannot be constructed.",
+      "required_scope": "hermes:support:read",
+      "audience": [
+        "support",
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "customerRef"
+        ],
+        "properties": {
+          "customerRef": {
+            "type": "string",
+            "pattern": "^cus_\\d{1,20}_[A-Za-z0-9_-]{22}$"
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/CustomerSummary"
+      },
+      "pii_classification": "customer_contact_masked (full with hermes:manager:pii)",
+      "display_rules": "May be shown to support staff and managers."
+    },
+    {
+      "name": "find_shipment",
+      "operation_id": "findShipmentPost",
+      "endpoint": "POST /api/integrations/hermes/shipments/search",
+      "alternate_endpoint": "GET /api/integrations/hermes/shipments/search",
+      "description": "List shipments for an order number or a tracking number, with normalized status, carrier, tracking link, ship/delivery dates and any delivery exception.",
+      "required_scope": "hermes:support:read",
+      "audience": [
+        "support",
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "order_number"
+            ]
+          },
+          {
+            "required": [
+              "tracking_number"
+            ]
+          }
+        ],
+        "properties": {
+          "order_number": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Customer-facing order number. Arabic-Indic digits, '#', spaces and dashes are normalised."
+          },
+          "tracking_number": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]{4,40}$",
+            "description": "Exact carrier or local tracking number."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "hermes-openapi.json#/components/schemas/Shipment"
+            }
+          }
+        }
+      },
+      "pii_classification": "operational (no customer contact data)",
+      "display_rules": "May be shown to support staff and managers."
+    },
+    {
+      "name": "get_shipment",
+      "operation_id": "getShipment",
+      "endpoint": "GET /api/integrations/hermes/shipments/{shipmentReference}",
+      "description": "One shipment by tracking number with its public tracking events (label, warehouse dispatch, carrier scans, local courier delivery).",
+      "required_scope": "hermes:support:read",
+      "audience": [
+        "support",
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "shipmentReference"
+        ],
+        "properties": {
+          "shipmentReference": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]{4,40}$",
+            "description": "Tracking number."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/ShipmentDetail"
+      },
+      "pii_classification": "operational (no customer contact data)",
+      "display_rules": "May be shown to support staff and managers."
+    },
+    {
+      "name": "get_sales_report",
+      "operation_id": "getSalesReport",
+      "endpoint": "GET /api/integrations/hermes/reports/sales",
+      "description": "Sales summary in SAR for a date range (max 92 days): gross and net sales, order count, average order value, discounts, shipping revenue, refunds, VAT, with optional comparison to the previous period or year. Always quote meta.definitions when explaining a figure.",
+      "required_scope": "hermes:manager:reports",
+      "audience": [
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "First local date (inclusive)."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Last local date (inclusive). Range at most 92 days."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Asia/Riyadh",
+            "description": "IANA time zone used for date boundaries."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "none",
+              "previous_period",
+              "previous_year"
+            ],
+            "default": "none"
+          },
+          "status": {
+            "type": "string",
+            "description": "Comma-separated normalized order statuses: awaiting_payment, new, processing, ready_to_ship, shipped, out_for_delivery, delivered, cancelled, return_in_progress, returned, deleted, other."
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Comma-separated Salla payment method slugs, e.g. mada,cod,tabby_installment."
+          },
+          "city": {
+            "type": "string",
+            "description": "Comma-separated customer cities (exact, case-insensitive)."
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Comma-separated carriers: smsa, ajex, dhl, aramex, redbox, fedex, ups, local_courier, other."
+          },
+          "source": {
+            "type": "string",
+            "description": "Comma-separated campaign sources (exact)."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max 100; applies to every detailed list in the report."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/SalesReport"
+      },
+      "pii_classification": "aggregate",
+      "display_rules": "Managers only. Never expose to support staff or customers; the API also refuses support credentials with 403."
+    },
+    {
+      "name": "get_order_operations_report",
+      "operation_id": "getOrderOperationsReport",
+      "endpoint": "GET /api/integrations/hermes/reports/order-operations",
+      "description": "Orders by status, paid vs unpaid, fulfilled vs unfulfilled, cancellations, returns and refunds, aging open orders and work awaiting action.",
+      "required_scope": "hermes:manager:reports",
+      "audience": [
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "First local date (inclusive)."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Last local date (inclusive). Range at most 92 days."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Asia/Riyadh",
+            "description": "IANA time zone used for date boundaries."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "none",
+              "previous_period",
+              "previous_year"
+            ],
+            "default": "none"
+          },
+          "status": {
+            "type": "string",
+            "description": "Comma-separated normalized order statuses: awaiting_payment, new, processing, ready_to_ship, shipped, out_for_delivery, delivered, cancelled, return_in_progress, returned, deleted, other."
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Comma-separated Salla payment method slugs, e.g. mada,cod,tabby_installment."
+          },
+          "city": {
+            "type": "string",
+            "description": "Comma-separated customer cities (exact, case-insensitive)."
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Comma-separated carriers: smsa, ajex, dhl, aramex, redbox, fedex, ups, local_courier, other."
+          },
+          "source": {
+            "type": "string",
+            "description": "Comma-separated campaign sources (exact)."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max 100; applies to every detailed list in the report."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/OrderOperationsReport"
+      },
+      "pii_classification": "aggregate (order references only)",
+      "display_rules": "Managers only. Never expose to support staff or customers; the API also refuses support credentials with 403."
+    },
+    {
+      "name": "get_shipment_performance_report",
+      "operation_id": "getShipmentPerformanceReport",
+      "endpoint": "GET /api/integrations/hermes/reports/shipment-performance",
+      "description": "Shipments by status, time to label/dispatch/delivery, delayed shipments, delivery exceptions, per-carrier performance and delivery success rate.",
+      "required_scope": "hermes:manager:reports",
+      "audience": [
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "First local date (inclusive)."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Last local date (inclusive). Range at most 92 days."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Asia/Riyadh",
+            "description": "IANA time zone used for date boundaries."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "none",
+              "previous_period",
+              "previous_year"
+            ],
+            "default": "none"
+          },
+          "status": {
+            "type": "string",
+            "description": "Comma-separated normalized order statuses: awaiting_payment, new, processing, ready_to_ship, shipped, out_for_delivery, delivered, cancelled, return_in_progress, returned, deleted, other."
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Comma-separated Salla payment method slugs, e.g. mada,cod,tabby_installment."
+          },
+          "city": {
+            "type": "string",
+            "description": "Comma-separated customer cities (exact, case-insensitive)."
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Comma-separated carriers: smsa, ajex, dhl, aramex, redbox, fedex, ups, local_courier, other."
+          },
+          "source": {
+            "type": "string",
+            "description": "Comma-separated campaign sources (exact)."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max 100; applies to every detailed list in the report."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/ShipmentPerformanceReport"
+      },
+      "pii_classification": "aggregate (order references and tracking numbers only)",
+      "display_rules": "Managers only. Never expose to support staff or customers; the API also refuses support credentials with 403."
+    },
+    {
+      "name": "get_customer_report",
+      "operation_id": "getCustomerReport",
+      "endpoint": "GET /api/integrations/hermes/reports/customers",
+      "description": "New vs returning customers, repeat purchase rate, customers by city; top customers only when the credential also has hermes:manager:pii.",
+      "required_scope": "hermes:manager:reports",
+      "audience": [
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "First local date (inclusive)."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Last local date (inclusive). Range at most 92 days."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Asia/Riyadh",
+            "description": "IANA time zone used for date boundaries."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "none",
+              "previous_period",
+              "previous_year"
+            ],
+            "default": "none"
+          },
+          "status": {
+            "type": "string",
+            "description": "Comma-separated normalized order statuses: awaiting_payment, new, processing, ready_to_ship, shipped, out_for_delivery, delivered, cancelled, return_in_progress, returned, deleted, other."
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Comma-separated Salla payment method slugs, e.g. mada,cod,tabby_installment."
+          },
+          "city": {
+            "type": "string",
+            "description": "Comma-separated customer cities (exact, case-insensitive)."
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Comma-separated carriers: smsa, ajex, dhl, aramex, redbox, fedex, ups, local_courier, other."
+          },
+          "source": {
+            "type": "string",
+            "description": "Comma-separated campaign sources (exact)."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max 100; applies to every detailed list in the report."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/CustomerReport"
+      },
+      "pii_classification": "aggregate; top_customers is customer_identity (hermes:manager:pii)",
+      "display_rules": "Managers only. Never expose to support staff or customers; the API also refuses support credentials with 403."
+    },
+    {
+      "name": "get_product_report",
+      "operation_id": "getProductReport",
+      "endpoint": "GET /api/integrations/hermes/reports/products",
+      "description": "Best-selling products and variants, revenue by product, units sold, returns by product, low performers.",
+      "required_scope": "hermes:manager:reports",
+      "audience": [
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "First local date (inclusive)."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Last local date (inclusive). Range at most 92 days."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Asia/Riyadh",
+            "description": "IANA time zone used for date boundaries."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "none",
+              "previous_period",
+              "previous_year"
+            ],
+            "default": "none"
+          },
+          "status": {
+            "type": "string",
+            "description": "Comma-separated normalized order statuses: awaiting_payment, new, processing, ready_to_ship, shipped, out_for_delivery, delivered, cancelled, return_in_progress, returned, deleted, other."
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Comma-separated Salla payment method slugs, e.g. mada,cod,tabby_installment."
+          },
+          "city": {
+            "type": "string",
+            "description": "Comma-separated customer cities (exact, case-insensitive)."
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Comma-separated carriers: smsa, ajex, dhl, aramex, redbox, fedex, ups, local_courier, other."
+          },
+          "source": {
+            "type": "string",
+            "description": "Comma-separated campaign sources (exact)."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max 100; applies to every detailed list in the report."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/ProductReport"
+      },
+      "pii_classification": "aggregate",
+      "display_rules": "Managers only. Never expose to support staff or customers; the API also refuses support credentials with 403."
+    },
+    {
+      "name": "get_daily_trend_report",
+      "operation_id": "getDailyTrendReport",
+      "endpoint": "GET /api/integrations/hermes/reports/daily-trend",
+      "description": "Daily orders, revenue, refunds and shipments for charts, with optional aligned comparison series.",
+      "required_scope": "hermes:manager:reports",
+      "audience": [
+        "manager"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "First local date (inclusive)."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Last local date (inclusive). Range at most 92 days."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Asia/Riyadh",
+            "description": "IANA time zone used for date boundaries."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "none",
+              "previous_period",
+              "previous_year"
+            ],
+            "default": "none"
+          },
+          "status": {
+            "type": "string",
+            "description": "Comma-separated normalized order statuses: awaiting_payment, new, processing, ready_to_ship, shipped, out_for_delivery, delivered, cancelled, return_in_progress, returned, deleted, other."
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Comma-separated Salla payment method slugs, e.g. mada,cod,tabby_installment."
+          },
+          "city": {
+            "type": "string",
+            "description": "Comma-separated customer cities (exact, case-insensitive)."
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Comma-separated carriers: smsa, ajex, dhl, aramex, redbox, fedex, ups, local_courier, other."
+          },
+          "source": {
+            "type": "string",
+            "description": "Comma-separated campaign sources (exact)."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max 100; applies to every detailed list in the report."
+          }
+        }
+      },
+      "output_schema": {
+        "$ref": "hermes-openapi.json#/components/schemas/DailyTrendReport"
+      },
+      "pii_classification": "aggregate",
+      "display_rules": "Managers only. Never expose to support staff or customers; the API also refuses support credentials with 403."
+    }
+  ]
+}

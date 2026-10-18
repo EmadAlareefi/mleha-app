@@ -46,6 +46,9 @@ const PUBLIC_PATHS = [
   // Storefront "notify me" widget: the script itself and the endpoint it posts to.
   // The endpoint enforces its own origin allowlist and rate limits.
   '/api/public',
+  // Hermes assistant API: no session; every route authenticates its own
+  // scoped, hashed service API key (app/lib/hermes/handler.ts).
+  '/api/integrations/hermes',
   '/embed',
   // Called by Vercel Cron, which carries no session; guarded by CRON_SECRET.
   '/api/salla/availability-requests/check-stock',
