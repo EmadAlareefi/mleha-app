@@ -5,6 +5,7 @@ import { log } from './logger';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { getAffiliateCommissionRate } from '@/app/lib/affiliate-metrics';
+import { sallaOrderFactsData } from '@/app/lib/salla-order-facts';
 
 type AnyRecord = Record<string, any>;
 
@@ -522,6 +523,7 @@ async function syncOrdersForMerchant(
             campaignName: sanitizedCampaignName ?? undefined,
             affiliateCommission: affiliateCommission,
             rawOrder: order,
+            ...sallaOrderFactsData(order),
           },
           update: {
             referenceId: extractReferenceId(order) ?? undefined,
@@ -558,6 +560,7 @@ async function syncOrdersForMerchant(
             campaignName: sanitizedCampaignName ?? undefined,
             affiliateCommission: affiliateCommission,
             rawOrder: order,
+            ...sallaOrderFactsData(order),
           },
         });
 

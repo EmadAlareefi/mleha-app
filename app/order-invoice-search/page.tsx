@@ -17,6 +17,7 @@ import { Search, Printer, AlertCircle, FileText, Ban } from 'lucide-react';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 import { resolveCommercialInvoiceConsignee } from '@/lib/commercial-invoice-address';
+import { buildTrackingUrl } from '@/lib/tracking-url';
 
 const LABEL_PRINTER_OPTIONS = [
   { id: 75062490, label: 'الطابعة الرئيسية (75062490)' },
@@ -76,75 +77,6 @@ interface DoNotShipFlag {
   createdByUsername?: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-function buildTrackingUrl(
-  trackingNumber?: string | null,
-  courierName?: string | null,
-  labelUrl?: string | null
-) {
-  if (!trackingNumber) return null;
-  const courier = (courierName || '').toLowerCase();
-  const label = (labelUrl || '').toLowerCase();
-
-  if (
-    courier.includes('smsa') ||
-    courier.includes('سمسا') ||
-    label.includes('smsa') ||
-    label.includes('سمسا')
-  ) {
-    const encoded = encodeURIComponent(trackingNumber);
-    return {
-      type: 'smsa',
-      url: `https://www.smsaexpress.com/sa/ar/trackingdetails?tracknumbers%5B0%5D=${encoded}`,
-    };
-  }
-  if (courier.includes('aramex')) {
-    return {
-      type: 'aramex',
-      url: `https://www.aramex.com/track/shipments/${trackingNumber}`,
-    };
-  }
-  if (
-    courier.includes('ajex') ||
-    courier.includes('aj-ex') ||
-    courier.includes('أيجكس') ||
-    courier.includes('ايجكس') ||
-    label.includes('ajex') ||
-    label.includes('aj-ex') ||
-    label.includes('أيجكس') ||
-    label.includes('ايجكس')
-  ) {
-    const encoded = encodeURIComponent(trackingNumber);
-    return {
-      type: 'ajex',
-      url: `https://aj-ex.com/ar/shipment-status/${encoded}`,
-    };
-  }
-  if (courier.includes('dhl')) {
-    return {
-      type: 'dhl',
-      url: `https://www.dhl.com/global-en/home/tracking/tracking-express.html?AWB=${trackingNumber}&brand=DHL`,
-    };
-  }
-  if (courier.includes('fedex')) {
-    return {
-      type: 'fedex',
-      url: `https://www.fedex.com/fedextrack/?tracknumbers=${trackingNumber}`,
-    };
-  }
-  if (courier.includes('ups')) {
-    return {
-      type: 'ups',
-      url: `https://www.ups.com/track?track=yes&trackNums=${trackingNumber}`,
-    };
-  }
-
-  const encodedQuery = encodeURIComponent(`${trackingNumber} tracking`);
-  return {
-    type: 'generic',
-    url: `https://www.google.com/search?q=${encodedQuery}`,
-  };
 }
 
 export default function OrderInvoiceSearchPage() {

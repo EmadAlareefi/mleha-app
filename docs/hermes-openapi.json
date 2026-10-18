@@ -1,0 +1,4562 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Mleha Hermes Integration API",
+    "version": "1.0.0",
+    "license": {
+      "name": "Proprietary",
+      "identifier": "LicenseRef-Proprietary"
+    },
+    "description": "Read-only API for the Hermes assistant: support lookups (orders, customers, shipments) and management reports. Phase 1 has no mutations. See docs/hermes-integration.md."
+  },
+  "servers": [
+    {
+      "url": "https://{host}/api/integrations/hermes",
+      "variables": {
+        "host": {
+          "default": "app.example.com",
+          "description": "Production host of the Mleha app (HTTPS only)."
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Support",
+      "description": "hermes:support:read"
+    },
+    {
+      "name": "Reports",
+      "description": "hermes:manager:reports"
+    }
+  ],
+  "paths": {
+    "/orders/search": {
+      "get": {
+        "operationId": "findOrder",
+        "summary": "Find orders by one exact identifier",
+        "description": "Exactly one of order_number, phone, email, tracking_number. Results are re-verified against the identifier; there is no partial matching.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "pii:masked",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/order_number"
+          },
+          {
+            "$ref": "#/components/parameters/phone"
+          },
+          {
+            "$ref": "#/components/parameters/email"
+          },
+          {
+            "$ref": "#/components/parameters/tracking_number"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/OrderSummary"
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "items"
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      },
+      "post": {
+        "operationId": "findOrderPost",
+        "summary": "Find orders by one exact identifier (JSON body)",
+        "description": "Exactly one of order_number, phone, email, tracking_number. Results are re-verified against the identifier; there is no partial matching.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "pii:masked",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/OrderSummary"
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "items"
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "order_number": {
+                    "type": "string"
+                  },
+                  "phone": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "tracking_number": {
+                    "type": "string"
+                  },
+                  "page": {
+                    "type": "string"
+                  },
+                  "page_size": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "description": "Same fields as the query parameters. Preferred for phone/email so they stay out of URLs and access logs. Do not send a query string with a body."
+        }
+      }
+    },
+    "/orders/{orderReference}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Order details",
+        "description": "Full support view of one order.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "pii:masked",
+        "parameters": [
+          {
+            "name": "orderReference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "description": "Customer-facing order number."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/OrderDetail"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/customers/search": {
+      "get": {
+        "operationId": "findCustomer",
+        "summary": "Find a customer by one exact identifier",
+        "description": "Exactly one of phone, email, customer_id. At most 5 customers are returned.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "pii:masked",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/phone"
+          },
+          {
+            "$ref": "#/components/parameters/email"
+          },
+          {
+            "$ref": "#/components/parameters/customer_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/CustomerMatch"
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "items"
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      },
+      "post": {
+        "operationId": "findCustomerPost",
+        "summary": "Find a customer by one exact identifier (JSON body)",
+        "description": "Exactly one of phone, email, customer_id. At most 5 customers are returned.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "pii:masked",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/CustomerMatch"
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "items"
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "customer_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "description": "Same fields as the query parameters. Preferred for phone/email so they stay out of URLs and access logs. Do not send a query string with a body."
+        }
+      }
+    },
+    "/customers/{customerRef}/summary": {
+      "get": {
+        "operationId": "getCustomerSummary",
+        "summary": "Customer support summary",
+        "description": "Takes the opaque customer_ref returned by search or order endpoints; guessed or altered references return 404.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "pii:masked",
+        "parameters": [
+          {
+            "name": "customerRef",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^cus_\\d{1,20}_[A-Za-z0-9_-]{22}$"
+            },
+            "description": "Opaque signed reference (cus_<id>_<signature>)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CustomerSummary"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/shipments/search": {
+      "get": {
+        "operationId": "findShipment",
+        "summary": "Shipments for an order or tracking number",
+        "description": "Exactly one of order_number, tracking_number.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "operational",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/order_number"
+          },
+          {
+            "$ref": "#/components/parameters/tracking_number"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Shipment"
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "items"
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      },
+      "post": {
+        "operationId": "findShipmentPost",
+        "summary": "Shipments for an order or tracking number (JSON body)",
+        "description": "Exactly one of order_number, tracking_number.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "operational",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Shipment"
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "items"
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "order_number": {
+                    "type": "string"
+                  },
+                  "tracking_number": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "description": "Same fields as the query parameters. Preferred for phone/email so they stay out of URLs and access logs. Do not send a query string with a body."
+        }
+      }
+    },
+    "/shipments/{shipmentReference}": {
+      "get": {
+        "operationId": "getShipment",
+        "summary": "Shipment details and public tracking events",
+        "description": "shipmentReference is the tracking number.\n\nRequired scope: `hermes:support:read`.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:support:read",
+        "x-data-classification": "operational",
+        "parameters": [
+          {
+            "name": "shipmentReference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]{4,40}$"
+            },
+            "description": "Tracking number."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ShipmentDetail"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/reports/sales": {
+      "get": {
+        "operationId": "getSalesReport",
+        "summary": "Sales summary",
+        "description": "Aggregated report. All money in SAR. See meta.definitions for metric definitions.\n\nRequired scope: `hermes:manager:reports`.",
+        "tags": [
+          "Reports"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:manager:reports",
+        "x-data-classification": "aggregate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/timezone"
+          },
+          {
+            "$ref": "#/components/parameters/compare"
+          },
+          {
+            "$ref": "#/components/parameters/status"
+          },
+          {
+            "$ref": "#/components/parameters/payment_method"
+          },
+          {
+            "$ref": "#/components/parameters/city"
+          },
+          {
+            "$ref": "#/components/parameters/carrier"
+          },
+          {
+            "$ref": "#/components/parameters/source"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/report_page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SalesReport"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ReportMeta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/reports/order-operations": {
+      "get": {
+        "operationId": "getOrderOperationsReport",
+        "summary": "Order operations",
+        "description": "Aggregated report. All money in SAR. See meta.definitions for metric definitions.\n\nRequired scope: `hermes:manager:reports`.",
+        "tags": [
+          "Reports"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:manager:reports",
+        "x-data-classification": "aggregate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/timezone"
+          },
+          {
+            "$ref": "#/components/parameters/compare"
+          },
+          {
+            "$ref": "#/components/parameters/status"
+          },
+          {
+            "$ref": "#/components/parameters/payment_method"
+          },
+          {
+            "$ref": "#/components/parameters/city"
+          },
+          {
+            "$ref": "#/components/parameters/carrier"
+          },
+          {
+            "$ref": "#/components/parameters/source"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/report_page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/OrderOperationsReport"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ReportMeta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/reports/shipment-performance": {
+      "get": {
+        "operationId": "getShipmentPerformanceReport",
+        "summary": "Shipment performance",
+        "description": "Aggregated report. All money in SAR. See meta.definitions for metric definitions.\n\nRequired scope: `hermes:manager:reports`.",
+        "tags": [
+          "Reports"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:manager:reports",
+        "x-data-classification": "aggregate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/timezone"
+          },
+          {
+            "$ref": "#/components/parameters/compare"
+          },
+          {
+            "$ref": "#/components/parameters/status"
+          },
+          {
+            "$ref": "#/components/parameters/payment_method"
+          },
+          {
+            "$ref": "#/components/parameters/city"
+          },
+          {
+            "$ref": "#/components/parameters/carrier"
+          },
+          {
+            "$ref": "#/components/parameters/source"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/report_page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ShipmentPerformanceReport"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ReportMeta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/reports/customers": {
+      "get": {
+        "operationId": "getCustomerReport",
+        "summary": "Customer analytics",
+        "description": "Aggregated report. All money in SAR. See meta.definitions for metric definitions.\n\nRequired scope: `hermes:manager:reports`.",
+        "tags": [
+          "Reports"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:manager:reports",
+        "x-data-classification": "aggregate; top_customers is pii:full (hermes:manager:pii)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/timezone"
+          },
+          {
+            "$ref": "#/components/parameters/compare"
+          },
+          {
+            "$ref": "#/components/parameters/status"
+          },
+          {
+            "$ref": "#/components/parameters/payment_method"
+          },
+          {
+            "$ref": "#/components/parameters/city"
+          },
+          {
+            "$ref": "#/components/parameters/carrier"
+          },
+          {
+            "$ref": "#/components/parameters/source"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/report_page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CustomerReport"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ReportMeta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/reports/products": {
+      "get": {
+        "operationId": "getProductReport",
+        "summary": "Product performance",
+        "description": "Aggregated report. All money in SAR. See meta.definitions for metric definitions.\n\nRequired scope: `hermes:manager:reports`.",
+        "tags": [
+          "Reports"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:manager:reports",
+        "x-data-classification": "aggregate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/timezone"
+          },
+          {
+            "$ref": "#/components/parameters/compare"
+          },
+          {
+            "$ref": "#/components/parameters/status"
+          },
+          {
+            "$ref": "#/components/parameters/payment_method"
+          },
+          {
+            "$ref": "#/components/parameters/city"
+          },
+          {
+            "$ref": "#/components/parameters/carrier"
+          },
+          {
+            "$ref": "#/components/parameters/source"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/report_page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProductReport"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ReportMeta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/reports/daily-trend": {
+      "get": {
+        "operationId": "getDailyTrendReport",
+        "summary": "Daily trend",
+        "description": "Aggregated report. All money in SAR. See meta.definitions for metric definitions.\n\nRequired scope: `hermes:manager:reports`.",
+        "tags": [
+          "Reports"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "hermes:manager:reports",
+        "x-data-classification": "aggregate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/timezone"
+          },
+          {
+            "$ref": "#/components/parameters/compare"
+          },
+          {
+            "$ref": "#/components/parameters/status"
+          },
+          {
+            "$ref": "#/components/parameters/payment_method"
+          },
+          {
+            "$ref": "#/components/parameters/city"
+          },
+          {
+            "$ref": "#/components/parameters/carrier"
+          },
+          {
+            "$ref": "#/components/parameters/source"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/report_page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DailyTrendReport"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ReportMeta"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "500": {
+            "$ref": "#/components/responses/E500"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "hrm_<keyId>_<secret>",
+        "description": "Scoped service API key in the Authorization header. Keys in query strings are rejected. Required scopes are listed per operation (x-required-scope)."
+      }
+    },
+    "schemas": {
+      "Money": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^-?\\d+\\.\\d{2}$",
+        "description": "Decimal amount with exactly two decimals, as a string (never a float).",
+        "examples": [
+          "115.00"
+        ]
+      },
+      "Meta": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string",
+            "examples": [
+              "Asia/Riyadh"
+            ]
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SAR for reports; null for lookups (amounts carry their own currency)."
+          },
+          "criterion": {
+            "type": "string",
+            "description": "Which search identifier was used (search endpoints)."
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "request_id",
+          "generated_at",
+          "timezone",
+          "currency"
+        ]
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "total_items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total_pages": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "page",
+          "page_size",
+          "total_items",
+          "total_pages",
+          "has_more"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "unauthenticated",
+              "forbidden",
+              "not_found",
+              "validation_error",
+              "rate_limited",
+              "https_required",
+              "temporarily_unavailable",
+              "internal_error"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Generic, safe message. Never contains internal details."
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Safe hints, e.g. {field, reason} or {required_scope}."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "null"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "OrderStatus": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "awaiting_payment",
+              "new",
+              "processing",
+              "ready_to_ship",
+              "shipped",
+              "out_for_delivery",
+              "delivered",
+              "cancelled",
+              "return_in_progress",
+              "returned",
+              "deleted",
+              "other"
+            ]
+          },
+          "label_ar": {
+            "type": "string"
+          },
+          "salla_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "salla_label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Store's own (possibly customised) Arabic status name."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "label_ar",
+          "salla_status",
+          "salla_label"
+        ]
+      },
+      "Payment": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "mada",
+              "tabby_installment",
+              "cod"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "paid",
+              "awaiting_payment",
+              "cod_due",
+              "refunded",
+              "free",
+              "void"
+            ]
+          },
+          "label_ar": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "method",
+          "code",
+          "label_ar"
+        ],
+        "description": "Derived payment state; card, bank and gateway data are never returned."
+      },
+      "Carrier": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "smsa",
+              "ajex",
+              "dhl",
+              "aramex",
+              "redbox",
+              "fedex",
+              "ups",
+              "local_courier",
+              "other"
+            ]
+          },
+          "label_ar": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "label_ar"
+        ]
+      },
+      "OrderSummary": {
+        "type": "object",
+        "properties": {
+          "order_reference": {
+            "type": "string",
+            "description": "Customer-facing order number (رقم الطلب)."
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/Payment"
+          },
+          "total": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "currency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "amount",
+              "currency"
+            ]
+          },
+          "customer": {
+            "type": "object",
+            "properties": {
+              "customer_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Opaque signed reference for /customers/{customerRef}/summary."
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Masked unless the credential has hermes:manager:pii."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "customer_ref",
+              "name",
+              "phone"
+            ]
+          },
+          "shipping_city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "carrier": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Carrier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tracking_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "order_reference",
+          "created_at",
+          "status",
+          "payment",
+          "total",
+          "customer",
+          "shipping_city",
+          "carrier",
+          "tracking_number"
+        ]
+      },
+      "Shipment": {
+        "type": "object",
+        "properties": {
+          "shipment_reference": {
+            "type": "string",
+            "description": "Tracking number; use with /shipments/{shipmentReference}."
+          },
+          "order_reference": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outbound",
+              "return"
+            ]
+          },
+          "carrier": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "smsa",
+                  "ajex",
+                  "dhl",
+                  "aramex",
+                  "redbox",
+                  "fedex",
+                  "ups",
+                  "local_courier",
+                  "other",
+                  null
+                ]
+              },
+              "label_ar": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "label_ar",
+              "name"
+            ]
+          },
+          "tracking_number": {
+            "type": "string"
+          },
+          "tracking_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "status": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "label_created",
+                  "in_transit",
+                  "out_for_delivery",
+                  "delivered",
+                  "exception",
+                  "returning",
+                  "returned_to_sender",
+                  "returned",
+                  "cancelled",
+                  "unknown"
+                ]
+              },
+              "label_ar": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "carrier",
+                  "local_courier",
+                  "salla",
+                  "order_status"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "label_ar",
+              "source"
+            ]
+          },
+          "carrier_status": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "text": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "code",
+                  "text"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carrier's own status, when a live feed exists."
+          },
+          "label_created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "shipped_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "estimated_delivery_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "delivered_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_update_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "exception_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Carrier-reported delay/failure reason."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "shipment_reference",
+          "order_reference",
+          "direction",
+          "carrier",
+          "tracking_number",
+          "tracking_url",
+          "status",
+          "carrier_status",
+          "label_created_at",
+          "shipped_at",
+          "estimated_delivery_at",
+          "delivered_at",
+          "last_update_at",
+          "exception_reason"
+        ]
+      },
+      "ShipmentEvent": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "at_local": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Carrier's raw local time when it could not be parsed."
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "store",
+              "warehouse",
+              "carrier",
+              "local_courier"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "at",
+          "at_local",
+          "code",
+          "description",
+          "city",
+          "source"
+        ]
+      },
+      "ShipmentDetail": {
+        "type": "object",
+        "properties": {
+          "shipment_reference": {
+            "type": "string",
+            "description": "Tracking number; use with /shipments/{shipmentReference}."
+          },
+          "order_reference": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outbound",
+              "return"
+            ]
+          },
+          "carrier": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "smsa",
+                  "ajex",
+                  "dhl",
+                  "aramex",
+                  "redbox",
+                  "fedex",
+                  "ups",
+                  "local_courier",
+                  "other",
+                  null
+                ]
+              },
+              "label_ar": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "label_ar",
+              "name"
+            ]
+          },
+          "tracking_number": {
+            "type": "string"
+          },
+          "tracking_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "status": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "label_created",
+                  "in_transit",
+                  "out_for_delivery",
+                  "delivered",
+                  "exception",
+                  "returning",
+                  "returned_to_sender",
+                  "returned",
+                  "cancelled",
+                  "unknown"
+                ]
+              },
+              "label_ar": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "carrier",
+                  "local_courier",
+                  "salla",
+                  "order_status"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "label_ar",
+              "source"
+            ]
+          },
+          "carrier_status": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "text": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "code",
+                  "text"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carrier's own status, when a live feed exists."
+          },
+          "label_created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "shipped_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "estimated_delivery_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "delivered_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_update_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "exception_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Carrier-reported delay/failure reason."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentEvent"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "shipment_reference",
+          "order_reference",
+          "direction",
+          "carrier",
+          "tracking_number",
+          "tracking_url",
+          "status",
+          "carrier_status",
+          "label_created_at",
+          "shipped_at",
+          "estimated_delivery_at",
+          "delivered_at",
+          "last_update_at",
+          "exception_reason",
+          "events"
+        ]
+      },
+      "Return": {
+        "type": "object",
+        "properties": {
+          "order_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "return",
+              "exchange"
+            ]
+          },
+          "type_label_ar": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_label_ar": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Predefined reason code; free-text details are not returned."
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "refund_amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "coupon_issued": {
+            "type": "boolean",
+            "description": "Coupon codes themselves are never returned."
+          },
+          "return_tracking_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exchange_order_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "product_name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "variant": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "product_name",
+                "sku",
+                "variant",
+                "quantity"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "order_reference",
+          "type",
+          "type_label_ar",
+          "status",
+          "status_label_ar",
+          "reason",
+          "created_at",
+          "updated_at",
+          "refund_amount",
+          "currency",
+          "coupon_issued",
+          "return_tracking_number",
+          "exchange_order_reference",
+          "items"
+        ]
+      },
+      "OrderDetail": {
+        "type": "object",
+        "properties": {
+          "order_reference": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/Payment"
+          },
+          "fulfillment": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "unfulfilled",
+                  "ready_to_ship",
+                  "fulfilled",
+                  "cancelled"
+                ]
+              },
+              "label_ar": {
+                "type": "string"
+              },
+              "salla_fulfillment_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "label_ar",
+              "salla_fulfillment_status"
+            ]
+          },
+          "customer": {
+            "type": "object",
+            "properties": {
+              "customer_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "customer_ref",
+              "name",
+              "phone",
+              "email"
+            ],
+            "description": "phone/email masked unless hermes:manager:pii."
+          },
+          "shipping_address": {
+            "type": "object",
+            "properties": {
+              "country": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "district": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "receiver_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "receiver_phone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "address_line": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "hermes:manager:pii only."
+              },
+              "street_number": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "hermes:manager:pii only."
+              },
+              "building_number": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "hermes:manager:pii only."
+              },
+              "postal_code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "hermes:manager:pii only."
+              },
+              "short_address": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "National short address; hermes:manager:pii only."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "country",
+              "region",
+              "city",
+              "district",
+              "receiver_name",
+              "receiver_phone"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sku": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "product_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "integer"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "value"
+                    ]
+                  },
+                  "description": "Variant options, e.g. size."
+                },
+                "unit_price": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "line_total": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "customer_note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Note typed by the customer on the product."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "sku",
+                "product_id",
+                "quantity",
+                "options",
+                "unit_price",
+                "line_total",
+                "customer_note"
+              ]
+            }
+          },
+          "amounts": {
+            "type": "object",
+            "properties": {
+              "currency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "subtotal": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "discount_total": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "discounts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "title": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "amount": {
+                      "$ref": "#/components/schemas/Money"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "title",
+                    "amount"
+                  ]
+                }
+              },
+              "shipping": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "cash_on_delivery_fee": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "tax": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "total": {
+                "$ref": "#/components/schemas/Money"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "currency",
+              "subtotal",
+              "discount_total",
+              "discounts",
+              "shipping",
+              "cash_on_delivery_fee",
+              "tax",
+              "total"
+            ]
+          },
+          "shipments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Shipment"
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "awaiting_payment",
+                    "new",
+                    "processing",
+                    "ready_to_ship",
+                    "shipped",
+                    "out_for_delivery",
+                    "delivered",
+                    "cancelled",
+                    "return_in_progress",
+                    "returned",
+                    "deleted",
+                    "other"
+                  ]
+                },
+                "label_ar": {
+                  "type": "string"
+                },
+                "salla_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "label_ar",
+                "salla_status",
+                "at"
+              ]
+            }
+          },
+          "returns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Return"
+            }
+          },
+          "refunds": {
+            "type": "object",
+            "properties": {
+              "fully_refunded": {
+                "type": "boolean"
+              },
+              "refund_in_progress": {
+                "type": "boolean"
+              },
+              "partially_refunded_items": {
+                "type": "integer"
+              },
+              "partially_refunded_amount": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "currency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "fully_refunded",
+              "refund_in_progress",
+              "partially_refunded_items",
+              "partially_refunded_amount",
+              "currency"
+            ]
+          },
+          "flags": {
+            "type": "object",
+            "properties": {
+              "high_priority": {
+                "type": "boolean"
+              },
+              "do_not_ship": {
+                "type": "boolean"
+              },
+              "gift": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "high_priority",
+              "do_not_ship",
+              "gift"
+            ],
+            "description": "Operational flags already shown to support staff; their internal notes are not returned."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "order_reference",
+          "created_at",
+          "last_updated_at",
+          "status",
+          "payment",
+          "fulfillment",
+          "customer",
+          "shipping_address",
+          "items",
+          "amounts",
+          "shipments",
+          "timeline",
+          "returns",
+          "refunds",
+          "flags"
+        ]
+      },
+      "CustomerMatch": {
+        "type": "object",
+        "properties": {
+          "customer_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "matched_orders": {
+            "type": "integer"
+          },
+          "last_order_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "customer_ref",
+          "name",
+          "phone",
+          "email",
+          "city",
+          "country",
+          "matched_orders",
+          "last_order_at"
+        ]
+      },
+      "CustomerSummary": {
+        "type": "object",
+        "properties": {
+          "customer_ref": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "order_count": {
+            "type": "integer"
+          },
+          "first_order_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null when the customer has more than 200 orders."
+          },
+          "last_order_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recent_orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderSummary"
+            }
+          },
+          "active_orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderSummary"
+            }
+          },
+          "active_shipments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "order_reference": {
+                  "type": "string"
+                },
+                "tracking_number": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "carrier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "$ref": "#/components/schemas/OrderStatus"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "order_reference",
+                "tracking_number",
+                "carrier",
+                "status"
+              ]
+            }
+          },
+          "returns": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "open": {
+                "type": "integer"
+              },
+              "recent": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Return"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "open",
+              "recent"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "customer_ref",
+          "name",
+          "phone",
+          "email",
+          "city",
+          "country",
+          "order_count",
+          "first_order_at",
+          "last_order_at",
+          "recent_orders",
+          "active_orders",
+          "active_shipments",
+          "returns"
+        ]
+      },
+      "Comparison": {
+        "type": "object",
+        "properties": {
+          "previous": {
+            "type": [
+              "string",
+              "integer",
+              "null"
+            ]
+          },
+          "percent_change": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Percent with two decimals; null when the previous value is zero."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "previous",
+          "percent_change"
+        ]
+      },
+      "MoneyMetric": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "CountMetric": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ]
+      },
+      "Average": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sample_size": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "hours",
+          "sample_size"
+        ]
+      },
+      "SuccessRate": {
+        "type": "object",
+        "properties": {
+          "percent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "returned_to_sender": {
+            "type": "integer"
+          },
+          "sample_size": {
+            "type": "integer"
+          },
+          "comparison": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "percent",
+          "delivered",
+          "returned_to_sender",
+          "sample_size"
+        ]
+      },
+      "LabelledCount": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label_ar": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "label_ar",
+          "count"
+        ]
+      },
+      "Unavailable": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "const": false
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "available",
+          "reason"
+        ]
+      },
+      "ReportMeta": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Meta"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "applied_range": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "utc_start": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "utc_end_exclusive": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to",
+                  "utc_start",
+                  "utc_end_exclusive"
+                ]
+              },
+              "comparison_range": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "previous_period",
+                          "previous_year"
+                        ]
+                      },
+                      "from": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "to": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "utc_start": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "utc_end_exclusive": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "mode",
+                      "from",
+                      "to",
+                      "utc_start",
+                      "utc_end_exclusive"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "applied_filters": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "payment_method": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "city": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "carrier": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "source": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "payment_method",
+                  "city",
+                  "carrier",
+                  "source"
+                ]
+              },
+              "definitions": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Plain-language definition of every metric whose meaning could be ambiguous."
+              },
+              "data_freshness": {
+                "type": "object",
+                "properties": {
+                  "last_order_placed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "last_webhook_received_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "cached": {
+                    "type": "boolean"
+                  },
+                  "computed_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "cache_ttl_seconds": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "last_order_placed_at",
+                  "last_webhook_received_at",
+                  "source",
+                  "cached",
+                  "computed_at",
+                  "cache_ttl_seconds"
+                ]
+              },
+              "unconverted_orders": {
+                "type": "integer",
+                "description": "Sale orders excluded from money totals because no SAR exchange rate was available."
+              }
+            },
+            "additionalProperties": true,
+            "required": [
+              "applied_range",
+              "comparison_range",
+              "applied_filters",
+              "definitions",
+              "data_freshness",
+              "unconverted_orders"
+            ]
+          }
+        ]
+      },
+      "SalesReport": {
+        "type": "object",
+        "properties": {
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "gross_sales": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "discounts": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "shipping_revenue": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "tax": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "total_sales": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "refunds": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "full_refunds": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "partial_refunds": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "net_sales": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "average_order_value": {
+                "$ref": "#/components/schemas/MoneyMetric"
+              },
+              "order_count": {
+                "$ref": "#/components/schemas/CountMetric"
+              },
+              "full_refund_orders": {
+                "$ref": "#/components/schemas/CountMetric"
+              },
+              "partial_refund_orders": {
+                "$ref": "#/components/schemas/CountMetric"
+              },
+              "cancelled_orders": {
+                "$ref": "#/components/schemas/CountMetric"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "gross_sales",
+              "discounts",
+              "shipping_revenue",
+              "tax",
+              "total_sales",
+              "refunds",
+              "full_refunds",
+              "partial_refunds",
+              "net_sales",
+              "average_order_value",
+              "order_count",
+              "full_refund_orders",
+              "partial_refund_orders",
+              "cancelled_orders"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "metrics"
+        ]
+      },
+      "OrderOperationsReport": {
+        "type": "object",
+        "properties": {
+          "orders_total": {
+            "$ref": "#/components/schemas/CountMetric"
+          },
+          "orders_by_status": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelledCount"
+            }
+          },
+          "payment": {
+            "type": "object",
+            "properties": {
+              "paid": {
+                "type": "integer"
+              },
+              "unpaid": {
+                "type": "integer"
+              },
+              "breakdown": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LabelledCount"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "paid",
+              "unpaid",
+              "breakdown"
+            ]
+          },
+          "fulfillment": {
+            "type": "object",
+            "properties": {
+              "fulfilled": {
+                "type": "integer"
+              },
+              "unfulfilled": {
+                "type": "integer"
+              },
+              "breakdown": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LabelledCount"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "fulfilled",
+              "unfulfilled",
+              "breakdown"
+            ]
+          },
+          "cancelled_orders": {
+            "type": "integer"
+          },
+          "returned_or_refunded_orders": {
+            "type": "object",
+            "properties": {
+              "fully_returned": {
+                "type": "integer"
+              },
+              "return_in_progress": {
+                "type": "integer"
+              },
+              "partially_refunded": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "fully_returned",
+              "return_in_progress",
+              "partially_refunded"
+            ]
+          },
+          "return_requests": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "by_type": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LabelledCount"
+                }
+              },
+              "by_status": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LabelledCount"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "by_type",
+              "by_status"
+            ]
+          },
+          "awaiting_action": {
+            "type": "object",
+            "properties": {
+              "new_orders": {
+                "type": "integer"
+              },
+              "processing": {
+                "type": "integer"
+              },
+              "ready_to_ship": {
+                "type": "integer"
+              },
+              "awaiting_payment": {
+                "type": "integer"
+              },
+              "return_requests_pending_review": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "new_orders",
+              "processing",
+              "ready_to_ship",
+              "awaiting_payment",
+              "return_requests_pending_review"
+            ]
+          },
+          "aging_open_orders": {
+            "type": "object",
+            "properties": {
+              "as_of": {
+                "type": "string"
+              },
+              "buckets": {
+                "type": "object",
+                "properties": {
+                  "under_24h": {
+                    "type": "integer"
+                  },
+                  "from_1_to_3_days": {
+                    "type": "integer"
+                  },
+                  "from_3_to_7_days": {
+                    "type": "integer"
+                  },
+                  "over_7_days": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "under_24h",
+                  "from_1_to_3_days",
+                  "from_3_to_7_days",
+                  "over_7_days"
+                ]
+              },
+              "oldest_first": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "order_reference": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "awaiting_payment",
+                            "new",
+                            "processing",
+                            "ready_to_ship",
+                            "shipped",
+                            "out_for_delivery",
+                            "delivered",
+                            "cancelled",
+                            "return_in_progress",
+                            "returned",
+                            "deleted",
+                            "other"
+                          ]
+                        },
+                        "status_label_ar": {
+                          "type": "string"
+                        },
+                        "placed_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "age_hours": {
+                          "type": "integer"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "order_reference",
+                        "status",
+                        "status_label_ar",
+                        "placed_at",
+                        "age_hours"
+                      ]
+                    }
+                  },
+                  "pagination": {
+                    "$ref": "#/components/schemas/Pagination"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "items",
+                  "pagination"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "as_of",
+              "buckets",
+              "oldest_first"
+            ]
+          },
+          "in_transit_orders": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "orders_total",
+          "orders_by_status",
+          "payment",
+          "fulfillment",
+          "cancelled_orders",
+          "returned_or_refunded_orders",
+          "return_requests",
+          "awaiting_action",
+          "aging_open_orders",
+          "in_transit_orders"
+        ]
+      },
+      "ShipmentPerformanceReport": {
+        "type": "object",
+        "properties": {
+          "shipments_total": {
+            "$ref": "#/components/schemas/CountMetric"
+          },
+          "shipments_by_status": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelledCount"
+            }
+          },
+          "average_hours_order_to_label": {
+            "$ref": "#/components/schemas/Average"
+          },
+          "average_hours_order_to_dispatch": {
+            "$ref": "#/components/schemas/Average"
+          },
+          "average_hours_dispatch_to_delivery": {
+            "$ref": "#/components/schemas/Average"
+          },
+          "delivery_success_rate": {
+            "$ref": "#/components/schemas/SuccessRate"
+          },
+          "delayed_shipments": {
+            "type": "object",
+            "properties": {
+              "threshold_days": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "order_reference": {
+                      "type": "string"
+                    },
+                    "tracking_number": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "carrier": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "label_created",
+                        "in_transit",
+                        "out_for_delivery",
+                        "delivered",
+                        "exception",
+                        "returning",
+                        "returned_to_sender",
+                        "returned",
+                        "cancelled",
+                        "unknown"
+                      ]
+                    },
+                    "status_label_ar": {
+                      "type": "string"
+                    },
+                    "days_since_dispatch": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "order_reference",
+                    "tracking_number",
+                    "carrier",
+                    "status",
+                    "status_label_ar",
+                    "days_since_dispatch"
+                  ]
+                }
+              },
+              "pagination": {
+                "$ref": "#/components/schemas/Pagination"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "threshold_days",
+              "total",
+              "items",
+              "pagination"
+            ]
+          },
+          "delivery_exceptions": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "order_reference": {
+                      "type": "string"
+                    },
+                    "tracking_number": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "carrier": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "order_reference",
+                    "tracking_number",
+                    "carrier",
+                    "reason"
+                  ]
+                }
+              },
+              "pagination": {
+                "$ref": "#/components/schemas/Pagination"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "items",
+              "pagination"
+            ]
+          },
+          "carrier_performance": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "carrier": {
+                  "type": "string"
+                },
+                "label_ar": {
+                  "type": "string"
+                },
+                "shipments": {
+                  "type": "integer"
+                },
+                "carrier_tracked": {
+                  "type": "integer"
+                },
+                "exceptions": {
+                  "type": "integer"
+                },
+                "delivery_success_rate": {
+                  "$ref": "#/components/schemas/SuccessRate"
+                },
+                "average_hours_dispatch_to_delivery": {
+                  "$ref": "#/components/schemas/Average"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "carrier",
+                "label_ar",
+                "shipments",
+                "carrier_tracked",
+                "exceptions",
+                "delivery_success_rate",
+                "average_hours_dispatch_to_delivery"
+              ]
+            }
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "with_carrier_tracking": {
+                "type": "integer"
+              },
+              "with_warehouse_dispatch_scan": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "with_carrier_tracking",
+              "with_warehouse_dispatch_scan"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "shipments_total",
+          "shipments_by_status",
+          "average_hours_order_to_label",
+          "average_hours_order_to_dispatch",
+          "average_hours_dispatch_to_delivery",
+          "delivery_success_rate",
+          "delayed_shipments",
+          "delivery_exceptions",
+          "carrier_performance",
+          "coverage"
+        ]
+      },
+      "CustomerReport": {
+        "type": "object",
+        "properties": {
+          "customers_total": {
+            "$ref": "#/components/schemas/CountMetric"
+          },
+          "new_customers": {
+            "$ref": "#/components/schemas/CountMetric"
+          },
+          "returning_customers": {
+            "$ref": "#/components/schemas/CountMetric"
+          },
+          "repeat_purchase_rate": {
+            "type": "object",
+            "properties": {
+              "percent": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "customers_with_2_plus_orders": {
+                "type": "integer"
+              },
+              "comparison": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "percent",
+              "customers_with_2_plus_orders"
+            ]
+          },
+          "orders_without_customer_id": {
+            "type": "integer"
+          },
+          "customers_by_city": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    },
+                    "customers": {
+                      "type": "integer"
+                    },
+                    "orders": {
+                      "type": "integer"
+                    },
+                    "revenue": {
+                      "$ref": "#/components/schemas/Money"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "city",
+                    "customers",
+                    "orders",
+                    "revenue"
+                  ]
+                }
+              },
+              "pagination": {
+                "$ref": "#/components/schemas/Pagination"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "pagination"
+            ]
+          },
+          "top_customers": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "customer_ref": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "city": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orders": {
+                          "type": "integer"
+                        },
+                        "revenue": {
+                          "$ref": "#/components/schemas/Money"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "customer_ref",
+                        "name",
+                        "city",
+                        "orders",
+                        "revenue"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "omitted_reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "items"
+            ],
+            "description": "Null items unless the credential has hermes:manager:pii."
+          },
+          "customer_lifetime_value": {
+            "$ref": "#/components/schemas/Unavailable"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "customers_total",
+          "new_customers",
+          "returning_customers",
+          "repeat_purchase_rate",
+          "orders_without_customer_id",
+          "customers_by_city",
+          "top_customers",
+          "customer_lifetime_value"
+        ]
+      },
+      "ProductRow": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "units_sold": {
+            "type": "integer"
+          },
+          "orders": {
+            "type": "integer"
+          },
+          "revenue": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "comparison": {
+            "type": "object"
+          },
+          "units_returned": {
+            "type": "integer"
+          },
+          "units_exchanged": {
+            "type": "integer"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sku": {
+                  "type": "string"
+                },
+                "units_sold": {
+                  "type": "integer"
+                },
+                "revenue": {
+                  "$ref": "#/components/schemas/Money"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "sku",
+                "units_sold",
+                "revenue"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "product_id",
+          "name",
+          "units_sold",
+          "orders",
+          "revenue",
+          "units_returned",
+          "units_exchanged",
+          "variants"
+        ]
+      },
+      "ProductReport": {
+        "type": "object",
+        "properties": {
+          "products_sold": {
+            "type": "integer"
+          },
+          "units_sold": {
+            "type": "integer"
+          },
+          "best_sellers_by_units": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProductRow"
+                }
+              },
+              "pagination": {
+                "$ref": "#/components/schemas/Pagination"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "pagination"
+            ]
+          },
+          "revenue_by_product": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProductRow"
+                }
+              },
+              "pagination": {
+                "$ref": "#/components/schemas/Pagination"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "pagination"
+            ]
+          },
+          "low_performers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductRow"
+            }
+          },
+          "returns_by_product": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "product_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "units_returned": {
+                      "type": "integer"
+                    },
+                    "units_exchanged": {
+                      "type": "integer"
+                    },
+                    "units_sold_in_range": {
+                      "type": "integer"
+                    },
+                    "return_rate_percent": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "product_id",
+                    "name",
+                    "units_returned",
+                    "units_exchanged",
+                    "units_sold_in_range",
+                    "return_rate_percent"
+                  ]
+                }
+              },
+              "pagination": {
+                "$ref": "#/components/schemas/Pagination"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "pagination"
+            ]
+          },
+          "revenue_by_category": {
+            "$ref": "#/components/schemas/Unavailable"
+          },
+          "inventory": {
+            "$ref": "#/components/schemas/Unavailable"
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "sale_orders": {
+                "type": "integer"
+              },
+              "sale_orders_with_items": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "sale_orders",
+              "sale_orders_with_items"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "products_sold",
+          "units_sold",
+          "best_sellers_by_units",
+          "revenue_by_product",
+          "low_performers",
+          "returns_by_product",
+          "revenue_by_category",
+          "inventory",
+          "coverage"
+        ]
+      },
+      "DailyTrendReport": {
+        "type": "object",
+        "properties": {
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "orders": {
+                  "type": "integer"
+                },
+                "revenue": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "refunds": {
+                  "$ref": "#/components/schemas/Money"
+                },
+                "shipments": {
+                  "type": "integer"
+                },
+                "comparison": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "orders": {
+                      "type": "integer"
+                    },
+                    "revenue": {
+                      "$ref": "#/components/schemas/Money"
+                    },
+                    "refunds": {
+                      "$ref": "#/components/schemas/Money"
+                    },
+                    "shipments": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "date",
+                    "orders",
+                    "revenue",
+                    "refunds",
+                    "shipments"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "date",
+                "orders",
+                "revenue",
+                "refunds",
+                "shipments"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "series"
+        ]
+      }
+    },
+    "parameters": {
+      "order_number": {
+        "name": "order_number",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "description": "Customer-facing order number. Arabic-Indic digits, '#', spaces and dashes are normalised."
+      },
+      "phone": {
+        "name": "phone",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "description": "Full phone number; normalised to E.164 (Saudi 05xxxxxxxx accepted). No partial matching."
+      },
+      "email": {
+        "name": "email",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "description": "Full email address; case-insensitive exact match."
+      },
+      "tracking_number": {
+        "name": "tracking_number",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{4,40}$"
+        },
+        "description": "Exact carrier or local tracking number."
+      },
+      "customer_id": {
+        "name": "customer_id",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "pattern": "^\\d{1,20}$"
+        },
+        "description": "Salla customer id (exact)."
+      },
+      "page": {
+        "name": "page",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 1
+        }
+      },
+      "page_size": {
+        "name": "page_size",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 10
+        },
+        "description": "Max 50 for lookups."
+      },
+      "report_page_size": {
+        "name": "page_size",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "description": "Max 100; applies to every detailed list in the report."
+      },
+      "from": {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "date"
+        },
+        "description": "First local date (inclusive)."
+      },
+      "to": {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "date"
+        },
+        "description": "Last local date (inclusive). Range at most 92 days."
+      },
+      "timezone": {
+        "name": "timezone",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "default": "Asia/Riyadh"
+        },
+        "description": "IANA time zone used for date boundaries."
+      },
+      "compare": {
+        "name": "compare",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "none",
+            "previous_period",
+            "previous_year"
+          ],
+          "default": "none"
+        }
+      },
+      "status": {
+        "name": "status",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "Comma-separated normalized order statuses: awaiting_payment, new, processing, ready_to_ship, shipped, out_for_delivery, delivered, cancelled, return_in_progress, returned, deleted, other."
+      },
+      "payment_method": {
+        "name": "payment_method",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "Comma-separated Salla payment method slugs, e.g. mada,cod,tabby_installment."
+      },
+      "city": {
+        "name": "city",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "Comma-separated customer cities (exact, case-insensitive)."
+      },
+      "carrier": {
+        "name": "carrier",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "Comma-separated carriers: smsa, ajex, dhl, aramex, redbox, fedex, ups, local_courier, other."
+      },
+      "source": {
+        "name": "source",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "Comma-separated campaign sources (exact)."
+      }
+    },
+    "responses": {
+      "E400": {
+        "description": "validation_error — details.field and details.reason identify the problem.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "E401": {
+        "description": "unauthenticated — missing, malformed, unknown, revoked or expired key (indistinguishable by design).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "E403": {
+        "description": "forbidden (details.required_scope) or https_required.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "E404": {
+        "description": "not_found. Counts toward the per-credential lookup miss budget.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "E429": {
+        "description": "rate_limited. Honour the Retry-After header (seconds).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "E500": {
+        "description": "internal_error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "E503": {
+        "description": "temporarily_unavailable (database unreachable, configuration missing, or API disabled).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    }
+  }
+}

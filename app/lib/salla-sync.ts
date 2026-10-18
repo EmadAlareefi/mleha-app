@@ -21,6 +21,7 @@ import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { extractItemsFromWebhookPayload, upsertSallaOrderItems } from '@/app/lib/salla-order-items';
 import { normalizePhoneWithDialCode } from '@/app/lib/phone';
 import { getAffiliateCommissionRate } from '@/app/lib/affiliate-metrics';
+import { sallaOrderFactsData } from '@/app/lib/salla-order-facts';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   success: boolean;
@@ -139,6 +140,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       campaignName: sanitizedCampaignName ?? undefined,
       affiliateCommission: affiliateCommission,
       rawOrder: order,
+      ...sallaOrderFactsData(order),
     },
     update: {
       referenceId: extractReferenceId(order) ?? undefined,
@@ -173,6 +175,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       campaignName: sanitizedCampaignName ?? undefined,
       affiliateCommission: affiliateCommission,
       rawOrder: order,
+      ...sallaOrderFactsData(order),
     },
   });
 
