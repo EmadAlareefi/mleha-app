@@ -323,7 +323,7 @@ async function patchTask(taskId: string, body: Record<string, unknown>) {
   return data;
 }
 
-/** A failed pickup stays open for another attempt; only the reason is recorded. */
+/** Record the failed attempt; the driver sees it in past returns until management retries it. */
 export async function recordPickupAttemptFailed(taskId: string, reason: string) {
   const stamp = new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   await patchTask(taskId, { completionNotes: `تعذّر الاستلام (${stamp}): ${reason}` });

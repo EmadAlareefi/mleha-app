@@ -105,6 +105,9 @@ export const RETURN_PICKUP_REQUEST_TYPE = 'return_pickup';
 export const isReturnPickupTask = (task: DeliveryAgentTask) =>
   task.requestType === RETURN_PICKUP_REQUEST_TYPE && Boolean(task.relatedShipment);
 
+export const hasFailedReturnPickup = (task: DeliveryAgentTask) =>
+  /^تعذر الاستلام(?:\s|[:(]|$)/u.test((task.completionNotes ?? '').normalize('NFD').replace(/[\u064B-\u065F\u0670]/gu, '').trim());
+
 export type WalletTransactionType = 'SHIPMENT_COMPLETED' | 'TASK_COMPLETED' | 'PAYOUT' | 'ADJUSTMENT';
 
 export interface WalletTransaction {
