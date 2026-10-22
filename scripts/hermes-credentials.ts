@@ -12,6 +12,7 @@
 import { prisma } from '@/lib/prisma';
 import {
   createCredential,
+  grantCredentialScopes,
   listCredentials,
   revokeCredential,
   rotateCredential,
@@ -43,6 +44,10 @@ function printIssued(issued: IssuedCredential) {
 async function main() {
   const command = process.argv[2];
   switch (command) {
+    case 'grant': {
+      console.log(await grantCredentialScopes(required('id'), required('scopes').split(',').map(scope => scope.trim()), required('by')));
+      break;
+    }
     case 'create': {
       const expires = option('expires-days');
       printIssued(
@@ -82,7 +87,7 @@ async function main() {
       break;
     }
     default:
-      throw new Error('command must be one of: create, list, revoke, rotate');
+      throw new Error('command must be one of: create, list, grant, revoke, rotate');
   }
 }
 

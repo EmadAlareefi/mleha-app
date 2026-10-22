@@ -153,7 +153,7 @@ test('every route file is in the spec and every spec path has a route', () => {
 });
 
 test('the tools manifest points at real operations with matching scopes', () => {
-  const expected = ['find_order', 'get_order', 'find_customer', 'get_customer_summary', 'find_shipment', 'get_shipment', 'get_sales_report', 'get_order_operations_report', 'get_shipment_performance_report', 'get_customer_report', 'get_product_report', 'get_daily_trend_report'];
+  const expected = ['find_order', 'get_order', 'find_customer', 'get_customer_summary', 'find_shipment', 'get_shipment', 'get_sales_report', 'get_order_operations_report', 'get_shipment_performance_report', 'get_customer_report', 'get_product_report', 'get_daily_trend_report', 'get_salla_capabilities', 'read_salla', 'write_salla'];
   assert.deepEqual(manifest.tools.map((tool: { name: string }) => tool.name).sort(), [...expected].sort());
   for (const tool of manifest.tools) {
     const [method, ...rest] = tool.endpoint.split(' ');

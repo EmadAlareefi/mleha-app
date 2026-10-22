@@ -11,6 +11,8 @@ export const HERMES_SCOPES = {
   SUPPORT_READ: 'hermes:support:read',
   MANAGER_REPORTS: 'hermes:manager:reports',
   MANAGER_PII: 'hermes:manager:pii',
+  SALLA_READ: 'hermes:salla:read',
+  SALLA_WRITE: 'hermes:salla:write',
 } as const;
 
 export type HermesScope = (typeof HERMES_SCOPES)[keyof typeof HERMES_SCOPES];

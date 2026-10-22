@@ -1,6 +1,6 @@
 # Hermes integration API
 
-Read-only API that lets the Hermes assistant answer authorised employees'
+API that lets the Hermes assistant answer authorised employees'
 questions about orders, customers, shipments and business performance, over
 WhatsApp, Telegram and the Hermes dashboard.
 
@@ -9,9 +9,11 @@ WhatsApp, Telegram and the Hermes dashboard.
 - Code: `app/api/integrations/hermes/**` (routes), `app/lib/hermes/**` (logic)
 - Tests: `npm run test:hermes`
 
-Phase 1 is strictly read-only. There is no endpoint that changes an order,
-customer, shipment, refund or anything else. There is no SQL, GraphQL,
-free-text search or listing endpoint either.
+The original support and report endpoints remain read-only. Privileged live Salla
+reads and mutations are now available under `/salla/*`; see
+[the Salla bridge handoff](./hermes-salla-handoff.md) for permissions, operations,
+and write reconciliation. Restrictions below on listing and raw data describe
+the original support/report endpoints, not the separately authorized Salla bridge.
 
 ---
 
@@ -81,6 +83,8 @@ Authorization: Bearer hrm_<keyId>_<secret>
 |---|---|
 | `hermes:support:read` | Order, customer and shipment lookups. Contact details are masked. |
 | `hermes:manager:reports` | All `/reports/*` endpoints. |
+| `hermes:salla:read` | Live Salla reads and capability discovery; also requires manager PII scope. |
+| `hermes:salla:write` | Explicitly requested live Salla changes; also requires manager PII scope. |
 | `hermes:manager:pii` | Unmasked phone and email, full street address and national short address, and the `top_customers` list in the customer report. |
 
 Scopes do not imply each other. A manager credential that should also do

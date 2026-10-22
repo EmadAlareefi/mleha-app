@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { prisma } from '@/lib/prisma';
-import { createCredential, revokeCredential, rotateCredential } from '../credential-admin';
+import { createCredential, grantCredentialScopes, revokeCredential, rotateCredential } from '../credential-admin';
 import { parseApiKey, verifySecret } from '../credentials';
 import { TEST_PEPPER } from './fixtures';
 
@@ -67,4 +67,24 @@ test('rotation issues a replacement and gives the old key a bounded grace period
   updates.length = 0;
   await rotateCredential('old', 'ops', 0, now);
   assert.equal(updates[0].data.revokedBy, 'ops', 'zero grace revokes immediately');
+});
+
+test('scope grants preserve the key and existing scopes and audit within a transaction', async () => {
+  const originalTransaction = prisma.$transaction;
+  const events: string[] = [];
+  let update: any;
+  (prisma as any).$transaction = async (callback: any) => callback({
+    hermesApiCredential: {
+      findUnique: async () => ({ id: 'manager', merchantId: '1', scopes: ['hermes:manager:pii'], revokedAt: null, expiresAt: null }),
+      update: async (args: any) => { events.push('update'); update = args; return args.data; },
+    },
+    hermesAuditLog: { create: async ({ data }: any) => { events.push('audit'); assert.equal(data.action, 'credentials.grant'); } },
+  });
+  try {
+    await grantCredentialScopes('manager', ['hermes:salla:read', 'hermes:salla:write'], 'operator');
+    assert.deepEqual(events, ['audit', 'update']);
+    assert.deepEqual(update.data, { scopes: ['hermes:manager:pii', 'hermes:salla:read', 'hermes:salla:write'] });
+    await assert.rejects(grantCredentialScopes('manager', ['admin'], 'operator'));
+    await assert.rejects(grantCredentialScopes('manager', ['hermes:salla:read'], ''));
+  } finally { prisma.$transaction = originalTransaction; }
 });

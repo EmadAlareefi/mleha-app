@@ -2,12 +2,12 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Mleha Hermes Integration API",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "license": {
       "name": "Proprietary",
       "identifier": "LicenseRef-Proprietary"
     },
-    "description": "Read-only API for the Hermes assistant: support lookups (orders, customers, shipments) and management reports. Phase 1 has no mutations. See docs/hermes-integration.md."
+    "description": "Hermes support lookups, reports, and privileged live Salla read/write tools. See docs/hermes-salla-handoff.md."
   },
   "servers": [
     {
@@ -1430,6 +1430,245 @@
           },
           "503": {
             "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/salla/capabilities": {
+      "get": {
+        "operationId": "getSallaCapabilities",
+        "summary": "Discover supported live Salla operations and current token permissions. Requires manager PII scope as well.",
+        "x-required-scope": "hermes:salla:read",
+        "x-additional-required-scopes": [
+          "hermes:manager:pii"
+        ],
+        "responses": {
+          "200": {
+            "description": "Hermes envelope; data contains the scrubbed Salla response (including its own data and pagination) or the capabilities object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {},
+                    "meta": {
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "401": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "403": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "404": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "429": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "500": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "503": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          }
+        }
+      }
+    },
+    "/salla/read": {
+      "post": {
+        "operationId": "readSalla",
+        "summary": "Read live Salla data through the Mleha server. Requires manager PII scope. Use only available operations from capabilities.",
+        "x-required-scope": "hermes:salla:read",
+        "x-additional-required-scopes": [
+          "hermes:manager:pii"
+        ],
+        "responses": {
+          "200": {
+            "description": "Hermes envelope; data contains the scrubbed Salla response (including its own data and pagination) or the capabilities object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {},
+                    "meta": {
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "401": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "403": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "404": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "429": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "500": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "503": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "JSON body, maximum 4096 characters. query_json and payload_json are JSON-encoded strings.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "description": "Operation name returned by get_salla_capabilities."
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,19}$",
+                    "description": "Internal Salla ID, not the displayed order reference."
+                  },
+                  "query_json": {
+                    "type": "string",
+                    "description": "JSON object containing scalar Salla query parameters, e.g. {\"keyword\":\"dress\",\"per_page\":20}."
+                  },
+                  "payload_json": {
+                    "type": "string",
+                    "description": "JSON object containing documented Salla write fields. Only for write operations."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/salla/write": {
+      "post": {
+        "operationId": "writeSalla",
+        "summary": "Make an explicitly requested Salla change for an authorized manager. Requires manager PII scope. Resolve internal IDs first; send only requested fields. Never automatically retry a write after any error or timeout: read back the resource to reconcile the outcome.",
+        "x-required-scope": "hermes:salla:write",
+        "x-additional-required-scopes": [
+          "hermes:manager:pii"
+        ],
+        "responses": {
+          "200": {
+            "description": "Hermes envelope; data contains the scrubbed Salla response (including its own data and pagination) or the capabilities object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "properties": {
+                    "data": {},
+                    "meta": {
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "401": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "403": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "404": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "429": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "500": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          },
+          "503": {
+            "description": "Hermes error envelope. Do not automatically retry mutations."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "JSON body, maximum 4096 characters. query_json and payload_json are JSON-encoded strings.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "description": "Operation name returned by get_salla_capabilities."
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,19}$",
+                    "description": "Internal Salla ID, not the displayed order reference."
+                  },
+                  "query_json": {
+                    "type": "string",
+                    "description": "JSON object containing scalar Salla query parameters, e.g. {\"keyword\":\"dress\",\"per_page\":20}."
+                  },
+                  "payload_json": {
+                    "type": "string",
+                    "description": "JSON object containing documented Salla write fields. Only for write operations."
+                  }
+                }
+              }
+            }
           }
         }
       }

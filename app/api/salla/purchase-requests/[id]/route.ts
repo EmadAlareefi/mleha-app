@@ -13,7 +13,7 @@ import { prisma } from '@/lib/prisma';
 export const runtime = 'nodejs';
 
 type RouteContext = {
-  params: { id: string } | Promise<{ id: string }>;
+  params: Promise<{ id: string }>;
 };
 
 function actorName(session: any): string {

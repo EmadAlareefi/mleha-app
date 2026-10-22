@@ -157,7 +157,14 @@ function isTransientFailure(error: unknown): boolean {
   );
 }
 
-type RouteContext = { params?: Promise<Record<string, string | string[]>> };
+type RouteContext = { params: Promise<Record<string, string | string[]>> };
+
+// Direct callers/tests may omit context. Next.js route validation inspects the
+// final overload, which must expose the required framework-supplied context.
+interface HermesHandler {
+  (request: NextRequest, routeContext?: Partial<RouteContext>): Promise<NextResponse>;
+  (request: NextRequest, routeContext: RouteContext): Promise<NextResponse>;
+}
 
 function isHttps(request: NextRequest): boolean {
   const forwarded = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
@@ -191,8 +198,8 @@ async function authenticate(
 export function createHermesHandler(
   config: HermesRouteConfig,
   handle: (ctx: HermesContext) => Promise<HandlerResult>
-) {
-  return async function hermesRoute(request: NextRequest, routeContext?: RouteContext): Promise<NextResponse> {
+): HermesHandler {
+  return async function hermesRoute(request: NextRequest, routeContext?: Partial<RouteContext>): Promise<NextResponse> {
     const started = performance.now();
     const now = new Date();
     const requestId = crypto.randomUUID();

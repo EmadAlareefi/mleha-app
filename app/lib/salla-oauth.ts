@@ -296,7 +296,7 @@ export async function refreshExpiringTokens(): Promise<void> {
 
 let sallaDispatcher: Dispatcher | null | undefined;
 
-function getSallaDispatcher(): Dispatcher | null {
+export function getSallaDispatcher(): Dispatcher | null {
   if (sallaDispatcher !== undefined) {
     return sallaDispatcher;
   }

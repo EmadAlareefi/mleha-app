@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { generateApiKey, getApiKeyPepper } from './credentials';
 import { normalizeScopes, type HermesScope } from './scopes';
@@ -140,5 +141,26 @@ export async function listCredentials(merchantId?: string) {
       rotatedFromId: true,
     },
     orderBy: { createdAt: 'desc' },
+  });
+}
+
+/** Add explicit operator-approved scopes without rotating the gateway's key. */
+export async function grantCredentialScopes(id: string, requested: string[], by: string) {
+  const scopes = normalizeScopes(requested);
+  if (!by.trim() || !scopes.length || scopes.length !== new Set(requested).size) {
+    throw new Error('operator and valid scopes are required');
+  }
+  return prisma.$transaction(async tx => {
+    const row = await tx.hermesApiCredential.findUnique({ where: { id } });
+    if (!row || row.revokedAt || (row.expiresAt && row.expiresAt <= new Date())) {
+      throw new Error('credential not found, revoked or expired');
+    }
+    const merged = [...new Set([...row.scopes, ...scopes])].sort();
+    await tx.hermesAuditLog.create({ data: {
+      requestId: crypto.randomUUID(), credentialId: id, merchantId: row.merchantId,
+      action: 'credentials.grant', scopeUsed: scopes.join(' '), outcome: 'success',
+      httpStatus: 200, classification: 'operational', actorId: by.trim(), actorChannel: 'api', actorVerified: true,
+    } });
+    return tx.hermesApiCredential.update({ where: { id }, data: { scopes: merged }, select: { id: true, name: true, scopes: true } });
   });
 }

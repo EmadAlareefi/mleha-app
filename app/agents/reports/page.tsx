@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function AgentsReportsPage({
   searchParams,
 }: {
-  searchParams?: SearchParams | Promise<SearchParams>;
+  searchParams?: Promise<SearchParams>;
 }) {
   const resolved = await resolveSearchParams(searchParams);
   const { fromDate, toDate } = resolveDateRange(resolved);
