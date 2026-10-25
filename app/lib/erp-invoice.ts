@@ -28,6 +28,7 @@ import {
   resolveERPSarRate,
 } from '@/lib/erp-currency';
 import { isPotentialRefundStatus } from '@/lib/refund-status';
+import { toStoreWallTimeIsoString } from '@/app/lib/salla-time';
 
 // ERP Invoice payload based on your specifications
 export interface ERPInvoiceItem {
@@ -987,7 +988,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     hinvdspc: Math.round(discountPercentage * 100) / 100,
     hvat_amt_rcvd: taxAmount,
     htaxfree_sales: 0,
-    datetime_stamp: orderDate.toISOString(),
+    datetime_stamp: toStoreWallTimeIsoString(orderDate),
     Description: description,
     Taxno: '',
     remarks2: order.orderNumber || order.orderId,

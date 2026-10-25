@@ -13,6 +13,7 @@ import type { ERPManualTransferItem } from '@/app/lib/erp-invoice';
 import { syncSallaInvoices } from '@/app/lib/salla-invoices-v2';
 import { syncSallaOrders } from '@/app/lib/salla-orders';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
+import { storeDayEnd, storeDayStart } from '@/app/lib/salla-time';
 import {
   buildFreeOrderInternalTransferMessage,
   getERPOrderSyncError,
@@ -182,21 +183,11 @@ type ERPRefundOrderSyncRecord = RefundSyncStateRecord & {
 };
 
 function parseDateStart(value: string | undefined): Date | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  return storeDayStart(value);
 }
 
 function parseDateEnd(value: string | undefined): Date | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = new Date(`${value}T23:59:59.999Z`);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  return storeDayEnd(value);
 }
 
 function isRefundCandidateInvoice(

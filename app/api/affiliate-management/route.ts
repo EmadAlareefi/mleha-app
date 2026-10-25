@@ -12,6 +12,7 @@ import {
 } from '@/app/lib/affiliate-metrics';
 import { getExcludedNationalDayAmounts } from '@/app/lib/affiliate-category-commission';
 import { loadAffiliateOrderItems } from '@/app/lib/affiliate-order-items';
+import { storeDayEnd, storeDayStart } from '@/app/lib/salla-time';
 import { Prisma } from '@prisma/client';
 import { requireAffiliateManagementSession } from './authorization';
 
@@ -237,8 +238,8 @@ export async function GET(request: NextRequest) {
 
     if (startDate || endDate) {
       where.placedAt = {
-        gte: startDate ? new Date(`${startDate}T00:00:00.000Z`) : undefined,
-        lte: endDate ? new Date(`${endDate}T23:59:59.999Z`) : undefined,
+        gte: storeDayStart(startDate),
+        lte: storeDayEnd(endDate),
       };
     }
 

@@ -4,6 +4,9 @@
  * instants. Implemented with Intl so no time-zone library is required.
  */
 
+import { wallTimeToInstant } from '@/lib/zoned-time';
+import { parseSallaDateTime } from '../salla-time';
+
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MS_PER_DAY = 86_400_000;
 
@@ -27,32 +30,11 @@ export function parseIsoDate(value: string): { year: number; month: number; day:
   return { year, month, day };
 }
 
-/** Offset of `timeZone` from UTC at `instant`, in milliseconds. */
-function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(instant);
-  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
-  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
-  return asUtc - Math.floor(instant.getTime() / 1000) * 1000;
-}
-
 /** The UTC instant at which local midnight of `date` occurs in `timeZone`. */
 export function startOfLocalDay(date: string, timeZone: string): Date {
   const parsed = parseIsoDate(date);
   if (!parsed) throw new Error(`Invalid date ${date}`);
-  const guess = Date.UTC(parsed.year, parsed.month - 1, parsed.day);
-  // Two passes settle DST transitions.
-  let instant = guess - zoneOffsetMs(new Date(guess), timeZone);
-  instant = guess - zoneOffsetMs(new Date(instant), timeZone);
-  return new Date(instant);
+  return wallTimeToInstant(Date.UTC(parsed.year, parsed.month - 1, parsed.day), timeZone);
 }
 
 export function addDays(date: string, days: number): string {
@@ -111,8 +93,8 @@ export function hoursBetween(start: Date | null, end: Date | null): number | nul
 export function parseLooseDate(value: unknown): Date | null {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  const raw = typeof value === 'object' ? (value as Record<string, unknown>).date : value;
-  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
-  const parsed = new Date(typeof raw === 'string' && /^\d{4}-\d{2}-\d{2} /.test(raw) ? raw.replace(' ', 'T') : raw);
+  if (typeof value === 'object') return parseSallaDateTime(value);
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const parsed = new Date(typeof value === 'string' && /^\d{4}-\d{2}-\d{2} /.test(value) ? value.replace(' ', 'T') : value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

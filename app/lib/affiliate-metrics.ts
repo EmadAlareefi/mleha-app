@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { SALLA_STORE_TIME_ZONE, storeMonthKey } from '@/app/lib/salla-time';
 
 export const AFFILIATE_TAX_RATE = 0.15;
 export const AFFILIATE_RATE_CHANGE_DATE = new Date('2026-07-24T21:00:00.000Z');
@@ -67,9 +68,7 @@ export function getMonthKey(date: Date | null | undefined): string | null {
   if (!date) {
     return null;
   }
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
+  return storeMonthKey(date);
 }
 
 export function getMonthLabel(date: Date | null | undefined): string {
@@ -79,7 +78,7 @@ export function getMonthLabel(date: Date | null | undefined): string {
   const monthFormatter = new Intl.DateTimeFormat('ar-u-ca-gregory-nu-latn', {
     month: 'long',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone: SALLA_STORE_TIME_ZONE,
   });
   return monthFormatter.format(date);
 }

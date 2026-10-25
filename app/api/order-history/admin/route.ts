@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { normalizers } from '@/app/lib/salla-orders';
+import { storeDayEnd, storeDayStart } from '@/app/lib/salla-time';
 import {
   NEGATIVE_ERP_INVOICE_ID_PREFIX,
   getERPOrderSyncError,
@@ -162,8 +163,8 @@ export async function GET(request: NextRequest) {
 
     if (startDate || endDate) {
       where.placedAt = {
-        gte: startDate ? new Date(`${startDate}T00:00:00.000Z`) : undefined,
-        lte: endDate ? new Date(`${endDate}T23:59:59.999Z`) : undefined,
+        gte: storeDayStart(startDate),
+        lte: storeDayEnd(endDate),
       };
     }
 

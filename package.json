@@ -35,6 +35,7 @@
     "test:product-reviews": "node --test --import tsx app/lib/__tests__/product-review-presets.test.ts app/lib/__tests__/salla-product-reviews.test.ts app/embed/__tests__/product-reviews-widget.test.ts",
     "test:size-guides": "node --test --import tsx app/lib/__tests__/salla-size-guides.test.ts app/embed/__tests__/size-guide-widget.test.ts",
     "test:affiliate-metrics": "node --test --import tsx app/lib/__tests__/affiliate-metrics.test.ts",
+    "test:salla-time": "node --test --import tsx app/lib/__tests__/salla-time.test.ts",
     "check:delivered-dates": "node --import tsx scripts/check-delivered-dates.ts",
     "cleanup:erp-2026": "node scripts/run-remove-2026-erp-invoices.js",
     "backfill:fabric-stock-grand-total": "node --import tsx scripts/backfill-fabric-stock-grand-total.ts",
@@ -47,7 +48,8 @@
     "test:expenses": "node --test --import tsx app/lib/expenses/__tests__/*.test.ts",
     "test:hermes": "node --test --import tsx app/lib/hermes/__tests__/*.test.ts",
     "hermes:credentials": "node --import tsx scripts/hermes-credentials.ts",
-    "backfill:salla-order-facts": "node --import tsx scripts/backfill-salla-order-facts.ts"
+    "backfill:salla-order-facts": "node --import tsx scripts/backfill-salla-order-facts.ts",
+    "backfill:salla-order-dates": "node --import tsx scripts/backfill-salla-order-dates.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",

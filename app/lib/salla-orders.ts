@@ -6,6 +6,7 @@ import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import { extractSallaTrackingNumber } from '@/app/lib/salla-shipment';
 import { getAffiliateCommissionRate } from '@/app/lib/affiliate-metrics';
 import { sallaOrderFactsData } from '@/app/lib/salla-order-facts';
+import { parseSallaDateTime } from '@/app/lib/salla-time';
 
 type AnyRecord = Record<string, any>;
 
@@ -117,22 +118,15 @@ export const normalizers = {
     if (value instanceof Date) {
       return Number.isNaN(value.getTime()) ? null : value;
     }
-    const str =
-      typeof value === 'string'
-        ? value
-        : typeof value === 'number'
-        ? new Date(value).toISOString()
-        : typeof value === 'object'
-        ? ((value as AnyRecord).date ??
-          (value as AnyRecord).datetime ??
-          (value as AnyRecord).issued ??
-          (value as AnyRecord).created ??
-          (value as AnyRecord).updated ??
-          null)
-        : null;
-    if (!str) return null;
-    const parsed = new Date(str);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    if (typeof value === 'object') {
+      const record = value as AnyRecord;
+      const str =
+        record.date ?? record.datetime ?? record.issued ?? record.created ?? record.updated ?? null;
+      return parseSallaDateTime(
+        typeof record.timezone === 'string' ? { date: str, timezone: record.timezone } : str
+      );
+    }
+    return parseSallaDateTime(value);
   },
 };
 
@@ -288,7 +282,7 @@ export function extractDates(
   return {
     created: pickFirst(
       normalizers.date(order.date?.created),
-      normalizers.date(order.date?.date),
+      normalizers.date(order.date?.date ? order.date : null),
       normalizers.date(order.created_at),
       normalizers.date(order.createdAt),
       normalizers.date(order.created)
@@ -298,7 +292,7 @@ export function extractDates(
       normalizers.date(order.updated_at),
       normalizers.date(order.updatedAt),
       normalizers.date(order.updated),
-      normalizers.date(order.date?.date)
+      normalizers.date(order.date?.date ? order.date : null)
     ),
   };
 }
