@@ -110,6 +110,10 @@ export async function POST(request: NextRequest) {
               typeof body?.invoiceRecordId === 'string' && body.invoiceRecordId.trim()
                 ? body.invoiceRecordId.trim()
                 : undefined,
+            returnRequestId:
+              typeof body?.returnRequestId === 'string' && body.returnRequestId.trim()
+                ? body.returnRequestId.trim()
+                : undefined,
           })
         : await syncInvoicesAndRefundInvoicesItem({
             queueType,

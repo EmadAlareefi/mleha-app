@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import type { SallaInvoice, SallaOrder } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import {
+  buildReturnFeeInvoicePayload,
   postInvoiceToERP,
   syncOrderToERP,
   transformOrderToERPInvoice,
@@ -82,6 +83,8 @@ export type PendingERPRefundRow = {
   refundInvoiceIssueDate: string | null;
   refundSource: 'order' | 'invoice' | 'order+invoice';
   refundSourceLabel: string;
+  // Set on rows that only retry a failed return-fee invoice.
+  returnRequestId: string | null;
   erpSyncedAt: string | null;
   erpSyncError: string | null;
   erpSyncAttempts: number;
@@ -390,30 +393,45 @@ function forceRefundOrder(order: SallaOrder): SallaOrder {
   };
 }
 
+const activeReturnRequestSelect = {
+  id: true,
+  returnFee: true,
+  feeExchangeRate: true,
+  shippingAmount: true,
+  erpFeeSyncedAt: true,
+  erpFeeSyncError: true,
+  items: {
+    select: { productName: true, productSku: true, quantity: true, price: true },
+  },
+} satisfies Prisma.ReturnRequestSelect;
+
+type ActiveReturnRequest = Prisma.ReturnRequestGetPayload<{ select: typeof activeReturnRequestSelect }>;
+
+const activeReturnRequestWhere = {
+  type: 'return',
+  status: { notIn: ['rejected', 'cancelled'] },
+} satisfies Prisma.ReturnRequestWhereInput;
+
 /**
- * Items the customer actually returned, from active return requests. Returns
- * null when the order has none (e.g. a cancellation), meaning a full reversal.
+ * Active return requests of an order and what the customer got back: the
+ * returned items plus the original shipping. Empty items mean no return
+ * request (e.g. a cancellation), which is credited as a full reversal.
  */
-async function getReturnedItemsForOrder(order: SallaOrder): Promise<ERPReturnedItem[] | null> {
-  const returnRequests = await prisma.returnRequest.findMany({
+async function getOrderReturnRefund(order: SallaOrder): Promise<{
+  requests: ActiveReturnRequest[];
+  returnedItems: ERPReturnedItem[];
+  returnedShipping: number;
+}> {
+  const requests = await prisma.returnRequest.findMany({
     where: {
+      ...activeReturnRequestWhere,
       merchantId: order.merchantId,
       orderId: order.orderId,
-      type: 'return',
-      status: { notIn: ['rejected', 'cancelled'] },
     },
-    select: {
-      items: {
-        select: { productName: true, productSku: true, quantity: true },
-      },
-    },
+    select: activeReturnRequestSelect,
   });
 
-  const items = returnRequests.flatMap((request) => request.items);
-  if (items.length === 0) {
-    return null;
-  }
-
+  const items = requests.flatMap((request) => request.items);
   const missingSku = items.filter((item) => !item.productSku?.trim());
   if (missingSku.length > 0) {
     throw new InvoicesAndRefundInvoicesError(
@@ -424,7 +442,88 @@ async function getReturnedItemsForOrder(order: SallaOrder): Promise<ERPReturnedI
     );
   }
 
-  return items.map((item) => ({ sku: item.productSku!.trim(), quantity: item.quantity }));
+  return {
+    requests: items.length > 0 ? requests : [],
+    returnedItems: items.map((item) => ({ sku: item.productSku!.trim(), quantity: item.quantity })),
+    returnedShipping: requests.reduce((total, request) => total + Number(request.shippingAmount ?? 0), 0),
+  };
+}
+
+/**
+ * Return fee in SAR, capped at what the request credits (items + shipping):
+ * the customer's refund never goes below zero, so neither does the fee's base.
+ */
+function getReturnFeeSar(request: ActiveReturnRequest): number {
+  const rate = Number(request.feeExchangeRate) > 0 ? Number(request.feeExchangeRate) : 1;
+  const credited =
+    request.items.reduce((total, item) => total + Number(item.price) * item.quantity, 0) +
+    Number(request.shippingAmount ?? 0);
+  const fee = Math.min(Number(request.returnFee ?? 0), Math.max(credited, 0));
+  return Math.round(fee * rate * 100) / 100;
+}
+
+/**
+ * Post each request's return fee as a sale invoice (type 06). Failures are kept
+ * on the request so the queue can retry the fee alone.
+ */
+async function syncReturnFeeInvoices(
+  order: SallaOrder,
+  requests: ActiveReturnRequest[],
+  invoiceDate: Date
+): Promise<{ postedIds: string[]; errors: string[] }> {
+  const postedIds: string[] = [];
+  const errors: string[] = [];
+
+  for (const request of requests) {
+    if (request.erpFeeSyncedAt) {
+      continue;
+    }
+
+    const feeSar = getReturnFeeSar(request);
+    if (feeSar <= 0) {
+      continue;
+    }
+
+    let error: string | null = null;
+    let erpInvoiceId = '';
+    try {
+      const result = await postInvoiceToERP(buildReturnFeeInvoicePayload(order, { feeSar, invoiceDate }));
+      erpInvoiceId = String(result.erpInvoiceId || '').trim();
+      if (!result.success) {
+        error = result.error || result.message || 'فشل إرسال فاتورة رسوم الإرجاع إلى ERP';
+      } else if (!erpInvoiceId) {
+        error = 'نجحت العملية في ERP لكن لم يتم إرجاع رقم فاتورة رسوم الإرجاع.';
+      }
+    } catch (postError) {
+      error = postError instanceof Error ? postError.message : 'فشل إرسال فاتورة رسوم الإرجاع إلى ERP';
+    }
+
+    await prisma.returnRequest.update({
+      where: { id: request.id },
+      data: error
+        ? { erpFeeSyncError: error }
+        : { erpFeeInvoiceId: erpInvoiceId, erpFeeSyncedAt: new Date(), erpFeeSyncError: null },
+    });
+
+    if (error) {
+      errors.push(error);
+    } else {
+      postedIds.push(erpInvoiceId);
+    }
+  }
+
+  return { postedIds, errors };
+}
+
+function describeFeeSync(feeSync: { postedIds: string[]; errors: string[] }): string {
+  const parts: string[] = [];
+  if (feeSync.postedIds.length > 0) {
+    parts.push(`تم تسجيل رسوم الإرجاع في ERP (فاتورة ${feeSync.postedIds.join('، ')}).`);
+  }
+  if (feeSync.errors.length > 0) {
+    parts.push(`تعذر تسجيل رسوم الإرجاع: ${feeSync.errors.join(' | ')} — ستظهر في القائمة لإعادة المحاولة.`);
+  }
+  return parts.join(' ');
 }
 
 function forceSaleOrder(order: SallaOrder): SallaOrder {
@@ -671,6 +770,74 @@ async function listPendingERPOrders(dateRange: DateRangeInput = {}): Promise<Pen
   });
 }
 
+/**
+ * Return fees whose ERP invoice failed after the refund credit note posted.
+ */
+async function listPendingReturnFeeRows(): Promise<PendingERPRefundRow[]> {
+  const requests = await prisma.returnRequest.findMany({
+    where: {
+      ...activeReturnRequestWhere,
+      erpFeeSyncedAt: null,
+      erpFeeSyncError: { not: null },
+    },
+    select: {
+      id: true,
+      merchantId: true,
+      orderId: true,
+      orderNumber: true,
+      customerName: true,
+      customerPhone: true,
+      currency: true,
+      returnFee: true,
+      erpFeeSyncError: true,
+    },
+  });
+  if (requests.length === 0) {
+    return [];
+  }
+
+  const orders = await prisma.sallaOrder.findMany({
+    where: { orderId: { in: requests.map((request) => request.orderId) } },
+  });
+  const ordersByKey = new Map(orders.map((order) => [`${order.merchantId}:${order.orderId}`, order]));
+
+  return requests.map((request) => {
+    const order = ordersByKey.get(`${request.merchantId}:${request.orderId}`) ?? null;
+    return {
+      id: `fee:${request.id}`,
+      merchantId: request.merchantId,
+      orderRecordId: order?.id ?? null,
+      orderId: request.orderId,
+      orderNumber: request.orderNumber || order?.orderNumber || null,
+      orderStatusSlug: order?.statusSlug ?? null,
+      orderStatusName: order?.statusName ?? null,
+      paymentStatus: order?.paymentStatus ?? null,
+      paymentMethod: order?.paymentMethod ?? null,
+      currency: request.currency,
+      totalAmount: request.returnFee != null ? Number(request.returnFee) : null,
+      customerName: request.customerName || order?.customerName || null,
+      customerMobile: request.customerPhone || order?.customerMobile || null,
+      placedAt: order?.placedAt?.toISOString() ?? null,
+      refundInvoiceRecordId: null,
+      refundInvoiceId: null,
+      refundInvoiceNumber: null,
+      refundInvoiceStatus: null,
+      refundInvoicePaymentStatus: null,
+      refundInvoiceIssueDate: null,
+      refundSource: 'order',
+      refundSourceLabel: 'رسوم الإرجاع',
+      returnRequestId: request.id,
+      erpSyncedAt: null,
+      erpSyncError: request.erpFeeSyncError,
+      erpSyncAttempts: 1,
+      queueStatus: 'error',
+      queueStatusLabel: 'فشل تسجيل رسوم الإرجاع',
+      queueStatusMessage: `تم إرسال المرتجع، لكن فاتورة رسوم الإرجاع لم تُسجل: ${request.erpFeeSyncError}`,
+      canSync: true,
+    };
+  });
+}
+
 async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<PendingERPRefundRow[]> {
   const startDate = parseDateStart(dateRange.startDate);
   const endDate = parseDateEnd(dateRange.endDate);
@@ -853,6 +1020,7 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
           refundInvoiceIssueDate: null,
           refundSource: 'order',
           refundSourceLabel: getRefundSourceLabel('order'),
+          returnRequestId: null,
           erpSyncedAt: orderSyncRecord?.erpSyncedAt?.toISOString() ?? null,
           erpSyncError: orderSyncRecord?.erpSyncError || null,
           erpSyncAttempts: orderSyncRecord?.erpSyncAttempts || 0,
@@ -930,6 +1098,7 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
           refundInvoiceIssueDate: linkedInvoice.issueDate?.toISOString() ?? null,
           refundSource,
           refundSourceLabel: getRefundSourceLabel(refundSource),
+          returnRequestId: null,
           erpSyncedAt: effectiveSyncState.erpSyncedAt?.toISOString() ?? null,
           erpSyncError: effectiveSyncState.erpSyncError || null,
           erpSyncAttempts: effectiveSyncState.erpSyncAttempts || 0,
@@ -1033,6 +1202,7 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
         refundInvoiceIssueDate: invoice.issueDate?.toISOString() ?? null,
         refundSource: 'invoice',
         refundSourceLabel: getRefundSourceLabel('invoice'),
+        returnRequestId: null,
         erpSyncedAt: invoice.erpSyncedAt?.toISOString() ?? null,
         erpSyncError: invoice.erpSyncError,
         erpSyncAttempts: invoice.erpSyncAttempts,
@@ -1044,7 +1214,9 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
     ];
   });
 
-  return [...orderRows, ...invoiceOnlyRows].sort((left, right) => {
+  const feeRows = await listPendingReturnFeeRows();
+
+  return [...orderRows, ...invoiceOnlyRows, ...feeRows].sort((left, right) => {
     const leftTimestamp = left.refundInvoiceIssueDate || left.placedAt || '';
     const rightTimestamp = right.refundInvoiceIssueDate || right.placedAt || '';
     return leftTimestamp.localeCompare(rightTimestamp);
@@ -1259,12 +1431,70 @@ async function resolveRefundOrder(input: {
   return { order, invoice };
 }
 
+async function syncPendingReturnFee(
+  returnRequestId: string
+): Promise<Extract<SyncInvoicesAndRefundInvoicesResult, { queueType: 'refund' }>> {
+  const request = await prisma.returnRequest.findFirst({
+    where: { ...activeReturnRequestWhere, id: returnRequestId },
+    select: { ...activeReturnRequestSelect, merchantId: true, orderId: true, erpFeeInvoiceId: true },
+  });
+  if (!request) {
+    throw new InvoicesAndRefundInvoicesError('لم يتم العثور على طلب الإرجاع.', 404);
+  }
+
+  const order = await prisma.sallaOrder.findFirst({
+    where: { merchantId: request.merchantId, orderId: request.orderId },
+  });
+  if (!order) {
+    throw new InvoicesAndRefundInvoicesError('لم يتم العثور على الطلب داخل قاعدة البيانات.', 404);
+  }
+
+  const base = {
+    queueType: 'refund' as const,
+    orderId: order.orderId,
+    orderNumber: order.orderNumber,
+    invoiceId: null,
+    invoiceNumber: null,
+  };
+
+  if (request.erpFeeSyncedAt) {
+    return {
+      ...base,
+      alreadyRecorded: true,
+      erpInvoiceId: request.erpFeeInvoiceId || '',
+      message: 'تم تسجيل رسوم هذا الإرجاع في ERP مسبقاً.',
+    };
+  }
+
+  // Fees are only retried after a failed attempt, i.e. once the credit note posted.
+  if (!request.erpFeeSyncError) {
+    throw new InvoicesAndRefundInvoicesError('لم يتم إرسال مرتجع هذا الطلب إلى ERP بعد.', 409);
+  }
+
+  const feeSync = await syncReturnFeeInvoices(order, [request], new Date());
+  if (feeSync.errors.length > 0) {
+    throw new InvoicesAndRefundInvoicesError(feeSync.errors.join(' | '), 502);
+  }
+
+  return {
+    ...base,
+    alreadyRecorded: false,
+    erpInvoiceId: feeSync.postedIds[0] || '',
+    message: describeFeeSync(feeSync),
+  };
+}
+
 async function syncPendingRefund(input: {
   orderRecordId?: string;
   orderId?: string;
   orderNumber?: string;
   invoiceRecordId?: string;
+  returnRequestId?: string;
 }): Promise<Extract<SyncInvoicesAndRefundInvoicesResult, { queueType: 'refund' }>> {
+  if (input.returnRequestId) {
+    return syncPendingReturnFee(input.returnRequestId);
+  }
+
   const { order, invoice } = await resolveRefundOrder(input);
   const orderSyncRecord = await getERPRefundOrderSyncRecord(order.id);
 
@@ -1312,10 +1542,12 @@ async function syncPendingRefund(input: {
     );
   }
 
-  const returnedItems = await getReturnedItemsForOrder(order);
+  const returnRefund = await getOrderReturnRefund(order);
+  const refundDate = invoice?.issueDate ?? new Date();
   const payload = await transformOrderToERPInvoice(forceRefundOrder(order), {
-    returnedItems: returnedItems ?? undefined,
-    invoiceDate: invoice?.issueDate ?? new Date(),
+    returnedItems: returnRefund.returnedItems.length > 0 ? returnRefund.returnedItems : undefined,
+    returnedShipping: returnRefund.returnedShipping,
+    invoiceDate: refundDate,
     returnReference: order.erpInvoiceId,
   });
   const result = await postInvoiceToERP(payload);
@@ -1380,11 +1612,15 @@ async function syncPendingRefund(input: {
     });
   }
 
+  const feeSync = await syncReturnFeeInvoices(order, returnRefund.requests, refundDate);
+
   return {
     queueType: 'refund',
     alreadyRecorded: false,
     erpInvoiceId,
-    message: result.message || 'تم إرسال المرتجع إلى ERP بنجاح.',
+    message: [result.message || 'تم إرسال المرتجع إلى ERP بنجاح.', describeFeeSync(feeSync)]
+      .filter(Boolean)
+      .join(' '),
     orderId: order.orderId,
     orderNumber: order.orderNumber,
     invoiceId: invoice?.invoiceId ?? null,
@@ -1447,6 +1683,7 @@ export async function syncInvoicesAndRefundInvoicesItem(
         orderId?: string;
         orderNumber?: string;
         invoiceRecordId?: string;
+        returnRequestId?: string;
       }
 ): Promise<SyncInvoicesAndRefundInvoicesResult> {
   if (input.queueType === 'order') {

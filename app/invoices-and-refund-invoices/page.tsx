@@ -80,6 +80,7 @@ type RefundQueueRow = {
   refundInvoiceIssueDate: string | null;
   refundSource: 'order' | 'invoice' | 'order+invoice';
   refundSourceLabel: string;
+  returnRequestId: string | null;
   erpSyncedAt: string | null;
   erpSyncError: string | null;
   erpSyncAttempts: number;
@@ -401,6 +402,7 @@ export default function InvoicesAndRefundInvoicesPage() {
         orderId: refund.orderId,
         orderNumber: refund.orderNumber,
         invoiceRecordId: refund.refundInvoiceRecordId,
+        returnRequestId: refund.returnRequestId,
       }),
     });
 

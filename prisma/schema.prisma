@@ -1018,6 +1018,12 @@ model ReturnRequest {
   exchangeOrderHeldAt     DateTime?
   exchangeOrderReleasedAt DateTime?
 
+  // ERP sale invoice (type 06) recording the return fee as shipping income,
+  // posted after the order's refund credit note.
+  erpFeeInvoiceId String?
+  erpFeeSyncedAt  DateTime?
+  erpFeeSyncError String?   @db.Text
+
   // Admin notes
   adminNotes String?   @db.Text
   reviewedBy String? // Admin who reviewed

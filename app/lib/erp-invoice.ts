@@ -101,8 +101,10 @@ export interface ERPReturnedItem {
 
 export interface ERPInvoiceOptions {
   // Credit only these SKUs/quantities (partial return) instead of the whole
-  // order. Shipping, COD and options-remainder lines are not credited.
+  // order. COD and options-remainder lines are not credited.
   returnedItems?: ERPReturnedItem[];
+  // Original shipping refunded with a partial return (order currency, incl. VAT).
+  returnedShipping?: number;
   // Invoice date; defaults to the original Salla order date.
   invoiceDate?: Date;
   // ERP invoice number of the sale a credit note reverses (sent as hrtnref).
@@ -798,6 +800,19 @@ async function buildPartialReturnPayload(
     (total, item) => (item.barcode === '05147' ? total : total + toHalalas(item.price) * item.qty),
     0
   );
+
+  // The customer's refund includes the original shipping, so credit it too.
+  const shippingWithTax = roundMoney(convertMoneyToSar(options.returnedShipping, sarRate));
+  if (shippingWithTax > 0) {
+    items.push({
+      cmbkey: '0',
+      barcode: '019',
+      qty: 1,
+      fqty: 0,
+      price: shippingWithTax,
+      discpc: 0,
+    });
+  }
   const orderDiscount = roundMoney(convertMoneyToSar(order.discountAmount, sarRate));
   const share =
     extractedItems.orderedProductGross > 0
@@ -846,7 +861,7 @@ async function buildPartialReturnPayload(
     remarks2: order.orderNumber || order.orderId,
     hrtnref: parseReturnReference(options.returnReference),
     transport_code: '',
-    transport_amt: 0,
+    transport_amt: roundMoney(shippingWithTax / 1.15),
     transport_onus: 1,
     other_amt: 0,
     other_acct: '',
@@ -1180,6 +1195,53 @@ export async function transformOrderToERPInvoice(
   });
 
   return payload;
+}
+
+/**
+ * Sale invoice (type 06) recording a return fee as shipping income: a single
+ * shipping line (barcode 019) for the fee, VAT included.
+ */
+export function buildReturnFeeInvoicePayload(
+  order: SallaOrder,
+  options: { feeSar: number; invoiceDate: Date }
+): ERPInvoicePayload {
+  const fee = roundMoney(options.feeSar);
+  if (!(fee > 0)) {
+    throw new Error('رسوم الإرجاع يجب أن تكون أكبر من صفر.');
+  }
+
+  return {
+    ltrtype: '06',
+    SLCNTR: getSalesCenterCode(order),
+    BRANCH: '05',
+    SLPRSN: '01',
+    USRID: 'web',
+    lcustcode: '',
+    hinvdsvl: 0,
+    hinvdspc: 0,
+    hvat_amt_rcvd: roundMoney(fee - fee / 1.15),
+    htaxfree_sales: 0,
+    datetime_stamp: options.invoiceDate.toISOString(),
+    Description: `رسوم إرجاع ${order.orderNumber || order.orderId}`,
+    Taxno: '',
+    remarks2: order.orderNumber || order.orderId,
+    hrtnref: 0,
+    transport_code: '',
+    transport_amt: roundMoney(fee / 1.15),
+    transport_onus: 1,
+    other_amt: 0,
+    other_acct: '',
+    API_Inv: [
+      {
+        cmbkey: '0',
+        barcode: '019',
+        qty: 1,
+        fqty: 0,
+        price: fee,
+        discpc: 0,
+      },
+    ],
+  };
 }
 
 /**

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { calculateERPPayloadTotal, transformOrderToERPInvoice } from '../erp-invoice';
+import {
+  buildReturnFeeInvoicePayload,
+  calculateERPPayloadTotal,
+  transformOrderToERPInvoice,
+} from '../erp-invoice';
 
 // Barcode lookups are stubbed; the Salla items call has no token here, so the
 // transform falls back to rawOrder.items.
@@ -77,4 +81,29 @@ test('prorates order-level discount by returned gross', async () => {
 test('refuses unmatched or excess returned quantities', async () => {
   await assert.rejects(transformOrderToERPInvoice(order(), { returnedItems: [{ sku: 'ZZZ', quantity: 1 }] }), /غير موجودة/);
   await assert.rejects(transformOrderToERPInvoice(order(), { returnedItems: [{ sku: 'B1', quantity: 3 }] }), /غير موجودة/);
+});
+
+test('credits the original shipping refunded with a partial return', async () => {
+  const p = await transformOrderToERPInvoice(order(), {
+    returnedItems: [{ sku: 'B1', quantity: 1 }],
+    returnedShipping: 30,
+  });
+  const shipping = p.API_Inv.find((i) => i.barcode === '019');
+  assert.deepEqual({ price: shipping?.price, qty: shipping?.qty }, { price: 30, qty: 1 });
+  assert.equal(p.transport_amt, 26.09);
+  assert.equal(calculateERPPayloadTotal(p), 260);
+  assert.ok(!p.API_Inv.some((i) => i.barcode === '000'));
+});
+
+test('builds the return fee as a type-06 shipping sale', () => {
+  const p = buildReturnFeeInvoicePayload(order(), { feeSar: 60, invoiceDate: new Date('2026-10-20T00:00:00Z') });
+  assert.equal(p.ltrtype, '06');
+  assert.deepEqual(p.API_Inv, [{ cmbkey: '0', barcode: '019', qty: 1, fqty: 0, price: 60, discpc: 0 }]);
+  assert.equal(calculateERPPayloadTotal(p), 60);
+  assert.equal(p.hvat_amt_rcvd, 7.83);
+  assert.equal(p.transport_amt, 52.17);
+  assert.equal(p.hrtnref, 0);
+  assert.equal(p.Description, 'رسوم إرجاع 227000001');
+  assert.equal(p.datetime_stamp, '2026-10-20T00:00:00.000Z');
+  assert.throws(() => buildReturnFeeInvoicePayload(order(), { feeSar: 0, invoiceDate: new Date() }));
 });
