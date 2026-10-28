@@ -4,7 +4,11 @@ import fs from 'fs';
 import path from 'path';
 import type { SallaOrder } from '@prisma/client';
 import * as XLSX from 'xlsx';
-import { postInvoiceToERP, transformOrderToERPInvoice } from '@/app/lib/erp-invoice';
+import {
+  calculateERPPayloadTotal,
+  postInvoiceToERP,
+  transformOrderToERPInvoice,
+} from '@/app/lib/erp-invoice';
 import { getERPCurrencySyncBlockReason } from '@/lib/erp-currency';
 import { prisma } from '@/lib/prisma';
 
@@ -17,6 +21,10 @@ const REQUIRED_HEADERS = [
   'اسم العميل او الحساب',
 ] as const;
 const CUSTOMER_HEADER = 'اسم العميل او الحساب';
+const INVOICE_TOTAL_HEADER = 'اجمالي الفاتورة';
+const ERP_SALE_NUMBER_HEADER = 'الرقم';
+// Max allowed gap between the rebuilt credit note and the exported sale total.
+const REFUND_TOTAL_TOLERANCE = 0.05;
 const ERP_REFUND_INVOICE_ID_HEADER = 'رقم فاتورة المرتجع ERP';
 const ORDER_NUMBER_REGEX = /(\d{6,})/;
 
@@ -115,6 +123,20 @@ function queueWorkbookMutation<T>(task: () => Promise<T>): Promise<T> {
 
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function parseCellAmount(value: CellValue | undefined): number | null {
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  const text = normalizeString(value).replace(/,/g, '');
+  if (!text) {
+    return null;
+  }
+
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeCellValue(value: unknown): CellValue {
@@ -570,7 +592,27 @@ export async function refundInvoiceWorkbookRow(input: {
       throw new InvoiceRefundError(currencyBlockReason, 400);
     }
 
-    const payload = await transformOrderToERPInvoice(forceRefundOrder(order));
+    // Full reversal of the exported sale: keep the original order date and link
+    // the credit note to that sale's ERP number.
+    const payload = await transformOrderToERPInvoice(forceRefundOrder(order), {
+      returnReference: normalizeString(targetRow.cells[ERP_SALE_NUMBER_HEADER]),
+    });
+
+    // The credit note is rebuilt from the current Salla order, so it must still
+    // match the sale the ERP recorded; otherwise the reversal would not net out.
+    const saleTotal = parseCellAmount(targetRow.cells[INVOICE_TOTAL_HEADER]);
+    if (saleTotal == null) {
+      throw new InvoiceRefundError('تعذر قراءة إجمالي الفاتورة من هذا الصف، ولا يمكن التحقق من مبلغ المرتجع.', 400);
+    }
+
+    const refundTotal = calculateERPPayloadTotal(payload);
+    if (Math.abs(refundTotal - saleTotal) > REFUND_TOTAL_TOLERANCE) {
+      throw new InvoiceRefundError(
+        `مبلغ المرتجع (${refundTotal.toFixed(2)}) لا يطابق إجمالي الفاتورة في الملف (${saleTotal.toFixed(2)}). لم يتم الإرسال إلى ERP.`,
+        409
+      );
+    }
+
     const result = await postInvoiceToERP(payload);
 
     if (!result.success) {

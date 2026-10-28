@@ -89,6 +89,24 @@ interface ExtractOrderItemsResult {
   items: ERPInvoiceItem[];
   explicitOptionNetTotal: number;
   manualTransferItems: ERPManualTransferItem[];
+  // Gross (incl. VAT, before line discounts) of every ordered product line,
+  // used to prorate order-level amounts when only some items are credited.
+  orderedProductGross: number;
+}
+
+export interface ERPReturnedItem {
+  sku: string;
+  quantity: number;
+}
+
+export interface ERPInvoiceOptions {
+  // Credit only these SKUs/quantities (partial return) instead of the whole
+  // order. Shipping, COD and options-remainder lines are not credited.
+  returnedItems?: ERPReturnedItem[];
+  // Invoice date; defaults to the original Salla order date.
+  invoiceDate?: Date;
+  // ERP invoice number of the sale a credit note reverses (sent as hrtnref).
+  returnReference?: string | number | null;
 }
 
 type ERPInvoicePayloadWithMetadata = ERPInvoicePayload & {
@@ -185,6 +203,13 @@ function calculateERPLineTotalHalalas(item: ERPInvoiceItem): number {
 
 function calculateERPItemsTotalHalalas(items: ERPInvoiceItem[]): number {
   return items.reduce((total, item) => total + calculateERPLineTotalHalalas(item), 0);
+}
+
+/**
+ * Total incl. VAT that the ERP will record for a payload (lines minus header discount).
+ */
+export function calculateERPPayloadTotal(payload: ERPInvoicePayload): number {
+  return fromHalalas(calculateERPItemsTotalHalalas(payload.API_Inv) - toHalalas(payload.hinvdsvl));
 }
 
 function calculateERPLineDiscountHalalas(item: ERPInvoiceItem): number {
@@ -517,9 +542,14 @@ async function fetchOrderItemsFromSalla(merchantId: string, orderId: string): Pr
  * Item prices arrive in the order currency and are converted to SAR
  * using `sarRate` (1 for SAR orders).
  */
-async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<ExtractOrderItemsResult> {
+async function extractOrderItems(
+  order: SallaOrder,
+  sarRate: number,
+  returnedQtyBySku?: Map<string, number>
+): Promise<ExtractOrderItemsResult> {
   const items: ERPInvoiceItem[] = [];
   let explicitOptionNetTotal = 0;
+  let orderedProductGrossHalalas = 0;
   const manualTransferItems: ERPManualTransferItem[] = [];
 
   // Try to fetch items from Salla API first
@@ -558,7 +588,7 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
     }
 
     // Extract quantity
-    const qty = parseInt(item.quantity || item.qty || '1', 10);
+    const orderedQty = parseInt(item.quantity || item.qty || '1', 10);
 
     // Extract price from Salla API structure
     // Price should be: price_without_tax + tax (original price with tax, before discounts)
@@ -580,8 +610,10 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
     price = roundMoney(price);
 
     // Calculate discount percentage from exact line halalas, not rounded unit percentages.
+    // Salla's line discount covers the ordered quantity, so derive it from that.
     let discpc = 0;
-    const grossLineHalalas = toHalalas(price) * qty;
+    const grossLineHalalas = toHalalas(price) * orderedQty;
+    orderedProductGrossHalalas += Math.max(grossLineHalalas, 0);
     if (grossLineHalalas > 0) {
       const discountAmount = convertMoneyToSar(item.amounts?.total_discount, sarRate);
       let discountHalalas = toHalalas(discountAmount);
@@ -598,6 +630,22 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
       if (discountHalalas > 0) {
         discpc = deriveDiscountPercentageForExactHalalas(grossLineHalalas, discountHalalas);
       }
+    }
+
+    // For a partial return, credit only the returned quantity of this SKU.
+    let qty = orderedQty;
+    if (returnedQtyBySku) {
+      // Return requests may store the variant SKU or the parent product SKU.
+      const remainingBySku = returnedQtyBySku;
+      const matchKey = [rawSku, item.product?.sku, item.variant?.sku]
+        .map((candidate) => normalizeSkuForERP(String(candidate ?? '').trim()))
+        .find((candidate) => candidate && (remainingBySku.get(candidate) ?? 0) > 0);
+      if (!matchKey) {
+        continue;
+      }
+      const remaining = remainingBySku.get(matchKey) ?? 0;
+      qty = Math.min(orderedQty, remaining);
+      remainingBySku.set(matchKey, remaining - qty);
     }
 
     const netLineHalalas = grossLineHalalas - Math.round(grossLineHalalas * (discpc / 100));
@@ -695,13 +743,132 @@ async function extractOrderItems(order: SallaOrder, sarRate: number): Promise<Ex
     items,
     explicitOptionNetTotal: roundMoney(explicitOptionNetTotal),
     manualTransferItems,
+    orderedProductGross: fromHalalas(orderedProductGrossHalalas),
   };
+}
+
+function buildReturnedQtyBySku(returnedItems: ERPReturnedItem[]): Map<string, number> {
+  const quantities = new Map<string, number>();
+  for (const returned of returnedItems) {
+    const sku = normalizeSkuForERP(returned.sku.trim());
+    if (!sku || returned.quantity <= 0) {
+      continue;
+    }
+    quantities.set(sku, (quantities.get(sku) ?? 0) + returned.quantity);
+  }
+  return quantities;
+}
+
+function parseReturnReference(value: ERPInvoiceOptions['returnReference']): number {
+  const normalized = String(value ?? '').trim();
+  return /^\d+$/.test(normalized) ? Number(normalized) : 0;
+}
+
+/**
+ * Build a credit note for only the returned items of an order. Prices come from
+ * the original sale lines; the order-level discount is prorated by gross value.
+ */
+async function buildPartialReturnPayload(
+  order: SallaOrder,
+  sarRate: number,
+  returnedItems: ERPReturnedItem[],
+  options: ERPInvoiceOptions
+): Promise<ERPInvoicePayload> {
+  const returnedQtyBySku = buildReturnedQtyBySku(returnedItems);
+  if (returnedQtyBySku.size === 0) {
+    throw new Error('لا توجد منتجات مرتجعة بأرقام SKU صالحة لإنشاء فاتورة المرتجع.');
+  }
+
+  const extractedItems = await extractOrderItems(order, sarRate, returnedQtyBySku);
+  const unmatched = Array.from(returnedQtyBySku.entries()).filter(([, quantity]) => quantity > 0);
+  if (unmatched.length > 0) {
+    throw new Error(
+      `المنتجات المرتجعة غير موجودة في الطلب بالكمية المطلوبة: ${unmatched
+        .map(([sku, quantity]) => `${sku} × ${quantity}`)
+        .join('، ')}`
+    );
+  }
+
+  const items = extractedItems.items;
+  if (items.length === 0) {
+    throw new Error('لا توجد بنود قابلة للإرسال إلى ERP في المنتجات المرتجعة.');
+  }
+
+  const returnedGrossHalalas = items.reduce(
+    (total, item) => (item.barcode === '05147' ? total : total + toHalalas(item.price) * item.qty),
+    0
+  );
+  const orderDiscount = roundMoney(convertMoneyToSar(order.discountAmount, sarRate));
+  const share =
+    extractedItems.orderedProductGross > 0
+      ? Math.min(1, fromHalalas(returnedGrossHalalas) / extractedItems.orderedProductGross)
+      : 0;
+  const discountAmount = roundMoney(orderDiscount * share);
+  const total = fromHalalas(calculateERPItemsTotalHalalas(items) - toHalalas(discountAmount));
+  const subtotal = convertMoneyToSar(order.subtotalAmount, sarRate);
+  const discountPercentage = subtotal > 0 ? (orderDiscount / subtotal) * 100 : 0;
+
+  const rawOrder = order.rawOrder as any;
+  const orderTotal = roundMoney(
+    convertMoneyToSar(rawOrder?.amounts?.total, sarRate) ||
+      convertMoneyToSar(rawOrder?.total, sarRate) ||
+      convertMoneyToSar(order.totalAmount, sarRate)
+  );
+  if (total <= 0 || (orderTotal > 0 && total > orderTotal)) {
+    throw new Error(
+      `مبلغ المرتجع الجزئي (${total.toFixed(2)} SAR) غير منطقي مقارنة بإجمالي الطلب (${orderTotal.toFixed(2)} SAR).`
+    );
+  }
+
+  logger.info('Built partial return credit note', {
+    orderId: order.orderId,
+    orderNumber: order.orderNumber,
+    returnedItems,
+    items,
+    discountAmount,
+    total,
+  });
+
+  const payload: ERPInvoicePayloadWithMetadata = {
+    ltrtype: '26',
+    SLCNTR: getSalesCenterCode(order),
+    BRANCH: '05',
+    SLPRSN: '01',
+    USRID: 'web',
+    lcustcode: '',
+    hinvdsvl: discountAmount,
+    hinvdspc: Math.round(discountPercentage * 100) / 100,
+    hvat_amt_rcvd: roundMoney(total - total / 1.15),
+    htaxfree_sales: 0,
+    datetime_stamp: (options.invoiceDate ?? getSallaOrderDate(order)).toISOString(),
+    Description: `مرتجع رقم ${order.orderNumber || order.orderId}`,
+    Taxno: '',
+    remarks2: order.orderNumber || order.orderId,
+    hrtnref: parseReturnReference(options.returnReference),
+    transport_code: '',
+    transport_amt: 0,
+    transport_onus: 1,
+    other_amt: 0,
+    other_acct: '',
+    API_Inv: items,
+  };
+
+  Object.defineProperty(payload, 'manualTransferItems', {
+    value: extractedItems.manualTransferItems,
+    enumerable: false,
+    configurable: false,
+  });
+
+  return payload;
 }
 
 /**
  * Transform SallaOrder to ERP invoice payload
  */
-export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERPInvoicePayload> {
+export async function transformOrderToERPInvoice(
+  order: SallaOrder,
+  options: ERPInvoiceOptions = {}
+): Promise<ERPInvoicePayload> {
   const rawOrder = order.rawOrder as any;
 
   // ERP only accepts SAR. Non-SAR orders are converted using the exchange
@@ -726,6 +893,10 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
   }
 
   const invoiceType = getInvoiceType(order);
+  if (invoiceType === '26' && options.returnedItems?.length) {
+    return buildPartialReturnPayload(order, sarRate, options.returnedItems, options);
+  }
+
   const salesCenter = getSalesCenterCode(order);
   const extractedItems = await extractOrderItems(order, sarRate);
   const items = extractedItems.items;
@@ -973,8 +1144,8 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     ? `مرتجع رقم ${order.orderNumber || order.orderId}`
     : `فاتورة رقم ${order.orderNumber || order.orderId}`;
 
-  // Use the original Salla order date if available
-  const orderDate = getSallaOrderDate(order);
+  // Use the original Salla order date unless the caller supplies one (refund date)
+  const orderDate = options.invoiceDate ?? getSallaOrderDate(order);
 
   const payload: ERPInvoicePayloadWithMetadata = {
     ltrtype: invoiceType,
@@ -991,7 +1162,7 @@ export async function transformOrderToERPInvoice(order: SallaOrder): Promise<ERP
     Description: description,
     Taxno: '',
     remarks2: order.orderNumber || order.orderId,
-    hrtnref: 0,
+    hrtnref: parseReturnReference(options.returnReference),
     transport_code: '',
     transport_amt: Math.round(shippingAmount * 100) / 100,
     transport_onus: 1,

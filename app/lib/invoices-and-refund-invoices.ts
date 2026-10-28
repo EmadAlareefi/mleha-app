@@ -9,7 +9,7 @@ import {
   syncOrderToERP,
   transformOrderToERPInvoice,
 } from '@/app/lib/erp-invoice';
-import type { ERPManualTransferItem } from '@/app/lib/erp-invoice';
+import type { ERPManualTransferItem, ERPReturnedItem } from '@/app/lib/erp-invoice';
 import { syncSallaInvoices } from '@/app/lib/salla-invoices-v2';
 import { syncSallaOrders } from '@/app/lib/salla-orders';
 import { upsertSallaOrderFromPayload } from '@/app/lib/salla-sync';
@@ -388,6 +388,43 @@ function forceRefundOrder(order: SallaOrder): SallaOrder {
     ...order,
     statusSlug: 'refund',
   };
+}
+
+/**
+ * Items the customer actually returned, from active return requests. Returns
+ * null when the order has none (e.g. a cancellation), meaning a full reversal.
+ */
+async function getReturnedItemsForOrder(order: SallaOrder): Promise<ERPReturnedItem[] | null> {
+  const returnRequests = await prisma.returnRequest.findMany({
+    where: {
+      merchantId: order.merchantId,
+      orderId: order.orderId,
+      type: 'return',
+      status: { notIn: ['rejected', 'cancelled'] },
+    },
+    select: {
+      items: {
+        select: { productName: true, productSku: true, quantity: true },
+      },
+    },
+  });
+
+  const items = returnRequests.flatMap((request) => request.items);
+  if (items.length === 0) {
+    return null;
+  }
+
+  const missingSku = items.filter((item) => !item.productSku?.trim());
+  if (missingSku.length > 0) {
+    throw new InvoicesAndRefundInvoicesError(
+      `لا يمكن تحديد المنتجات المرتجعة لأن رقم SKU مفقود: ${missingSku
+        .map((item) => item.productName)
+        .join('، ')}`,
+      409
+    );
+  }
+
+  return items.map((item) => ({ sku: item.productSku!.trim(), quantity: item.quantity }));
 }
 
 function forceSaleOrder(order: SallaOrder): SallaOrder {
@@ -1275,7 +1312,12 @@ async function syncPendingRefund(input: {
     );
   }
 
-  const payload = await transformOrderToERPInvoice(forceRefundOrder(order));
+  const returnedItems = await getReturnedItemsForOrder(order);
+  const payload = await transformOrderToERPInvoice(forceRefundOrder(order), {
+    returnedItems: returnedItems ?? undefined,
+    invoiceDate: invoice?.issueDate ?? new Date(),
+    returnReference: order.erpInvoiceId,
+  });
   const result = await postInvoiceToERP(payload);
 
   if (!result.success) {

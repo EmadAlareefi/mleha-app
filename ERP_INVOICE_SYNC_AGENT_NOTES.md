@@ -71,6 +71,11 @@ Keep those in mind when addressing bug reports—most issues come from external 
 ## Currency Handling (non-SAR orders)
 Salla stores every order amount in the **customer's currency** (AED, KWD, USD, …) and ships the conversion rate in `rawOrder.exchange_rate` (`{ rate, base_currency: "SAR", exchange_currency }`, rate = SAR per one order-currency unit). `transformOrderToERPInvoice` converts all amounts (item prices, shipping, COD, discounts, expected total) to SAR via `resolveERPSarRate` in `lib/erp-currency.ts` before building the payload; the existing halala reconciliation absorbs per-line conversion rounding. Orders whose raw payload lacks a rate fall back to env rates (`ERP_SAR_RATES_JSON`, then `RETURN_FEE_SAR_RATES_JSON`, both JSON maps like `{"AED": 1.02}`) and fail with a clear Arabic message when neither resolves. Only orders with no currency at all remain blocked in the queue UI. Unit tests: `lib/__tests__/erp-currency.test.ts` (`node --test --import tsx …`).
 
+## Refund (type-26) Credit Notes
+- **Refunds queue** (`syncPendingRefund` in `app/lib/invoices-and-refund-invoices.ts`): when the order has an active `ReturnRequest` of type `return` (not `rejected`/`cancelled`), the credit note contains only the returned SKUs/quantities at their original sale prices (`buildPartialReturnPayload` in `app/lib/erp-invoice.ts`). Shipping, COD and options-remainder lines are not credited, and the order-level discount is prorated by gross value. Orders without a return request (cancellations, full refunds) are still reversed in full. The credit note is dated with the Salla refund invoice `issueDate` (or the posting time) and `hrtnref` carries the original sale's `erpInvoiceId`.
+- **Workbook reversals** (`app/lib/invoice-refunds.ts`): full reversal of the exported sale with the original order date; `hrtnref` is the row's `الرقم`, and posting is refused if the rebuilt total differs from `اجمالي الفاتورة` by more than 0.05 SAR.
+- `scripts/reverse-delayed-invoices-to-erp.mjs` and `scripts/import-invoice-refunds-to-erp.mjs` are unchanged (original dates, `hrtnref` 0).
+
 ## Testing & Verification
 - `npm run dev` and load `/invoices`, `/order-reports`, `/erp-settings` to confirm UI flows.
 - Run `npx ts-node scripts/test-erp-sync.ts` (with `ERP_DEBUG_MODE=true`) before touching live ERP.
