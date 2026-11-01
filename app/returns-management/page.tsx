@@ -36,6 +36,8 @@ import {
 } from '@/app/lib/returns/status';
 import type { SmsaLiveStatus } from '@/types/smsa';
 import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import { buildTrackingUrl } from '@/lib/tracking-url';
+import { detectShipmentCompany, SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { CouponAmountDialog } from './components/coupon-amount-dialog';
 
@@ -70,6 +72,7 @@ interface ReturnRequest {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  smsaResponse?: { provider?: string; labelUrl?: string | null } | null;
   smsaTrackingNumber?: string;
   smsaAwbNumber?: string;
   smsaLiveStatus?: SmsaLiveStatus | null;
@@ -1022,6 +1025,16 @@ export default function ReturnsManagementPage() {
                 const awbNumber = request.smsaAwbNumber?.trim() || '';
                 const displayTrackingNumber = trackingNumber || awbNumber;
                 const trackingLookupKey = awbNumber || trackingNumber;
+                const detectedCompany = detectShipmentCompany(displayTrackingNumber);
+                const provider = request.smsaResponse?.provider?.trim().toLowerCase();
+                const company = SHIPMENT_COMPANIES[provider || ''] ||
+                  (detectedCompany.id !== 'unknown' ? detectedCompany : SHIPMENT_COMPANIES.smsa);
+                const trackingLink = buildTrackingUrl(
+                  trackingLookupKey,
+                  company.id,
+                  request.smsaResponse?.labelUrl || request.returnLabelUrl,
+                );
+                const carrierName = SHIPMENT_COMPANIES[trackingLink?.type || '']?.nameAr || company.nameAr;
                 const trackingInfo = request.smsaLiveStatus || null;
                 const formattedTrackingTimestamp =
                   trackingInfo?.timestamp ? formatTrackingTimestamp(trackingInfo.timestamp) : null;
@@ -1103,7 +1116,7 @@ export default function ReturnsManagementPage() {
                               <p><strong>رقم التتبع:</strong> {displayTrackingNumber}</p>
                               {hasLiveStatus ? (
                                 <p className="text-xs text-indigo-700 mt-1">
-                                  <strong>حالة سمسا:</strong>{' '}
+                                  <strong>حالة {carrierName}:</strong>{' '}
                                   <>
                                     {majorTrackingLabel ||
                                       trackingInfo?.description ||
@@ -1115,18 +1128,18 @@ export default function ReturnsManagementPage() {
                                 </p>
                               ) : (
                                 <p className="text-xs text-gray-500 mt-1">
-                                  لا يوجد تحديث من ويب هوك سمسا حتى الآن
+                                  لا يوجد تحديث من ويب هوك {carrierName} حتى الآن
                                 </p>
                               )}
-                              {trackingLookupKey && (
+                              {trackingLink && (
                                 <p className="text-xs mt-1">
                                   <a
-                                    href={`https://www.smsaexpress.com/sa/ar/trackingdetails?tracknumbers%5B0%5D=${trackingLookupKey}`}
+                                    href={trackingLink.url}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="text-indigo-600 hover:text-indigo-800 underline"
                                   >
-                                    فتح تتبع سمسا
+                                    فتح تتبع {carrierName}
                                   </a>
                                 </p>
                               )}
