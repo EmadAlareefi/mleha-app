@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   evaluateReturnWindowByProductId,
+  getDiscountedProductIds,
   getNationalDayOffersProductIds,
   getReturnWindowPolicy,
   getWindowExpiredProductIds,
@@ -21,6 +22,14 @@ test('National Day offers are identified as exchange-only products', () => {
     regular: ['فساتين'],
   });
   assert.deepEqual([...productIds], ['national']);
+});
+
+test('1 SAR promo category items can be neither returned nor exchanged', () => {
+  const productIds = getDiscountedProductIds({
+    promo: ['عروض اليوم الوطني', 'القسم المجاني'],
+    regular: ['فساتين'],
+  });
+  assert.deepEqual([...productIds], ['promo']);
 });
 
 const daysAgo = (days: number, from = new Date('2026-06-21T12:00:00.000Z')): Date =>

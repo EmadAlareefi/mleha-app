@@ -14,6 +14,8 @@ export const DISCOUNTED_CATEGORY_ALIASES = new Set([
   'فساتين بـ 195 ريال',
   'فستانين بـ 95 ريال',
   'فستان بـ 95 ريال',
+  // 1 SAR promo category (id 289631972, see app/lib/promo-limit.ts): no returns or exchanges.
+  'القسم المجاني',
 ]);
 
 export const normalizeCategoryName = (value: unknown): string | null => {
