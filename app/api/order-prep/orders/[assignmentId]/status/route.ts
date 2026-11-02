@@ -4,6 +4,8 @@ import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { updateAssignmentStatus } from '@/app/lib/order-prep-service';
 import { log } from '@/app/lib/logger';
+import { prisma } from '@/lib/prisma';
+import { promoLimitBlock } from '@/app/lib/promo-limit';
 
 export const runtime = 'nodejs';
 
@@ -39,6 +41,11 @@ export async function POST(
         { error: 'حالة غير مدعومة' },
         { status: 400 }
       );
+    }
+
+    if (status === 'completed') {
+      const blocked = await guardPromoLimit(assignmentId, Boolean(body?.promoLimitAcknowledged), user);
+      if (blocked) return blocked;
     }
 
     const result = await updateAssignmentStatus({
@@ -78,4 +85,27 @@ export async function POST(
     });
     return NextResponse.json({ error: 'تعذر تحديث حالة الطلب' }, { status: 500 });
   }
+}
+
+/**
+ * Refuses to complete an order that breaks the 1 SAR promo limit unless the
+ * preparer explicitly acknowledged the warning shown on the page.
+ */
+async function guardPromoLimit(assignmentId: string, acknowledged: boolean, user: { id?: string }) {
+  const assignment = await prisma.orderPrepAssignment.findUnique({
+    where: { id: assignmentId },
+    select: { merchantId: true, orderId: true, orderNumber: true, orderData: true },
+  });
+  if (!assignment) return null;
+
+  const block = await promoLimitBlock({
+    merchantId: assignment.merchantId,
+    orderId: assignment.orderId,
+    orderNumber: assignment.orderNumber,
+    orderData: assignment.orderData,
+    acknowledged,
+    context: 'order-prep.complete',
+    userId: user.id ?? null,
+  });
+  return block ? NextResponse.json(block, { status: 409 }) : null;
 }

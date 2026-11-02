@@ -9,6 +9,7 @@ import { AlertTriangle, CheckCircle, Loader2, Package, Printer, RefreshCcw, Undo
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { getShippingAddressSummary, getShippingCompanyName } from '@/app/lib/shipping-company';
+import { PromoLimitAlert, usePromoLimitCheck } from '@/components/PromoLimitAlert';
 
 type AssignmentStatus = 'assigned' | 'preparing' | 'waiting' | 'completed';
 
@@ -310,7 +311,12 @@ export default function OrderPrepClient() {
     async (
       assignmentId: string,
       status: AssignmentStatus,
-      options?: { skipSallaSync?: boolean; suppressError?: boolean; itemStatuses?: ItemStatusPayload[] },
+      options?: {
+        skipSallaSync?: boolean;
+        suppressError?: boolean;
+        itemStatuses?: ItemStatusPayload[];
+        promoLimitAcknowledged?: boolean;
+      },
     ) => {
       setPendingAction(`${assignmentId}_${status}`);
       try {
@@ -323,6 +329,7 @@ export default function OrderPrepClient() {
             status,
             skipSallaSync: Boolean(options?.skipSallaSync),
             itemStatuses: options?.itemStatuses ?? undefined,
+            promoLimitAcknowledged: Boolean(options?.promoLimitAcknowledged),
           }),
         });
         const data = await response.json();
@@ -478,6 +485,11 @@ export default function OrderPrepClient() {
 
   const assignmentsCount = assignments.length;
   const activeAssignment = assignments[0] ?? null;
+  const promoLimit = usePromoLimitCheck({
+    orderId: activeAssignment?.orderId,
+    merchantId: activeAssignment?.merchantId,
+    orderData: activeAssignment?.orderData,
+  });
   const isBusy =
     loading || assigning || Boolean(pendingAction || sallaStatusAction || printingOrderId);
 
@@ -546,6 +558,7 @@ export default function OrderPrepClient() {
 
     await updateStatus(assignment.id, 'completed', {
       itemStatuses: completion.itemStatuses,
+      promoLimitAcknowledged: promoLimit.acknowledged,
     });
     const nextAssignment = await assignNextOrder({ silent: true });
     if (!nextAssignment) {
@@ -553,7 +566,7 @@ export default function OrderPrepClient() {
     }
     return true;
   },
-    [assignNextOrder, handleUpdateSallaStatus, toast, updateStatus],
+    [assignNextOrder, handleUpdateSallaStatus, promoLimit.acknowledged, toast, updateStatus],
   );
 
   const runConfirmedAction = useCallback(() => {
@@ -655,6 +668,12 @@ export default function OrderPrepClient() {
           </p>
         </Card>
       ) : (
+        <>
+        <PromoLimitAlert
+          check={promoLimit.check}
+          acknowledged={promoLimit.acknowledged}
+          onAcknowledgedChange={promoLimit.setAcknowledged}
+        />
         <AssignmentCard
           key={activeAssignment.id}
           assignment={activeAssignment}
@@ -663,6 +682,14 @@ export default function OrderPrepClient() {
           printingOrderId={printingOrderId}
           isSallaUpdating={Boolean(sallaStatusAction)}
           onConfirmComplete={({ assignment, summary }) => {
+            if (promoLimit.blocked) {
+              toast({
+                variant: 'destructive',
+                description:
+                  'هذا الطلب يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). راجع التنبيه الأحمر أعلى الطلب قبل الإنهاء.',
+              });
+              return;
+            }
             setConfirmDialog({
               type: 'complete',
               assignment,
@@ -670,6 +697,7 @@ export default function OrderPrepClient() {
             });
           }}
         />
+        </>
       )}
       <ConfirmationDialog
         open={Boolean(confirmDialog)}

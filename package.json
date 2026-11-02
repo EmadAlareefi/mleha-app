@@ -33,6 +33,7 @@
     "test:returns-phone": "node --test --import tsx app/lib/__tests__/returns-customer-phone.test.ts",
     "test:phone": "node --test --import tsx app/lib/__tests__/phone.test.ts",
     "test:product-reviews": "node --test --import tsx app/lib/__tests__/product-review-presets.test.ts app/lib/__tests__/salla-product-reviews.test.ts app/embed/__tests__/product-reviews-widget.test.ts",
+    "test:promo-limit": "node --test --import tsx app/lib/__tests__/promo-limit.test.ts app/embed/__tests__/promo-limit-widget.test.ts",
     "test:size-guides": "node --test --import tsx app/lib/__tests__/salla-size-guides.test.ts app/embed/__tests__/size-guide-widget.test.ts",
     "test:affiliate-metrics": "node --test --import tsx app/lib/__tests__/affiliate-metrics.test.ts",
     "check:delivered-dates": "node --import tsx scripts/check-delivered-dates.ts",

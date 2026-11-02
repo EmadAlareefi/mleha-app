@@ -19,6 +19,7 @@ import {
 } from '@/app/lib/local-shipping/messenger';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import { detectInternationalOrder } from '@/app/lib/order-destination';
+import { promoLimitBlock } from '@/app/lib/promo-limit';
 import { normalizePhoneWithDialCode } from '@/app/lib/phone';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
@@ -246,6 +247,19 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    const promoBlock = await promoLimitBlock({
+      merchantId: body.merchantId,
+      orderId: String(order.id),
+      orderNumber: normalizedOrderNumber,
+      orderData: order,
+      acknowledged: body.promoLimitAcknowledged === true,
+      context: 'local-shipping.create',
+      userId: user?.id ?? null,
+    });
+    if (promoBlock) {
+      return NextResponse.json({ success: false, ...promoBlock }, { status: 409 });
     }
 
     // Extract shipping information

@@ -17,6 +17,7 @@ import { detectMessengerShipments, buildShipToArabicLabel } from '@/app/lib/loca
 import { getItemColor, getItemSize } from '@/lib/returns/item-attributes';
 import { detectInternationalOrder } from '@/app/lib/order-destination';
 import { OrderBarcodeScanner } from '@/components/order-shipping/OrderBarcodeScanner';
+import { PromoLimitAlert, usePromoLimitCheck } from '@/components/PromoLimitAlert';
 
 interface OrderUser {
   id: string;
@@ -755,6 +756,14 @@ export default function OrderShippingPage() {
     return '';
   }, [currentOrder]);
 
+  const promoLimit = usePromoLimitCheck({
+    orderId: currentOrder?.orderId,
+    merchantId: resolvedMerchantId || null,
+    orderData: currentOrder?.orderData,
+  });
+  const PROMO_BLOCK_MESSAGE =
+    'هذا الطلب يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). راجع التنبيه الأحمر وأكّد المراجعة قبل الشحن.';
+
   useEffect(() => {
     let cancelled = false;
     const items = Array.isArray(currentOrder?.orderData?.items)
@@ -1299,6 +1308,10 @@ const handleRefreshItems = async () => {
       setShipmentError('هذا الطلب دولي. لا يتم إنشاء شحنة له من هذه الصفحة؛ يرجى طباعة الفاتورة فقط.');
       return;
     }
+    if (promoLimit.blocked) {
+      setShipmentError(PROMO_BLOCK_MESSAGE);
+      return;
+    }
 
     const shouldIncludeAssignmentId =
       !currentOrder.source || currentOrder.source === 'assignment';
@@ -1314,6 +1327,7 @@ const handleRefreshItems = async () => {
           orderId: currentOrder.orderId,
           orderNumber: currentOrder.orderNumber,
           merchantId: currentOrder.merchantId || null,
+          promoLimitAcknowledged: promoLimit.acknowledged,
         }),
       });
 
@@ -1524,6 +1538,7 @@ const handleRefreshItems = async () => {
             orderNumber: currentOrder.orderNumber,
             generatedBy: user?.username || user?.name || 'order-shipping',
             deliveryAgentId: agent.id,
+            promoLimitAcknowledged: promoLimit.acknowledged,
           }),
         });
 
@@ -1599,7 +1614,7 @@ const handleRefreshItems = async () => {
         setCreatingLocalShipment(false);
       }
     },
-    [currentOrder, resolvedMerchantId, user, reloadCurrentOrder],
+    [currentOrder, resolvedMerchantId, user, reloadCurrentOrder, promoLimit.acknowledged],
   );
 
   const handleConfirmAgentSelection = useCallback(async () => {
@@ -1635,6 +1650,10 @@ const handleRefreshItems = async () => {
     }
     if (isInternationalOrder) {
       alert('هذا الطلب دولي. لا يتم إنشاء شحنة له من هذه الصفحة؛ يرجى طباعة الفاتورة فقط.');
+      return;
+    }
+    if (promoLimit.blocked) {
+      alert(PROMO_BLOCK_MESSAGE);
       return;
     }
     if (!resolvedMerchantId) {
@@ -1675,6 +1694,7 @@ const handleRefreshItems = async () => {
   }, [
     currentOrder,
     isInternationalOrder,
+    promoLimit.blocked,
     resolvedMerchantId,
     agentSelectionDialogOpen,
     deliveryAgents,
@@ -1771,6 +1791,15 @@ const handleRefreshItems = async () => {
             />
           ) : (
             <div className="w-full">
+              {promoLimit.violation && (
+                <div className="mb-4 md:mb-6">
+                  <PromoLimitAlert
+                    check={promoLimit.check}
+                    acknowledged={promoLimit.acknowledged}
+                    onAcknowledgedChange={promoLimit.setAcknowledged}
+                  />
+                </div>
+              )}
               <Card className="p-4 md:p-6 mb-4 md:mb-6">
                 <div>
                   <h2 className="text-2xl md:text-3xl font-bold flex flex-wrap items-center gap-3">

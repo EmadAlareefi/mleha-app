@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { detectInternationalOrder } from '@/app/lib/order-destination';
+import { promoLimitBlock } from '@/app/lib/promo-limit';
 
 export const runtime = 'nodejs';
 
@@ -113,6 +114,18 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    const promoBlock = await promoLimitBlock({
+      merchantId: resolvedMerchantId,
+      orderId: targetOrderIdValue,
+      orderNumber: targetOrderNumber,
+      orderData: assignment?.orderData || storedOrder?.rawOrder,
+      acknowledged: body?.promoLimitAcknowledged === true,
+      context: 'order-shipping.create-shipment',
+    });
+    if (promoBlock) {
+      return NextResponse.json({ success: false, ...promoBlock }, { status: 409 });
     }
 
     // Use Salla's orders/actions API to create shipping policy
