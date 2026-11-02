@@ -1043,13 +1043,18 @@ function AssignmentCard({
           body: JSON.stringify({
             sku: rawSku,
             productName: item.name || undefined,
+            size: item.size || undefined,
           }),
         });
         const data = await response.json();
         if (!response.ok || !data?.success) {
           throw new Error(data?.error || 'تعذر طباعة رمز المنتج');
         }
-        toast({ description: `تم إرسال SKU ${rawSku} للطابعة` });
+        toast({
+          description: item.size
+            ? `تم إرسال SKU ${rawSku} (المقاس: ${item.size}) للطابعة`
+            : `تم إرسال SKU ${rawSku} للطابعة`,
+        });
       } catch (error) {
         toast({
           variant: 'destructive',

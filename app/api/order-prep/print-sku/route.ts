@@ -22,14 +22,16 @@ const LABEL_POINTS = {
 const sanitizeText = (value: unknown) => {
   if (typeof value !== 'string') return '';
   return value
+    .replace(/[٠-٩]/g, (char) => String(char.charCodeAt(0) - 0x0660))
     .normalize('NFKD')
     .replace(/[^\x20-\x7E]/g, '')
     .trim();
 };
 
-async function generateSkuLabelPdf(sku: string, name?: string) {
+async function generateSkuLabelPdf(sku: string, name?: string, size?: string) {
   const safeSku = (sanitizeText(sku) || 'UNKNOWN').toUpperCase();
   const safeName = sanitizeText(name || '');
+  const safeSize = sanitizeText(size || '').toUpperCase();
 
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([LABEL_POINTS.width, LABEL_POINTS.height]);
@@ -45,6 +47,22 @@ async function generateSkuLabelPdf(sku: string, name?: string) {
     font,
     color: rgb(0, 0, 0),
   });
+
+  if (safeSize) {
+    const sizeLabel = `SIZE: ${safeSize}`.slice(0, 20);
+    const maxWidth = LABEL_POINTS.width - 12;
+    let sizeFontSize = 12;
+    while (sizeFontSize > 7 && font.widthOfTextAtSize(sizeLabel, sizeFontSize) > maxWidth) {
+      sizeFontSize -= 0.5;
+    }
+    page.drawText(sizeLabel, {
+      x: 10,
+      y: 20,
+      size: sizeFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+  }
 
   if (safeName) {
     const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -79,6 +97,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const sku = sanitizeText(body?.sku);
     const productName = sanitizeText(body?.productName);
+    const size = sanitizeText(body?.size);
 
     if (!sku) {
       return NextResponse.json(
@@ -87,9 +106,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const encodedPdf = await generateSkuLabelPdf(sku, productName);
+    const encodedPdf = await generateSkuLabelPdf(sku, productName, size);
     const result = await sendPrintJob({
-      title: `SKU ${sku}`,
+      title: size ? `SKU ${sku} (${size})` : `SKU ${sku}`,
       contentType: 'pdf_base64',
       content: encodedPdf,
       printerId: PRINTNODE_ORDER_NUMBER_PRINTER_ID,
