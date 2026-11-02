@@ -1,3 +1,4 @@
+import { ONE_RIYAL_OFFER_ERROR } from '@/lib/returns/categories';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
@@ -6,6 +7,7 @@ import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
 import {
   getCategoryNamesByProductId,
   getDiscountedProductIds,
+  getOneRiyalOfferProductIds,
   getOutletProductIds,
   getProductIdsForOrderItems,
   getReturnWindowPolicy,
@@ -81,6 +83,15 @@ export async function GET(request: NextRequest) {
     const categoriesByProductId = await getCategoryNamesByProductId(merchantId, productIds);
     const discountedProductIds = getDiscountedProductIds(categoriesByProductId);
     const outletProductIds = getOutletProductIds(categoriesByProductId);
+    const oneRiyalProductIds = getOneRiyalOfferProductIds(categoriesByProductId);
+    if (productIds.length > 0 && productIds.every((productId) => oneRiyalProductIds.has(productId))) {
+      return NextResponse.json({
+        error: ONE_RIYAL_OFFER_ERROR,
+        errorCode: 'ONE_RIYAL_OFFER_NOT_RETURNABLE',
+        message: 'جميع منتجات هذا الطلب من عرض الريال الواحد، ولا يمكن إنشاء طلب إرجاع أو استبدال لها.',
+        canCreateNew: false,
+      }, { status: 400 });
+    }
     const fullyBlockedDiscountProductIds = new Set(
       Array.from(discountedProductIds).filter((productId) => !outletProductIds.has(productId))
     );

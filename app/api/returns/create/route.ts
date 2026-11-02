@@ -1,3 +1,4 @@
+import { ONE_RIYAL_OFFER_ERROR } from '@/lib/returns/categories';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
@@ -26,6 +27,7 @@ import {
   getCategoryNamesByProductId,
   getDiscountedProductIds,
   getNationalDayOffersProductIds,
+  getOneRiyalOfferProductIds,
   getOutletProductIds,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
@@ -218,6 +220,28 @@ export async function POST(request: NextRequest) {
 
     const selectedProductIds = resolvedItems.map((item) => item.productId).filter(Boolean);
     const selectedCategoriesByProductId = await getCategoryNamesByProductId(body.merchantId, selectedProductIds);
+    // Checked before the outlet / National Day rules, which would otherwise
+    // tell the customer an offer item is "exchange only".
+    const oneRiyalProductIds = getOneRiyalOfferProductIds(selectedCategoriesByProductId);
+    const oneRiyalItem = resolvedItems.find((item) => oneRiyalProductIds.has(item.productId));
+    if (oneRiyalItem) {
+      log.warn('Rejected return request for 1 SAR offer item', {
+        merchantId: body.merchantId,
+        orderId: body.orderId,
+        productId: oneRiyalItem.productId,
+        productName: oneRiyalItem.productName,
+        type: body.type,
+      });
+
+      return NextResponse.json({
+        error: ONE_RIYAL_OFFER_ERROR,
+        errorCode: 'ONE_RIYAL_OFFER_NOT_RETURNABLE',
+        message: 'لا يمكن إرجاع أو استبدال المنتجات التي تم الحصول عليها من عرض الريال الواحد.',
+        productId: oneRiyalItem.productId,
+        productName: oneRiyalItem.productName,
+      }, { status: 400 });
+    }
+
     const outletProductIds = getOutletProductIds(selectedCategoriesByProductId);
     const outletItem = resolvedItems.find((item) => outletProductIds.has(item.productId));
     if (outletItem && body.type === 'return') {

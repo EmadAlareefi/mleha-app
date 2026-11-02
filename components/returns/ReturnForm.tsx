@@ -21,7 +21,9 @@ import {
 import {
   isDiscountedCategory,
   isNationalDayOffersCategory,
+  isOneRiyalOfferCategory,
   isOutletCategory,
+  ONE_RIYAL_OFFER_ITEM_MESSAGE,
 } from '@/lib/returns/categories';
 import { RETURN_REASONS } from '@/lib/returns/reasons';
 
@@ -197,6 +199,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
   const [discountedCategoryProducts, setDiscountedCategoryProducts] = useState<Record<string, boolean>>({});
   const [outletCategoryProducts, setOutletCategoryProducts] = useState<Record<string, boolean>>({});
   const [nationalDayOffersProducts, setNationalDayOffersProducts] = useState<Record<string, boolean>>({});
+  const [oneRiyalOfferProducts, setOneRiyalOfferProducts] = useState<Record<string, boolean>>({});
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const orderCurrency = order.returnFeeQuotes?.return?.currency || order.amounts?.total?.currency || 'SAR';
   const fallbackReturnQuote = buildReturnFeeQuote('return', orderCurrency, 1, 'sar');
@@ -331,6 +334,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         setDiscountedCategoryProducts({});
         setOutletCategoryProducts({});
         setNationalDayOffersProducts({});
+        setOneRiyalOfferProducts({});
         setCategoriesLoading(false);
         return;
       }
@@ -339,6 +343,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       const discountedCategories: Record<string, boolean> = {};
       const outletCategories: Record<string, boolean> = {};
       const nationalDayOffersCategories: Record<string, boolean> = {};
+      const oneRiyalOfferCategories: Record<string, boolean> = {};
       const productIds = new Set<string>();
 
       // Get unique product IDs
@@ -354,6 +359,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
         setDiscountedCategoryProducts({});
         setOutletCategoryProducts({});
         setNationalDayOffersProducts({});
+        setOneRiyalOfferProducts({});
         setCategoriesLoading(false);
         return;
       }
@@ -398,6 +404,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
               if (hasNationalDayOffersCategory) {
                 nationalDayOffersCategories[productId] = true;
               }
+              if (availableCategories.some(isOneRiyalOfferCategory)) {
+                oneRiyalOfferCategories[productId] = true;
+              }
               if (data.category && typeof data.category === 'string') {
                 const normalizedCategory = data.category.trim();
                 if (normalizedCategory) {
@@ -417,6 +426,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
       setDiscountedCategoryProducts(discountedCategories);
       setOutletCategoryProducts(outletCategories);
       setNationalDayOffersProducts(nationalDayOffersCategories);
+      setOneRiyalOfferProducts(oneRiyalOfferCategories);
       setCategoriesLoading(false);
     };
 
@@ -714,8 +724,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
                 isOutletProduct || isOutletCategory(category) || outletCategoryItemIds.has(item.id);
               const isNationalDayOffersItem =
                 isNationalDayOffersCategory(category) || nationalDayOffersItemIds.has(item.id);
+              const isOneRiyalOfferItem = productIdForCategory
+                ? Boolean(oneRiyalOfferProducts[productIdForCategory]) || isOneRiyalOfferCategory(category)
+                : false;
               const isExchangeOnlyUnavailable =
-                type === 'return' && (isOutletCategoryItem || isNationalDayOffersItem);
+                !isOneRiyalOfferItem && type === 'return' && (isOutletCategoryItem || isNationalDayOffersItem);
               const isWindowExpiredItem = windowExpiredItemIds.has(item.id);
               const isItemDisabled =
                 isDiscountedCategoryItem || isExchangeOnlyUnavailable || isWindowExpiredItem || maxQuantity === 0;
@@ -794,7 +807,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, windowExpi
 	                    <p className="text-sm text-gray-600 mb-2">
 	                      السعر: {formatMoney(Number(itemPrice), item.currency || orderCurrency)}
 	                    </p>
-	                    {isDiscountedCategoryItem && (
+	                    {isOneRiyalOfferItem ? (
+	                      <p className="text-xs text-red-600 font-medium">
+	                        {ONE_RIYAL_OFFER_ITEM_MESSAGE}
+	                      </p>
+	                    ) : isDiscountedCategoryItem && (
 	                      <p className="text-xs text-red-600 font-medium">
 	                        هذا المنتج ضمن فئات التخفيضات ولا يمكن إرجاعه أو استبداله
 	                      </p>

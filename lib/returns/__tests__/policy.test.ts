@@ -3,11 +3,12 @@ import test from 'node:test';
 import {
   evaluateReturnWindowByProductId,
   getDiscountedProductIds,
+  getOneRiyalOfferProductIds,
   getNationalDayOffersProductIds,
   getReturnWindowPolicy,
   getWindowExpiredProductIds,
 } from '../policy';
-import { isNationalDayOffersCategory } from '../categories';
+import { isNationalDayOffersCategory, isOneRiyalOfferCategory } from '../categories';
 
 const EVENING_DRESS = 'فساتين سهرة';
 const OTHER_CATEGORY = 'نواعم';
@@ -30,6 +31,9 @@ test('1 SAR promo category items can be neither returned nor exchanged', () => {
     regular: ['فساتين'],
   });
   assert.deepEqual([...productIds], ['promo']);
+  assert.deepEqual([...getOneRiyalOfferProductIds({ promo: ['القسم المجاني'], sale: ['فستان بـ 95 ريال'] })], ['promo']);
+  assert.equal(isOneRiyalOfferCategory(' القسم  المجاني '), true);
+  assert.equal(isOneRiyalOfferCategory('فستان بـ 95 ريال'), false);
 });
 
 const daysAgo = (days: number, from = new Date('2026-06-21T12:00:00.000Z')): Date =>

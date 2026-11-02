@@ -14,9 +14,16 @@ export const DISCOUNTED_CATEGORY_ALIASES = new Set([
   'فساتين بـ 195 ريال',
   'فستانين بـ 95 ريال',
   'فستان بـ 95 ريال',
-  // 1 SAR promo category (id 289631972, see app/lib/promo-limit.ts): no returns or exchanges.
+]);
+
+// 1 SAR promo category (id 289631972, see app/lib/promo-limit.ts): no returns or
+// exchanges. Treated as discounted so every existing block applies, with its own message.
+export const ONE_RIYAL_OFFER_CATEGORY_ALIASES = new Set([
   'القسم المجاني',
 ]);
+
+export const ONE_RIYAL_OFFER_ITEM_MESSAGE = 'هذا المنتج من عرض الريال الواحد ولا يمكن إرجاعه أو استبداله';
+export const ONE_RIYAL_OFFER_ERROR = 'منتجات عرض الريال الواحد غير قابلة للإرجاع أو الاستبدال';
 
 export const normalizeCategoryName = (value: unknown): string | null => {
   if (typeof value !== 'string') {
@@ -31,9 +38,17 @@ export const isEveningDressCategory = (value: unknown): boolean => {
   return Boolean(categoryName && EVENING_DRESS_CATEGORY_ALIASES.has(categoryName));
 };
 
+export const isOneRiyalOfferCategory = (value: unknown): boolean => {
+  const categoryName = normalizeCategoryName(value);
+  return Boolean(categoryName && ONE_RIYAL_OFFER_CATEGORY_ALIASES.has(categoryName));
+};
+
 export const isDiscountedCategory = (value: unknown): boolean => {
   const categoryName = normalizeCategoryName(value);
-  return Boolean(categoryName && DISCOUNTED_CATEGORY_ALIASES.has(categoryName));
+  return Boolean(
+    categoryName &&
+      (DISCOUNTED_CATEGORY_ALIASES.has(categoryName) || ONE_RIYAL_OFFER_CATEGORY_ALIASES.has(categoryName))
+  );
 };
 
 export const isOutletCategory = (value: unknown): boolean => {

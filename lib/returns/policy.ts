@@ -10,6 +10,7 @@ import {
   isEveningDressCategory,
   isDiscountedCategory,
   isNationalDayOffersCategory,
+  isOneRiyalOfferCategory,
   isOutletCategory,
   normalizeCategoryName,
 } from '@/lib/returns/categories';
@@ -341,6 +342,18 @@ export const getDiscountedProductIds = (categoriesByProductId: Record<string, st
   const productIds = new Set<string>();
   Object.entries(categoriesByProductId).forEach(([productId, categoryNames]) => {
     if (categoryNames.some(isDiscountedCategory)) {
+      productIds.add(productId);
+    }
+  });
+  return productIds;
+};
+
+export const getOneRiyalOfferProductIds = (
+  categoriesByProductId: Record<string, string[]>
+): Set<string> => {
+  const productIds = new Set<string>();
+  Object.entries(categoriesByProductId).forEach(([productId, categoryNames]) => {
+    if (categoryNames.some(isOneRiyalOfferCategory)) {
       productIds.add(productId);
     }
   });
