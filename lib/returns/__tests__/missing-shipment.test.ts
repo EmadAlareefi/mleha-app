@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NextRequest } from 'next/server';
 import { prisma } from '../../prisma';
-import { GET } from '../../../app/api/returns/list/route';
+import { listReturnRequests } from '../../../app/lib/returns/list-return-requests';
 import { needsManualReturnShipment, RETURN_LABEL_GRACE_MS } from '../missing-shipment';
 
 const now = new Date('2026-09-11T10:00:00Z');
@@ -48,7 +48,7 @@ test('attention count is independent of default inspection filters and paginatio
     assert.equal(take, 100);
     return [];
   }});
-  const response = await GET(new NextRequest('http://localhost/api/returns/list?inspection=inspected&status=pending_review&page=2&limit=100'));
+  const response = await listReturnRequests(new NextRequest('http://localhost/api/returns/list?inspection=inspected&status=pending_review&page=2&limit=100'));
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.missingShipmentCount, 7);
@@ -77,7 +77,7 @@ test('missing-shipment view overrides inspection and status filters before pagin
     assert.match(serialized, /test-order/);
     return [{ ...missing, createdAt: new Date(Date.now() - RETURN_LABEL_GRACE_MS - 1000) }];
   }});
-  const response = await GET(new NextRequest('http://localhost/api/returns/list?shipment=missing&inspection=inspected&status=completed&search=test-order'));
+  const response = await listReturnRequests(new NextRequest('http://localhost/api/returns/list?shipment=missing&inspection=inspected&status=completed&search=test-order'));
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.data[0].needsManualShipment, true);
