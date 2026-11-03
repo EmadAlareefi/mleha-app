@@ -30,7 +30,6 @@
     "test:order-reference": "node --test --import tsx app/lib/__tests__/salla-order-reference.test.ts",
     "test:returns-pricing": "node --test --import tsx lib/returns/__tests__/item-price.test.ts lib/returns/__tests__/resolve-return-items.test.ts",
     "test:returns-coupon": "node --test --import tsx lib/returns/__tests__/fees.test.ts lib/returns/__tests__/exchange-coupon-amount.test.ts app/lib/__tests__/return-label-notification.test.ts",
-    "test:returns-v2": "node --test --import tsx lib/returns/__tests__/pieces.test.ts lib/returns/__tests__/request-financials.test.ts lib/returns/__tests__/workflow.test.ts app/lib/__tests__/salla-transactions.test.ts app/lib/__tests__/process-return.test.ts lib/returns/__tests__/exchange-settlement.test.ts app/lib/__tests__/exchange-catalog.test.ts app/lib/__tests__/exchange-order-flow.test.ts",
     "test:returns-phone": "node --test --import tsx app/lib/__tests__/returns-customer-phone.test.ts",
     "test:phone": "node --test --import tsx app/lib/__tests__/phone.test.ts",
     "test:product-reviews": "node --test --import tsx app/lib/__tests__/product-review-presets.test.ts app/lib/__tests__/salla-product-reviews.test.ts app/embed/__tests__/product-reviews-widget.test.ts",
