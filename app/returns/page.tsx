@@ -8,6 +8,7 @@ import ReturnForm from '@/components/returns/ReturnForm';
 import SuccessScreen from '@/components/returns/SuccessScreen';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { isInternationalOrder } from '@/lib/returns/order-country';
+import { isReturnableOrderStatus } from '@/lib/returns/order-status';
 
 // Configuration - Replace with your actual merchant info
 const MERCHANT_CONFIG = {
@@ -40,37 +41,6 @@ const normalizeStatusString = (value: unknown): string | undefined => {
   }
   const trimmed = value.trim();
   return trimmed || undefined;
-};
-
-const isDeliveredStatus = (status: unknown): boolean => {
-  if (!status) {
-    return false;
-  }
-
-  const candidates: string[] = [];
-  if (typeof status === 'string') {
-    candidates.push(status);
-  } else if (typeof status === 'object' && status !== null) {
-    const statusRecord = status as Record<string, unknown>;
-    if (typeof statusRecord.name === 'string') {
-      candidates.push(statusRecord.name);
-    }
-    if (typeof statusRecord.slug === 'string') {
-      candidates.push(statusRecord.slug);
-    }
-    if (typeof statusRecord.status === 'string') {
-      candidates.push(statusRecord.status);
-    }
-  }
-
-  return candidates.some(candidate => {
-    const normalized = normalizeStatusString(candidate);
-    if (!normalized) {
-      return false;
-    }
-    const lower = normalized.toLowerCase();
-    return normalized === 'تم التوصيل' || lower === 'delivered';
-  });
 };
 
 const getOrderStatusLabel = (status: unknown): string | undefined => {
@@ -218,10 +188,10 @@ export default function ReturnsPage() {
       }
 
       const orderStatusLabel = getOrderStatusLabel(orderData.order?.status);
-      if (!isDeliveredStatus(orderData.order?.status)) {
+      if (!isReturnableOrderStatus(orderData.order?.status)) {
         setErrorDetails({
           title: 'الطلب غير مؤهل للإرجاع',
-          message: 'يمكن تقديم طلب الإرجاع فقط بعد توصيل الطلب.',
+          message: 'يمكن تقديم طلب الإرجاع أو الاستبدال للطلبات المكتملة أو التي تم توصيلها أو الجاري توصيلها أو التي تم شحنها.',
           description: orderStatusLabel
             ? `حالة الطلب الحالية: ${orderStatusLabel}`
             : undefined,

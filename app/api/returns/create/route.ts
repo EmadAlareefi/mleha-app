@@ -1,3 +1,4 @@
+import { isReturnableOrderStatus } from '@/lib/returns/order-status';
 import { ONE_RIYAL_OFFER_ERROR } from '@/lib/returns/categories';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -383,11 +384,10 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Validate order status - should be delivered or completed
-    const returnableStatuses = ['delivered', 'completed'];
-    if (!returnableStatuses.includes(order.status.slug.toLowerCase())) {
+    // Allow shipped/delivering orders when the carrier's Salla update is missing.
+    if (!isReturnableOrderStatus(order.status)) {
       return NextResponse.json(
-        { error: 'هذا الطلب غير قابل للإرجاع. يجب أن يكون الطلب مكتملاً أو تم تسليمه.' },
+        { error: 'هذا الطلب غير قابل للإرجاع. يجب أن يكون الطلب مكتملاً أو تم توصيله أو جاري توصيله أو تم شحنه.' },
         { status: 400 }
       );
     }
