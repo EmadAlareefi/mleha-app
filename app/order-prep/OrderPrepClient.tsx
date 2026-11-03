@@ -315,7 +315,6 @@ export default function OrderPrepClient() {
         skipSallaSync?: boolean;
         suppressError?: boolean;
         itemStatuses?: ItemStatusPayload[];
-        promoLimitAcknowledged?: boolean;
       },
     ) => {
       setPendingAction(`${assignmentId}_${status}`);
@@ -329,7 +328,6 @@ export default function OrderPrepClient() {
             status,
             skipSallaSync: Boolean(options?.skipSallaSync),
             itemStatuses: options?.itemStatuses ?? undefined,
-            promoLimitAcknowledged: Boolean(options?.promoLimitAcknowledged),
           }),
         });
         const data = await response.json();
@@ -558,7 +556,6 @@ export default function OrderPrepClient() {
 
     await updateStatus(assignment.id, 'completed', {
       itemStatuses: completion.itemStatuses,
-      promoLimitAcknowledged: promoLimit.acknowledged,
     });
     const nextAssignment = await assignNextOrder({ silent: true });
     if (!nextAssignment) {
@@ -566,7 +563,7 @@ export default function OrderPrepClient() {
     }
     return true;
   },
-    [assignNextOrder, handleUpdateSallaStatus, promoLimit.acknowledged, toast, updateStatus],
+    [assignNextOrder, handleUpdateSallaStatus, toast, updateStatus],
   );
 
   const runConfirmedAction = useCallback(() => {
@@ -671,8 +668,18 @@ export default function OrderPrepClient() {
         <>
         <PromoLimitAlert
           check={promoLimit.check}
-          acknowledged={promoLimit.acknowledged}
-          onAcknowledgedChange={promoLimit.setAcknowledged}
+          checking={promoLimit.checking}
+          onRecheck={promoLimit.recheck}
+          sendingToReview={sallaStatusAction === `${activeAssignment.id}_under_review_a`}
+          onSendToReview={() => {
+            // Same hand-back as the other "under review" flows: the order leaves
+            // this preparer's queue and the next one loads.
+            void handleUpdateSallaStatus(
+              activeAssignment,
+              'under_review_a',
+              `الطلب يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). ${promoLimit.check?.message ?? ''} يجب حذف قطع العرض الزائدة أو إلغاء الطلب قبل التحضير.`,
+            );
+          }}
         />
         <AssignmentCard
           key={activeAssignment.id}
@@ -686,7 +693,7 @@ export default function OrderPrepClient() {
               toast({
                 variant: 'destructive',
                 description:
-                  'هذا الطلب يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). راجع التنبيه الأحمر أعلى الطلب قبل الإنهاء.',
+                  'لا يمكن إنهاء هذا الطلب: يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). عدّله في سلة أو حوّله للمراجعة.',
               });
               return;
             }

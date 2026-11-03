@@ -44,7 +44,7 @@ export async function POST(
     }
 
     if (status === 'completed') {
-      const blocked = await guardPromoLimit(assignmentId, Boolean(body?.promoLimitAcknowledged), user);
+      const blocked = await guardPromoLimit(assignmentId, user);
       if (blocked) return blocked;
     }
 
@@ -88,10 +88,10 @@ export async function POST(
 }
 
 /**
- * Refuses to complete an order that breaks the 1 SAR promo limit unless the
- * preparer explicitly acknowledged the warning shown on the page.
+ * Refuses to complete an order that breaks the 1 SAR promo limit. No override:
+ * the order has to be corrected in Salla first.
  */
-async function guardPromoLimit(assignmentId: string, acknowledged: boolean, user: { id?: string }) {
+async function guardPromoLimit(assignmentId: string, user: { id?: string }) {
   const assignment = await prisma.orderPrepAssignment.findUnique({
     where: { id: assignmentId },
     select: { merchantId: true, orderId: true, orderNumber: true, orderData: true },
@@ -103,7 +103,6 @@ async function guardPromoLimit(assignmentId: string, acknowledged: boolean, user
     orderId: assignment.orderId,
     orderNumber: assignment.orderNumber,
     orderData: assignment.orderData,
-    acknowledged,
     context: 'order-prep.complete',
     userId: user.id ?? null,
   });

@@ -411,13 +411,16 @@ export async function checkOrderPromoLimit(params: {
     },
   });
 
-  let items = extractPromoLineItems(params.orderData);
+  // Live Salla items first: once staff remove the extra promo items in Salla the
+  // order must pass, and a prep/shipping snapshot taken earlier would still show
+  // them. Stored webhook items, then the caller's snapshot, are fallbacks.
+  const live = await getSallaOrderItems(params.merchantId, params.orderId).catch(() => null);
+  let items = extractPromoLineItems({ items: live || [] });
   if (items.length === 0 && storedOrder?.items.length) {
     items = storedOrder.items.map((item) => ({ ...item, quantity: item.quantity }));
   }
   if (items.length === 0) {
-    const live = await getSallaOrderItems(params.merchantId, params.orderId).catch(() => null);
-    items = extractPromoLineItems({ items: live || [] });
+    items = extractPromoLineItems(params.orderData);
   }
 
   if (countPromoUnits(items, promoIds) === 0) return empty;
@@ -442,15 +445,16 @@ export const PROMO_LIMIT_ERROR_CODE = 'PROMO_LIMIT_EXCEEDED';
 
 /**
  * Shared server guard for staff actions (completing prep, creating shipments).
- * Returns the 409 body when the order breaks the promo limit and the user did
- * not acknowledge the on-screen warning; null when the action may proceed.
- * A failed check never blocks the warehouse — it is logged and allowed.
+ * Returns the 409 body when the order breaks the promo limit — there is no
+ * override: the order has to be fixed in Salla (extra promo items removed, or
+ * the duplicate order cancelled) before it can be prepared or shipped. Returns
+ * null when the action may proceed. A check that errors out is logged and
+ * allowed, so a Salla outage never stops the warehouse.
  */
 export async function promoLimitBlock(params: {
   merchantId: string;
   orderId: string;
   orderData?: unknown;
-  acknowledged: boolean;
   context: string;
   userId?: string | null;
   orderNumber?: string | null;
@@ -470,10 +474,6 @@ export async function promoLimitBlock(params: {
       promoUnitsInOrder: check.promoUnitsInOrder,
       priorOrders: check.priorOrders.map((order) => order.orderNumber || order.orderId),
     };
-    if (params.acknowledged) {
-      log.warn('Promo limit violation acknowledged by staff', details);
-      return null;
-    }
     log.warn('Blocked staff action on promo limit violation', details);
     return { code: PROMO_LIMIT_ERROR_CODE, error: check.message || 'تجاوز حد عرض الريال', promoLimit: check };
   } catch (error) {

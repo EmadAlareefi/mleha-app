@@ -121,7 +121,6 @@ export async function POST(request: NextRequest) {
       orderId: targetOrderIdValue,
       orderNumber: targetOrderNumber,
       orderData: assignment?.orderData || storedOrder?.rawOrder,
-      acknowledged: body?.promoLimitAcknowledged === true,
       context: 'order-shipping.create-shipment',
     });
     if (promoBlock) {

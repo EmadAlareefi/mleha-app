@@ -254,7 +254,6 @@ export async function POST(request: NextRequest) {
       orderId: String(order.id),
       orderNumber: normalizedOrderNumber,
       orderData: order,
-      acknowledged: body.promoLimitAcknowledged === true,
       context: 'local-shipping.create',
       userId: user?.id ?? null,
     });

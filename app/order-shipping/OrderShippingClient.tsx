@@ -762,7 +762,7 @@ export default function OrderShippingPage() {
     orderData: currentOrder?.orderData,
   });
   const PROMO_BLOCK_MESSAGE =
-    'هذا الطلب يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). راجع التنبيه الأحمر وأكّد المراجعة قبل الشحن.';
+    'لا يمكن شحن هذا الطلب: يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). يجب تعديله في سلة أولاً (حذف القطع الزائدة أو إلغاء الطلب) ثم إعادة الفحص.';
 
   useEffect(() => {
     let cancelled = false;
@@ -1327,7 +1327,6 @@ const handleRefreshItems = async () => {
           orderId: currentOrder.orderId,
           orderNumber: currentOrder.orderNumber,
           merchantId: currentOrder.merchantId || null,
-          promoLimitAcknowledged: promoLimit.acknowledged,
         }),
       });
 
@@ -1538,7 +1537,6 @@ const handleRefreshItems = async () => {
             orderNumber: currentOrder.orderNumber,
             generatedBy: user?.username || user?.name || 'order-shipping',
             deliveryAgentId: agent.id,
-            promoLimitAcknowledged: promoLimit.acknowledged,
           }),
         });
 
@@ -1614,7 +1612,7 @@ const handleRefreshItems = async () => {
         setCreatingLocalShipment(false);
       }
     },
-    [currentOrder, resolvedMerchantId, user, reloadCurrentOrder, promoLimit.acknowledged],
+    [currentOrder, resolvedMerchantId, user, reloadCurrentOrder],
   );
 
   const handleConfirmAgentSelection = useCallback(async () => {
@@ -1795,8 +1793,8 @@ const handleRefreshItems = async () => {
                 <div className="mb-4 md:mb-6">
                   <PromoLimitAlert
                     check={promoLimit.check}
-                    acknowledged={promoLimit.acknowledged}
-                    onAcknowledgedChange={promoLimit.setAcknowledged}
+                    checking={promoLimit.checking}
+                    onRecheck={promoLimit.recheck}
                   />
                 </div>
               )}
