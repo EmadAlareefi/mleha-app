@@ -4,6 +4,7 @@ import {
   evaluatePromoUsage,
   extractPromoLineItems,
   getPromoLimitConfig,
+  mergePromoProductIds,
   type PromoPriorOrder,
 } from '../promo-limit';
 
@@ -61,4 +62,8 @@ test('orders without promo items are never flagged, even for past promo customer
   const result = evaluatePromoUsage({ maxPerCustomer: 1, items: [{ productId: '5', quantity: 1 }], promoIds, priorOrders: [prior] });
   assert.equal(result.violation, false);
   assert.deepEqual(result.priorOrders, []);
+});
+
+test('the promo id list keeps products that left the category', () => {
+  assert.deepEqual(mergePromoProductIds(['1', '2'], ['2', '3'], ['4']), ['1', '2', '3', '4']);
 });

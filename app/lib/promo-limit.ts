@@ -20,6 +20,14 @@ const DEFAULT_MAX_PER_CUSTOMER = 1;
 /** Orders in these states never shipped, so they don't use up the customer's allowance. */
 export const PROMO_EXCLUDED_ORDER_STATUSES = ['canceled', 'cancelled', 'refunded', 'restored', 'deleted'];
 
+/**
+ * Products that were in the promo category and dropped out of it once they sold
+ * out (seen on 2026-11-03), so the grow-only list below never saw them.
+ */
+const PREVIOUSLY_PROMO_PRODUCT_IDS: Record<string, string[]> = {
+  '289631972': ['1462778376', '2007888048'],
+};
+
 const CACHE_SETTINGS_KEY = 'promo_limit.product_ids_cache';
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const PAGE_SIZE = 60;
@@ -117,10 +125,17 @@ async function writePersistedCache(cache: ProductIdsCache): Promise<void> {
   }
 }
 
+/** Union of id lists, in first-seen order. */
+export function mergePromoProductIds(...lists: string[][]): string[] {
+  return Array.from(new Set(lists.flat().map(String)));
+}
+
 /**
- * Product ids in the promo category(ies). Cached in memory and in the Settings
- * table for 10 minutes; if Salla is unreachable the last known list is used,
- * so a Salla outage never silently switches the guard off.
+ * Product ids that are or ever were in the promo category(ies). The list only
+ * grows: Salla drops a sold-out product from the category, and forgetting it
+ * would let its buyer take another promo item. Refreshed from Salla every 10
+ * minutes (memory + Settings table); if Salla is unreachable the last known list
+ * is used, so a Salla outage never silently switches the guard off.
  */
 export async function getPromoProductIds(
   merchantId: string,
@@ -147,7 +162,14 @@ export async function getPromoProductIds(
         const lists = await Promise.all(
           config.categoryIds.map((categoryId) => fetchCategoryProductIds(merchantId, categoryId))
         );
-        const productIds = Array.from(new Set(lists.flat()));
+        // Grow-only: a product leaves the category when it sells out, but the
+        // customers who bought it must still have used their allowance.
+        const productIds = mergePromoProductIds(
+          lists.flat(),
+          persisted?.key === key ? persisted.productIds : [],
+          memoryCache?.key === key ? memoryCache.productIds : [],
+          config.categoryIds.flatMap((categoryId) => PREVIOUSLY_PROMO_PRODUCT_IDS[categoryId] ?? [])
+        );
         const fresh: ProductIdsCache = { key, productIds, fetchedAt: Date.now() };
         memoryCache = fresh;
         await writePersistedCache(fresh);
