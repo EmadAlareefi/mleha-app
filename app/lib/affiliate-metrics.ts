@@ -3,6 +3,9 @@ import { Prisma } from '@prisma/client';
 export const AFFILIATE_TAX_RATE = 0.15;
 export const AFFILIATE_RATE_CHANGE_DATE = new Date('2026-07-24T21:00:00.000Z');
 export const AFFILIATE_RATE_AFTER_CHANGE = 5;
+// November 3–7, 2026 inclusive in Asia/Riyadh (UTC+03:00).
+const AFFILIATE_COMMISSION_PAUSE_START = new Date('2026-11-03T00:00:00+03:00');
+const AFFILIATE_COMMISSION_PAUSE_END = new Date('2026-11-08T00:00:00+03:00');
 export const NATIONAL_DAY_OFFERS_CATEGORY = 'عروض اليوم الوطني';
 
 export function decimalToNumber(value: Prisma.Decimal | number | null | undefined): number {
@@ -32,6 +35,13 @@ export function getAffiliateCommissionRate(
   storedRate: Prisma.Decimal | number | null | undefined,
   fallbackRate = 10
 ): number {
+  if (
+    placedAt &&
+    placedAt >= AFFILIATE_COMMISSION_PAUSE_START &&
+    placedAt < AFFILIATE_COMMISSION_PAUSE_END
+  ) {
+    return 0;
+  }
   if (placedAt && placedAt >= AFFILIATE_RATE_CHANGE_DATE) {
     return AFFILIATE_RATE_AFTER_CHANGE;
   }
