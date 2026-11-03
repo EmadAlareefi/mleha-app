@@ -75,6 +75,17 @@ const serviceDefinitionsData = [
     assignable: true,
   },
   {
+    key: 'promo-monitor',
+    title: 'مراقبة عرض الريال',
+    description: 'متابعة مباشرة لطلبات عرض الريال والتجاوزات وحالة الحاجز في المتجر',
+    icon: '🎁',
+    href: '/promo-monitor',
+    color: 'from-rose-500 to-orange-500',
+    defaultRoles: ['admin'],
+    grantsRoles: [],
+    assignable: false,
+  },
+  {
     key: 'zoko-notifications',
     title: 'مراقبة إشعارات واتساب',
     description: 'فحص قوالب Zoko ومتابعة تسليم رسائل رحلة العميل وأخطائها',

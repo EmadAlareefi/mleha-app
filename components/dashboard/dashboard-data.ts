@@ -158,6 +158,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   'printer-settings': 'admin',
   'smsa-webhook': 'admin',
   'zoko-notifications': 'admin',
+  'promo-monitor': 'admin',
 };
 
 const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
@@ -197,6 +198,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   settlements: Calculator,
   'smsa-webhook': Webhook,
   'zoko-notifications': MessageCircle,
+  'promo-monitor': Gift,
   invoices: ReceiptText,
   'invoice-refunds': Undo2,
   'invoices-and-refund-invoices': ReceiptText,
