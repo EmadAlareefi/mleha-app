@@ -83,7 +83,7 @@ const serviceDefinitionsData = [
     color: 'from-rose-500 to-orange-500',
     defaultRoles: ['admin'],
     grantsRoles: [],
-    assignable: false,
+    assignable: true,
   },
   {
     key: 'zoko-notifications',

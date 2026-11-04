@@ -72,6 +72,7 @@ const isPublicPath = (pathname: string) =>
   ) || PUBLIC_PATTERNS.some((pattern) => pattern.test(pathname));
 
 const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
+  ['promo-monitor', [/^\/promo-monitor(\/.*)?$/]],
   [
     'order-prep',
     [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/, /^\/api\/promo-limit\/order-check$/],
