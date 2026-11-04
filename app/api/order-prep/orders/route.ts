@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
-import { assignOldestOrderToUser, getActiveAssignmentsForUser } from '@/app/lib/order-prep-service';
+import { assignOldestOrderToUser, getActiveAssignmentsForUser, sortByPrepPriority } from '@/app/lib/order-prep-service';
 import { log } from '@/app/lib/logger';
 import { prisma } from '@/lib/prisma';
 import { getSallaAccessToken } from '@/app/lib/salla-oauth';
@@ -73,13 +73,16 @@ async function ensureOrdersStillEligible(assignments: Awaited<ReturnType<typeof 
     return assignments;
   }
 
-  const validAssignments = [];
-  for (const assignment of assignments) {
+  // The page shows one order, so check them in the order it picks and stop at
+  // the first that is still eligible. Checking every held order with Salla one
+  // by one took ~30s for a preparer holding 40.
+  const ordered = sortByPrepPriority(assignments);
+  for (let index = 0; index < ordered.length; index += 1) {
+    const assignment = ordered[index];
     try {
       const stillAllowed = await isOrderStillEligible(assignment.orderId, accessToken);
       if (stillAllowed) {
-        validAssignments.push(assignment);
-        continue;
+        return ordered.slice(index);
       }
 
       await prisma.orderPrepAssignment.delete({
@@ -96,11 +99,12 @@ async function ensureOrdersStillEligible(assignments: Awaited<ReturnType<typeof 
         orderId: assignment.orderId,
         error: error instanceof Error ? error.message : error,
       });
-      validAssignments.push(assignment);
+      // Can't tell: keep it, as before, rather than drop the preparer's order.
+      return ordered.slice(index);
     }
   }
 
-  return validAssignments;
+  return [];
 }
 
 async function isOrderStillEligible(orderId: string, accessToken: string) {

@@ -100,6 +100,23 @@ async function releasePromoViolators(records: OrderPrepAssignment[]): Promise<Or
   return records.filter((record) => !violators.has(record.orderId));
 }
 
+/** The preparer's current order, in the order the prep page shows them. */
+async function findHeldAssignment(userId: string): Promise<OrderPrepAssignment | null> {
+  const held = await prisma.orderPrepAssignment.findMany({
+    where: { userId, status: { in: Array.from(ACTIVE_ASSIGNMENT_STATUSES) } },
+    orderBy: [{ assignedAt: 'asc' }],
+  });
+  return sortByPrepPriority(held)[0] ?? null;
+}
+
+/** preparing first, then waiting, then assigned; oldest first within each — as the prep page picks. */
+export function sortByPrepPriority<T extends { status: string; assignedAt: Date | string }>(records: T[]): T[] {
+  const rank = (status: string) => (status === 'preparing' ? 0 : status === 'waiting' ? 1 : 2);
+  return [...records].sort(
+    (a, b) => rank(a.status) - rank(b.status) || new Date(a.assignedAt).getTime() - new Date(b.assignedAt).getTime()
+  );
+}
+
 export async function assignOldestOrderToUser(user: {
   id: string;
   name?: string | null;
@@ -107,6 +124,12 @@ export async function assignOldestOrderToUser(user: {
   if (!user?.id) {
     return null;
   }
+
+  // One order per preparer: overlapping requests (a slow page refreshed, or
+  // "new order" pressed while it loads) each used to assign another order,
+  // leaving dozens hidden behind the one on screen.
+  const held = await findHeldAssignment(user.id);
+  if (held) return serializeAssignment(held);
 
   const accessToken = await getSallaAccessToken(MERCHANT_ID);
   if (!accessToken) {
@@ -216,6 +239,11 @@ export async function assignOldestOrderToUser(user: {
       log.info('Skipping order over the promo limit', { orderId, orderNumber: extractOrderNumber(detail) });
       continue;
     }
+
+    // Another request for this preparer may have assigned an order while this
+    // one was walking the queue.
+    const heldNow = await findHeldAssignment(user.id);
+    if (heldNow) return serializeAssignment(heldNow);
 
     try {
       const assignment = await prisma.orderPrepAssignment.create({
