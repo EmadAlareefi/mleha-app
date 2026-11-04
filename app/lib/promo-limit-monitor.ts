@@ -284,13 +284,24 @@ let violatorsInflight: Promise<Set<string>> | null = null;
 /**
  * Ids of active orders over the promo limit, from stored order items. Order
  * prep uses it to leave those orders out of the queue without fetching each
- * one from Salla. Cached for 60 seconds; empty (nothing skipped) on error.
+ * one from Salla. Stale-while-revalidate: after the first load, callers get the
+ * last result at once and it is rebuilt in the background every 60 seconds,
+ * so no prep request waits on it. Empty (nothing skipped) only if it has never
+ * loaded and the first load fails.
  */
 export async function getViolatingPromoOrderIds(merchantId: string): Promise<Set<string>> {
-  if (violatorsCache && violatorsCache.merchantId === merchantId && Date.now() - violatorsCache.at < VIOLATORS_TTL_MS) {
-    return violatorsCache.ids;
+  const cached = violatorsCache?.merchantId === merchantId ? violatorsCache : null;
+  if (cached && Date.now() - cached.at < VIOLATORS_TTL_MS) return cached.ids;
+  const refresh = refreshViolators(merchantId);
+  if (cached) {
+    void refresh.catch(() => undefined);
+    return cached.ids;
   }
-  // Preparers loading at the same time share one lookup.
+  return refresh;
+}
+
+function refreshViolators(merchantId: string): Promise<Set<string>> {
+  // Preparers loading at the same time share one rebuild.
   if (violatorsInflight) return violatorsInflight;
   violatorsInflight = (async () => {
     try {
