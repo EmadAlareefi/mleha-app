@@ -378,6 +378,11 @@ export async function checkOrderPromoLimit(params: {
   merchantId: string;
   orderId: string;
   orderData?: unknown;
+  /**
+   * false when `orderData` was just fetched from Salla (prep assignment): its
+   * items are trusted first and no second live request is made.
+   */
+  fetchLive?: boolean;
 }): Promise<PromoOrderCheck> {
   const config = getPromoLimitConfig();
   const empty: PromoOrderCheck = {
@@ -414,13 +419,16 @@ export async function checkOrderPromoLimit(params: {
   // Live Salla items first: once staff remove the extra promo items in Salla the
   // order must pass, and a prep/shipping snapshot taken earlier would still show
   // them. Stored webhook items, then the caller's snapshot, are fallbacks.
-  const live = await getSallaOrderItems(params.merchantId, params.orderId).catch(() => null);
-  let items = extractPromoLineItems({ items: live || [] });
-  if (items.length === 0 && storedOrder?.items.length) {
-    items = storedOrder.items.map((item) => ({ ...item, quantity: item.quantity }));
-  }
-  if (items.length === 0) {
+  const stored = () => (storedOrder?.items ?? []).map((item) => ({ ...item, quantity: item.quantity }));
+  let items: PromoLineItem[];
+  if (params.fetchLive === false) {
     items = extractPromoLineItems(params.orderData);
+    if (items.length === 0) items = stored();
+  } else {
+    const live = await getSallaOrderItems(params.merchantId, params.orderId).catch(() => null);
+    items = extractPromoLineItems({ items: live || [] });
+    if (items.length === 0) items = stored();
+    if (items.length === 0) items = extractPromoLineItems(params.orderData);
   }
 
   if (countPromoUnits(items, promoIds) === 0) return empty;

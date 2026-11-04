@@ -225,50 +225,34 @@ export interface PromoMonitorSnapshot {
   lastOrderAt: string | null;
 }
 
-export async function getPromoMonitorSnapshot(merchantId: string): Promise<PromoMonitorSnapshot> {
-  const config = getPromoLimitConfig();
-  const startsAt = getPromoStartsAt();
-  const base = {
-    enabled: config.enabled,
-    maxPerCustomer: config.maxPerCustomer,
-    startsAt: startsAt.toISOString(),
-  };
-
-  const [promoProductIds, totalOrdersSinceStart, ordersWithoutItems, lastOrder] = await Promise.all([
-    config.enabled ? getPromoProductIds(merchantId) : Promise.resolve([] as string[]),
-    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt } } }),
-    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt }, items: { none: {} } } }),
-    prisma.sallaOrder.findFirst({
-      where: { merchantId },
-      orderBy: { placedAt: 'desc' },
-      select: { placedAt: true },
-    }),
-  ]);
-
-  const items = promoProductIds.length
-    ? await prisma.sallaOrderItem.findMany({
-        where: { merchantId, productId: { in: promoProductIds }, order: { placedAt: { gte: startsAt } } },
+async function loadPromoOrderInputs(
+  merchantId: string,
+  promoProductIds: string[],
+  startsAt: Date
+): Promise<PromoMonitorOrderInput[]> {
+  if (promoProductIds.length === 0) return [];
+  const items = await prisma.sallaOrderItem.findMany({
+    where: { merchantId, productId: { in: promoProductIds }, order: { placedAt: { gte: startsAt } } },
+    select: {
+      orderId: true,
+      name: true,
+      sku: true,
+      quantity: true,
+      order: {
         select: {
-          orderId: true,
-          name: true,
-          sku: true,
-          quantity: true,
-          order: {
-            select: {
-              referenceId: true,
-              orderNumber: true,
-              placedAt: true,
-              statusSlug: true,
-              statusName: true,
-              customerId: true,
-              customerName: true,
-              customerMobile: true,
-              customerEmail: true,
-            },
-          },
+          referenceId: true,
+          orderNumber: true,
+          placedAt: true,
+          statusSlug: true,
+          statusName: true,
+          customerId: true,
+          customerName: true,
+          customerMobile: true,
+          customerEmail: true,
         },
-      })
-    : [];
+      },
+    },
+  });
 
   const byOrder = new Map<string, PromoMonitorOrderInput>();
   for (const item of items) {
@@ -290,11 +274,73 @@ export async function getPromoMonitorSnapshot(merchantId: string): Promise<Promo
     }
     order.items.push({ name: item.name, sku: item.sku, quantity: item.quantity });
   }
+  return Array.from(byOrder.values());
+}
+
+const VIOLATORS_TTL_MS = 30_000;
+let violatorsCache: { at: number; merchantId: string; ids: Set<string> } | null = null;
+let violatorsInflight: Promise<Set<string>> | null = null;
+
+/**
+ * Ids of active orders over the promo limit, from stored order items. Order
+ * prep uses it to leave those orders out of the queue without fetching each
+ * one from Salla. Cached for 30 seconds; empty (nothing skipped) on error.
+ */
+export async function getViolatingPromoOrderIds(merchantId: string): Promise<Set<string>> {
+  if (violatorsCache && violatorsCache.merchantId === merchantId && Date.now() - violatorsCache.at < VIOLATORS_TTL_MS) {
+    return violatorsCache.ids;
+  }
+  // Preparers loading at the same time share one lookup.
+  if (violatorsInflight) return violatorsInflight;
+  violatorsInflight = (async () => {
+    try {
+      const config = getPromoLimitConfig();
+      if (!config.enabled) return new Set<string>();
+      const promoProductIds = await getPromoProductIds(merchantId);
+      const orders = analyzePromoOrders(
+        await loadPromoOrderInputs(merchantId, promoProductIds, getPromoStartsAt()),
+        config.maxPerCustomer
+      );
+      const ids = new Set(orders.filter((order) => order.violation && !order.cancelled).map((order) => order.orderId));
+      violatorsCache = { at: Date.now(), merchantId, ids };
+      return ids;
+    } catch (error) {
+      log.error('Failed to load promo limit violators', { error: error instanceof Error ? error.message : error });
+      // Keep skipping the last known set rather than flooding prep with them.
+      return violatorsCache?.merchantId === merchantId ? violatorsCache.ids : new Set<string>();
+    } finally {
+      violatorsInflight = null;
+    }
+  })();
+  return violatorsInflight;
+}
+
+export async function getPromoMonitorSnapshot(merchantId: string): Promise<PromoMonitorSnapshot> {
+  const config = getPromoLimitConfig();
+  const startsAt = getPromoStartsAt();
+  const base = {
+    enabled: config.enabled,
+    maxPerCustomer: config.maxPerCustomer,
+    startsAt: startsAt.toISOString(),
+  };
+
+  const [promoProductIds, totalOrdersSinceStart, ordersWithoutItems, lastOrder] = await Promise.all([
+    config.enabled ? getPromoProductIds(merchantId) : Promise.resolve([] as string[]),
+    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt } } }),
+    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt }, items: { none: {} } } }),
+    prisma.sallaOrder.findFirst({
+      where: { merchantId },
+      orderBy: { placedAt: 'desc' },
+      select: { placedAt: true },
+    }),
+  ]);
+
+  const inputs = await loadPromoOrderInputs(merchantId, promoProductIds, startsAt);
 
   return {
     ...base,
     promoProductCount: promoProductIds.length,
-    orders: analyzePromoOrders(Array.from(byOrder.values()), config.maxPerCustomer),
+    orders: analyzePromoOrders(inputs, config.maxPerCustomer),
     ordersWithoutItems,
     totalOrdersSinceStart,
     lastOrderAt: lastOrder?.placedAt ? lastOrder.placedAt.toISOString() : null,

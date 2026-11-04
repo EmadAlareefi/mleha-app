@@ -17,6 +17,8 @@ import {
   resolveOrderPrepSallaStatusId,
   resolveOrderPrepStatusName,
 } from '@/app/lib/order-prep-salla-status';
+import { checkOrderPromoLimit } from '@/app/lib/promo-limit';
+import { getViolatingPromoOrderIds } from '@/app/lib/promo-limit-monitor';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -59,7 +61,7 @@ export function serializeAssignment(record: OrderPrepAssignment): SerializedOrde
 }
 
 export async function getActiveAssignmentsForUser(userId: string): Promise<SerializedOrderPrepAssignment[]> {
-  const records = await prisma.orderPrepAssignment.findMany({
+  const allRecords = await prisma.orderPrepAssignment.findMany({
     where: {
       userId,
       status: { in: Array.from(ACTIVE_ASSIGNMENT_STATUSES) },
@@ -67,9 +69,35 @@ export async function getActiveAssignmentsForUser(userId: string): Promise<Seria
     orderBy: [{ assignedAt: 'asc' }],
   });
 
+  const records = await releasePromoViolators(allRecords);
   const processedRecords = await Promise.all(records.map((record) => applyPostalPatchIfNeeded(record)));
 
   return processedRecords.map(serializeAssignment);
+}
+
+/**
+ * Orders over the 1 SAR promo limit (more than one promo unit, or a repeat
+ * promo order) are kept out of order prep entirely. Assignments a preparer
+ * already holds for such orders are removed so the page moves on; once the
+ * order is fixed in Salla it is no longer flagged and re-enters the queue.
+ */
+async function releasePromoViolators(records: OrderPrepAssignment[]): Promise<OrderPrepAssignment[]> {
+  if (records.length === 0) return records;
+  const violators = await getViolatingPromoOrderIds(MERCHANT_ID);
+  const blocked = records.filter((record) => violators.has(record.orderId));
+  if (blocked.length === 0) return records;
+  try {
+    await prisma.orderPrepAssignment.deleteMany({
+      where: { id: { in: blocked.map((record) => record.id) }, status: { in: Array.from(ACTIVE_ASSIGNMENT_STATUSES) } },
+    });
+    log.warn('Released order prep assignments over the promo limit', {
+      orders: blocked.map((record) => record.orderNumber || record.orderId),
+    });
+  } catch (error) {
+    log.error('Failed to release promo limit assignments', { error });
+    return records;
+  }
+  return records.filter((record) => !violators.has(record.orderId));
 }
 
 export async function assignOldestOrderToUser(user: {
@@ -123,6 +151,7 @@ export async function assignOldestOrderToUser(user: {
   const assignedIds = new Set(existingAssignments.map((record) => record.orderId));
   const shippedIds = new Set(existingShipments.map((record) => record.orderId));
   const escalatedIds = new Set(escalatedOrders.map((record) => record.orderId));
+  const promoViolatorIds = await getViolatingPromoOrderIds(MERCHANT_ID);
 
   for (const order of candidateOrders) {
     const orderId = extractOrderId(order);
@@ -132,6 +161,10 @@ export async function assignOldestOrderToUser(user: {
 
     if (shippedIds.has(orderId)) {
       log.info('Skipping order with existing shipment label', { orderId });
+      continue;
+    }
+
+    if (promoViolatorIds.has(orderId)) {
       continue;
     }
 
@@ -158,6 +191,20 @@ export async function assignOldestOrderToUser(user: {
         subStatusId: subStatus?.id || subStatus?.status_id || subStatus?.statusId || null,
         subStatusName: subStatus?.name || subStatus?.label || subStatus?.name_en || subStatus?.nameEn || null,
       });
+      continue;
+    }
+
+    // Final check on the order just fetched, for new orders whose items are
+    // not stored locally yet. A failed check lets the order through; the
+    // completion guard still stops it.
+    const promoCheck = await checkOrderPromoLimit({
+      merchantId: MERCHANT_ID,
+      orderId,
+      orderData: detail,
+      fetchLive: false,
+    }).catch(() => null);
+    if (promoCheck?.violation) {
+      log.info('Skipping order over the promo limit', { orderId, orderNumber: extractOrderNumber(detail) });
       continue;
     }
 
