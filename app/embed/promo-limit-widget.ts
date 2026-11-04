@@ -29,7 +29,7 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
   var BANNER_ID = 'mleha-promo-limit-banner';
   var STYLE_ID = 'mleha-promo-limit-styles';
 
-  var state = { data: null, customerKey: null, fetchedAt: 0, pending: null, cartViolation: false };
+  var state = { data: null, customerKey: null, fetchedAt: 0, pending: null, cartViolation: false, cartNeedsLogin: false };
   var passthrough = {};
 
   function debug() {
@@ -167,6 +167,15 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
 
   // ------------------------------------------------------------------ UI
 
+  var LOGIN_TITLE = 'سجّلي الدخول لإكمال طلب عرض الريال';
+  var LOGIN_TEXT = 'عرض الريال قطعة واحدة لكل عميل، لذلك نحتاج تسجيل دخولك قبل إتمام الطلب للتأكد من أنك لم تحصلي على العرض من قبل.';
+
+  function isGuest() { return !customerId(); }
+
+  function openSallaLogin() {
+    try { sdk().event.dispatch('login::open'); } catch (error) { debug('login open failed', error); }
+  }
+
   function message(limits) {
     if (limits && limits.used >= limits.max) {
       return 'لقد حصلتِ مسبقاً على منتج من عرض الريال في طلب سابق. العرض متاح لقطعة واحدة فقط لكل عميل.';
@@ -190,8 +199,9 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
     (document.head || document.documentElement).appendChild(style);
   }
 
-  function showBlocker(limits) {
+  function showBlocker(limits, mode) {
     if (!document.body) { return; }
+    var needsLogin = mode === 'login';
     ensureStyles();
     var existing = document.getElementById(MODAL_ID);
     if (existing) { existing.parentNode.removeChild(existing); }
@@ -203,11 +213,12 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
     var card = document.createElement('div');
     card.className = 'mpl-card';
     var icon = document.createElement('div'); icon.className = 'mpl-icon'; icon.textContent = '!';
-    var title = document.createElement('h3'); title.id = MODAL_ID + '-title'; title.textContent = 'عذراً، يمكنك الحصول على قطعة واحدة فقط';
-    var text = document.createElement('p'); text.textContent = message(limits);
-    var button = document.createElement('button'); button.type = 'button'; button.textContent = 'حسناً';
+    var title = document.createElement('h3'); title.id = MODAL_ID + '-title';
+    title.textContent = needsLogin ? LOGIN_TITLE : 'عذراً، يمكنك الحصول على قطعة واحدة فقط';
+    var text = document.createElement('p'); text.textContent = needsLogin ? LOGIN_TEXT : message(limits);
+    var button = document.createElement('button'); button.type = 'button'; button.textContent = needsLogin ? 'تسجيل الدخول' : 'حسناً';
     function close() { if (overlay.parentNode) { overlay.parentNode.removeChild(overlay); } }
-    button.addEventListener('click', close);
+    button.addEventListener('click', function () { close(); if (needsLogin) { openSallaLogin(); } });
     overlay.addEventListener('click', function (event) { if (event.target === overlay) { close(); } });
     card.appendChild(icon); card.appendChild(title); card.appendChild(text); card.appendChild(button);
     overlay.appendChild(card);
@@ -215,8 +226,10 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
     try { button.focus(); } catch (error) {}
   }
 
-  function updateCartBanner(limits, violating) {
-    state.cartViolation = !!violating;
+  function updateCartBanner(limits, violating, needsLogin) {
+    state.cartViolation = !!violating || !!needsLogin;
+    state.cartNeedsLogin = !violating && !!needsLogin;
+    if (needsLogin && !violating) { violating = true; }
     var submit = document.getElementById && document.getElementById('cart-submit');
     var banner = document.getElementById && document.getElementById(BANNER_ID);
     if (!violating) {
@@ -231,7 +244,7 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
       banner.setAttribute('role', 'alert');
       submit.parentNode.insertBefore(banner, submit);
     }
-    banner.textContent = message(limits);
+    banner.textContent = state.cartNeedsLogin ? LOGIN_TITLE + ' — ' + LOGIN_TEXT : message(limits);
   }
 
   function blockedError() {
@@ -278,9 +291,14 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
       return currentCart().then(function (items) {
         var units = promoUnits(limits, items);
         var allowed = units === 0 || limits.used + units <= limits.max;
-        updateCartBanner(limits, !allowed);
+        // A guest's earlier promo orders can't be seen, and Salla only asks
+        // for login on its own checkout page, where this script doesn't run.
+        // Repeat buyers got through that way, so log in first.
+        var needsLogin = allowed && units > 0 && isGuest();
+        updateCartBanner(limits, !allowed, needsLogin);
         if (!allowed) { showBlocker(limits); }
-        return allowed;
+        else if (needsLogin) { showBlocker(limits, 'login'); }
+        return allowed && !needsLogin;
       });
     });
   }
@@ -292,8 +310,10 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
       var units = 0;
       ids.forEach(function (id) { if (isPromo(limits, id)) { units += 1; } });
       var allowed = units === 0 || limits.used + units <= limits.max;
+      var needsLogin = allowed && units > 0 && isGuest();
       if (!allowed) { showBlocker(limits); }
-      return allowed;
+      else if (needsLogin) { showBlocker(limits, 'login'); }
+      return allowed && !needsLogin;
     });
   }
 
@@ -354,7 +374,10 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
       }
       if (s.event && typeof s.event.on === 'function') {
         ['auth::verified', 'auth::logged.in', 'auth::logged.out'].forEach(function (name) {
-          s.event.on(name, function () { state.data = null; writeStorage(null); });
+          s.event.on(name, function () {
+            state.data = null; writeStorage(null);
+            if (isCartPage()) { setTimeout(canCheckoutSilently, 300); }
+          });
         });
       }
     } catch (error) { debug('event hookup failed', error); }
@@ -379,7 +402,8 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
       if (!limits || !limits.enabled) { return; }
       return currentCart().then(function (items) {
         var units = promoUnits(limits, items);
-        updateCartBanner(limits, units > 0 && limits.used + units > limits.max);
+        var violating = units > 0 && limits.used + units > limits.max;
+        updateCartBanner(limits, violating, !violating && units > 0 && isGuest());
       });
     });
   }
@@ -393,7 +417,7 @@ export const PROMO_LIMIT_WIDGET_SOURCE = String.raw`
       if (!button) { return; }
       event.preventDefault();
       event.stopImmediatePropagation();
-      showBlocker(state.data);
+      showBlocker(state.data, state.cartNeedsLogin ? 'login' : undefined);
     }, true);
   }
 
