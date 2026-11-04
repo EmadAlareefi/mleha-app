@@ -114,8 +114,10 @@ export async function assignOldestOrderToUser(user: {
     return null;
   }
 
+  // The promo lookup runs alongside the candidate fetch, not after it.
+  const promoViolatorsPromise = getViolatingPromoOrderIds(MERCHANT_ID);
   const filters = await resolveStatusFilters();
-  const candidateOrders = await fetchCandidateOrders(accessToken, filters);
+  const candidateOrders = await getCandidateOrders(accessToken, filters);
 
   if (candidateOrders.length === 0) {
     return null;
@@ -151,7 +153,7 @@ export async function assignOldestOrderToUser(user: {
   const assignedIds = new Set(existingAssignments.map((record) => record.orderId));
   const shippedIds = new Set(existingShipments.map((record) => record.orderId));
   const escalatedIds = new Set(escalatedOrders.map((record) => record.orderId));
-  const promoViolatorIds = await getViolatingPromoOrderIds(MERCHANT_ID);
+  const promoViolatorIds = await promoViolatorsPromise;
 
   for (const order of candidateOrders) {
     const orderId = extractOrderId(order);
@@ -165,6 +167,13 @@ export async function assignOldestOrderToUser(user: {
     }
 
     if (promoViolatorIds.has(orderId)) {
+      continue;
+    }
+
+    // The list row carries the same status as the order detail, so orders
+    // prep can't take (e.g. the "under review" sub-statuses) are dropped here
+    // instead of costing two Salla requests each on every assignment.
+    if (order?.status && !isListRowAssignable(order)) {
       continue;
     }
 
@@ -774,48 +783,92 @@ async function resolveStatusFilters(): Promise<string[]> {
   }
 }
 
+function isListRowAssignable(order: any): boolean {
+  const { status, subStatus } = extractSallaStatus(order);
+  return isOrderStatusEligible(status, subStatus) && isOrderStatusAssignable(status, subStatus);
+}
+
+const CANDIDATES_TTL_MS = 30_000;
+const PAGE_CONCURRENCY = 6;
+let candidatesCache: { at: number; key: string; orders: any[] } | null = null;
+let candidatesInflight: { key: string; promise: Promise<any[]> } | null = null;
+
+/**
+ * Open Salla orders, oldest first. Shared between preparers for 30 seconds:
+ * assigned/shipped/escalated orders are re-checked against the database on
+ * every call, so a slightly old list only means a brand-new order can take
+ * up to 30 seconds to appear.
+ */
+async function getCandidateOrders(accessToken: string, filters: string[]): Promise<any[]> {
+  const key = filters.join(',');
+  if (candidatesCache?.key === key && Date.now() - candidatesCache.at < CANDIDATES_TTL_MS) {
+    return candidatesCache.orders;
+  }
+  if (candidatesInflight?.key === key) return candidatesInflight.promise;
+  const promise = fetchCandidateOrders(accessToken, filters)
+    .then((orders) => {
+      candidatesCache = { at: Date.now(), key, orders };
+      return orders;
+    })
+    .finally(() => {
+      candidatesInflight = null;
+    });
+  candidatesInflight = { key, promise };
+  return promise;
+}
+
+async function fetchCandidatePage(accessToken: string, filter: string, page: number) {
+  const url = `${SALLA_API_BASE}/orders?status=${encodeURIComponent(
+    filter
+  )}&per_page=${FETCH_LIMIT}&page=${page}&sort_by=created_at-asc`;
+  try {
+    const response = await fetchSallaWithRetry(url, accessToken);
+    if (!response.ok) {
+      const errorText = await response.text();
+      log.warn('Failed to fetch Salla orders for filter', { filter, page, error: errorText });
+      return null;
+    }
+    const data = await response.json();
+    return {
+      rows: Array.isArray(data.data) ? data.data : [],
+      totalPages: getTotalPagesFromPagination(data.pagination),
+    };
+  } catch (error) {
+    log.error('Error fetching orders from Salla', { filter, page, error });
+    return null;
+  }
+}
+
 async function fetchCandidateOrders(accessToken: string, filters: string[]) {
   const seen = new Set<string>();
   const orders: any[] = [];
+  const addRows = (rows: any[]) => {
+    rows.forEach((order: any) => {
+      const key = extractOrderId(order) || order?.reference_id || order?.id;
+      if (!key || seen.has(String(key))) {
+        return;
+      }
+      seen.add(String(key));
+      orders.push(order);
+    });
+  };
 
   for (const filter of filters) {
-    let page = 1;
-    let totalPages: number | null = null;
-
-    while (true) {
-      const url = `${SALLA_API_BASE}/orders?status=${encodeURIComponent(
-        filter
-      )}&per_page=${FETCH_LIMIT}&page=${page}&sort_by=created_at-asc`;
-      try {
-        const response = await fetchSallaWithRetry(url, accessToken);
-        if (!response.ok) {
-          const errorText = await response.text();
-          log.warn('Failed to fetch Salla orders for filter', { filter, page, error: errorText });
-          break;
-        }
-        const data = await response.json();
-        const rows = Array.isArray(data.data) ? data.data : [];
-        rows.forEach((order: any) => {
-          const key = extractOrderId(order) || order?.reference_id || order?.id;
-          if (!key || seen.has(String(key))) {
-            return;
-          }
-          seen.add(String(key));
-          orders.push(order);
-        });
-
-        totalPages = totalPages ?? getTotalPagesFromPagination(data.pagination);
-        const reachedLastPage =
-          (typeof totalPages === 'number' && page >= totalPages) ||
-          rows.length === 0;
-        if (reachedLastPage) {
-          break;
-        }
-        page += 1;
-      } catch (error) {
-        log.error('Error fetching orders from Salla', { filter, page, error });
-        break;
-      }
+    // Page 1 gives the page count; the rest load a few at a time in parallel.
+    const first = await fetchCandidatePage(accessToken, filter, 1);
+    if (!first) continue;
+    addRows(first.rows);
+    const totalPages = first.totalPages ?? 1;
+    for (let start = 2; start <= totalPages; start += PAGE_CONCURRENCY) {
+      const pages = Array.from(
+        { length: Math.min(PAGE_CONCURRENCY, totalPages - start + 1) },
+        (_, index) => start + index
+      );
+      const results = await Promise.all(pages.map((page) => fetchCandidatePage(accessToken, filter, page)));
+      results.forEach((result) => {
+        if (result) addRows(result.rows);
+      });
+      if (results.some((result) => result && result.rows.length === 0)) break;
     }
   }
 

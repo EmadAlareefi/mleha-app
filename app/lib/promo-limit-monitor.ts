@@ -277,14 +277,14 @@ async function loadPromoOrderInputs(
   return Array.from(byOrder.values());
 }
 
-const VIOLATORS_TTL_MS = 30_000;
+const VIOLATORS_TTL_MS = 60_000;
 let violatorsCache: { at: number; merchantId: string; ids: Set<string> } | null = null;
 let violatorsInflight: Promise<Set<string>> | null = null;
 
 /**
  * Ids of active orders over the promo limit, from stored order items. Order
  * prep uses it to leave those orders out of the queue without fetching each
- * one from Salla. Cached for 30 seconds; empty (nothing skipped) on error.
+ * one from Salla. Cached for 60 seconds; empty (nothing skipped) on error.
  */
 export async function getViolatingPromoOrderIds(merchantId: string): Promise<Set<string>> {
   if (violatorsCache && violatorsCache.merchantId === merchantId && Date.now() - violatorsCache.at < VIOLATORS_TTL_MS) {
