@@ -70,26 +70,43 @@ function cacheKeyFor(config: PromoLimitConfig): string {
   return [...config.categoryIds].sort().join(',');
 }
 
-async function fetchCategoryProductIds(merchantId: string, categoryId: string): Promise<string[]> {
+type CategoryPage = {
+  success?: boolean;
+  data?: Array<{ id?: number | string }>;
+  pagination?: { total?: number; totalPages?: number; total_pages?: number };
+};
+
+const PAGE_CONCURRENCY = 5;
+
+async function fetchCategoryPage(merchantId: string, categoryId: string, page: number): Promise<CategoryPage> {
   // Salla ignores `category=`; only the array form `categories[]=` filters.
+  const query = `categories[]=${encodeURIComponent(categoryId)}&per_page=${PAGE_SIZE}&page=${page}`;
+  const response = await sallaMakeRequest<CategoryPage>(merchantId, `/products?${query}`);
+  if (!response || response.success === false || !Array.isArray(response.data)) {
+    throw new Error(`Salla products request failed for category ${categoryId} page ${page}`);
+  }
+  return response;
+}
+
+async function fetchCategoryProductIds(merchantId: string, categoryId: string): Promise<string[]> {
   const ids = new Set<string>();
-  let total = Infinity;
-  for (let page = 1; page <= MAX_PAGES && ids.size < total; page += 1) {
-    const query = `categories[]=${encodeURIComponent(categoryId)}&per_page=${PAGE_SIZE}&page=${page}`;
-    const response = await sallaMakeRequest<{
-      success?: boolean;
-      data?: Array<{ id?: number | string }>;
-      pagination?: { total?: number; totalPages?: number; total_pages?: number };
-    }>(merchantId, `/products?${query}`);
-    if (!response || response.success === false || !Array.isArray(response.data)) {
-      throw new Error(`Salla products request failed for category ${categoryId} page ${page}`);
-    }
-    if (typeof response.pagination?.total === 'number') total = response.pagination.total;
-    for (const product of response.data) {
+  const add = (response: CategoryPage) => {
+    for (const product of response.data ?? []) {
       if (product?.id != null) ids.add(String(product.id));
     }
-    const totalPages = response.pagination?.totalPages ?? response.pagination?.total_pages;
-    if (response.data.length === 0 || (typeof totalPages === 'number' && page >= totalPages)) break;
+  };
+  // Page 1 gives the page count; the rest load a few at a time in parallel
+  // (one at a time took ~30s for ~300 products).
+  const first = await fetchCategoryPage(merchantId, categoryId, 1);
+  add(first);
+  const total = typeof first.pagination?.total === 'number' ? first.pagination.total : Infinity;
+  const totalPages = Math.min(
+    MAX_PAGES,
+    first.pagination?.totalPages ?? first.pagination?.total_pages ?? (Number.isFinite(total) ? Math.ceil(total / PAGE_SIZE) : 1)
+  );
+  for (let start = 2; start <= totalPages; start += PAGE_CONCURRENCY) {
+    const pages = Array.from({ length: Math.min(PAGE_CONCURRENCY, totalPages - start + 1) }, (_, index) => start + index);
+    (await Promise.all(pages.map((page) => fetchCategoryPage(merchantId, categoryId, page)))).forEach(add);
   }
   if (Number.isFinite(total) && ids.size < total) {
     log.warn('Promo category listing returned fewer products than reported', {
@@ -156,6 +173,24 @@ export async function getPromoProductIds(
     return persisted.productIds;
   }
 
+  // Stale-while-revalidate: with any earlier list on hand, answer with it at
+  // once and refresh in the background. The list only grows, so a slightly old
+  // one is safe, and no staff page waits on Salla for it.
+  const stale = memoryCache?.key === key ? memoryCache : persisted?.key === key ? persisted : null;
+  if (stale && !options.forceRefresh) {
+    if (memoryCache !== stale) memoryCache = stale;
+    void refreshPromoProductIds(merchantId, config, key, persisted).catch(() => undefined);
+    return stale.productIds;
+  }
+  return refreshPromoProductIds(merchantId, config, key, persisted);
+}
+
+function refreshPromoProductIds(
+  merchantId: string,
+  config: PromoLimitConfig,
+  key: string,
+  persisted: ProductIdsCache | null
+): Promise<string[]> {
   if (!inflight) {
     inflight = (async () => {
       try {
@@ -378,6 +413,11 @@ export async function checkOrderPromoLimit(params: {
   merchantId: string;
   orderId: string;
   orderData?: unknown;
+  /**
+   * false when `orderData` was just fetched from Salla (prep assignment): its
+   * items are trusted first and no second live request is made.
+   */
+  fetchLive?: boolean;
 }): Promise<PromoOrderCheck> {
   const config = getPromoLimitConfig();
   const empty: PromoOrderCheck = {
@@ -411,13 +451,19 @@ export async function checkOrderPromoLimit(params: {
     },
   });
 
-  let items = extractPromoLineItems(params.orderData);
-  if (items.length === 0 && storedOrder?.items.length) {
-    items = storedOrder.items.map((item) => ({ ...item, quantity: item.quantity }));
-  }
-  if (items.length === 0) {
+  // Live Salla items first: once staff remove the extra promo items in Salla the
+  // order must pass, and a prep/shipping snapshot taken earlier would still show
+  // them. Stored webhook items, then the caller's snapshot, are fallbacks.
+  const stored = () => (storedOrder?.items ?? []).map((item) => ({ ...item, quantity: item.quantity }));
+  let items: PromoLineItem[];
+  if (params.fetchLive === false) {
+    items = extractPromoLineItems(params.orderData);
+    if (items.length === 0) items = stored();
+  } else {
     const live = await getSallaOrderItems(params.merchantId, params.orderId).catch(() => null);
     items = extractPromoLineItems({ items: live || [] });
+    if (items.length === 0) items = stored();
+    if (items.length === 0) items = extractPromoLineItems(params.orderData);
   }
 
   if (countPromoUnits(items, promoIds) === 0) return empty;
@@ -442,15 +488,16 @@ export const PROMO_LIMIT_ERROR_CODE = 'PROMO_LIMIT_EXCEEDED';
 
 /**
  * Shared server guard for staff actions (completing prep, creating shipments).
- * Returns the 409 body when the order breaks the promo limit and the user did
- * not acknowledge the on-screen warning; null when the action may proceed.
- * A failed check never blocks the warehouse — it is logged and allowed.
+ * Returns the 409 body when the order breaks the promo limit — there is no
+ * override: the order has to be fixed in Salla (extra promo items removed, or
+ * the duplicate order cancelled) before it can be prepared or shipped. Returns
+ * null when the action may proceed. A check that errors out is logged and
+ * allowed, so a Salla outage never stops the warehouse.
  */
 export async function promoLimitBlock(params: {
   merchantId: string;
   orderId: string;
   orderData?: unknown;
-  acknowledged: boolean;
   context: string;
   userId?: string | null;
   orderNumber?: string | null;
@@ -470,10 +517,6 @@ export async function promoLimitBlock(params: {
       promoUnitsInOrder: check.promoUnitsInOrder,
       priorOrders: check.priorOrders.map((order) => order.orderNumber || order.orderId),
     };
-    if (params.acknowledged) {
-      log.warn('Promo limit violation acknowledged by staff', details);
-      return null;
-    }
     log.warn('Blocked staff action on promo limit violation', details);
     return { code: PROMO_LIMIT_ERROR_CODE, error: check.message || 'تجاوز حد عرض الريال', promoLimit: check };
   } catch (error) {

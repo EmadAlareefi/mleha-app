@@ -149,13 +149,16 @@ export interface StorefrontBlockerHealth {
 
 const STOREFRONT_URL = 'https://mleha.com/';
 const HEALTH_TTL_MS = 60_000;
+const HEALTH_WAIT_MS = 3000;
+const HEALTH_SETTINGS_KEY = 'promo_limit.storefront_health';
 let healthCache: { at: number; value: StorefrontBlockerHealth } | null = null;
+let healthInflight: Promise<StorefrontBlockerHealth> | null = null;
 
 async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MlehaPromoMonitor/1.0)', Accept: 'text/html,*/*' },
     cache: 'no-store',
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(6000),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
@@ -178,35 +181,91 @@ export function inspectThemeScript(source: string): { state: 'ok' | 'missing' | 
   return { state: 'ok', detail: 'سكربت حد عرض الريال مثبّت في الثيم والملف سليم' };
 }
 
-export async function checkStorefrontBlocker(options: { force?: boolean } = {}): Promise<StorefrontBlockerHealth> {
-  if (!options.force && healthCache && Date.now() - healthCache.at < HEALTH_TTL_MS) return healthCache.value;
-  let value: StorefrontBlockerHealth;
+async function runStorefrontCheck(): Promise<StorefrontBlockerHealth> {
   try {
     const html = await fetchText(STOREFRONT_URL);
     const match = html.match(/https:\/\/cdn\.assets\.salla\.network\/themes\/customization\/[^"'\s]+\.js[^"'\s]*/);
     if (!match) {
-      value = {
+      return {
         state: 'missing',
         detail: 'لم يتم العثور على ملف JS مخصص في صفحة المتجر',
         scriptUrl: null,
         checkedAt: new Date().toISOString(),
       };
-    } else {
-      const scriptUrl = match[0].replace(/&amp;/g, '&');
-      const source = await fetchText(scriptUrl);
-      value = { ...inspectThemeScript(source), scriptUrl, checkedAt: new Date().toISOString() };
     }
+    const scriptUrl = match[0].replace(/&amp;/g, '&');
+    const source = await fetchText(scriptUrl);
+    return { ...inspectThemeScript(source), scriptUrl, checkedAt: new Date().toISOString() };
   } catch (error) {
     log.warn('Promo monitor storefront check failed', { error: error instanceof Error ? error.message : error });
-    value = {
+    return {
       state: 'unreachable',
       detail: 'تعذر فحص المتجر الآن، سيعاد الفحص تلقائياً',
       scriptUrl: null,
       checkedAt: new Date().toISOString(),
     };
   }
-  healthCache = { at: Date.now(), value };
-  return value;
+}
+
+async function readPersistedHealth(): Promise<StorefrontBlockerHealth | null> {
+  try {
+    const row = await prisma.settings.findUnique({ where: { key: HEALTH_SETTINGS_KEY } });
+    const parsed = row ? (JSON.parse(row.value) as StorefrontBlockerHealth) : null;
+    return parsed?.state && parsed.checkedAt ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function refreshStorefrontHealth(): Promise<StorefrontBlockerHealth> {
+  if (healthInflight) return healthInflight;
+  healthInflight = (async () => {
+    try {
+      const value = await runStorefrontCheck();
+      healthCache = { at: Date.now(), value };
+      const json = JSON.stringify(value);
+      await prisma.settings
+        .upsert({
+          where: { key: HEALTH_SETTINGS_KEY },
+          create: { key: HEALTH_SETTINGS_KEY, value: json, description: 'Last storefront promo blocker check (promo monitor)' },
+          update: { value: json },
+        })
+        .catch(() => undefined);
+      return value;
+    } finally {
+      healthInflight = null;
+    }
+  })();
+  return healthInflight;
+}
+
+/**
+ * Storefront blocker status for the monitor. Never makes the page wait on
+ * mleha.com: the last result (memory, else the Settings table, so a fresh
+ * server instance has one too) is returned at once and re-checked in the
+ * background once it is a minute old. Only when no result exists anywhere does
+ * it wait for a check, and then for at most HEALTH_WAIT_MS.
+ */
+export async function checkStorefrontBlocker(options: { force?: boolean } = {}): Promise<StorefrontBlockerHealth> {
+  if (options.force) return refreshStorefrontHealth();
+  if (!healthCache) {
+    const persisted = await readPersistedHealth();
+    if (persisted) healthCache = { at: new Date(persisted.checkedAt).getTime(), value: persisted };
+  }
+  if (healthCache) {
+    if (Date.now() - healthCache.at >= HEALTH_TTL_MS) void refreshStorefrontHealth().catch(() => undefined);
+    return healthCache.value;
+  }
+  const pending: StorefrontBlockerHealth = {
+    state: 'unreachable',
+    detail: 'جاري فحص المتجر لأول مرة…',
+    scriptUrl: null,
+    checkedAt: new Date().toISOString(),
+  };
+  return Promise.race([
+    refreshStorefrontHealth().catch(() => pending),
+    new Promise<StorefrontBlockerHealth>((resolve) => setTimeout(() => resolve(pending), HEALTH_WAIT_MS)),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,50 +284,46 @@ export interface PromoMonitorSnapshot {
   lastOrderAt: string | null;
 }
 
-export async function getPromoMonitorSnapshot(merchantId: string): Promise<PromoMonitorSnapshot> {
-  const config = getPromoLimitConfig();
-  const startsAt = getPromoStartsAt();
-  const base = {
-    enabled: config.enabled,
-    maxPerCustomer: config.maxPerCustomer,
-    startsAt: startsAt.toISOString(),
-  };
+interface PromoItemRow {
+  orderId: string;
+  name: string | null;
+  sku: string | null;
+  quantity: number;
+  referenceId: string | null;
+  orderNumber: string | null;
+  placedAt: Date | null;
+  statusSlug: string | null;
+  statusName: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  customerMobile: string | null;
+  customerEmail: string | null;
+}
 
-  const [promoProductIds, totalOrdersSinceStart, ordersWithoutItems, lastOrder] = await Promise.all([
-    config.enabled ? getPromoProductIds(merchantId) : Promise.resolve([] as string[]),
-    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt } } }),
-    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt }, items: { none: {} } } }),
-    prisma.sallaOrder.findFirst({
-      where: { merchantId },
-      orderBy: { placedAt: 'desc' },
-      select: { placedAt: true },
-    }),
-  ]);
-
-  const items = promoProductIds.length
-    ? await prisma.sallaOrderItem.findMany({
-        where: { merchantId, productId: { in: promoProductIds }, order: { placedAt: { gte: startsAt } } },
-        select: {
-          orderId: true,
-          name: true,
-          sku: true,
-          quantity: true,
-          order: {
-            select: {
-              referenceId: true,
-              orderNumber: true,
-              placedAt: true,
-              statusSlug: true,
-              statusName: true,
-              customerId: true,
-              customerName: true,
-              customerMobile: true,
-              customerEmail: true,
-            },
-          },
-        },
-      })
-    : [];
+async function loadPromoOrderInputs(
+  merchantId: string,
+  promoProductIds: string[],
+  startsAt: Date
+): Promise<PromoMonitorOrderInput[]> {
+  if (promoProductIds.length === 0) return [];
+  // One join instead of Prisma's relation filter, which takes several round
+  // trips (items, then their orders) and was the slowest part of the page.
+  const rows = await prisma.$queryRaw<PromoItemRow[]>`
+    SELECT i."orderId", i."name", i."sku", i."quantity",
+           o."referenceId", o."orderNumber", o."placedAt", o."statusSlug", o."statusName",
+           o."customerId", o."customerName", o."customerMobile", o."customerEmail"
+    FROM "SallaOrderItem" i
+    JOIN "SallaOrder" o ON o."merchantId" = i."merchantId" AND o."orderId" = i."orderId"
+    WHERE i."merchantId" = ${merchantId}
+      AND o."placedAt" >= ${startsAt}
+      AND i."productId" = ANY(${promoProductIds}::text[])`;
+  const items = rows.map((row) => ({
+    orderId: row.orderId,
+    name: row.name,
+    sku: row.sku,
+    quantity: Number(row.quantity) || 0,
+    order: row,
+  }));
 
   const byOrder = new Map<string, PromoMonitorOrderInput>();
   for (const item of items) {
@@ -290,11 +345,110 @@ export async function getPromoMonitorSnapshot(merchantId: string): Promise<Promo
     }
     order.items.push({ name: item.name, sku: item.sku, quantity: item.quantity });
   }
+  return Array.from(byOrder.values());
+}
+
+const VIOLATORS_TTL_MS = 60_000;
+let violatorsCache: { at: number; merchantId: string; ids: Set<string> } | null = null;
+let violatorsInflight: Promise<Set<string>> | null = null;
+
+/**
+ * Ids of active orders over the promo limit, from stored order items. Order
+ * prep uses it to leave those orders out of the queue without fetching each
+ * one from Salla. Stale-while-revalidate: after the first load, callers get the
+ * last result at once and it is rebuilt in the background every 60 seconds,
+ * so no prep request waits on it. Empty (nothing skipped) only if it has never
+ * loaded and the first load fails.
+ */
+export async function getViolatingPromoOrderIds(merchantId: string): Promise<Set<string>> {
+  const cached = violatorsCache?.merchantId === merchantId ? violatorsCache : null;
+  if (cached && Date.now() - cached.at < VIOLATORS_TTL_MS) return cached.ids;
+  const refresh = refreshViolators(merchantId);
+  if (cached) {
+    void refresh.catch(() => undefined);
+    return cached.ids;
+  }
+  return refresh;
+}
+
+function refreshViolators(merchantId: string): Promise<Set<string>> {
+  // Preparers loading at the same time share one rebuild.
+  if (violatorsInflight) return violatorsInflight;
+  violatorsInflight = (async () => {
+    try {
+      const config = getPromoLimitConfig();
+      if (!config.enabled) return new Set<string>();
+      const promoProductIds = await getPromoProductIds(merchantId);
+      const orders = analyzePromoOrders(
+        await loadPromoOrderInputs(merchantId, promoProductIds, getPromoStartsAt()),
+        config.maxPerCustomer
+      );
+      const ids = new Set(orders.filter((order) => order.violation && !order.cancelled).map((order) => order.orderId));
+      violatorsCache = { at: Date.now(), merchantId, ids };
+      return ids;
+    } catch (error) {
+      log.error('Failed to load promo limit violators', { error: error instanceof Error ? error.message : error });
+      // Keep skipping the last known set rather than flooding prep with them.
+      return violatorsCache?.merchantId === merchantId ? violatorsCache.ids : new Set<string>();
+    } finally {
+      violatorsInflight = null;
+    }
+  })();
+  return violatorsInflight;
+}
+
+const SNAPSHOT_TTL_MS = 10_000;
+let snapshotCache: { at: number; merchantId: string; value: PromoMonitorSnapshot } | null = null;
+let snapshotInflight: Promise<PromoMonitorSnapshot> | null = null;
+
+/**
+ * Snapshot for /promo-monitor. Viewers within 10 seconds of each other (and
+ * the page's own 20-second auto-refresh) share one build instead of each
+ * running the queries again.
+ */
+export async function getPromoMonitorSnapshot(merchantId: string): Promise<PromoMonitorSnapshot> {
+  if (snapshotCache?.merchantId === merchantId && Date.now() - snapshotCache.at < SNAPSHOT_TTL_MS) {
+    return snapshotCache.value;
+  }
+  if (!snapshotInflight) {
+    snapshotInflight = buildPromoMonitorSnapshot(merchantId)
+      .then((value) => {
+        snapshotCache = { at: Date.now(), merchantId, value };
+        return value;
+      })
+      .finally(() => {
+        snapshotInflight = null;
+      });
+  }
+  return snapshotInflight;
+}
+
+async function buildPromoMonitorSnapshot(merchantId: string): Promise<PromoMonitorSnapshot> {
+  const config = getPromoLimitConfig();
+  const startsAt = getPromoStartsAt();
+  const base = {
+    enabled: config.enabled,
+    maxPerCustomer: config.maxPerCustomer,
+    startsAt: startsAt.toISOString(),
+  };
+
+  const [promoProductIds, totalOrdersSinceStart, ordersWithoutItems, lastOrder] = await Promise.all([
+    config.enabled ? getPromoProductIds(merchantId) : Promise.resolve([] as string[]),
+    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt } } }),
+    prisma.sallaOrder.count({ where: { merchantId, placedAt: { gte: startsAt }, items: { none: {} } } }),
+    prisma.sallaOrder.findFirst({
+      where: { merchantId },
+      orderBy: { placedAt: 'desc' },
+      select: { placedAt: true },
+    }),
+  ]);
+
+  const inputs = await loadPromoOrderInputs(merchantId, promoProductIds, startsAt);
 
   return {
     ...base,
     promoProductCount: promoProductIds.length,
-    orders: analyzePromoOrders(Array.from(byOrder.values()), config.maxPerCustomer),
+    orders: analyzePromoOrders(inputs, config.maxPerCustomer),
     ordersWithoutItems,
     totalOrdersSinceStart,
     lastOrderAt: lastOrder?.placedAt ? lastOrder.placedAt.toISOString() : null,

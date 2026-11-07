@@ -72,7 +72,11 @@ const isPublicPath = (pathname: string) =>
   ) || PUBLIC_PATTERNS.some((pattern) => pattern.test(pathname));
 
 const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
-  ['order-prep', [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/]],
+  ['promo-monitor', [/^\/promo-monitor(\/.*)?$/]],
+  [
+    'order-prep',
+    [/^\/order-prep(\/.*)?$/, /^\/order-history(\/.*)?$/, /^\/api\/promo-limit\/order-check$/],
+  ],
   [
     'order-shortages',
     [/^\/order-shortages(\/.*)?$/, /^\/api\/order-prep\/unavailable-items(\/.*)?$/],
@@ -87,11 +91,16 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/api\/local-shipping(\/.*)?$/,
       /^\/api\/shipment-assignments(\/.*)?$/,
       /^\/api\/delivery-agents(\/.*)?$/,
+      /^\/api\/promo-limit\/order-check$/,
     ],
   ],
   [
     'admin-order-prep',
-    [/^\/admin\/order-prep(\/.*)?$/, /^\/api\/admin\/order-assignments(\/.*)?$/],
+    [
+      /^\/admin\/order-prep(\/.*)?$/,
+      /^\/api\/admin\/order-assignments(\/.*)?$/,
+      /^\/api\/promo-limit\/order-check$/,
+    ],
   ],
   ['warehouse', [/^\/warehouse(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   [
@@ -101,6 +110,7 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/api\/local-shipping(\/.*)?$/,
       /^\/api\/shipment-assignments(\/.*)?$/,
       /^\/api\/shipments(\/.*)?$/,
+      /^\/api\/promo-limit\/order-check$/,
     ],
   ],
   ['warehouse-locations', [/^\/warehouse-locations(\/.*)?$/]],

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export interface PromoLimitCheck {
   enabled: boolean;
@@ -15,14 +15,16 @@ export interface PromoLimitCheck {
 }
 
 /**
- * Checks the order on screen against the 1 SAR promo limit. `blocked` stays
- * true until a staff member explicitly acknowledges the warning; the matching
- * API routes enforce the same rule server-side.
+ * Checks the order on screen against the 1 SAR promo limit. A violating order
+ * stays blocked — there is no override. Once the order is fixed in Salla
+ * (extra promo items removed or the duplicate order cancelled), `recheck`
+ * re-reads it and unblocks. The matching API routes enforce the same rule.
  */
 export function usePromoLimitCheck(params: { orderId?: string | number | null; merchantId?: string | null; orderData?: unknown }) {
   const { orderId, merchantId, orderData } = params;
   const [check, setCheck] = useState<PromoLimitCheck | null>(null);
-  const [acknowledged, setAcknowledged] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [nonce, setNonce] = useState(0);
   const orderKey = orderId != null ? String(orderId) : '';
   const itemsKey = (() => {
     try {
@@ -33,10 +35,10 @@ export function usePromoLimitCheck(params: { orderId?: string | number | null; m
   })();
 
   useEffect(() => {
-    setAcknowledged(false);
     setCheck(null);
     if (!orderKey) return;
     const controller = new AbortController();
+    setChecking(true);
     fetch('/api/promo-limit/order-check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -47,29 +49,39 @@ export function usePromoLimitCheck(params: { orderId?: string | number | null; m
       .then((data) => {
         if (data?.success) setCheck(data.check as PromoLimitCheck);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!controller.signal.aborted) setChecking(false);
+      });
     return () => controller.abort();
     // orderData is tracked through itemsKey so a refreshed payload re-checks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderKey, merchantId, itemsKey]);
+  }, [orderKey, merchantId, itemsKey, nonce]);
+
+  const recheck = useCallback(() => setNonce((value) => value + 1), []);
 
   return {
     check,
-    acknowledged,
-    setAcknowledged,
+    checking,
+    recheck,
     violation: Boolean(check?.violation),
-    blocked: Boolean(check?.violation) && !acknowledged,
+    blocked: Boolean(check?.violation),
   };
 }
 
 export function PromoLimitAlert({
   check,
-  acknowledged,
-  onAcknowledgedChange,
+  checking,
+  onRecheck,
+  onSendToReview,
+  sendingToReview,
 }: {
   check: PromoLimitCheck | null;
-  acknowledged: boolean;
-  onAcknowledgedChange: (value: boolean) => void;
+  checking?: boolean;
+  onRecheck?: () => void;
+  /** Order prep only: hand the order back as "under review" so the preparer can move on. */
+  onSendToReview?: () => void;
+  sendingToReview?: boolean;
 }) {
   if (!check?.violation) return null;
   return (
@@ -77,7 +89,7 @@ export function PromoLimitAlert({
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-600 text-lg font-bold text-white">!</span>
         <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-base font-bold text-red-800">تجاوز حد عرض الريال (قطعة واحدة لكل عميل)</p>
+          <p className="text-base font-bold text-red-800">موقوف: تجاوز حد عرض الريال (قطعة واحدة لكل عميل)</p>
           {check.message && <p className="text-sm leading-6 text-red-700">{check.message}</p>}
           {check.promoItems.length > 0 && (
             <ul className="list-disc space-y-0.5 pr-5 text-sm text-red-800">
@@ -96,15 +108,32 @@ export function PromoLimitAlert({
                 .join('، ')}
             </p>
           )}
-          <label className="flex cursor-pointer items-center gap-2 pt-1 text-sm font-semibold text-red-900">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-red-600"
-              checked={acknowledged}
-              onChange={(event) => onAcknowledgedChange(event.target.checked)}
-            />
-            راجعت الطلب مع المسؤول وأؤكد المتابعة
-          </label>
+          <p className="text-sm font-semibold text-red-900">
+            لا يمكن تحضير أو شحن هذا الطلب حتى يتم تعديله في سلة: حذف قطع العرض الزائدة، أو إلغاء الطلب إذا كان العميل
+            حصل على العرض في طلب سابق.
+          </p>
+          <div className="flex flex-wrap gap-2">
+          {onSendToReview && (
+            <button
+              type="button"
+              onClick={onSendToReview}
+              disabled={sendingToReview}
+              className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              {sendingToReview ? 'جاري التحويل…' : 'تحويل الطلب للمراجعة وأخذ طلب آخر'}
+            </button>
+          )}
+          {onRecheck && (
+            <button
+              type="button"
+              onClick={onRecheck}
+              disabled={checking}
+              className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+            >
+              {checking ? 'جاري الفحص…' : 'تم التعديل في سلة — إعادة الفحص'}
+            </button>
+          )}
+          </div>
         </div>
       </div>
     </div>

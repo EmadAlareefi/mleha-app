@@ -17,6 +17,8 @@ import {
   resolveOrderPrepSallaStatusId,
   resolveOrderPrepStatusName,
 } from '@/app/lib/order-prep-salla-status';
+import { checkOrderPromoLimit } from '@/app/lib/promo-limit';
+import { getViolatingPromoOrderIds } from '@/app/lib/promo-limit-monitor';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -59,7 +61,7 @@ export function serializeAssignment(record: OrderPrepAssignment): SerializedOrde
 }
 
 export async function getActiveAssignmentsForUser(userId: string): Promise<SerializedOrderPrepAssignment[]> {
-  const records = await prisma.orderPrepAssignment.findMany({
+  const allRecords = await prisma.orderPrepAssignment.findMany({
     where: {
       userId,
       status: { in: Array.from(ACTIVE_ASSIGNMENT_STATUSES) },
@@ -67,9 +69,52 @@ export async function getActiveAssignmentsForUser(userId: string): Promise<Seria
     orderBy: [{ assignedAt: 'asc' }],
   });
 
+  const records = await releasePromoViolators(allRecords);
   const processedRecords = await Promise.all(records.map((record) => applyPostalPatchIfNeeded(record)));
 
   return processedRecords.map(serializeAssignment);
+}
+
+/**
+ * Orders over the 1 SAR promo limit (more than one promo unit, or a repeat
+ * promo order) are kept out of order prep entirely. Assignments a preparer
+ * already holds for such orders are removed so the page moves on; once the
+ * order is fixed in Salla it is no longer flagged and re-enters the queue.
+ */
+async function releasePromoViolators(records: OrderPrepAssignment[]): Promise<OrderPrepAssignment[]> {
+  if (records.length === 0) return records;
+  const violators = await getViolatingPromoOrderIds(MERCHANT_ID);
+  const blocked = records.filter((record) => violators.has(record.orderId));
+  if (blocked.length === 0) return records;
+  try {
+    await prisma.orderPrepAssignment.deleteMany({
+      where: { id: { in: blocked.map((record) => record.id) }, status: { in: Array.from(ACTIVE_ASSIGNMENT_STATUSES) } },
+    });
+    log.warn('Released order prep assignments over the promo limit', {
+      orders: blocked.map((record) => record.orderNumber || record.orderId),
+    });
+  } catch (error) {
+    log.error('Failed to release promo limit assignments', { error });
+    return records;
+  }
+  return records.filter((record) => !violators.has(record.orderId));
+}
+
+/** The preparer's current order, in the order the prep page shows them. */
+async function findHeldAssignment(userId: string): Promise<OrderPrepAssignment | null> {
+  const held = await prisma.orderPrepAssignment.findMany({
+    where: { userId, status: { in: Array.from(ACTIVE_ASSIGNMENT_STATUSES) } },
+    orderBy: [{ assignedAt: 'asc' }],
+  });
+  return sortByPrepPriority(held)[0] ?? null;
+}
+
+/** preparing first, then waiting, then assigned; oldest first within each — as the prep page picks. */
+export function sortByPrepPriority<T extends { status: string; assignedAt: Date | string }>(records: T[]): T[] {
+  const rank = (status: string) => (status === 'preparing' ? 0 : status === 'waiting' ? 1 : 2);
+  return [...records].sort(
+    (a, b) => rank(a.status) - rank(b.status) || new Date(a.assignedAt).getTime() - new Date(b.assignedAt).getTime()
+  );
 }
 
 export async function assignOldestOrderToUser(
@@ -83,6 +128,13 @@ export async function assignOldestOrderToUser(
     return null;
   }
 
+  // One order per preparer: overlapping requests (a slow page refreshed, or
+  // "new order" pressed while it loads) each used to assign another order,
+  // leaving dozens hidden behind the one on screen.
+  const held = await findHeldAssignment(user.id);
+  if (held) return serializeAssignment(held);
+
+  // Reuse the caller's token when given, and resolve status filters alongside it.
   const [accessToken, filters] = await Promise.all([
     options.accessToken || getSallaAccessToken(MERCHANT_ID),
     resolveStatusFilters(),
@@ -92,7 +144,9 @@ export async function assignOldestOrderToUser(
     return null;
   }
 
-  const candidateOrders = await fetchCandidateOrders(accessToken, filters);
+  // The promo lookup runs alongside the candidate fetch, not after it.
+  const promoViolatorsPromise = getViolatingPromoOrderIds(MERCHANT_ID);
+  const candidateOrders = await getCandidateOrders(accessToken, filters);
 
   if (candidateOrders.length === 0) {
     return null;
@@ -128,6 +182,7 @@ export async function assignOldestOrderToUser(
   const assignedIds = new Set(existingAssignments.map((record) => record.orderId));
   const shippedIds = new Set(existingShipments.map((record) => record.orderId));
   const escalatedIds = new Set(escalatedOrders.map((record) => record.orderId));
+  const promoViolatorIds = await promoViolatorsPromise;
 
   for (const order of candidateOrders) {
     const orderId = extractOrderId(order);
@@ -137,6 +192,17 @@ export async function assignOldestOrderToUser(
 
     if (shippedIds.has(orderId)) {
       log.info('Skipping order with existing shipment label', { orderId });
+      continue;
+    }
+
+    if (promoViolatorIds.has(orderId)) {
+      continue;
+    }
+
+    // The list row carries the same status as the order detail, so orders
+    // prep can't take (e.g. the "under review" sub-statuses) are dropped here
+    // instead of costing two Salla requests each on every assignment.
+    if (order?.status && !isListRowAssignable(order)) {
       continue;
     }
 
@@ -165,6 +231,25 @@ export async function assignOldestOrderToUser(
       });
       continue;
     }
+
+    // Final check on the order just fetched, for new orders whose items are
+    // not stored locally yet. A failed check lets the order through; the
+    // completion guard still stops it.
+    const promoCheck = await checkOrderPromoLimit({
+      merchantId: MERCHANT_ID,
+      orderId,
+      orderData: detail,
+      fetchLive: false,
+    }).catch(() => null);
+    if (promoCheck?.violation) {
+      log.info('Skipping order over the promo limit', { orderId, orderNumber: extractOrderNumber(detail) });
+      continue;
+    }
+
+    // Another request for this preparer may have assigned an order while this
+    // one was walking the queue.
+    const heldNow = await findHeldAssignment(user.id);
+    if (heldNow) return serializeAssignment(heldNow);
 
     try {
       const assignment = await prisma.orderPrepAssignment.create({
@@ -732,35 +817,41 @@ async function resolveStatusFilters(): Promise<string[]> {
   }
 }
 
-const CANDIDATE_PAGE_CONCURRENCY = 5;
-
-async function fetchCandidateOrders(accessToken: string, filters: string[]) {
-  // Each status filter is independent, so fetch them concurrently and merge in filter order.
-  const perFilter = await Promise.all(
-    filters.map((filter) => fetchCandidateOrdersForFilter(accessToken, filter)),
-  );
-
-  const seen = new Set<string>();
-  const orders: any[] = [];
-  for (const rows of perFilter) {
-    for (const order of rows) {
-      const key = extractOrderId(order) || order?.reference_id || order?.id;
-      if (!key || seen.has(String(key))) {
-        continue;
-      }
-      seen.add(String(key));
-      orders.push(order);
-    }
-  }
-
-  return orders.sort((a, b) => getOrderTimestamp(a) - getOrderTimestamp(b));
+function isListRowAssignable(order: any): boolean {
+  const { status, subStatus } = extractSallaStatus(order);
+  return isOrderStatusEligible(status, subStatus) && isOrderStatusAssignable(status, subStatus);
 }
 
-async function fetchCandidatePage(
-  accessToken: string,
-  filter: string,
-  page: number,
-): Promise<{ rows: any[]; pagination: unknown } | null> {
+const CANDIDATES_TTL_MS = 30_000;
+const PAGE_CONCURRENCY = 6;
+let candidatesCache: { at: number; key: string; orders: any[] } | null = null;
+let candidatesInflight: { key: string; promise: Promise<any[]> } | null = null;
+
+/**
+ * Open Salla orders, oldest first. Shared between preparers for 30 seconds:
+ * assigned/shipped/escalated orders are re-checked against the database on
+ * every call, so a slightly old list only means a brand-new order can take
+ * up to 30 seconds to appear.
+ */
+async function getCandidateOrders(accessToken: string, filters: string[]): Promise<any[]> {
+  const key = filters.join(',');
+  if (candidatesCache?.key === key && Date.now() - candidatesCache.at < CANDIDATES_TTL_MS) {
+    return candidatesCache.orders;
+  }
+  if (candidatesInflight?.key === key) return candidatesInflight.promise;
+  const promise = fetchCandidateOrders(accessToken, filters)
+    .then((orders) => {
+      candidatesCache = { at: Date.now(), key, orders };
+      return orders;
+    })
+    .finally(() => {
+      candidatesInflight = null;
+    });
+  candidatesInflight = { key, promise };
+  return promise;
+}
+
+async function fetchCandidatePage(accessToken: string, filter: string, page: number) {
   const url = `${SALLA_API_BASE}/orders?status=${encodeURIComponent(
     filter
   )}&per_page=${FETCH_LIMIT}&page=${page}&sort_by=created_at-asc`;
@@ -774,7 +865,7 @@ async function fetchCandidatePage(
     const data = await response.json();
     return {
       rows: Array.isArray(data.data) ? data.data : [],
-      pagination: data.pagination,
+      totalPages: getTotalPagesFromPagination(data.pagination),
     };
   } catch (error) {
     log.error('Error fetching orders from Salla', { filter, page, error });
@@ -782,45 +873,40 @@ async function fetchCandidatePage(
   }
 }
 
-async function fetchCandidateOrdersForFilter(accessToken: string, filter: string): Promise<any[]> {
-  const first = await fetchCandidatePage(accessToken, filter, 1);
-  if (!first) {
-    return [];
-  }
-
-  const rows: any[] = [...first.rows];
-  const totalPages = getTotalPagesFromPagination(first.pagination);
-  if (first.rows.length === 0 || (typeof totalPages === 'number' && totalPages <= 1)) {
-    return rows;
-  }
-
-  if (typeof totalPages === 'number') {
-    // Page count is known: fetch the remaining pages in small concurrent batches.
-    for (let start = 2; start <= totalPages; start += CANDIDATE_PAGE_CONCURRENCY) {
-      const pages = [];
-      for (let page = start; page < start + CANDIDATE_PAGE_CONCURRENCY && page <= totalPages; page += 1) {
-        pages.push(page);
+async function fetchCandidateOrders(accessToken: string, filters: string[]) {
+  const seen = new Set<string>();
+  const orders: any[] = [];
+  const addRows = (rows: any[]) => {
+    rows.forEach((order: any) => {
+      const key = extractOrderId(order) || order?.reference_id || order?.id;
+      if (!key || seen.has(String(key))) {
+        return;
       }
+      seen.add(String(key));
+      orders.push(order);
+    });
+  };
+
+  for (const filter of filters) {
+    // Page 1 gives the page count; the rest load a few at a time in parallel.
+    const first = await fetchCandidatePage(accessToken, filter, 1);
+    if (!first) continue;
+    addRows(first.rows);
+    const totalPages = first.totalPages ?? 1;
+    for (let start = 2; start <= totalPages; start += PAGE_CONCURRENCY) {
+      const pages = Array.from(
+        { length: Math.min(PAGE_CONCURRENCY, totalPages - start + 1) },
+        (_, index) => start + index
+      );
       const results = await Promise.all(pages.map((page) => fetchCandidatePage(accessToken, filter, page)));
-      for (const result of results) {
-        if (!result) {
-          // Match the previous behaviour: stop at the first failed page.
-          return rows;
-        }
-        rows.push(...result.rows);
-      }
+      results.forEach((result) => {
+        if (result) addRows(result.rows);
+      });
+      if (results.some((result) => result && result.rows.length === 0)) break;
     }
-    return rows;
   }
 
-  // Unknown page count: walk pages sequentially until an empty page.
-  for (let page = 2; ; page += 1) {
-    const result = await fetchCandidatePage(accessToken, filter, page);
-    if (!result || result.rows.length === 0) {
-      return rows;
-    }
-    rows.push(...result.rows);
-  }
+  return orders.sort((a, b) => getOrderTimestamp(a) - getOrderTimestamp(b));
 }
 
 async function fetchOrderDetailWithItems(orderId: string, accessToken: string) {

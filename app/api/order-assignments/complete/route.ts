@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { Prisma } from '@prisma/client';
 import { getSallaAccessToken } from '@/app/lib/salla-oauth';
+import { promoLimitBlock } from '@/app/lib/promo-limit';
 
 export const runtime = 'nodejs';
 const READY_FOR_PICKUP_SLUG = 'ready_for_pickup';
@@ -34,6 +35,18 @@ export async function POST(request: NextRequest) {
         { error: 'الطلب غير موجود' },
         { status: 404 }
       );
+    }
+
+    const promoBlock = await promoLimitBlock({
+      merchantId: assignment.merchantId,
+      orderId: assignment.orderId,
+      orderNumber: assignment.orderNumber,
+      orderData: assignment.orderData,
+      context: 'order-assignments.complete',
+      userId: assignment.userId,
+    });
+    if (promoBlock) {
+      return NextResponse.json(promoBlock, { status: 409 });
     }
 
     // Attempt to update the order status in Salla so it never returns to the prep queue

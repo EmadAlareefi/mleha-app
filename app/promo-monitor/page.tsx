@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import {
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 
 import { authOptions } from '@/app/lib/auth';
+import { hasServiceAccess } from '@/app/lib/service-access';
 import {
   checkStorefrontBlocker,
   getPromoMonitorSnapshot,
@@ -113,17 +115,49 @@ function BlockerStatus({ health }: { health: StorefrontBlockerHealth }) {
   );
 }
 
+function MonitorSkeleton() {
+  return (
+    <div className="flex flex-col gap-6" aria-busy="true" aria-label="جاري تحميل بيانات العرض">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="h-[104px] animate-pulse rounded-xl border bg-muted/40" />
+        ))}
+      </section>
+      <div className="h-40 animate-pulse rounded-xl border bg-muted/40" />
+      <div className="h-64 animate-pulse rounded-xl border bg-muted/40" />
+    </div>
+  );
+}
+
 export default async function PromoMonitorPage({ searchParams }: { searchParams: SearchParams }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect('/login');
   const user = session.user as { role?: string; roles?: string[] };
-  if (user.role !== 'admin' && !user.roles?.includes('admin')) redirect('/');
+  const isAdmin = user.role === 'admin' || Boolean(user.roles?.includes('admin'));
+  if (!isAdmin && !hasServiceAccess(session, 'promo-monitor')) redirect('/');
 
   const params = await searchParams;
   const requestedWindow = param(params.window) || 'all';
   const windowKey = WINDOWS.some(([value]) => value === requestedWindow) ? requestedWindow : 'all';
   const query = param(params.query).trim().slice(0, 60);
 
+  // The frame renders at once; the data streams in, so a slow query never
+  // shows up as a blank page.
+  return (
+    <AppPageShell
+      title="مراقبة عرض الريال"
+      subtitle="قطعة واحدة لكل عميل · يتحدث كل 20 ثانية"
+      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+    >
+      <AutoRefresh interval={20_000} />
+      <Suspense fallback={<MonitorSkeleton />}>
+        <PromoMonitorContent windowKey={windowKey} query={query} />
+      </Suspense>
+    </AppPageShell>
+  );
+}
+
+async function PromoMonitorContent({ windowKey, query }: { windowKey: string; query: string }) {
   const [snapshot, health] = await Promise.all([
     getPromoMonitorSnapshot(MERCHANT_ID),
     checkStorefrontBlocker(),
@@ -196,12 +230,10 @@ export default async function PromoMonitorPage({ searchParams }: { searchParams:
   ];
 
   return (
-    <AppPageShell
-      title="مراقبة عرض الريال"
-      subtitle={`قطعة واحدة لكل عميل · منذ ${dateTimeFormat.format(new Date(snapshot.startsAt))} · يتحدث كل 20 ثانية`}
-      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
-    >
-      <AutoRefresh interval={20_000} />
+    <>
+      <p className="-mt-2 text-xs text-muted-foreground">
+        منذ بداية العرض {dateTimeFormat.format(new Date(snapshot.startsAt))}
+      </p>
 
       {!snapshot.enabled && (
         <Alert className="border-amber-200 bg-amber-50 text-amber-900">
@@ -475,6 +507,6 @@ export default async function PromoMonitorPage({ searchParams }: { searchParams:
           ))}
         </CardContent>
       </Card>
-    </AppPageShell>
+    </>
   );
 }

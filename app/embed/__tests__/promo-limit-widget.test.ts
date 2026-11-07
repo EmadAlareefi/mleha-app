@@ -28,6 +28,7 @@ function setup(options: { used?: number; cart?: CartItem[]; customerId?: string 
   const fetched: string[] = [];
   const events: Record<string, Array<() => void>> = {};
   let submitFailed = 0;
+  const dispatched: string[] = [];
 
   const body = element('body');
   const head = element('head');
@@ -67,7 +68,10 @@ function setup(options: { used?: number; cart?: CartItem[]; customerId?: string 
       isGuest: () => !options.customerId,
       get: (key: string) => (key === 'user.id' ? options.customerId ?? null : key === 'page.slug' ? 'cart' : undefined),
     },
-    event: { on: (name: string, fn: () => void) => { (events[name] ||= []).push(fn); } },
+    event: {
+      on: (name: string, fn: () => void) => { (events[name] ||= []).push(fn); },
+      dispatch: (name: string) => { dispatched.push(name); },
+    },
   };
 
   const documentStub: any = {
@@ -94,7 +98,7 @@ function setup(options: { used?: number; cart?: CartItem[]; customerId?: string 
 
   new Function('window', 'document', 'setTimeout', 'URL', PROMO_LIMIT_WIDGET_SOURCE)(windowStub, documentStub, setTimeout, URL);
   const modal = () => byId('mleha-promo-limit-modal');
-  return { salla, apiCart, cart, calls, fetched, modal, get submitFailed() { return submitFailed; }, events };
+  return { salla, apiCart, cart, calls, fetched, modal, dispatched, get submitFailed() { return submitFailed; }, events };
 }
 
 test('adding the first promo product goes through', async () => {
@@ -166,4 +170,46 @@ test('guests are checked without a customer id', async () => {
   const env = setup({ customerId: null, cart: [{ id: 1, product_id: 100, quantity: 1 }] });
   await assert.rejects(env.salla.api.cart.addItem({ id: 101, quantity: 1 }), /promo_limit_exceeded/);
   assert.match(env.fetched[0], /\/api\/public\/promo-limit$/);
+});
+
+function modalText(modal: any): string {
+  const parts: string[] = [];
+  const walk = (node: any) => { if (node.textContent) parts.push(node.textContent); (node.children || []).forEach(walk); };
+  walk(modal);
+  return parts.join(' ');
+}
+
+function modalButton(modal: any): any {
+  let found: any = null;
+  const walk = (node: any) => { if (!found && node.tagName === 'BUTTON') found = node; (node.children || []).forEach(walk); };
+  walk(modal);
+  return found;
+}
+
+test('a guest checking out with a promo product must log in first', async () => {
+  const env = setup({ customerId: null, cart: [{ id: 1, product_id: 100, quantity: 1 }] });
+  await env.salla.cart.submit();
+  assert.ok(!env.calls.includes('submit'), 'checkout did not go ahead');
+  assert.equal(env.submitFailed, 1, 'theme button released');
+  assert.match(modalText(env.modal()), /سجّلي الدخول/);
+  modalButton(env.modal()).listeners.click[0]({});
+  assert.deepEqual(env.dispatched, ['login::open'], "Salla's login popup is opened");
+});
+
+test('a guest without promo products checks out normally', async () => {
+  const env = setup({ customerId: null, cart: [{ id: 1, product_id: 999, quantity: 2 }] });
+  await env.salla.cart.submit();
+  assert.deepEqual(env.calls, ['submit']);
+});
+
+test('a guest quick order with a promo product asks for login', async () => {
+  const env = setup({ customerId: null });
+  await assert.rejects(env.salla.api.cart.createQuickOrder({ product_ids: ['100'] }), /promo_limit_exceeded/);
+  assert.match(modalText(env.modal()), /سجّلي الدخول/);
+});
+
+test('a logged-in first-time customer still quick-orders one promo product', async () => {
+  const env = setup({ customerId: '55' });
+  await env.salla.api.cart.createQuickOrder({ product_ids: ['100'] });
+  assert.deepEqual(env.calls, ['quick:100']);
 });
