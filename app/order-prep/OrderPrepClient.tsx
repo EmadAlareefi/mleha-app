@@ -206,7 +206,7 @@ const extractLineItemSku = (item: LineItem): string => {
   return '';
 };
 
-export default function OrderPrepClient({ onPrepared }: { onPrepared?: (orderNumber: string) => void } = {}) {
+export default function OrderPrepClient() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
@@ -216,8 +216,6 @@ export default function OrderPrepClient({ onPrepared }: { onPrepared?: (orderNum
   const [sallaStatusAction, setSallaStatusAction] = useState<string | null>(null);
   const autoStartedAssignments = useRef<Set<string>>(new Set());
   const refreshedAssignments = useRef<Set<string>>(new Set());
-  const assignmentsRef = useRef<Assignment[]>([]);
-  assignmentsRef.current = assignments;
   const [confirmDialog, setConfirmDialog] = useState<{
     type: ConfirmDialogType;
     assignment: Assignment;
@@ -347,12 +345,9 @@ export default function OrderPrepClient({ onPrepared }: { onPrepared?: (orderNum
         });
 
         if (status === 'completed') {
-          toast({ description: '🎉 تم تجهيز الطلب، يمكنك الآن إنشاء الشحنة' });
-          const prepared = assignmentsRef.current.find((assignment) => assignment.id === assignmentId);
-          const reference = prepared?.orderNumber || prepared?.orderReference || prepared?.orderId;
-          // Pull (and auto-assign) the next order right away instead of waiting for a page reload
+          toast({ description: '🎉 تم إنهاء الطلب، جارٍ تحميل الطلب التالي' });
+          // Pull (and auto-assign) the next order right away instead of waiting for a manual refresh
           void loadAssignments({ silent: true });
-          if (reference) onPrepared?.(reference);
         } else if (status === 'preparing') {
           toast({
             description: data.isInternational
@@ -375,7 +370,7 @@ export default function OrderPrepClient({ onPrepared }: { onPrepared?: (orderNum
         setPendingAction(null);
       }
     },
-    [loadAssignments, toast, onPrepared],
+    [loadAssignments, toast],
   );
 
   const handlePrintOrderNumber = useCallback(

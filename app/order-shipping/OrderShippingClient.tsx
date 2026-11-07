@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useCallback, FormEvent } from 'react';
 import { useSession } from 'next-auth/react';
-import OrderPrepClient from '@/app/order-prep/OrderPrepClient';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -1276,12 +1275,6 @@ const getPrepStatusForItem = useCallback(
     await searchForOrder(orderNumber);
   }, [searchForOrder]);
 
-  const handlePreparedOrder = useCallback(async (orderNumber: string) => {
-    await handleBarcodeDetected(orderNumber);
-    document.getElementById('shipping')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [handleBarcodeDetected]);
-
-
 const handleRefreshItems = async () => {
     if (!currentOrder) return;
 
@@ -1710,7 +1703,7 @@ const handleRefreshItems = async () => {
 
   if (status === 'loading') {
     return (
-      <AppPageShell title="تجهيز وشحن الطلبات" subtitle="لوحة الشحن">
+      <AppPageShell title="شحن الطلبات" subtitle="لوحة الشحن">
         <LoadingState label="جاري التحميل..." />
       </AppPageShell>
     );
@@ -1732,7 +1725,7 @@ const handleRefreshItems = async () => {
 
   if (!isOrdersUser) {
     return (
-      <AppPageShell title="تجهيز وشحن الطلبات" subtitle="لوحة الشحن">
+      <AppPageShell title="شحن الطلبات" subtitle="لوحة الشحن">
         <Card className="mx-auto max-w-md">
           <CardContent className="p-8 text-center">
           <p className="text-lg font-semibold">
@@ -1746,17 +1739,10 @@ const handleRefreshItems = async () => {
 
   return (
     <AppPageShell
-      title="تجهيز وشحن الطلبات"
+      title="شحن الطلبات"
       subtitle={`مرحباً، ${user.name}`}
       contentClassName="flex flex-1 flex-col gap-6 p-4 pb-32 md:p-6 md:pb-40"
     >
-          <section aria-label="تجهيز وتغليف الطلبات">
-            <OrderPrepClient onPrepared={handlePreparedOrder} />
-          </section>
-          <section aria-label="شحن الطلبات" className="scroll-mt-6" id="shipping">
-            <h2 className="text-xl font-bold">شحن الطلبات</h2>
-            <p className="text-sm text-muted-foreground">يظهر الطلب هنا تلقائياً بعد إتمام تجهيزه، أو ابحث عن طلب جاهز للشحن.</p>
-          </section>
           <Card className="w-full">
             <CardContent className="p-4">
             <form onSubmit={handleSearch} className="flex flex-col gap-3 md:flex-row md:items-center">

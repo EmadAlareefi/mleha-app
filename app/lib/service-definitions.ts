@@ -25,10 +25,10 @@ type ServiceDefinitionSeed = {
 const serviceDefinitionsData = [
   {
     key: 'order-prep',
-    title: 'تجهيز وشحن الطلبات',
-    description: 'تجهيز وتغليف الطلبات وإنشاء الشحنات وطباعة البوالص',
+    title: 'تحضير الطلبات',
+    description: 'تحضير وإدارة الطلبات المعينة',
     icon: '📝',
-    href: '/order-shipping',
+    href: '/order-prep',
     color: 'from-amber-500 to-amber-600',
     defaultRoles: ['orders'],
     grantsRoles: ['orders'],
@@ -45,9 +45,7 @@ const serviceDefinitionsData = [
   },
   {
     key: 'order-shipping',
-    hideFromDashboard: true,
-    assignable: false,
-    title: 'تجهيز وشحن الطلبات',
+    title: 'شحن الطلبات',
     description: 'البحث عن الطلبات وإنشاء الشحنات وطباعة البوالص',
     icon: '🚚',
     href: '/order-shipping',

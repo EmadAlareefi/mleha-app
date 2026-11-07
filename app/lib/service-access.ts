@@ -29,9 +29,5 @@ export function hasServiceAccess(
   }
 
   const serviceKeys = extractServiceKeys(session);
-  return required.some((service) =>
-    serviceKeys.includes(service) ||
-    ((service === 'order-prep' || service === 'order-shipping') &&
-      serviceKeys.some((key) => key === 'order-prep' || key === 'order-shipping'))
-  );
+  return required.some((service) => serviceKeys.includes(service));
 }

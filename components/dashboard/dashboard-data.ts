@@ -299,8 +299,7 @@ export function getVisibleDashboardServices({
       );
     }
 
-    return serviceKeys.includes(service.key) ||
-      (service.key === 'order-prep' && serviceKeys.includes('order-shipping'));
+    return serviceKeys.includes(service.key);
   });
 
   const dashboardServices = visibleServices.map(mapServiceDefinition);

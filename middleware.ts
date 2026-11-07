@@ -323,10 +323,7 @@ export default withAuth(
         return res;
       }
 
-      const serviceKeys = [...((token.serviceKeys as string[]) || [])];
-      if (serviceKeys.includes('order-prep') || serviceKeys.includes('order-shipping')) {
-        serviceKeys.push('order-prep', 'order-shipping');
-      }
+      const serviceKeys = (token.serviceKeys as string[]) || [];
       const allowedServices = serviceKeys.filter((key): key is ServiceKey =>
         SERVICE_PATHS.has(key as ServiceKey)
       ) as ServiceKey[];
