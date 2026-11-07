@@ -26,16 +26,19 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
-  const [confirmExisting, setConfirmExisting] = useState(false);
+  // A refund already in the Salla history: record it (done by hand) or refund again (a different one).
+  const [existingRefundChoice, setExistingRefundChoice] = useState<'none' | 'record' | 'refund_again'>('none');
   const [confirmRestocks, setConfirmRestocks] = useState(false);
+  const [alreadyRestocked, setAlreadyRestocked] = useState<string[]>([]);
 
   useEffect(() => {
     if (!request) return;
     let cancelled = false;
     setPreview(null);
     setError('');
-    setConfirmExisting(false);
+    setExistingRefundChoice('none');
     setConfirmRestocks(false);
+    setAlreadyRestocked([]);
     setLoading(true);
     fetch(`/api/returns/process?returnRequestId=${encodeURIComponent(request.id)}`)
       .then(async (response) => {
@@ -56,7 +59,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
   const blocked =
     !preview ||
     preview.stage !== 'ready' ||
-    (existingRefunds.length > 0 && !confirmExisting) ||
+    (existingRefunds.length > 0 && existingRefundChoice === 'none') ||
     (unknownRestocks.length > 0 && !confirmRestocks);
 
   const run = async () => {
@@ -69,8 +72,10 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           returnRequestId: request.id,
-          ignoreExistingRefunds: confirmExisting,
+          ignoreExistingRefunds: existingRefundChoice === 'refund_again',
+          refundAlreadyInSalla: existingRefundChoice === 'record',
           confirmUnknownRestocks: confirmRestocks,
+          alreadyRestockedItemIds: alreadyRestocked,
         }),
       });
       const data = await response.json();
@@ -193,7 +198,23 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
                         line.action === 'unknown' ? 'text-amber-700' : line.action === 'skip' ? 'text-gray-500' : 'text-emerald-700'
                       }`}
                     >
-                      {line.action === 'restock' ? 'ترجع للمخزون' : line.action === 'done' ? 'تمت إعادتها' : line.reason}
+                      {line.action === 'restock' ? (
+                        <label className="flex cursor-pointer items-center gap-1.5">
+                          <Checkbox
+                            checked={alreadyRestocked.includes(line.itemId)}
+                            onCheckedChange={(value) =>
+                              setAlreadyRestocked((prev) =>
+                                value === true ? [...prev, line.itemId] : prev.filter((id) => id !== line.itemId),
+                              )
+                            }
+                          />
+                          {alreadyRestocked.includes(line.itemId) ? 'أُعيدت يدوياً في سلة' : 'ترجع للمخزون'}
+                        </label>
+                      ) : line.action === 'done' ? (
+                        'تمت إعادتها'
+                      ) : (
+                        line.reason
+                      )}
                     </span>
                   </li>
                 ))}
@@ -226,7 +247,17 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
                   </p>
                 ))}
                 <label className="flex cursor-pointer items-center gap-2 pt-1 text-red-900">
-                  <Checkbox checked={confirmExisting} onCheckedChange={(value) => setConfirmExisting(value === true)} />
+                  <Checkbox
+                    checked={existingRefundChoice === 'record'}
+                    onCheckedChange={(value) => setExistingRefundChoice(value === true ? 'record' : 'none')}
+                  />
+                  هذا هو استرجاع الطلب، تم من لوحة سلة: سجّله ولا تسترجع مرة أخرى
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-red-900">
+                  <Checkbox
+                    checked={existingRefundChoice === 'refund_again'}
+                    onCheckedChange={(value) => setExistingRefundChoice(value === true ? 'refund_again' : 'none')}
+                  />
                   تأكدت أنه استرجاع مختلف، استرجع المبلغ مرة أخرى
                 </label>
               </div>

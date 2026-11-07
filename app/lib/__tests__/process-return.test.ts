@@ -367,3 +367,43 @@ test('order mode: leftover credit becomes a coupon once, at processing', async (
   assert.deepEqual(calls.leftover, ['r1']);
   assert.equal(state.request.leftoverCouponCode, 'EXCHANGELEFT');
 });
+
+test('old request refunded from the Salla dashboard: recorded from the history, never refunded again', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps({
+    historyRefunds: async () => [{ amount: 170, note: 'تم إرجاع مبلغ (170 ر.س)', at: '2026-11-02T10:00:00Z' }],
+  });
+  const result = await processReturnRequest('r1', { actor: 'staff', refundAlreadyInSalla: true }, deps);
+  assert.equal(calls.refund.length, 0);
+  assert.equal(state.request.refundStatus, 'refunded');
+  assert.equal(Number(state.request.refundedAmount), 170);
+  assert.equal(result.completed, true);
+});
+
+test('"already refunded in Salla" is refused when the Salla history shows no refund', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps({ historyRefunds: async () => [] });
+  const result = await processReturnRequest('r1', { actor: 'staff', refundAlreadyInSalla: true }, deps);
+  assert.equal(calls.refund.length, 0);
+  assert.notEqual(state.request.refundStatus, 'refunded');
+  assert.equal(result.completed, false);
+});
+
+test('pieces already restocked by hand are marked done without calling Salla', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps();
+  await processReturnRequest('r1', { actor: 'staff', alreadyRestockedItemIds: ['i1'] }, deps);
+  assert.equal(calls.restock.length, 0);
+  assert.equal(state.items[0].restockStatus, 'done');
+});
+
+test('"already restocked" never applies to a piece that is not in good condition', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps } = fakeDeps();
+  await processReturnRequest('r1', { actor: 'staff', alreadyRestockedItemIds: ['i2'] }, deps);
+  assert.equal(state.items[1].restockStatus, 'skipped');
+});

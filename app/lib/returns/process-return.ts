@@ -248,6 +248,17 @@ export interface ProcessOptions {
    * call was sent but its result never recorded) are already back in stock.
    */
   confirmUnknownRestocks?: boolean;
+  /**
+   * The refund was already made by hand from the Salla dashboard (pre-v2
+   * requests): record it from the Salla order history instead of refunding.
+   * Requires a refund in that history.
+   */
+  refundAlreadyInSalla?: boolean;
+  /**
+   * Pieces staff already returned to stock by hand in Salla: mark them done
+   * without calling Salla again (that would count the stock twice).
+   */
+  alreadyRestockedItemIds?: string[];
 }
 
 /** A `processing` claim older than this is treated as abandoned (the function died). */
@@ -317,6 +328,11 @@ export async function processReturnRequest(
           record('restock', 'unknown', { itemId: item.id, product: item.productName });
           blockers.push(`لم يتأكد إرجاع "${item.productName}" للمخزون، تحقق منه في سلة ثم أكّد`);
         }
+        continue;
+      }
+      if (item.conditionStatus === 'good' && options.alreadyRestockedItemIds?.includes(item.id)) {
+        await db.returnItem.update({ where: { id: item.id }, data: { restockStatus: 'done', restockedAt: new Date() } });
+        record('restock', 'ok', { itemId: item.id, product: item.productName, restockedOutsideApp: true });
         continue;
       }
       if (item.conditionStatus !== 'good') {
@@ -426,6 +442,26 @@ async function runRefundStep(
   ]);
 
   const existing = sinceCreation(history, request.createdAt);
+  if (options.refundAlreadyInSalla) {
+    // Never refund here: only record what the Salla history proves was paid.
+    if (existing.length === 0) {
+      blockers.push('لم يُعثر على استرجاع لهذا الطلب في سجل سلة، لا يمكن تسجيله كمسترجع من لوحة سلة.');
+      record('refund', 'skipped', { reason: 'no refund in Salla history' });
+      return;
+    }
+    const recorded = existing.reduce((sum, refund) => sum + (refund.amount ?? 0), 0);
+    await db.returnRequest.update({
+      where: { id: request.id },
+      data: {
+        refundStatus: 'refunded',
+        refundedAmount: recorded > 0 ? recorded : amounts.refundAmount,
+        refundedAt: new Date(),
+        refundError: null,
+      },
+    });
+    record('refund', 'ok', { refundedOutsideApp: true, amount: recorded > 0 ? recorded : amounts.refundAmount, sallaEvidence: existing });
+    return;
+  }
   if (existing.length > 0 && !options.ignoreExistingRefunds) {
     blockers.push('يوجد استرجاع مسجل في سجل الطلب في سلة. أكّد أنه استرجاع مختلف أو أغلقه كمسترجع.');
     record('refund', 'skipped', { reason: 'existing refund in Salla history', existing });

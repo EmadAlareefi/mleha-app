@@ -37,6 +37,10 @@ export async function POST(request: NextRequest) {
     actor: staffActorName(auth.session),
     ignoreExistingRefunds: body?.ignoreExistingRefunds === true,
     confirmUnknownRestocks: body?.confirmUnknownRestocks === true,
+    refundAlreadyInSalla: body?.refundAlreadyInSalla === true,
+    alreadyRestockedItemIds: Array.isArray(body?.alreadyRestockedItemIds)
+      ? body.alreadyRestockedItemIds.filter((id: unknown): id is string => typeof id === 'string').slice(0, 200)
+      : undefined,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error, blockers: result.blockers }, { status: result.status ?? 500 });
