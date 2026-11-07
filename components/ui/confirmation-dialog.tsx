@@ -2,6 +2,7 @@
 
 import { ReactNode } from 'react';
 import { Button } from './button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog';
 
 type ConfirmationVariant = 'primary' | 'danger';
 
@@ -18,6 +19,9 @@ interface ConfirmationDialogProps {
   confirmDisabled?: boolean;
 }
 
+// Built on the Radix Dialog so it portals and layers correctly when opened
+// from inside another Radix layer (a Sheet or Dialog). A plain fixed div ends
+// up under the open sheet and Radix blocks pointer events outside its layer.
 export function ConfirmationDialog({
   open,
   title,
@@ -30,41 +34,35 @@ export function ConfirmationDialog({
   content,
   confirmDisabled = false,
 }: ConfirmationDialogProps) {
-  if (!open) {
-    return null;
-  }
-
   const confirmButtonVariant = confirmVariant === 'danger' ? 'destructive' : 'default';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div className="fixed inset-0 bg-black/50" onClick={onCancel} aria-hidden="true" />
-      <div className="relative z-50 w-full max-w-md">
-        <div className="bg-white rounded-lg shadow-xl overflow-hidden">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-            {message ? <p className="text-sm text-gray-600 leading-relaxed">{message}</p> : null}
-            {content}
-          </div>
-          <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
-            <Button variant="outline" onClick={onCancel} className="min-w-28">
-              {cancelLabel}
-            </Button>
-            <Button
-              variant={confirmButtonVariant}
-              onClick={onConfirm}
-              className="min-w-28"
-              disabled={confirmDisabled}
-            >
-              {confirmLabel}
-            </Button>
-          </div>
+    <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
+      <DialogContent
+        showCloseButton={false}
+        className="gap-0 overflow-hidden bg-white p-0 shadow-xl sm:max-w-md"
+      >
+        <div className="p-6">
+          <DialogTitle className="mb-2 text-lg font-semibold text-gray-900">{title}</DialogTitle>
+          {message ? (
+            <DialogDescription className="text-sm leading-relaxed text-gray-600">{message}</DialogDescription>
+          ) : null}
+          {content}
         </div>
-      </div>
-    </div>
+        <div className="flex justify-end gap-3 bg-gray-50 px-6 py-4">
+          <Button variant="outline" onClick={onCancel} className="min-w-28">
+            {cancelLabel}
+          </Button>
+          <Button
+            variant={confirmButtonVariant}
+            onClick={onConfirm}
+            className="min-w-28"
+            disabled={confirmDisabled}
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
