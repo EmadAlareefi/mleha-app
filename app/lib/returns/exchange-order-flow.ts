@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { mapWithConcurrency } from '@/lib/concurrency';
 import { log } from '@/app/lib/logger';
 import { createSallaCoupon, deleteSallaCoupon, generateCouponCode } from '@/app/lib/salla-coupons';
 import { sendWhatsAppTemplate } from '@/app/lib/zoko';
@@ -438,17 +439,19 @@ export async function runExchangePaymentMaintenance(
   });
   const now = deps.now();
 
-  for (const request of pending) {
+  // Each request is independent; a few at a time keeps the cron well inside
+  // its time limit without bursting Salla's rate limit.
+  await mapWithConcurrency(pending, 5, async (request) => {
     try {
       const state = await deps.getOrder(request.merchantId, request.exchangeOrderId!);
       const outcome = await applyExchangeOrderState(request, state, deps);
       if (outcome === 'paid') {
         report.paid++;
-        continue;
+        return;
       }
       if (outcome === 'cancelled') {
         report.expired++;
-        continue;
+        return;
       }
       const dueAt = request.exchangePaymentDueAt;
       if (dueAt && now.getTime() >= dueAt.getTime()) {
@@ -458,13 +461,13 @@ export async function runExchangePaymentMaintenance(
           where: { id: request.id, exchangePaymentStatus: 'pending' },
           data: { exchangePaymentStatus: 'expiring' },
         });
-        if (claimed.count === 0) continue;
+        if (claimed.count === 0) return;
         try {
           const latest = await deps.getOrder(request.merchantId, request.exchangeOrderId!);
           if (isOrderPaid(latest)) {
             const outcome = await applyExchangeOrderState({ ...request, exchangePaymentStatus: 'expiring' }, latest, deps);
             if (outcome === 'paid') report.paid++;
-            continue;
+            return;
           }
           await expireExchangeOrder(request, deps);
           report.expired++;
@@ -474,7 +477,7 @@ export async function runExchangePaymentMaintenance(
             .catch(() => undefined);
           throw error;
         }
-        continue;
+        return;
       }
       // One reminder in the second half of the payment window.
       const createdAt = request.exchangeOrderLinkedAt ?? request.createdAt;
@@ -484,7 +487,7 @@ export async function runExchangePaymentMaintenance(
           where: { id: request.id, exchangeReminderSentAt: null },
           data: { exchangeReminderSentAt: now },
         });
-        if (claimed.count === 0) continue;
+        if (claimed.count === 0) return;
         await deps.notify('ZOKO_TPL_EXCHANGE_PAYMENT_PENDING', request.customerPhone, [
           request.customerName || 'عميلنا العزيز',
           request.exchangeOrderNumber || '',
@@ -497,7 +500,7 @@ export async function runExchangePaymentMaintenance(
       report.errors++;
       log.error('Exchange payment maintenance failed', { requestId: request.id, error });
     }
-  }
+  });
   return report;
 }
 

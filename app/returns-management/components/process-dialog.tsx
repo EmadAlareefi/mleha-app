@@ -31,8 +31,11 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
   const [confirmRestocks, setConfirmRestocks] = useState(false);
   const [alreadyRestocked, setAlreadyRestocked] = useState<string[]>([]);
 
+  // Keyed on the id: the list reloads hand in a new `request` object for the
+  // same request, which must not refetch the (Salla-backed) preview.
+  const requestId = request?.id ?? null;
   useEffect(() => {
-    if (!request) return;
+    if (!requestId) return;
     let cancelled = false;
     setPreview(null);
     setError('');
@@ -40,7 +43,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
     setConfirmRestocks(false);
     setAlreadyRestocked([]);
     setLoading(true);
-    fetch(`/api/returns/process?returnRequestId=${encodeURIComponent(request.id)}`)
+    fetch(`/api/returns/process?returnRequestId=${encodeURIComponent(requestId)}`)
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'تعذر تجهيز ملخص المعالجة');
@@ -51,7 +54,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
     return () => {
       cancelled = true;
     };
-  }, [request]);
+  }, [requestId]);
 
   const currency = preview?.amounts.currency || request?.currency || 'SAR';
   const existingRefunds = preview?.refund?.existingRefunds ?? [];

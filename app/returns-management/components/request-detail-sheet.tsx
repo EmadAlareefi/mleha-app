@@ -238,10 +238,15 @@ export function RequestDetailSheet({
               <div className="divide-y rounded-lg border">
                 {request.items.map((item) => (
                   <div key={item.id} className="flex gap-3 p-3">
-                    {item.damageImageData && (
-                      <a href={item.damageImageData} target="_blank" rel="noreferrer" className="shrink-0">
+                    {item.hasDamageImage && (
+                      <a
+                        href={`/api/returns/item-image?itemId=${encodeURIComponent(item.id)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0"
+                      >
                         <Image
-                          src={item.damageImageData}
+                          src={`/api/returns/item-image?itemId=${encodeURIComponent(item.id)}`}
                           alt="صورة التلف"
                           width={56}
                           height={72}

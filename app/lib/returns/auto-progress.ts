@@ -5,6 +5,11 @@ import { findHistoryRefunds } from '@/app/lib/salla-transactions';
 import { carrierDelivered, RECEIVABLE_STATUSES } from '@/lib/returns/workflow';
 import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
 import { runExchangePaymentMaintenance, type ExchangeMaintenanceReport } from '@/app/lib/returns/exchange-order-flow';
+import { mapWithConcurrency } from '@/lib/concurrency';
+
+/** Salla history lookups per run, and how many run at once (3 pages each). */
+const UNKNOWN_REFUND_BATCH = 50;
+const SALLA_CONCURRENCY = 5;
 
 /**
  * Moves return requests forward on the server, replacing the browser-side
@@ -102,14 +107,19 @@ export async function runReturnsAutoProgress(): Promise<AutoProgressReport> {
   }
 
   // 3. Refunds whose outcome was unknown: settle from the order history. Never resend.
+  // Bounded and windowed: an old request stuck in 'unknown' must not be polled
+  // forever, and the oldest-touched ones go first.
   const pending = await prisma.returnRequest.findMany({
     where: {
       refundStatus: { in: ['unknown', 'requested'] },
+      createdAt: { gte: since },
       updatedAt: { lte: new Date(Date.now() - 2 * 60 * 1000) },
     },
     select: { id: true, merchantId: true, orderId: true, createdAt: true },
+    orderBy: { updatedAt: 'asc' },
+    take: UNKNOWN_REFUND_BATCH,
   });
-  for (const request of pending) {
+  await mapWithConcurrency(pending, SALLA_CONCURRENCY, async (request) => {
     try {
       const refunds = (await findHistoryRefunds(request.merchantId, request.orderId)).filter(
         (refund) => !refund.at || new Date(refund.at).getTime() >= request.createdAt.getTime() - 60_000,
@@ -133,7 +143,7 @@ export async function runReturnsAutoProgress(): Promise<AutoProgressReport> {
       log.warn('Could not resolve unknown refund from Salla history', { returnRequestId: request.id, error });
       report.refundsStillUnknown++;
     }
-  }
+  });
 
   // 4. App-created exchange orders: missed payment webhooks, reminders, expiry.
   try {

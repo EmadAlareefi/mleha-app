@@ -70,9 +70,15 @@ export async function getActiveAssignmentsForUser(userId: string): Promise<Seria
   });
 
   const records = await releasePromoViolators(allRecords);
-  const processedRecords = await Promise.all(records.map((record) => applyPostalPatchIfNeeded(record)));
+  // The page shows one order (the first by prep priority). Patching the postal
+  // code can call Salla, so only do it for that one; completing an order patches
+  // it again anyway (updateAssignmentStatus).
+  const ordered = sortByPrepPriority(records);
+  if (ordered.length > 0) {
+    ordered[0] = await applyPostalPatchIfNeeded(ordered[0]);
+  }
 
-  return processedRecords.map(serializeAssignment);
+  return ordered.map(serializeAssignment);
 }
 
 /**
@@ -313,6 +319,8 @@ export async function updateAssignmentStatus(options: {
   targetStatus: 'preparing' | 'waiting' | 'completed';
   skipSallaSync?: boolean;
   itemStatuses?: ItemStatusPayload[];
+  /** Already loaded by the caller; saves a round trip. */
+  preloaded?: OrderPrepAssignment | null;
 }): Promise<{
   assignment: SerializedOrderPrepAssignment;
   sallaStatusSynced: boolean;
@@ -322,9 +330,10 @@ export async function updateAssignmentStatus(options: {
 } | null> {
   const { assignmentId, userId, targetStatus, skipSallaSync, itemStatuses } = options;
 
-  const assignment = await prisma.orderPrepAssignment.findUnique({
-    where: { id: assignmentId },
-  });
+  const assignment =
+    options.preloaded && options.preloaded.id === assignmentId
+      ? options.preloaded
+      : await prisma.orderPrepAssignment.findUnique({ where: { id: assignmentId } });
 
   if (!assignment || assignment.userId !== userId) {
     return null;

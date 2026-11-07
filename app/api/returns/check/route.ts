@@ -295,6 +295,13 @@ export async function POST(request: NextRequest) {
         createdAt: ret.createdAt,
         items: ret.items.map((item) => toPublicItem(item as unknown as Record<string, unknown>)),
       })),
+      // Category label per product, already loaded for the per-piece rules;
+      // saves the page one Salla call per product.
+      itemCategories: Object.fromEntries(
+        Object.entries(categoriesByProductId)
+          .filter(([, names]) => Array.isArray(names) && names.length > 0)
+          .map(([productId, names]) => [productId, names[0]]),
+      ),
       allowMultipleRequests: allowMultiple,
       canCreateNew: allowMultiple, // Can create new only if multiple requests are allowed
       returnWindowOverridden: windowOverride,

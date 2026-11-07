@@ -775,14 +775,26 @@ export default function OrderShippingPage() {
   const PROMO_BLOCK_MESSAGE =
     'لا يمكن شحن هذا الطلب: يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). يجب تعديله في سلة أولاً (حذف القطع الزائدة أو إلغاء الطلب) ثم إعادة الفحص.';
 
+  // One entry per item: '*' when its embedded categories already include the
+  // offer, otherwise its product id ('' when unknown). Keyed this way, a reload
+  // of the same order does not re-run the check.
+  const nationalDayCheckKey = useMemo(() => {
+    const items = Array.isArray(currentOrder?.orderData?.items) ? currentOrder.orderData.items : [];
+    return items
+      .map((item: any) => {
+        if (hasNationalDayOffersCategory(getItemCategoryNames(item))) return '*';
+        return String(getItemProductId(item) ?? '');
+      })
+      .join(',');
+  }, [currentOrder]);
+  const productOfferCache = useRef(new Map<string, boolean>());
+
   useEffect(() => {
     let cancelled = false;
-    const items = Array.isArray(currentOrder?.orderData?.items)
-      ? currentOrder.orderData.items
-      : [];
+    const entries: string[] = nationalDayCheckKey ? nationalDayCheckKey.split(',') : [];
 
     setOnlyNationalDayOfferProducts(false);
-    if (items.length === 0 || !resolvedMerchantId) {
+    if (entries.length === 0 || !resolvedMerchantId) {
       return () => {
         cancelled = true;
       };
@@ -790,16 +802,14 @@ export default function OrderShippingPage() {
 
     const checkCategories = async () => {
       const results = await Promise.all(
-        items.map(async (item: any) => {
-          const embeddedCategories = getItemCategoryNames(item);
-          if (hasNationalDayOffersCategory(embeddedCategories)) {
-            return true;
-          }
-
-          const productId = getItemProductId(item);
+        entries.map(async (entry: string) => {
+          if (entry === '*') return true;
+          const productId = entry;
           if (!productId) {
             return false;
           }
+          const cached = productOfferCache.current.get(productId);
+          if (cached !== undefined) return cached;
 
           try {
             const response = await fetch(
@@ -816,7 +826,9 @@ export default function OrderShippingPage() {
               data.category,
               ...(Array.isArray(data.categories) ? data.categories : []),
             ].map(normalizeCategoryName).filter(Boolean);
-            return hasNationalDayOffersCategory(categoryNames);
+            const isOffer = hasNationalDayOffersCategory(categoryNames);
+            productOfferCache.current.set(productId, isOffer);
+            return isOffer;
           } catch (error) {
             console.error('Failed to check National Day offer category', { productId, error });
             return false;
@@ -833,7 +845,7 @@ export default function OrderShippingPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentOrder, resolvedMerchantId]);
+  }, [nationalDayCheckKey, resolvedMerchantId]);
 
   const resolvedShippingCompanyName = useMemo(() => {
     const normalize = (value: unknown): string | null => {
@@ -937,9 +949,10 @@ export default function OrderShippingPage() {
     () => buildShipToArabicLabel(primaryMessengerShipTo),
     [primaryMessengerShipTo],
   );
-const currentOrderSkus = useMemo(() => {
+// Keyed by the SKU set so reloading the same order does not refetch locations.
+const currentOrderSkuKey = useMemo(() => {
     if (!currentOrder?.orderData?.items || !Array.isArray(currentOrder.orderData.items)) {
-      return [] as string[];
+      return '';
     }
 
     const variants = new Set<string>();
@@ -948,8 +961,12 @@ const currentOrderSkus = useMemo(() => {
       generateSkuVariants(getItemSku(item)).forEach((variant) => variants.add(variant));
     });
 
-    return Array.from(variants);
+    return Array.from(variants).sort().join('\u0000');
 }, [currentOrder]);
+const currentOrderSkus = useMemo(
+  () => (currentOrderSkuKey ? currentOrderSkuKey.split('\u0000') : []),
+  [currentOrderSkuKey],
+);
 
 const prepItemStatuses = useMemo(() => {
   const raw = currentOrder?.orderData?.prepItemStatuses;

@@ -43,7 +43,7 @@ export async function POST(
       );
     }
 
-    const accessToken = await getSallaAccessToken(MERCHANT_ID);
+    const accessToken = await getSallaAccessToken(assignment.merchantId || MERCHANT_ID);
     if (!accessToken) {
       return NextResponse.json(
         { error: 'تعذر الاتصال بسلة' },
@@ -51,10 +51,19 @@ export async function POST(
       );
     }
 
-    const detailResponse = await fetchSallaWithRetry(
-      `${SALLA_API_BASE}/orders/${encodeURIComponent(assignment.orderId)}`,
-      accessToken,
-    );
+    // Detail and items are independent; fetch them together. An items failure
+    // must not fail the refresh, so it resolves to null.
+    const orderIdParam = encodeURIComponent(assignment.orderId);
+    const [detailResponse, itemsResult] = await Promise.all([
+      fetchSallaWithRetry(`${SALLA_API_BASE}/orders/${orderIdParam}`, accessToken),
+      fetchSallaWithRetry(`${SALLA_API_BASE}/orders/items?order_id=${orderIdParam}`, accessToken).catch((itemsError) => {
+        log.warn('Error fetching order items during refresh', {
+          orderId: assignment.orderId,
+          error: itemsError instanceof Error ? itemsError.message : itemsError,
+        });
+        return null;
+      }),
+    ]);
 
     if (!detailResponse.ok) {
       const errorText = await detailResponse.text().catch(() => '');
@@ -72,36 +81,33 @@ export async function POST(
     const detailData = await detailResponse.json();
     const detail = detailData?.data ?? {};
 
-    try {
-      const itemsResponse = await fetchSallaWithRetry(
-        `${SALLA_API_BASE}/orders/items?order_id=${encodeURIComponent(assignment.orderId)}`,
-        accessToken,
-      );
-
-      if (itemsResponse.ok) {
-        const itemsData = await itemsResponse.json();
-        detail.items = Array.isArray(itemsData?.data) ? itemsData.data : detail.items;
-      } else {
-        const errorText = await itemsResponse.text().catch(() => '');
-        log.warn('Failed to refresh order items from Salla', {
-          orderId: assignment.orderId,
-          status: itemsResponse.status,
-          error: errorText,
-        });
+    if (itemsResult?.ok) {
+      const itemsData = await itemsResult.json().catch(() => null);
+      // Only replace when Salla returned items; an empty list would wipe valid lines.
+      if (Array.isArray(itemsData?.data) && itemsData.data.length > 0) {
+        detail.items = itemsData.data;
       }
-    } catch (itemsError) {
-      log.warn('Error fetching order items during refresh', {
+    } else if (itemsResult) {
+      const errorText = await itemsResult.text().catch(() => '');
+      log.warn('Failed to refresh order items from Salla', {
         orderId: assignment.orderId,
-        error: itemsError instanceof Error ? itemsError.message : itemsError,
+        status: itemsResult.status,
+        error: errorText,
       });
     }
 
     await attachProductLocations(detail);
 
+    // Keep fields stored next to the Salla payload (e.g. prepItemStatuses,
+    // postal-code patches) instead of overwriting the whole column.
+    const existing =
+      assignment.orderData && typeof assignment.orderData === 'object' && !Array.isArray(assignment.orderData)
+        ? (assignment.orderData as Record<string, unknown>)
+        : {};
     const updatedAssignment = await prisma.orderPrepAssignment.update({
       where: { id: assignment.id },
       data: {
-        orderData: detail as Prisma.InputJsonValue,
+        orderData: { ...existing, ...detail } as Prisma.InputJsonValue,
       },
     });
 

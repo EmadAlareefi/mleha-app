@@ -17,7 +17,8 @@ export interface ReturnItem {
   restockStatus?: 'none' | 'requested' | 'done' | 'skipped' | 'failed' | string;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
-  damageImageData?: string | null;
+  /** The photo itself is loaded on demand from /api/returns/item-image. */
+  hasDamageImage?: boolean;
   preInspectionNotes?: string | null;
   inspectedBy?: string | null;
   inspectedAt?: string | null;

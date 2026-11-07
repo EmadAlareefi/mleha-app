@@ -24,8 +24,9 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
     const search = searchParams.get('search'); // search by order number, customer name, tracking number
     const excludeStatusParams = missingShipmentOnly ? [] : searchParams.getAll('excludeStatus');
     const inspectionParams = missingShipmentOnly ? [] : searchParams.getAll('inspection');
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    // Bounded and NaN-safe: analytics asks for 500, the list for 20-100.
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(500, Math.max(1, parseInt(searchParams.get('limit') || '20', 10) || 20));
     const skip = (page - 1) * limit;
 
     // Build where clause
@@ -119,8 +120,9 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
     }
     const withCounts = searchParams.get('counts') === '1';
 
-    // Get total count
-    const [total, missingShipmentCount, queueCounts] = await Promise.all([
+    // Counts and the page of rows are independent; fetch them together.
+    const [[total, missingShipmentCount, queueCounts], returnRequests] = await Promise.all([
+      Promise.all([
       prisma.returnRequest.count({ where }),
       prisma.returnRequest.count({ where: missingShipmentWhere }),
       withCounts
@@ -131,10 +133,8 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
             ] as const),
           ).then((entries) => Object.fromEntries(entries))
         : Promise.resolve(null),
-    ]);
-
-    // Get paginated results
-    const returnRequests = await prisma.returnRequest.findMany({
+      ]),
+      prisma.returnRequest.findMany({
       where,
       include: {
         items: {
@@ -150,7 +150,8 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
             price: true,
             conditionStatus: true,
             conditionNotes: true,
-            damageImageData: true,
+            // damageImageData is base64 and large; the sheet loads it on demand
+            // from /api/returns/item-image. hasDamageImage is added below.
             preInspectionNotes: true,
             inspectedBy: true,
             inspectedAt: true,
@@ -172,7 +173,8 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       },
       skip,
       take: limit,
-    });
+      }),
+    ]);
 
     // Fetch corresponding Salla order statuses
     const uniqueOrders = Array.from(
@@ -187,23 +189,43 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
     );
 
     let sallaStatuses: Record<string, { name?: string; slug?: string }> = {};
+    const itemIds = returnRequests.flatMap((req) => (req.items ?? []).map((item) => item.id));
 
-    if (uniqueOrders.length > 0) {
-      const sallaOrders = await prisma.sallaOrder.findMany({
-        where: {
-          OR: uniqueOrders.map(order => ({
-            merchantId: order.merchantId,
-            orderId: order.orderId,
-          })),
-        },
-        select: {
-          merchantId: true,
-          orderId: true,
-          statusName: true,
-          statusSlug: true,
-        },
-      });
+    // Salla statuses, local shipments and which items have a photo: independent lookups.
+    const [sallaOrders, localShipments, itemsWithImage] = await Promise.all([
+      uniqueOrders.length > 0
+        ? prisma.sallaOrder.findMany({
+            where: {
+              OR: uniqueOrders.map(order => ({
+                merchantId: order.merchantId,
+                orderId: order.orderId,
+              })),
+            },
+            select: {
+              merchantId: true,
+              orderId: true,
+              statusName: true,
+              statusSlug: true,
+            },
+          })
+        : Promise.resolve([]),
+      uniqueOrders.length
+        ? prisma.localShipment.findMany({
+            where: { OR: uniqueOrders },
+            select: localTrackingSelect,
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      itemIds.length
+        ? prisma.returnItem.findMany({
+            where: { id: { in: itemIds }, damageImageData: { not: null } },
+            select: { id: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const imageItemIds = new Set(itemsWithImage.map((item) => item.id));
 
+    if (sallaOrders.length > 0) {
       sallaStatuses = sallaOrders.reduce((acc, order) => {
         const key = `${order.merchantId}:${order.orderId}`;
         acc[key] = {
@@ -214,11 +236,6 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       }, {} as Record<string, { name?: string; slug?: string }>);
     }
 
-    const localShipments = uniqueOrders.length ? await prisma.localShipment.findMany({
-      where: { OR: uniqueOrders },
-      select: localTrackingSelect,
-      orderBy: { createdAt: 'desc' },
-    }) : [];
     const localShipmentsByOrder = new Map<string, typeof localShipments>();
     for (const shipment of localShipments) {
       const key = `${shipment.merchantId}:${shipment.orderId}`;
@@ -231,6 +248,7 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       const statusKey = `${request.merchantId}:${request.orderId}`;
       return {
         ...request,
+        items: (request.items ?? []).map((item) => ({ ...item, hasDamageImage: imageItemIds.has(item.id) })),
         needsManualShipment: needsManualReturnShipment(request, now),
         stage: deriveStage(request),
         sallaStatus: sallaStatuses[statusKey] || null,

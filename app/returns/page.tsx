@@ -113,39 +113,6 @@ export default function ReturnsPage() {
     setStep('form');
   };
 
-  const fetchItemCategories = async (returns: any[]) => {
-    const categories: Record<string, string> = {};
-
-    // Get all unique product IDs from all return items
-    const productIds = new Set<string>();
-    returns.forEach(ret => {
-      ret.items.forEach((item: any) => {
-        productIds.add(item.productId);
-      });
-    });
-
-    // Fetch categories for all products
-    await Promise.all(
-      Array.from(productIds).map(async (productId) => {
-        try {
-          const response = await fetch(
-            `/api/products/category?merchantId=${MERCHANT_CONFIG.merchantId}&productId=${productId}`
-          );
-          if (response.ok) {
-            const data = await response.json();
-            if (data.category) {
-              categories[productId] = data.category;
-            }
-          }
-        } catch (err) {
-          console.error(`Failed to fetch category for product ${productId}`, err);
-        }
-      })
-    );
-
-    setItemCategories(categories);
-  };
-
   const handleLookupOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -283,8 +250,12 @@ export default function ReturnsPage() {
 
       if (returnsData.hasExistingReturns && returnsData.returns.length > 0) {
         setExistingReturns(returnsData.returns);
-        // Fetch categories for all items
-        await fetchItemCategories(returnsData.returns);
+        // Category labels come with the check response (no per-product calls).
+        setItemCategories(
+          returnsData.itemCategories && typeof returnsData.itemCategories === 'object'
+            ? returnsData.itemCategories
+            : {},
+        );
         setStep('existing');
       } else {
         setStep('form');

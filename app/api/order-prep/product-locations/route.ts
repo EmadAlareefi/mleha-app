@@ -54,9 +54,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, locations: [] });
     }
 
-    if (normalizedSkus.length > 50) {
+    // Callers send several spellings per SKU (generateSkuVariants), so a normal
+    // multi-item order easily passes 50; this is one indexed IN query.
+    if (normalizedSkus.length > 300) {
       return NextResponse.json(
-        { error: 'عدد رموز SKU يتجاوز الحد المسموح (50)' },
+        { error: 'عدد رموز SKU يتجاوز الحد المسموح (300)' },
         { status: 400 }
       );
     }

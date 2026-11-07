@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/lib/auth';
@@ -78,21 +78,36 @@ const buildResponsePayload = (record: any, type: 'assignment' | 'history') => {
 };
 
 const respondWithPayloadAndShipment = async (payload: any) => {
-  const enrichedPayload = await enrichPayloadItemDetails(payload);
-  const shipment = await getShipmentInfoForOrder({
-    merchantId: enrichedPayload.merchantId,
-    orderId: enrichedPayload.orderId,
-    orderNumber: enrichedPayload.orderNumber,
+  // Enrichment only fills in item details; the ids every other lookup needs
+  // are already on the payload, so run everything together instead of one
+  // round trip after another.
+  const shipmentPromise = getShipmentInfoForOrder({
+    merchantId: payload.merchantId,
+    orderId: payload.orderId,
+    orderNumber: payload.orderNumber,
   });
-  return respondWithAssignment(enrichedPayload, shipment);
-};
-
-const respondWithAssignment = async (payload: any, shipment: any) => {
-  const [giftFlag, priorityRecord, doNotShipFlag] = await Promise.all([
+  const [enrichedPayload, shipment, giftFlag, priorityRecord, doNotShipFlag] = await Promise.all([
+    enrichPayloadItemDetails(payload),
+    shipmentPromise,
     getGiftFlagForOrder(payload.merchantId, payload.orderId),
     getPriorityRecordForOrder(payload.merchantId, payload.orderId),
-    getDoNotShipFlagForOrder(payload.merchantId, payload.orderId, shipment?.trackingNumber),
+    shipmentPromise.then((found) =>
+      getDoNotShipFlagForOrder(payload.merchantId, payload.orderId, found?.trackingNumber),
+    ),
   ]);
+  return respondWithAssignment(enrichedPayload, shipment, { giftFlag, priorityRecord, doNotShipFlag });
+};
+
+const respondWithAssignment = async (
+  payload: any,
+  shipment: any,
+  flags: {
+    giftFlag: Awaited<ReturnType<typeof getGiftFlagForOrder>>;
+    priorityRecord: Awaited<ReturnType<typeof getPriorityRecordForOrder>>;
+    doNotShipFlag: Awaited<ReturnType<typeof getDoNotShipFlagForOrder>>;
+  },
+) => {
+  const { giftFlag, priorityRecord, doNotShipFlag } = flags;
 
   const assignmentPayload = {
     success: true,
@@ -988,7 +1003,9 @@ const enrichPayloadItemDetails = async (payload: any) => {
       const remoteOrder = await getSallaOrder(merchantId, String(payload.orderId));
       if (remoteOrder) {
         orderData = mergeOrderDataWithFallback(orderData, remoteOrder);
-        await upsertSallaOrderFromPayload({
+        // Caching the order is not needed for this response; finish it after
+        // responding (after() keeps the function alive until it completes).
+        after(() => upsertSallaOrderFromPayload({
           merchantId,
           merchant_id: merchantId,
           order: {
@@ -996,7 +1013,12 @@ const enrichPayloadItemDetails = async (payload: any) => {
             merchant_id: merchantId,
             merchantId,
           },
-        });
+        }).catch((error) =>
+          logSearchDebug('Failed to cache enriched Salla order', {
+            orderId: payload.orderId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        ));
       }
     } catch (error) {
       logSearchDebug('Failed to enrich item options from Salla', {
@@ -1323,14 +1345,36 @@ async function getShipmentInfoForOrder(params: {
     },
   };
 
-  const localShipment =
+  // Salla shipment conditions are built up front so both lookups run together;
+  // a local shipment still takes priority below.
+  const orConditions: Array<{ orderId?: string; orderNumber?: string }> = [];
+  if (orderId) {
+    orConditions.push({ orderId }, { orderNumber: orderId });
+  }
+  if (orderNumber) {
+    orConditions.push({ orderNumber }, { orderId: orderNumber });
+  }
+
+  const [localShipment, sallaShipment] = await Promise.all([
     localOrConditions.length > 0
-      ? await prisma.localShipment.findFirst({
+      ? prisma.localShipment.findFirst({
           where: { OR: localOrConditions },
           include: localInclude,
           orderBy: { createdAt: 'desc' as const },
         })
-      : null;
+      : Promise.resolve(null),
+    orConditions.length > 0
+      ? prisma.sallaShipment.findFirst({
+          where: {
+            ...(merchantId ? { merchantId } : {}),
+            OR: orConditions,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        })
+      : Promise.resolve(null),
+  ]);
 
   if (localShipment) {
     logSearchDebug('Found local shipment', {
@@ -1367,27 +1411,7 @@ async function getShipmentInfoForOrder(params: {
   logSearchDebug('No local shipment found, checking SallaShipment');
 
   // Fall back to Salla shipments
-  const orConditions: Array<{ orderId?: string; orderNumber?: string }> = [];
-  if (orderId) {
-    orConditions.push({ orderId }, { orderNumber: orderId });
-  }
-  if (orderNumber) {
-    orConditions.push({ orderNumber }, { orderId: orderNumber });
-  }
-
-  if (orConditions.length === 0) {
-    return null;
-  }
-
-  const shipment = await prisma.sallaShipment.findFirst({
-    where: {
-      ...(merchantId ? { merchantId } : {}),
-      OR: orConditions,
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-  });
+  const shipment = sallaShipment;
 
   if (shipment) {
     logSearchDebug('Found SallaShipment', {

@@ -206,6 +206,9 @@ const extractLineItemSku = (item: LineItem): string => {
   return '';
 };
 
+/** An order assigned within this window was just fetched from Salla; no auto-refresh needed. */
+const FRESH_ASSIGNMENT_MS = 2 * 60 * 1000;
+
 export default function OrderPrepClient() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -431,7 +434,13 @@ export default function OrderPrepClient() {
         throw new Error(data.error || 'تعذر تحديث بيانات الطلب من سلة');
       }
       if (data.assignment) {
-        setAssignments([data.assignment]);
+        // Only update the order if it is still on screen (it may have been
+        // completed or handed back while this request was in flight).
+        setAssignments((prev) =>
+          prev.some((assignment) => assignment.id === data.assignment.id)
+            ? prev.map((assignment) => (assignment.id === data.assignment.id ? data.assignment : assignment))
+            : prev,
+        );
         setLastUpdated(new Date().toISOString());
       }
     } catch (err) {
@@ -498,10 +507,15 @@ export default function OrderPrepClient() {
     loading || assigning || Boolean(pendingAction || sallaStatusAction || printingOrderId);
 
   useEffect(() => {
-    // Automatically refresh line items once per assignment to keep quantities current
+    // Automatically refresh line items once per assignment to keep quantities
+    // current. A just-assigned order was fetched from Salla moments ago, so skip it.
     if (activeAssignment && !refreshedAssignments.current.has(activeAssignment.id)) {
       refreshedAssignments.current.add(activeAssignment.id);
-      void refreshAssignmentItems(activeAssignment.id);
+      const assignedAt = new Date(activeAssignment.assignedAt).getTime();
+      const justAssigned = Number.isFinite(assignedAt) && Date.now() - assignedAt < FRESH_ASSIGNMENT_MS;
+      if (!justAssigned) {
+        void refreshAssignmentItems(activeAssignment.id);
+      }
     }
   }, [activeAssignment, refreshAssignmentItems]);
 
@@ -801,14 +815,17 @@ function AssignmentCard({
     onConfirm: () => void | Promise<void>;
   } | null>(null);
 
-  const currentSkus = useMemo(() => {
+  // Keyed by the SKU set, not by `items` identity: refreshing or re-saving the
+  // order produces a new items array with the same SKUs and must not refetch.
+  const skuKey = useMemo(() => {
     const variants = new Set<string>();
     items.forEach((item) => {
       const sku = extractLineItemSku(item);
       generateSkuVariants(sku).forEach((variant) => variants.add(variant));
     });
-    return Array.from(variants);
+    return Array.from(variants).sort().join('\u0000');
   }, [items]);
+  const currentSkus = useMemo(() => (skuKey ? skuKey.split('\u0000') : []), [skuKey]);
 
   useEffect(() => {
     if (!assignment.orderId) {

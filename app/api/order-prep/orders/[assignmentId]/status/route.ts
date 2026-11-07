@@ -43,8 +43,17 @@ export async function POST(
       );
     }
 
+    // Load once: the promo guard and the status update both need it.
+    const assignment = await prisma.orderPrepAssignment.findUnique({ where: { id: assignmentId } });
+    if (!assignment || assignment.userId !== user.id) {
+      return NextResponse.json(
+        { error: 'لم يتم العثور على الطلب أو لا تملك إذن تحديثه' },
+        { status: 404 }
+      );
+    }
+
     if (status === 'completed') {
-      const blocked = await guardPromoLimit(assignmentId, user);
+      const blocked = await guardPromoLimit(assignment, user);
       if (blocked) return blocked;
     }
 
@@ -54,6 +63,7 @@ export async function POST(
       targetStatus: status,
       skipSallaSync,
       itemStatuses,
+      preloaded: assignment,
     });
 
     if (!result) {
@@ -91,13 +101,10 @@ export async function POST(
  * Refuses to complete an order that breaks the 1 SAR promo limit. No override:
  * the order has to be corrected in Salla first.
  */
-async function guardPromoLimit(assignmentId: string, user: { id?: string }) {
-  const assignment = await prisma.orderPrepAssignment.findUnique({
-    where: { id: assignmentId },
-    select: { merchantId: true, orderId: true, orderNumber: true, orderData: true },
-  });
-  if (!assignment) return null;
-
+async function guardPromoLimit(
+  assignment: { merchantId: string; orderId: string; orderNumber: string | null; orderData: unknown },
+  user: { id?: string },
+) {
   const block = await promoLimitBlock({
     merchantId: assignment.merchantId,
     orderId: assignment.orderId,
