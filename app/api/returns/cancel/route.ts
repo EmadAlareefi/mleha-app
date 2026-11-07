@@ -4,6 +4,8 @@ import { log } from '@/app/lib/logger';
 import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
 import { cancelAjexShipment } from '@/app/lib/ajex-api';
 import { isAjexReturnRequest } from '@/lib/returns/return-provider';
+import { isPhoneProofRequired, orderBelongsToPhone } from '@/app/lib/returns/customer-phone';
+import { isRateLimited } from '@/app/lib/returns/public-rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -13,9 +15,13 @@ export const runtime = 'nodejs';
  * Cancels a return request
  */
 export async function POST(request: NextRequest) {
+  if (isRateLimited(request, 'returns-cancel', 10)) {
+    return NextResponse.json({ error: 'طلبات كثيرة، حاول مرة أخرى بعد قليل' }, { status: 429 });
+  }
+
   try {
-    const body = await request.json();
-    const { returnRequestId, merchantId } = body;
+    const body = await request.json().catch(() => ({}));
+    const { returnRequestId, merchantId, customerMobile } = body;
 
     if (!returnRequestId || !merchantId) {
       return NextResponse.json(
@@ -46,6 +52,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Public route: the caller must know the customer's mobile, the same proof
+    // used to look the order up. The stored phone is already normalized.
+    if (
+      isPhoneProofRequired() &&
+      !orderBelongsToPhone({ customer: { mobile: returnRequest.customerPhone } }, customerMobile)
+    ) {
+      log.warn('Rejected return cancel without matching customer mobile', { returnRequestId });
+      return NextResponse.json(
+        { error: 'غير مصرح لك بإلغاء هذا الطلب' },
+        { status: 403 }
+      );
+    }
+
+    // A replacement order may already be paid or held for this request;
+    // cancelling here would orphan it, so staff must handle it.
+    if (returnRequest.exchangeMode === 'order' && returnRequest.exchangeOrderId) {
+      return NextResponse.json(
+        { error: 'تم إنشاء طلب استبدال لهذا الطلب، يرجى التواصل مع خدمة العملاء لإلغائه' },
+        { status: 400 }
+      );
+    }
+
     // Check if already cancelled
     if (returnRequest.status === 'cancelled') {
       return NextResponse.json(
@@ -63,12 +91,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Update status to cancelled
-    const updatedRequest = await prisma.returnRequest.update({
-      where: { id: returnRequestId },
+    const claimed = await prisma.returnRequest.updateMany({
+      where: { id: returnRequestId, status: { in: ['pending_review', 'approved'] } },
       data: {
         status: 'cancelled',
         updatedAt: new Date(),
       },
+    });
+    if (claimed.count === 0) {
+      return NextResponse.json(
+        { error: 'لا يمكن إلغاء هذا الطلب في حالته الحالية' },
+        { status: 409 }
+      );
+    }
+    const updatedRequest = await prisma.returnRequest.findUniqueOrThrow({
+      where: { id: returnRequestId },
     });
 
     await syncLocalReturnPickupTask(updatedRequest.id);

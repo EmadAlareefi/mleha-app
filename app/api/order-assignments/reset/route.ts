@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
+import { authOptions } from '@/app/lib/auth';
+import { hasServiceAccess } from '@/app/lib/service-access';
 import { log } from '@/app/lib/logger';
 import { ACTIVE_ASSIGNMENT_STATUS_VALUES } from '@/lib/order-assignment-statuses';
 
@@ -12,6 +15,14 @@ const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
  * Remove/reset all assigned orders for a user
  */
 export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+  }
+  if (!hasServiceAccess(session, ['order-users-management'])) {
+    return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { userId } = body;

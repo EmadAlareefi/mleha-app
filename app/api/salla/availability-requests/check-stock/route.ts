@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     log.warn('Unauthorized availability stock check attempt');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

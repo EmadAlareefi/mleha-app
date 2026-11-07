@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSallaProduct } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
+import { isRateLimited } from '@/app/lib/returns/public-rate-limit';
 
 export const runtime = 'nodejs';
+
+const STORE_MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 
 /**
  * GET /api/products/category?merchantId=XXX&productId=YYY
@@ -20,6 +23,15 @@ export async function GET(request: NextRequest) {
         { error: 'merchantId and productId are required' },
         { status: 400 }
       );
+    }
+
+    // Public (the customer returns page uses it): only proxy our own store,
+    // and keep one client from hammering Salla through us.
+    if (merchantId !== STORE_MERCHANT_ID) {
+      return NextResponse.json({ error: 'Unknown merchant' }, { status: 400 });
+    }
+    if (isRateLimited(request, 'product-category', 120)) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
     }
 
     log.info('Fetching product category', { merchantId, productId });

@@ -215,6 +215,8 @@ export default function OrderPrepClient() {
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [sallaStatusAction, setSallaStatusAction] = useState<string | null>(null);
   const autoStartedAssignments = useRef<Set<string>>(new Set());
+  const completingRef = useRef(false);
+  const [completing, setCompleting] = useState(false);
   const refreshedAssignments = useRef<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
     type: ConfirmDialogType;
@@ -345,9 +347,9 @@ export default function OrderPrepClient() {
         });
 
         if (status === 'completed') {
+          // handleCompleteFlow requests the next order; don't fire a second,
+          // concurrent assignment request from here.
           toast({ description: '🎉 تم إنهاء الطلب، جارٍ تحميل الطلب التالي' });
-          // Pull (and auto-assign) the next order right away instead of waiting for a manual refresh
-          void loadAssignments({ silent: true });
         } else if (status === 'preparing') {
           toast({
             description: data.isInternational
@@ -357,6 +359,7 @@ export default function OrderPrepClient() {
         } else if (status === 'waiting') {
           toast({ description: '⌛ تم وضع الطلب في قائمة الانتظار' });
         }
+        return true;
       } catch (err) {
         if (!options?.suppressError) {
           toast({
@@ -366,11 +369,12 @@ export default function OrderPrepClient() {
         } else {
           console.warn('Auto status update failed', err);
         }
+        return false;
       } finally {
         setPendingAction(null);
       }
     },
-    [loadAssignments, toast],
+    [toast],
   );
 
   const handlePrintOrderNumber = useCallback(
@@ -556,9 +560,13 @@ export default function OrderPrepClient() {
       return true;
     }
 
-    await updateStatus(assignment.id, 'completed', {
+    const completed = await updateStatus(assignment.id, 'completed', {
       itemStatuses: completion.itemStatuses,
     });
+    if (!completed) {
+      // Keep the dialog open and the order on screen; updateStatus showed the error.
+      return false;
+    }
     const nextAssignment = await assignNextOrder({ silent: true });
     if (!nextAssignment) {
       toast({ description: 'لا توجد طلبات جديدة متاحة حالياً.' });
@@ -569,12 +577,21 @@ export default function OrderPrepClient() {
   );
 
   const runConfirmedAction = useCallback(() => {
-    if (!confirmDialog) return;
+    if (!confirmDialog || completingRef.current) return;
     const { assignment, completion } = confirmDialog;
+    // One completion at a time: a double-click would otherwise complete the
+    // order twice and request two next orders.
+    completingRef.current = true;
+    setCompleting(true);
     void (async () => {
-      const success = await handleCompleteFlow(assignment, completion);
-      if (success) {
-        closeConfirmDialog();
+      try {
+        const success = await handleCompleteFlow(assignment, completion);
+        if (success) {
+          closeConfirmDialog();
+        }
+      } finally {
+        completingRef.current = false;
+        setCompleting(false);
       }
     })();
   }, [confirmDialog, closeConfirmDialog, handleCompleteFlow]);
@@ -718,6 +735,7 @@ export default function OrderPrepClient() {
         }
         onConfirm={runConfirmedAction}
         onCancel={closeConfirmDialog}
+        confirmDisabled={completing || Boolean(pendingAction)}
         content={notePreview}
       />
     </section>

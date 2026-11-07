@@ -101,8 +101,11 @@ async function releasePromoViolators(records: OrderPrepAssignment[]): Promise<Or
 }
 
 /** The preparer's current order, in the order the prep page shows them. */
-async function findHeldAssignment(userId: string): Promise<OrderPrepAssignment | null> {
-  const held = await prisma.orderPrepAssignment.findMany({
+async function findHeldAssignment(
+  userId: string,
+  client: Pick<Prisma.TransactionClient, 'orderPrepAssignment'> = prisma,
+): Promise<OrderPrepAssignment | null> {
+  const held = await client.orderPrepAssignment.findMany({
     where: { userId, status: { in: Array.from(ACTIVE_ASSIGNMENT_STATUSES) } },
     orderBy: [{ assignedAt: 'asc' }],
   });
@@ -246,23 +249,32 @@ export async function assignOldestOrderToUser(
       continue;
     }
 
-    // Another request for this preparer may have assigned an order while this
-    // one was walking the queue.
-    const heldNow = await findHeldAssignment(user.id);
-    if (heldNow) return serializeAssignment(heldNow);
-
     try {
-      const assignment = await prisma.orderPrepAssignment.create({
-        data: {
-          merchantId: MERCHANT_ID,
-          userId: user.id,
-          userName: user.name || 'المستخدم',
-          orderId,
-          orderNumber: extractOrderNumber(detail),
-          orderReference: extractOrderReference(detail),
-          orderData: detail as Prisma.InputJsonValue,
+      // Re-check and create under a per-preparer lock: concurrent requests for
+      // the same preparer (a refresh while "next order" is loading) otherwise
+      // both pass the check and each assign an order.
+      const outcome = await prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`order-prep-assign:${user.id}`}))::text`;
+          const heldNow = await findHeldAssignment(user.id, tx);
+          if (heldNow) return { kind: 'held' as const, record: heldNow };
+          const created = await tx.orderPrepAssignment.create({
+            data: {
+              merchantId: MERCHANT_ID,
+              userId: user.id,
+              userName: user.name || 'المستخدم',
+              orderId,
+              orderNumber: extractOrderNumber(detail),
+              orderReference: extractOrderReference(detail),
+              orderData: detail as Prisma.InputJsonValue,
+            },
+          });
+          return { kind: 'created' as const, record: created };
         },
-      });
+        { maxWait: 10_000, timeout: 15_000 },
+      );
+      if (outcome.kind === 'held') return serializeAssignment(outcome.record);
+      const assignment = outcome.record;
 
       log.info('Assigned new Salla order to user', {
         userId: user.id,
@@ -315,6 +327,12 @@ export async function updateAssignmentStatus(options: {
   });
 
   if (!assignment || assignment.userId !== userId) {
+    return null;
+  }
+
+  // A finished assignment (completed/cancelled) must not be completed again —
+  // a double submit would repeat the Salla status change.
+  if (!ACTIVE_ASSIGNMENT_STATUSES.has(assignment.status)) {
     return null;
   }
 

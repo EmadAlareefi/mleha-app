@@ -14,19 +14,47 @@ import {
 } from '@/lib/returns/policy';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import { loadPieceRules, toPublicPieces } from '@/app/lib/returns/piece-context';
+import { isPhoneProofRequired, orderBelongsToPhone } from '@/app/lib/returns/customer-phone';
+import { isRateLimited } from '@/app/lib/returns/public-rate-limit';
 
 export const runtime = 'nodejs';
 
+/** Fields of a stored return item that the customer may see (no inspection data). */
+const PUBLIC_ITEM_FIELDS = [
+  'id',
+  'productId',
+  'productName',
+  'productSku',
+  'variantId',
+  'variantName',
+  'quantity',
+  'price',
+  'type',
+  'orderItemId',
+  'unitIndex',
+] as const;
+
+function toPublicItem(item: Record<string, unknown>) {
+  return Object.fromEntries(PUBLIC_ITEM_FIELDS.map((key) => [key, item[key] ?? null]));
+}
+
 /**
- * GET /api/returns/check
+ * POST /api/returns/check
  *
- * Checks if there are existing return requests for an order
+ * Checks if there are existing return requests for an order. Public: the
+ * caller must prove ownership with the order's customer mobile (sent in the
+ * body, not the URL), the same proof /api/returns/create requires.
  */
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
+  if (isRateLimited(request, 'returns-check', 30)) {
+    return NextResponse.json({ error: 'طلبات كثيرة، حاول مرة أخرى بعد قليل' }, { status: 429 });
+  }
+
   try {
-    const { searchParams } = new URL(request.url);
-    const merchantId = searchParams.get('merchantId');
-    const orderId = searchParams.get('orderId');
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const merchantId = typeof body.merchantId === 'string' ? body.merchantId : body.merchantId ? String(body.merchantId) : null;
+    const orderId = body.orderId !== undefined && body.orderId !== null ? String(body.orderId) : null;
+    const customerMobile = body.customerMobile;
 
     if (!merchantId || !orderId) {
       return NextResponse.json(
@@ -42,6 +70,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: 'لم يتم العثور على الطلب', canCreateNew: false },
         { status: 404 }
+      );
+    }
+
+    if (isPhoneProofRequired() && !orderBelongsToPhone(order, customerMobile)) {
+      log.warn('Rejected return check without matching customer mobile', { merchantId, orderId });
+      return NextResponse.json(
+        { error: 'رقم الجوال لا يطابق الطلب', canCreateNew: false },
+        { status: 403 }
       );
     }
 
@@ -257,7 +293,7 @@ export async function GET(request: NextRequest) {
         feeExchangeRate: ret.feeExchangeRate,
         feeExchangeRateSource: ret.feeExchangeRateSource,
         createdAt: ret.createdAt,
-        items: ret.items,
+        items: ret.items.map((item) => toPublicItem(item as unknown as Record<string, unknown>)),
       })),
       allowMultipleRequests: allowMultiple,
       canCreateNew: allowMultiple, // Can create new only if multiple requests are allowed

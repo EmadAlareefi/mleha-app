@@ -207,14 +207,18 @@ export default function ReturnsPage() {
 
       setOrder(orderData.order);
 
-      const checkUrl = new URL('/api/returns/check', window.location.origin);
-      checkUrl.searchParams.set('merchantId', MERCHANT_CONFIG.merchantId);
-      checkUrl.searchParams.set('orderId', orderData.order.id.toString());
-
       let returnsResponse: Response;
       let returnsData: any;
       try {
-        returnsResponse = await fetch(checkUrl.toString());
+        returnsResponse = await fetch('/api/returns/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            merchantId: MERCHANT_CONFIG.merchantId,
+            orderId: orderData.order.id.toString(),
+            customerMobile,
+          }),
+        });
         returnsData = await returnsResponse.json();
       } catch (returnsError) {
         console.error('Failed to check return eligibility', returnsError);
@@ -334,6 +338,7 @@ export default function ReturnsPage() {
         body: JSON.stringify({
           returnRequestId: returnId,
           merchantId: MERCHANT_CONFIG.merchantId,
+          customerMobile,
         }),
       });
 
