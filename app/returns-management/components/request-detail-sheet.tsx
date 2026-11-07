@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
-import { ExternalLink, Loader2, RotateCcw } from 'lucide-react';
+import { ExternalLink, Loader2, RotateCcw, Send, Ticket } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,6 +62,16 @@ const LABEL_SYNC_MESSAGES: Record<string, string> = {
 
 type Confirm = { title: string; message: string; action: () => Promise<void>; danger?: boolean } | null;
 
+/** Human summary of a coupon WhatsApp result from the coupon routes. */
+function describeCouponNotification(
+  notification: { status?: string; reason?: string; error?: string } | null | undefined,
+  sentMessage: string,
+): string {
+  if (!notification) return sentMessage;
+  if (notification.status === 'sent') return sentMessage;
+  return `لم تُرسل رسالة الواتساب: ${notification.reason || notification.error || 'سبب غير معروف'}`;
+}
+
 export function RequestDetailSheet({
   request,
   onClose,
@@ -74,6 +84,10 @@ export function RequestDetailSheet({
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [manualAmount, setManualAmount] = useState('');
+  // Salla refused to create the coupon (missing marketing permission): the
+  // coupon is created by hand in the Salla dashboard and its code entered here.
+  const [manualCouponOpen, setManualCouponOpen] = useState(false);
+  const [manualCouponCode, setManualCouponCode] = useState('');
 
   const call = async (key: string, url: string, body: unknown, success?: (data: any) => string) => {
     setBusy(key);
@@ -106,6 +120,42 @@ export function RequestDetailSheet({
   const canEditPieces = !moneyMoved && !closed && request.processingStatus !== 'processing';
   const hasReturn = request.items.some((item) => item.type !== 'exchange');
   const hasExchange = request.items.some((item) => item.type === 'exchange');
+  // Like the old design: the coupon can be sent before processing. Not when the
+  // credit already went into an app-created replacement order.
+  const canIssueCoupon =
+    hasExchange &&
+    !request.couponCode &&
+    !(request.exchangeMode === 'order' && request.exchangeOrderId) &&
+    !['cancelled', 'rejected'].includes(request.status) &&
+    request.processingStatus !== 'processing';
+
+  const issueCoupon = async () => {
+    setBusy('create-coupon');
+    try {
+      const response = await fetch('/api/returns/create-coupon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnRequestId: request.id, expiryDays: 30 }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (data?.permissionDenied) {
+          setManualCouponOpen(true);
+          notify('تعذر إنشاء الكوبون تلقائياً بسبب صلاحيات سلة. أدخلي رمز كوبون منشأ يدوياً.', 'destructive');
+          return;
+        }
+        throw new Error(data?.error || 'فشل إنشاء الكوبون');
+      }
+      notify(
+        `تم إنشاء الكوبون ${data?.coupon?.code ?? ''}. ${describeCouponNotification(data?.notification, 'وأُرسل للعميل على الواتساب.')}`,
+      );
+      onChanged();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'حدث خطأ', 'destructive');
+    } finally {
+      setBusy(null);
+    }
+  };
   const refundAmount = request.type === 'exchange' ? null : toNumber(request.totalRefundAmount);
   const couponAmount = request.type === 'exchange' ? toNumber(request.couponAmount ?? request.totalRefundAmount) : toNumber(request.couponAmount);
 
@@ -461,9 +511,80 @@ export function RequestDetailSheet({
                 />
               )}
               {hasExchange && (
-                <Button size="sm" variant="outline" onClick={() => onEditCoupon(request)}>
-                  تعديل قيمة الكوبون
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {canIssueCoupon && (
+                    <Button
+                      size="sm"
+                      disabled={busy !== null}
+                      onClick={() =>
+                        setConfirm({
+                          title: 'إنشاء كوبون الاستبدال',
+                          message:
+                            (couponAmount ?? 0) > 0
+                              ? `سيتم إنشاء كوبون بقيمة ${formatMoney(couponAmount, currency)} في سلة وإرساله للعميل على الواتساب. المتابعة؟`
+                              : 'سيتم إنشاء كوبون الاستبدال بالقيمة المحسوبة لقطع الاستبدال في سلة وإرساله للعميل على الواتساب. المتابعة؟',
+                          action: issueCoupon,
+                        })
+                      }
+                    >
+                      {busy === 'create-coupon' ? <Loader2 className="size-4 animate-spin" /> : <Ticket className="size-4" />}
+                      إنشاء الكوبون وإرساله للعميل
+                    </Button>
+                  )}
+                  {request.couponCode && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy !== null}
+                      onClick={() =>
+                        void call('resend-coupon', '/api/returns/resend-coupon', { returnRequestId: request.id }, (data) =>
+                          describeCouponNotification(data.notification, 'تم إرسال الكوبون للعميل على الواتساب.'),
+                        )
+                      }
+                    >
+                      {busy === 'resend-coupon' ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                      إعادة إرسال الكوبون
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" onClick={() => onEditCoupon(request)}>
+                    تعديل قيمة الكوبون
+                  </Button>
+                </div>
+              )}
+              {manualCouponOpen && canIssueCoupon && (
+                <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-2">
+                  <p className="text-xs text-amber-900">
+                    تعذر إنشاء الكوبون تلقائياً (صلاحيات سلة). أنشئي كوبوناً
+                    {(couponAmount ?? 0) > 0 ? ` بقيمة ${formatMoney(couponAmount, currency)}` : ''} من لوحة سلة ثم أدخلي رمزه:
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      value={manualCouponCode}
+                      onChange={(event) => setManualCouponCode(event.target.value)}
+                      placeholder="رمز الكوبون"
+                      className="h-8"
+                      dir="ltr"
+                    />
+                    <Button
+                      size="sm"
+                      disabled={busy !== null || !manualCouponCode.trim()}
+                      onClick={async () => {
+                        const data = await call(
+                          'manual-coupon',
+                          '/api/returns/manual-coupon',
+                          { returnRequestId: request.id, couponCode: manualCouponCode.trim() },
+                          (result) => describeCouponNotification(result.notification, 'تم تسجيل الكوبون وإرساله للعميل.'),
+                        );
+                        if (data) {
+                          setManualCouponOpen(false);
+                          setManualCouponCode('');
+                        }
+                      }}
+                    >
+                      تسجيل وإرسال
+                    </Button>
+                  </div>
+                </div>
               )}
             </section>
 
