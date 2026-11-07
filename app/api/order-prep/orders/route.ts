@@ -27,29 +27,39 @@ export async function GET() {
 
   const user = session.user as any;
 
-  const orderUser = await prisma.orderUser.findUnique({
-    where: { id: user.id },
-    select: { id: true, name: true },
-  });
-
-  if (!orderUser) {
-    return NextResponse.json(
-      { error: 'هذا الحساب غير مضاف ضمن مستخدمي التحضير. يرجى إنشاء حساب تحضير خاص بك.' },
-      { status: 403 }
-    );
-  }
   try {
-    let assignments = await getActiveAssignmentsForUser(orderUser.id);
-    assignments = await ensureOrdersStillEligible(assignments);
+    // These three are independent; run them together instead of back-to-back.
+    // Assignments are keyed by the orderUser id (=== session user id), so a
+    // non-prep account simply gets an empty list here and is rejected below.
+    const [orderUser, activeAssignments, accessToken] = await Promise.all([
+      prisma.orderUser.findUnique({
+        where: { id: user.id },
+        select: { id: true, name: true },
+      }),
+      getActiveAssignmentsForUser(user.id),
+      getSallaAccessToken(MERCHANT_ID),
+    ]);
+
+    if (!orderUser) {
+      return NextResponse.json(
+        { error: 'هذا الحساب غير مضاف ضمن مستخدمي التحضير. يرجى إنشاء حساب تحضير خاص بك.' },
+        { status: 403 }
+      );
+    }
+
+    const assignments = await ensureOrdersStillEligible(activeAssignments, accessToken);
 
     if (assignments.length > 0) {
       return NextResponse.json({ success: true, assignments, autoAssigned: false });
     }
 
-    const autoAssigned = await assignOldestOrderToUser({
-      id: orderUser.id,
-      name: orderUser.name || user.name,
-    });
+    const autoAssigned = await assignOldestOrderToUser(
+      {
+        id: orderUser.id,
+        name: orderUser.name || user.name,
+      },
+      { accessToken },
+    );
 
     return NextResponse.json({
       success: true,
@@ -62,45 +72,49 @@ export async function GET() {
   }
 }
 
-async function ensureOrdersStillEligible(assignments: Awaited<ReturnType<typeof getActiveAssignmentsForUser>>) {
+async function ensureOrdersStillEligible(
+  assignments: Awaited<ReturnType<typeof getActiveAssignmentsForUser>>,
+  accessToken: string | null,
+) {
   if (assignments.length === 0) {
     return assignments;
   }
 
-  const accessToken = await getSallaAccessToken(MERCHANT_ID);
   if (!accessToken) {
     log.warn('Unable to validate Salla status - missing token');
     return assignments;
   }
 
-  const validAssignments = [];
-  for (const assignment of assignments) {
-    try {
-      const stillAllowed = await isOrderStillEligible(assignment.orderId, accessToken);
-      if (stillAllowed) {
-        validAssignments.push(assignment);
-        continue;
+  // Check every assignment against Salla concurrently, keeping the original order.
+  const results = await Promise.all(
+    assignments.map(async (assignment) => {
+      try {
+        const stillAllowed = await isOrderStillEligible(assignment.orderId, accessToken);
+        if (stillAllowed) {
+          return assignment;
+        }
+
+        await prisma.orderPrepAssignment.delete({
+          where: { id: assignment.id },
+        });
+
+        log.info('Removed order prep assignment due to status change', {
+          assignmentId: assignment.id,
+          orderId: assignment.orderId,
+        });
+        return null;
+      } catch (error) {
+        log.warn('Failed to validate Salla status for assignment', {
+          assignmentId: assignment.id,
+          orderId: assignment.orderId,
+          error: error instanceof Error ? error.message : error,
+        });
+        return assignment;
       }
+    }),
+  );
 
-      await prisma.orderPrepAssignment.delete({
-        where: { id: assignment.id },
-      });
-
-      log.info('Removed order prep assignment due to status change', {
-        assignmentId: assignment.id,
-        orderId: assignment.orderId,
-      });
-    } catch (error) {
-      log.warn('Failed to validate Salla status for assignment', {
-        assignmentId: assignment.id,
-        orderId: assignment.orderId,
-        error: error instanceof Error ? error.message : error,
-      });
-      validAssignments.push(assignment);
-    }
-  }
-
-  return validAssignments;
+  return results.filter((assignment): assignment is NonNullable<typeof assignment> => assignment !== null);
 }
 
 async function isOrderStillEligible(orderId: string, accessToken: string) {

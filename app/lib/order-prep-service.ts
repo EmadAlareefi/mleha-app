@@ -72,21 +72,26 @@ export async function getActiveAssignmentsForUser(userId: string): Promise<Seria
   return processedRecords.map(serializeAssignment);
 }
 
-export async function assignOldestOrderToUser(user: {
-  id: string;
-  name?: string | null;
-}): Promise<SerializedOrderPrepAssignment | null> {
+export async function assignOldestOrderToUser(
+  user: {
+    id: string;
+    name?: string | null;
+  },
+  options: { accessToken?: string | null } = {},
+): Promise<SerializedOrderPrepAssignment | null> {
   if (!user?.id) {
     return null;
   }
 
-  const accessToken = await getSallaAccessToken(MERCHANT_ID);
+  const [accessToken, filters] = await Promise.all([
+    options.accessToken || getSallaAccessToken(MERCHANT_ID),
+    resolveStatusFilters(),
+  ]);
   if (!accessToken) {
     log.error('Cannot assign order - missing Salla token');
     return null;
   }
 
-  const filters = await resolveStatusFilters();
   const candidateOrders = await fetchCandidateOrders(accessToken, filters);
 
   if (candidateOrders.length === 0) {
@@ -727,57 +732,103 @@ async function resolveStatusFilters(): Promise<string[]> {
   }
 }
 
+const CANDIDATE_PAGE_CONCURRENCY = 5;
+
 async function fetchCandidateOrders(accessToken: string, filters: string[]) {
+  // Each status filter is independent, so fetch them concurrently and merge in filter order.
+  const perFilter = await Promise.all(
+    filters.map((filter) => fetchCandidateOrdersForFilter(accessToken, filter)),
+  );
+
   const seen = new Set<string>();
   const orders: any[] = [];
-
-  for (const filter of filters) {
-    let page = 1;
-    let totalPages: number | null = null;
-
-    while (true) {
-      const url = `${SALLA_API_BASE}/orders?status=${encodeURIComponent(
-        filter
-      )}&per_page=${FETCH_LIMIT}&page=${page}&sort_by=created_at-asc`;
-      try {
-        const response = await fetchSallaWithRetry(url, accessToken);
-        if (!response.ok) {
-          const errorText = await response.text();
-          log.warn('Failed to fetch Salla orders for filter', { filter, page, error: errorText });
-          break;
-        }
-        const data = await response.json();
-        const rows = Array.isArray(data.data) ? data.data : [];
-        rows.forEach((order: any) => {
-          const key = extractOrderId(order) || order?.reference_id || order?.id;
-          if (!key || seen.has(String(key))) {
-            return;
-          }
-          seen.add(String(key));
-          orders.push(order);
-        });
-
-        totalPages = totalPages ?? getTotalPagesFromPagination(data.pagination);
-        const reachedLastPage =
-          (typeof totalPages === 'number' && page >= totalPages) ||
-          rows.length === 0;
-        if (reachedLastPage) {
-          break;
-        }
-        page += 1;
-      } catch (error) {
-        log.error('Error fetching orders from Salla', { filter, page, error });
-        break;
+  for (const rows of perFilter) {
+    for (const order of rows) {
+      const key = extractOrderId(order) || order?.reference_id || order?.id;
+      if (!key || seen.has(String(key))) {
+        continue;
       }
+      seen.add(String(key));
+      orders.push(order);
     }
   }
 
   return orders.sort((a, b) => getOrderTimestamp(a) - getOrderTimestamp(b));
 }
 
+async function fetchCandidatePage(
+  accessToken: string,
+  filter: string,
+  page: number,
+): Promise<{ rows: any[]; pagination: unknown } | null> {
+  const url = `${SALLA_API_BASE}/orders?status=${encodeURIComponent(
+    filter
+  )}&per_page=${FETCH_LIMIT}&page=${page}&sort_by=created_at-asc`;
+  try {
+    const response = await fetchSallaWithRetry(url, accessToken);
+    if (!response.ok) {
+      const errorText = await response.text();
+      log.warn('Failed to fetch Salla orders for filter', { filter, page, error: errorText });
+      return null;
+    }
+    const data = await response.json();
+    return {
+      rows: Array.isArray(data.data) ? data.data : [],
+      pagination: data.pagination,
+    };
+  } catch (error) {
+    log.error('Error fetching orders from Salla', { filter, page, error });
+    return null;
+  }
+}
+
+async function fetchCandidateOrdersForFilter(accessToken: string, filter: string): Promise<any[]> {
+  const first = await fetchCandidatePage(accessToken, filter, 1);
+  if (!first) {
+    return [];
+  }
+
+  const rows: any[] = [...first.rows];
+  const totalPages = getTotalPagesFromPagination(first.pagination);
+  if (first.rows.length === 0 || (typeof totalPages === 'number' && totalPages <= 1)) {
+    return rows;
+  }
+
+  if (typeof totalPages === 'number') {
+    // Page count is known: fetch the remaining pages in small concurrent batches.
+    for (let start = 2; start <= totalPages; start += CANDIDATE_PAGE_CONCURRENCY) {
+      const pages = [];
+      for (let page = start; page < start + CANDIDATE_PAGE_CONCURRENCY && page <= totalPages; page += 1) {
+        pages.push(page);
+      }
+      const results = await Promise.all(pages.map((page) => fetchCandidatePage(accessToken, filter, page)));
+      for (const result of results) {
+        if (!result) {
+          // Match the previous behaviour: stop at the first failed page.
+          return rows;
+        }
+        rows.push(...result.rows);
+      }
+    }
+    return rows;
+  }
+
+  // Unknown page count: walk pages sequentially until an empty page.
+  for (let page = 2; ; page += 1) {
+    const result = await fetchCandidatePage(accessToken, filter, page);
+    if (!result || result.rows.length === 0) {
+      return rows;
+    }
+    rows.push(...result.rows);
+  }
+}
+
 async function fetchOrderDetailWithItems(orderId: string, accessToken: string) {
   try {
     const detailUrl = `${SALLA_API_BASE}/orders/${orderId}`;
+    const itemsUrl = `${SALLA_API_BASE}/orders/items?order_id=${orderId}`;
+    // Fetch detail and items concurrently; an items failure must not fail the detail.
+    const itemsPromise = fetchSallaWithRetry(itemsUrl, accessToken).catch((error) => error as Error);
     const response = await fetchSallaWithRetry(detailUrl, accessToken);
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -788,8 +839,10 @@ async function fetchOrderDetailWithItems(orderId: string, accessToken: string) {
     const detail = data.data || {};
 
     try {
-      const itemsUrl = `${SALLA_API_BASE}/orders/items?order_id=${orderId}`;
-      const itemsResponse = await fetchSallaWithRetry(itemsUrl, accessToken);
+      const itemsResponse = await itemsPromise;
+      if (itemsResponse instanceof Error) {
+        throw itemsResponse;
+      }
       if (itemsResponse.ok) {
         const itemsData = await itemsResponse.json();
         // Only replace the embedded items when the dedicated endpoint actually
