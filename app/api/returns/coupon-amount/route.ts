@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 });
     }
 
-    if (returnRequest.type !== 'exchange') {
+    if (returnRequest.type !== 'exchange' && returnRequest.type !== 'mixed') {
       return NextResponse.json(
         { error: 'قيمة الكوبون متاحة فقط لطلبات الاستبدال' },
         { status: 400 }
@@ -109,7 +109,9 @@ export async function POST(request: NextRequest) {
         couponAmountOverrideBy: actorName(session),
         couponAmountOverrideAt: new Date(),
         couponAmountOverrideNote: note || null,
-        totalRefundAmount: fullAmount,
+        couponAmount: fullAmount,
+        // In a mixed request totalRefundAmount is the money refund; keep it.
+        ...(returnRequest.type === 'exchange' ? { totalRefundAmount: fullAmount } : {}),
       },
       include: { items: true },
     });

@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { typeLabel as typeLabelFor } from '@/app/lib/returns/status';
 import Image from 'next/image';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
@@ -159,7 +160,7 @@ export default async function ReturnOrderDetailsPage({
   const statusClass =
     STATUS_COLORS[returnRequest.status] || 'bg-gray-100 text-gray-800 border-gray-300';
 
-  const typeLabel = returnRequest.type === 'exchange' ? 'استبدال' : 'إرجاع';
+  const typeLabel = typeLabelFor(returnRequest.type);
 
   return (
     <AppPageShell

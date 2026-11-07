@@ -1025,6 +1025,38 @@ model ReturnRequest {
   erpFeeSyncError String?   @db.Text
 
   // Admin notes
+  // Processing (refund / restock / coupon) — see app/lib/returns/process-return.ts
+  couponAmount        Decimal?  @db.Decimal(10, 2) // Exchange credit for the exchange pieces
+  refundStatus        String    @default("none") // none, requested, refunded, failed, unknown, manual
+  refundTransactionId String?
+  refundedAmount      Decimal?  @db.Decimal(10, 2)
+  refundedAt          DateTime?
+  refundError         String?   @db.Text
+  processingStatus    String    @default("idle") // idle, processing, done, needs_attention
+  processingError     String?   @db.Text
+  processingAudit     Json      @default("[]")
+  processedBy         String?
+  processedAt         DateTime?
+  receivedAt          DateTime? // Carrier reported the return delivered to the warehouse
+
+  // Exchange v3: replacements chosen in the form become a Salla order the app
+  // creates (see app/lib/returns/exchange-order-flow.ts). "coupon" keeps the
+  // classic exchange coupon.
+  exchangeMode           String    @default("coupon") // coupon, order
+  exchangeCreditAmount   Decimal?  @db.Decimal(10, 2)
+  exchangeOrderTotal     Decimal?  @db.Decimal(10, 2)
+  exchangeCreditApplied  Decimal?  @db.Decimal(10, 2)
+  exchangeAmountDue      Decimal?  @db.Decimal(10, 2)
+  exchangePaymentMethod  String?
+  exchangePaymentStatus  String    @default("none") // none, not_required, pending, paid, expired, cancelled, failed
+  exchangeCheckoutUrl    String?   @db.Text
+  exchangePaymentDueAt   DateTime?
+  exchangeReminderSentAt DateTime?
+  exchangeCreditCouponId String?
+  leftoverCouponCode     String?
+  leftoverCouponAmount   Decimal?  @db.Decimal(10, 2)
+  exchangeOrderError     String?   @db.Text
+
   adminNotes String?   @db.Text
   reviewedBy String? // Admin who reviewed
   reviewedAt DateTime?
@@ -1032,7 +1064,8 @@ model ReturnRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items ReturnItem[]
+  items         ReturnItem[]
+  exchangeLines ReturnExchangeLine[]
 
   @@index([merchantId])
   @@index([orderId])
@@ -1042,6 +1075,29 @@ model ReturnRequest {
   @@index([createdAt])
   @@index([smsaTrackingNumber])
   @@index([exchangeOrderId])
+  @@index([processingStatus])
+  @@index([exchangePaymentStatus])
+}
+
+/// A replacement product the customer chose for an exchange (exchangeMode = "order").
+model ReturnExchangeLine {
+  id              String        @id @default(cuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+
+  productId   String
+  skuId       String // Salla SKU (variant) id
+  sku         String?
+  name        String
+  variantName String?
+  imageUrl    String?  @db.Text
+  options     Json     @default("[]") // [{ id, value: [valueId] }] for POST /orders
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(10, 2) // VAT-inclusive, as the customer sees it
+  currency    String   @default("SAR")
+  createdAt   DateTime @default(now())
+
+  @@index([returnRequestId])
 }
 
 // An explicit, revocable admin exception to the category-specific return
@@ -1080,10 +1136,21 @@ model ReturnItem {
   inspectedBy        String?
   inspectedAt        DateTime?
 
+  // One row per piece for requests created after returns v2. Legacy rows keep
+  // quantity > 1 and no orderItemId.
+  orderItemId    String?
+  unitIndex      Int?
+  type           String    @default("return") // return or exchange, per piece
+  ribbonRemoved  Boolean?
+  refundIncluded Boolean   @default(true)
+  restockStatus  String    @default("none") // none, done, skipped, failed
+  restockedAt    DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([returnRequestId])
   @@index([productId])
+  @@index([orderItemId])
 }
 
 model Settings {

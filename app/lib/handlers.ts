@@ -11,6 +11,7 @@ import {
   linkExchangeOrderFromWebhook,
 } from "@/app/lib/returns/exchange-order";
 import { maybeNotifyReturnLabelCreated } from "@/app/lib/returns/return-label-notification";
+import { syncExchangePaymentFromWebhook } from "@/app/lib/returns/exchange-order-flow";
 import {
   enqueueCustomerJourneyEvent,
   extractJourneyShipment,
@@ -577,6 +578,12 @@ export async function process_salla_order_status_updated(
     merchantId: meta?.merchantId,
     orderId,
   });
+  // App-created exchange orders: the customer may just have paid the difference.
+  if (meta?.merchantId) {
+    await syncExchangePaymentFromWebhook(String(meta.merchantId), orderId).catch((error) =>
+      log.error("Exchange payment sync failed", { orderId, error })
+    );
+  }
 
   if (
     meta?.isDuplicateStatus &&

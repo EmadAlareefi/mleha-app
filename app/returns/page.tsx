@@ -1,10 +1,12 @@
 'use client';
 
+import { typeLabel } from '@/app/lib/returns/status';
 import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ErrorDialog } from '@/components/ui/error-dialog';
 import ReturnForm from '@/components/returns/ReturnForm';
+import type { PublicPiece } from '@/app/lib/returns/piece-context';
 import SuccessScreen from '@/components/returns/SuccessScreen';
 import { getItemAttributes } from '@/lib/returns/item-attributes';
 import { isInternationalOrder } from '@/lib/returns/order-country';
@@ -78,6 +80,7 @@ export default function ReturnsPage() {
   const [existingReturns, setExistingReturns] = useState<any[]>([]);
   const [canCreateNew, setCanCreateNew] = useState(true);
   const [windowExpiredProductIds, setWindowExpiredProductIds] = useState<string[]>([]);
+  const [orderPieces, setOrderPieces] = useState<PublicPiece[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [errorDialogOpen, setErrorDialogOpen] = useState(false);
@@ -272,6 +275,7 @@ export default function ReturnsPage() {
       setWindowExpiredProductIds(
         Array.isArray(returnsData.windowExpiredProductIds) ? returnsData.windowExpiredProductIds : []
       );
+      setOrderPieces(Array.isArray(returnsData.pieces) ? returnsData.pieces : null);
 
       if (returnsData.hasExistingReturns && returnsData.returns.length > 0) {
         setExistingReturns(returnsData.returns);
@@ -476,7 +480,7 @@ export default function ReturnsPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
                           <h3 className="text-lg font-semibold">
-                            {returnReq.type === 'return' ? 'طلب إرجاع' : 'طلب استبدال'}
+                            {`طلب ${typeLabel(returnReq.type)}`}
                           </h3>
                           <span
                             className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -622,6 +626,7 @@ export default function ReturnsPage() {
                 city: MERCHANT_CONFIG.city,
               }}
               windowExpiredProductIds={windowExpiredProductIds}
+              pieces={orderPieces}
               customerMobile={customerMobile}
               onSuccess={handleReturnSuccess}
             />

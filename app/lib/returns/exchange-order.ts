@@ -238,7 +238,7 @@ export async function linkExchangeOrderFromWebhook(
   const returnRequest = await prisma.returnRequest.findFirst({
     where: {
       merchantId,
-      type: 'exchange',
+      type: { in: ['exchange', 'mixed'] },
       OR: couponCodes.map((code) => ({
         couponCode: {
           equals: code,
@@ -337,7 +337,8 @@ export async function linkExchangeOrderFromWebhook(
 }
 
 export async function maybeReleaseExchangeOrderHold(
-  returnRequestId: string
+  returnRequestId: string,
+  options: { force?: boolean } = {}
 ): Promise<{ released: boolean; reason?: string }> {
   const returnRequest = await prisma.returnRequest.findUnique({
     where: { id: returnRequestId },
@@ -352,11 +353,24 @@ export async function maybeReleaseExchangeOrderHold(
     return { released: false, reason: 'no_active_hold' };
   }
 
-  if (!hasReturnShipmentArrived(returnRequest)) {
+  // Staff chose to ship despite the inspection result ("ship anyway").
+  const forced = options.force === true;
+
+  // App-created exchange orders (exchange v3) wait for payment, and only the
+  // exchanged pieces have to pass inspection.
+  const appCreated = returnRequest.exchangeMode === 'order';
+  if (appCreated && !['paid', 'not_required'].includes(returnRequest.exchangePaymentStatus)) {
+    return { released: false, reason: 'payment_pending' };
+  }
+
+  if (!forced && !hasReturnShipmentArrived(returnRequest)) {
     return { released: false, reason: 'shipment_not_received' };
   }
 
-  if (!areItemsFullyApproved(returnRequest.items)) {
+  const piecesToApprove = appCreated
+    ? returnRequest.items.filter((item) => item.type === 'exchange')
+    : returnRequest.items;
+  if (!forced && !areItemsFullyApproved(piecesToApprove)) {
     return { released: false, reason: 'items_not_approved' };
   }
 

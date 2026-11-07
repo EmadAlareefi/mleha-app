@@ -1,1624 +1,400 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import Image from 'next/image';
+import { AlertTriangle, Loader2, RefreshCw, Search, ShieldAlert } from 'lucide-react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
-import { Textarea } from '@/components/ui/textarea';
-import Link from 'next/link';
-import {
-  CONDITION_LABELS,
-  ReturnItemCondition,
-  summarizeItemConditions,
-} from '@/app/lib/returns/inspection';
-import {
-  STATUS_LABELS,
-  STATUS_COLORS,
-  INSPECTION_BADGE_STYLES,
-} from '@/app/lib/returns/status';
-import type { SmsaLiveStatus } from '@/types/smsa';
-import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
-import { buildTrackingUrl } from '@/lib/tracking-url';
-import { detectShipmentCompany, SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/components/ui/use-toast';
 import { hasServiceAccess } from '@/app/lib/service-access';
+import type { QueueTab } from '@/app/lib/returns/stage-filters';
 import { CouponAmountDialog } from './components/coupon-amount-dialog';
+import { InspectorNotesDialog } from './components/inspector-notes-dialog';
+import { ProcessDialog } from './components/process-dialog';
+import { RequestDetailSheet } from './components/request-detail-sheet';
+import { RequestRow } from './components/request-row';
+import { WindowOverrideDialog } from './components/window-override-dialog';
+import type { ReturnRequest } from './components/types';
 
-import ShipmentTrackingSummary from '@/components/local-shipping/ShipmentTrackingSummary';
-import type { LocalTrackingShipment } from '@/app/lib/local-shipping/tracking-query';
+const QUEUES: Array<{ key: QueueTab; label: string; hint: string }> = [
+  { key: 'ready', label: 'جاهز للمعالجة', hint: 'وصلت وتم فحص جميع القطع. اعتمديها لتنفيذ الاسترجاع والمخزون والكوبون.' },
+  { key: 'needs_attention', label: 'يحتاج تدخل', hint: 'خطوة لم تكتمل تلقائياً. افتحي الطلب لمعرفة السبب.' },
+  { key: 'received', label: 'بانتظار الفحص', hint: 'وصلت للمستودع ولم يكتمل فحص القطع.' },
+  { key: 'in_transit', label: 'في الطريق', hint: 'بانتظار استلام الشحنة من العميل أو في الطريق إلينا.' },
+  { key: 'completed', label: 'مكتمل', hint: '' },
+  { key: 'closed', label: 'ملغي', hint: '' },
+  { key: 'all', label: 'الكل', hint: '' },
+];
 
-interface ReturnItem {
-  id: string;
-  productName: string;
-  productSku?: string;
-  variantName?: string;
-  quantity: number;
-  price: number | string;
-  conditionStatus?: ReturnItemCondition | null;
-  conditionNotes?: string | null;
-  damageImageData?: string | null;
-  preInspectionNotes?: string | null;
-  inspectedBy?: string | null;
-  inspectedAt?: string | null;
-}
+const PAGE_SIZE = 50;
 
-interface ReturnRequest {
-  localShipments?: LocalTrackingShipment[];
-  id: string;
+interface PermissionInfo {
   merchantId: string;
-  orderId: string;
-  orderNumber: string;
-  type: 'return' | 'exchange';
-  status: string;
-  reason: string;
-  reasonDetails?: string;
-  customerName: string;
-  customerPhone: string;
-  customerEmail: string;
-  smsaResponse?: { provider?: string; labelUrl?: string | null } | null;
-  smsaTrackingNumber?: string;
-  smsaAwbNumber?: string;
-  smsaLiveStatus?: SmsaLiveStatus | null;
-  smsaLiveStatusUpdatedAt?: string | null;
-  returnLabelUrl?: string | null;
-  returnLabelNotificationSentAt?: string | null;
-  returnLabelNotificationError?: string | null;
-  needsManualShipment?: boolean;
-  totalRefundAmount?: number | string | null;
-  returnFee?: number;
-  shippingAmount?: number | string | null;
-  currency?: string | null;
-  couponCode?: string;
-  couponId?: string;
-  couponAmountOverride?: number | string | null;
-  couponAmountOverrideBy?: string | null;
-  couponAmountOverrideAt?: string | null;
-  couponAmountOverrideNote?: string | null;
-  adminNotes?: string;
-  reviewedBy?: string;
-  reviewedAt?: string;
-  createdAt: string;
-  items: ReturnItem[];
-  sallaStatus?: {
-    name?: string;
-    slug?: string;
-  } | null;
+  known: boolean;
+  missing: Array<{ scope: string; label: string }>;
 }
-
-interface ReturnWindowOverride {
-  id: string;
-  merchantId: string;
-  orderId: string;
-  orderNumber?: string | null;
-  createdBy: string;
-  createdAt: string;
-}
-
-const gregorianDateFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
-  day: '2-digit',
-  month: 'long',
-  year: 'numeric',
-});
-
-const trackingTimestampFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
-  day: '2-digit',
-  month: 'short',
-  hour: '2-digit',
-  minute: '2-digit',
-});
-
-const formatTrackingTimestamp = (value?: string | null) => {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return trackingTimestampFormatter.format(date);
-};
-
-
-const formatPrice = (value: number | string, currency?: string | null) => {
-  const amount = typeof value === 'number' ? value : Number(value);
-  const normalizedCurrency = currency?.trim().toUpperCase() || 'SAR';
-  const suffix = normalizedCurrency === 'SAR' ? 'ر.س' : normalizedCurrency;
-  if (Number.isFinite(amount)) {
-    return `${amount.toFixed(2)} ${suffix}`;
-  }
-  return `0.00 ${suffix}`;
-};
-
-const resolveRefundAmount = (request: ReturnRequest): number | null => {
-  if (request.totalRefundAmount == null) {
-    return null;
-  }
-  const amount =
-    typeof request.totalRefundAmount === 'number'
-      ? request.totalRefundAmount
-      : Number(request.totalRefundAmount);
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return null;
-  }
-
-  return amount;
-};
-
-const STATUS_FILTER_OPTIONS = [
-  { key: 'pending_review', label: 'تحت المراجعة' },
-  { key: 'delivered', label: 'تم التسليم' },
-  { key: 'completed', label: 'مكتمل' },
-] as const;
-
-type StatusFilterKey = (typeof STATUS_FILTER_OPTIONS)[number]['key'];
-
-const TYPE_FILTER_OPTIONS = [
-  { key: 'return', label: 'طلبات استرداد' },
-  { key: 'exchange', label: 'طلبات استبدال' },
-] as const;
-
-type TypeFilterKey = (typeof TYPE_FILTER_OPTIONS)[number]['key'];
-
-type NoteEditorState = {
-  requestId: string;
-  orderNumber: string;
-  items: ReturnItem[];
-  notes: Record<string, string>;
-  saving: boolean;
-  error: string;
-};
 
 export default function ReturnsManagementPage() {
   const { data: session } = useSession();
-  const canManageReturnWindows = hasServiceAccess(session, 'returns-management');
-  const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
+  const canManage = hasServiceAccess(session, 'returns-management');
+  const { toast } = useToast();
+
+  const [queue, setQueue] = useState<QueueTab>('ready');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'return' | 'exchange'>('all');
+  const [missingShipmentOnly, setMissingShipmentOnly] = useState(false);
+  const [page, setPage] = useState(1);
+
+  const [requests, setRequests] = useState<ReturnRequest[]>([]);
+  const [counts, setCounts] = useState<Partial<Record<QueueTab, number>>>({});
+  const [missingShipmentCount, setMissingShipmentCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [autoCompleting, setAutoCompleting] = useState(false);
-  const [overrideOrderNumber, setOverrideOrderNumber] = useState('');
-  const [overrides, setOverrides] = useState<ReturnWindowOverride[]>([]);
-  const [overrideLoading, setOverrideLoading] = useState(false);
-  const [overrideMessage, setOverrideMessage] = useState('');
+  const [permissions, setPermissions] = useState<PermissionInfo[]>([]);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [missingShipmentOnly, setMissingShipmentOnly] = useState(false);
-  const [missingShipmentCount, setMissingShipmentCount] = useState(0);
-  const [inspectionFilters, setInspectionFilters] = useState<{ inspected: boolean; review: boolean }>({
-    inspected: true,
-    review: false,
-  });
-  const [statusFilters, setStatusFilters] = useState<Record<StatusFilterKey, boolean>>({
-    pending_review: true,
-    delivered: true,
-    completed: false,
-  });
-  const [typeFilters, setTypeFilters] = useState<Record<TypeFilterKey, boolean>>({
-    return: true,
-    exchange: true,
-  });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [processRequest, setProcessRequest] = useState<ReturnRequest | null>(null);
+  const [couponRequest, setCouponRequest] = useState<ReturnRequest | null>(null);
+  const [notesRequest, setNotesRequest] = useState<ReturnRequest | null>(null);
+  const [bulkRunning, setBulkRunning] = useState(false);
 
-  // Pagination
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const notify = useCallback(
+    (message: string, variant: 'default' | 'destructive' = 'default') =>
+      toast({ title: variant === 'destructive' ? 'تعذر التنفيذ' : 'تم', description: message, variant }),
+    [toast],
+  );
 
-  const paginationRange = useMemo<(number | 'left-ellipsis' | 'right-ellipsis')[]>(() => {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, index) => index + 1);
-    }
-
-    const range: (number | 'left-ellipsis' | 'right-ellipsis')[] = [1];
-    const start = Math.max(2, page - 1);
-    const end = Math.min(totalPages - 1, page + 1);
-
-    if (start > 2) {
-      range.push('left-ellipsis');
-    }
-
-    for (let current = start; current <= end; current += 1) {
-      range.push(current);
-    }
-
-    if (end < totalPages - 1) {
-      range.push('right-ellipsis');
-    }
-
-    range.push(totalPages);
-    return range;
-  }, [page, totalPages]);
-  const [total, setTotal] = useState(0);
-
-  // Selected request for modal
-  const [selectedRequest, setSelectedRequest] = useState<ReturnRequest | null>(null);
-  const [noteEditor, setNoteEditor] = useState<NoteEditorState | null>(null);
-  const [couponAmountRequest, setCouponAmountRequest] = useState<ReturnRequest | null>(null);
-  const [labelActionBusy, setLabelActionBusy] = useState<string | null>(null);
-
-  const loadOverrides = useCallback(async () => {
-    if (!canManageReturnWindows) return;
-    const response = await fetch('/api/returns/window-overrides');
-    const data = await response.json();
-    if (response.ok) setOverrides(data.overrides || []);
-  }, [canManageReturnWindows]);
-
+  // Debounced search.
   useEffect(() => {
-    loadOverrides();
-  }, [loadOverrides]);
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const allowLateReturn = async () => {
-    const orderNumber = overrideOrderNumber.trim();
-    if (!orderNumber) return;
-    setOverrideLoading(true);
-    setOverrideMessage('');
-    try {
-      const response = await fetch('/api/returns/window-overrides', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          merchantId: process.env.NEXT_PUBLIC_MERCHANT_ID || '1234509876',
-          orderNumber,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'تعذر إضافة الاستثناء');
-      setOverrideOrderNumber('');
-      setOverrideMessage(`تم السماح للطلب #${data.override.orderNumber || orderNumber} بتجاوز مدة الإرجاع.`);
-      await loadOverrides();
-    } catch (err) {
-      setOverrideMessage(err instanceof Error ? err.message : 'تعذر إضافة الاستثناء');
-    } finally {
-      setOverrideLoading(false);
-    }
-  };
-
-  const revokeLateReturn = async (id: string) => {
-    setOverrideLoading(true);
-    setOverrideMessage('');
-    try {
-      const response = await fetch('/api/returns/window-overrides', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'تعذر إلغاء الاستثناء');
-      setOverrideMessage('تم إلغاء الاستثناء.');
-      await loadOverrides();
-    } catch (err) {
-      setOverrideMessage(err instanceof Error ? err.message : 'تعذر إلغاء الاستثناء');
-    } finally {
-      setOverrideLoading(false);
-    }
-  };
-
-
-  const handleInspectionFilterChange = (key: 'inspected' | 'review') => {
-    setInspectionFilters((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-    setPage(1);
-  };
-
-  const handleStatusFilterChange = (key: StatusFilterKey) => {
-    setStatusFilters((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-    setPage(1);
-  };
-
-  const handleTypeFilterChange = (key: TypeFilterKey) => {
-    setTypeFilters((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-    setPage(1);
-  };
-
-  const autoUpdateStatus = useCallback(async (requestId: string, newStatus: string) => {
-    try {
-      const response = await fetch('/api/returns/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: requestId,
-          status: newStatus,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        console.warn('Failed to auto update status', data);
-        return false;
-      }
-
-      return true;
-    } catch (err) {
-      console.error('Auto status update failed', err);
-      return false;
-    }
-  }, []);
-
-  const checkAndAutoCompleteFromSalla = useCallback(async (requests: ReturnRequest[]) => {
-    if (autoCompleting) {
-      return false;
-    }
-
-    const toComplete = requests.filter((req) => {
-      const statusName = req.sallaStatus?.name?.trim();
-      const statusSlug = req.sallaStatus?.slug?.trim();
-      return (
-        (statusName === 'مسترجع' || statusSlug === 'returned') &&
-        req.status !== 'completed'
-      );
-    });
-
-    if (toComplete.length === 0) {
-      return false;
-    }
-
-    setAutoCompleting(true);
-    let hasUpdates = false;
-
-    for (const request of toComplete) {
-      const success = await autoUpdateStatus(request.id, 'completed');
-      if (success) {
-        hasUpdates = true;
-      }
-    }
-
-    setAutoCompleting(false);
-    return hasUpdates;
-  }, [autoCompleting, autoUpdateStatus]);
-
-  const loadReturnRequests = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
-
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '100',
-      });
-      if (missingShipmentOnly) {
-        params.set('shipment', 'missing');
-      }
-
-      const activeTypes = TYPE_FILTER_OPTIONS.filter((option) => typeFilters[option.key]).map(
-        (option) => option.key,
-      );
-      if (activeTypes.length > 0 && activeTypes.length < TYPE_FILTER_OPTIONS.length) {
-        activeTypes.forEach((typeKey) => params.append('type', typeKey));
-      }
-
-      const activeStatuses = STATUS_FILTER_OPTIONS.filter((option) => statusFilters[option.key]).map(
-        (option) => option.key,
-      );
-      activeStatuses.forEach((status) => {
-        params.append('status', status);
-      });
-
-      if (inspectionFilters.inspected) {
-        params.append('inspection', 'inspected');
-      }
-
-      if (inspectionFilters.review) {
-        params.append('inspection', 'review');
-      }
-
-      if (searchQuery.trim()) {
-        params.append('search', searchQuery.trim());
-      }
-
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), counts: '1' });
+      if (missingShipmentOnly) params.set('shipment', 'missing');
+      else params.set('queue', queue);
+      if (typeFilter !== 'all') params.append('type', typeFilter);
+      if (search) params.set('search', search);
       const response = await fetch(`/api/returns/list?${params}`);
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'فشل جلب طلبات الإرجاع');
-      }
-
-      setReturnRequests(data.data);
+      if (!response.ok) throw new Error(data.error || 'فشل جلب طلبات الإرجاع');
+      setRequests(data.data);
+      setCounts(data.queueCounts || {});
       setMissingShipmentCount(data.missingShipmentCount ?? 0);
-      const hadAutoUpdates = await checkAndAutoCompleteFromSalla(data.data);
-      if (hadAutoUpdates) {
-        await loadReturnRequests();
-        return;
-      }
-      setTotal(data.pagination.total);
-      setTotalPages(data.pagination.totalPages);
+      setTotalPages(Math.max(1, data.pagination?.totalPages ?? 1));
+      setSelected((previous) => new Set([...previous].filter((id) => data.data.some((r: ReturnRequest) => r.id === id))));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
     } finally {
       setLoading(false);
     }
-  }, [checkAndAutoCompleteFromSalla, inspectionFilters, missingShipmentOnly, page, searchQuery, statusFilters, typeFilters]);
+  }, [missingShipmentOnly, page, queue, search, typeFilter]);
 
   useEffect(() => {
-    loadReturnRequests();
-  }, [loadReturnRequests]);
+    void load();
+  }, [load]);
 
-  const openPreInspectionNotes = (request: ReturnRequest) => {
-    const pendingItems = request.items.filter((item) => !item.conditionStatus);
-    if (pendingItems.length === 0) {
-      alert('تم فحص جميع العناصر بالفعل.');
-      return;
-    }
+  useEffect(() => {
+    if (!canManage) return;
+    fetch('/api/returns/salla-permissions')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => data?.merchants && setPermissions(data.merchants))
+      .catch(() => undefined);
+  }, [canManage]);
 
-    const notes = pendingItems.reduce<Record<string, string>>((acc, item) => {
-      acc[item.id] = item.preInspectionNotes || '';
-      return acc;
-    }, {});
+  const missingScopes = useMemo(
+    () => Array.from(new Map(permissions.flatMap((p) => p.missing).map((m) => [m.scope, m])).values()),
+    [permissions],
+  );
+  const openRequest = requests.find((request) => request.id === openId) ?? null;
+  const readyRows = requests.filter((request) => request.stage === 'ready');
+  const activeQueue = QUEUES.find((q) => q.key === queue);
 
-    setNoteEditor({
-      requestId: request.id,
-      orderNumber: request.orderNumber,
-      items: pendingItems,
-      notes,
-      saving: false,
-      error: '',
+  const toggleSelect = (id: string) =>
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  };
 
-  const closePreInspectionNotes = () => {
-    setNoteEditor(null);
-  };
-
-  const updatePreInspectionNote = (itemId: string, value: string) => {
-    setNoteEditor((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        notes: {
-          ...prev.notes,
-          [itemId]: value,
-        },
-      };
-    });
-  };
-
-  const savePreInspectionNotes = async () => {
-    if (!noteEditor) {
-      return;
-    }
-    if (noteEditor.items.length === 0) {
-      setNoteEditor((prev) => (prev ? { ...prev, error: 'لا توجد عناصر لتحديثها' } : prev));
-      return;
-    }
-
-    const payload = noteEditor.items.map((item) => ({
-      itemId: item.id,
-      note: noteEditor.notes[item.id] ?? '',
-    }));
-
-    setNoteEditor((prev) => (prev ? { ...prev, saving: true, error: '' } : prev));
-
+  const runBulk = async () => {
+    const ids = [...selected].slice(0, 20);
+    if (ids.length === 0) return;
+    setBulkRunning(true);
     try {
-      const response = await fetch('/api/returns/pre-inspection-notes', {
+      const response = await fetch('/api/returns/process/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          returnRequestId: noteEditor.requestId,
-          notes: payload,
-        }),
+        body: JSON.stringify({ returnRequestIds: ids }),
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'تعذر حفظ الملاحظات');
-      }
-
-      setNoteEditor(null);
-      loadReturnRequests();
-    } catch (err) {
-      setNoteEditor((prev) =>
-        prev
-          ? {
-              ...prev,
-              saving: false,
-              error: err instanceof Error ? err.message : 'حدث خطأ غير متوقع',
-            }
-          : prev,
+      if (!response.ok) throw new Error(data.error || 'فشلت المعالجة الجماعية');
+      const results: Array<{ outcome: string }> = data.results || [];
+      const done = results.filter((r) => r.outcome === 'completed').length;
+      const attention = results.filter((r) => r.outcome === 'needs_attention' || r.outcome === 'failed').length;
+      const skipped = results.filter((r) => r.outcome === 'skipped').length;
+      notify(
+        `اكتمل ${done}` +
+          (attention ? ` • يحتاج تدخل ${attention}` : '') +
+          (skipped ? ` • تُرك ${skipped} للمراجعة الفردية (عليه تنبيهات)` : ''),
+        attention ? 'destructive' : 'default',
       );
-    }
-  };
-
-  const describeNotificationResult = (notification?: { status?: string; error?: string; reason?: string }) => {
-    if (!notification || !notification.status) {
-      return '';
-    }
-
-    if (notification.status === 'sent') {
-      return '\nتم إرسال الكوبون للعميل عبر واتساب.';
-    }
-
-    if (notification.status === 'skipped') {
-      return '\nلم يتم إرسال رسالة واتساب (رقم العميل غير متوفر).';
-    }
-
-    if (notification.status === 'failed') {
-      return `\nلم يتم إرسال رسالة واتساب: ${notification.error || 'خطأ غير معروف'}.`;
-    }
-
-    return '';
-  };
-
-  const updateStatus = async (requestId: string, newStatus: string) => {
-    try {
-      const response = await fetch('/api/returns/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: requestId,
-          status: newStatus,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'فشل تحديث الحالة');
-      }
-
-      // Reload data
-      loadReturnRequests();
+      setSelected(new Set());
+      await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'حدث خطأ');
-    }
-  };
-
-  const updateRequestType = async (requestId: string, newType: 'return' | 'exchange') => {
-    try {
-      const response = await fetch('/api/returns/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: requestId,
-          type: newType,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'فشل تحديث النوع');
-      }
-
-      loadReturnRequests();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'حدث خطأ');
-    }
-  };
-
-
-  const LABEL_ACTION_LABELS: Record<string, string> = {
-    sync: 'تحديث من سلة',
-    reissue: 'إعادة إصدار البوليصة',
-    resend: 'إعادة إرسال الواتساب',
-  };
-
-  const LABEL_SYNC_MESSAGES: Record<string, string> = {
-    notified: 'تم العثور على البوليصة وإرسالها للعميل.',
-    already_notified: 'البوليصة موجودة وسبق إرسالها للعميل.',
-    tracking_only: 'تم تحديث رقم التتبع، لكن سلة لم تصدر البوليصة بعد.',
-    pending: 'سلة ما زالت تُنشئ شحنة المرتجع. حاول بعد قليل.',
-    stuck: 'لم تتوفر شحنة المرتجع بعد. افتح الطلب في سلة وتحقق من الشحنة، ثم أنشئ بوليصة المرتجع يدوياً إن لم تكن موجودة.',
-    error: 'تعذر الاتصال بسلة.',
-  };
-
-  const runLabelAction = async (request: ReturnRequest, action: 'sync' | 'reissue' | 'resend') => {
-    if (action === 'reissue') {
-      const confirmed = window.confirm(
-        'سيتم طلب بوليصة إرجاع جديدة من سلة لهذا الطلب. المتابعة؟',
-      );
-      if (!confirmed) return;
-    }
-
-    setLabelActionBusy(`${request.id}:${action}`);
-    try {
-      const response = await fetch('/api/returns/label-actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnRequestId: request.id, action }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `فشل ${LABEL_ACTION_LABELS[action]}`);
-      }
-
-      if (action === 'resend') {
-        alert(
-          data.notification?.status === 'sent'
-            ? 'تم إرسال البوليصة على الواتساب.'
-            : `لم يتم الإرسال: ${data.notification?.reason || data.notification?.error || 'سبب غير معروف'}`,
-        );
-      } else {
-        alert(LABEL_SYNC_MESSAGES[data.sync?.status] || 'تم تنفيذ الإجراء.');
-      }
-
-      loadReturnRequests();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'حدث خطأ');
+      notify(err instanceof Error ? err.message : 'حدث خطأ', 'destructive');
     } finally {
-      setLabelActionBusy(null);
+      setBulkRunning(false);
     }
-  };
-
-  const createCoupon = async (
-    requestId: string,
-    amount: number,
-    options: { autoComplete?: boolean } = {},
-  ) => {
-    try {
-      const response = await fetch('/api/returns/create-coupon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          returnRequestId: requestId,
-          amount,
-          expiryDays: 30,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Check if it's a permission error
-        if (data.error?.includes('صلاحيات') || data.error?.includes('marketing')) {
-          // Show manual coupon entry option
-          const manualCode = prompt(
-            'لا يمكن إنشاء الكوبون تلقائياً بسبب صلاحيات غير كافية.\n\n' +
-            'يرجى إنشاء الكوبون يدوياً من لوحة تحكم سلة ثم إدخال رمز الكوبون هنا:\n\n' +
-            `المبلغ المقترح: ${amount.toFixed(2)} ر.س`
-          );
-
-          if (manualCode && manualCode.trim()) {
-            await assignManualCoupon(requestId, manualCode.trim(), options);
-            return;
-          }
-        }
-
-        throw new Error(data.error || 'فشل إنشاء الكوبون');
-      }
-
-      const notificationMessage = describeNotificationResult(data.notification);
-      alert(`تم إنشاء الكوبون بنجاح: ${data.coupon.code}${notificationMessage}`);
-      if (options.autoComplete) {
-        await updateStatus(requestId, 'completed');
-      } else {
-        loadReturnRequests();
-      }
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'حدث خطأ');
-    }
-  };
-
-  const assignManualCoupon = async (
-    requestId: string,
-    couponCode: string,
-    options: { autoComplete?: boolean } = {},
-  ) => {
-    try {
-      const response = await fetch('/api/returns/manual-coupon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          returnRequestId: requestId,
-          couponCode,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'فشل تعيين الكوبون');
-      }
-
-      const notificationMessage = describeNotificationResult(data.notification);
-      alert(`تم تعيين الكوبون بنجاح: ${couponCode}${notificationMessage}`);
-      if (options.autoComplete) {
-        await updateStatus(requestId, 'completed');
-      } else {
-        loadReturnRequests();
-      }
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'حدث خطأ');
-    }
-  };
-
-  const handleRefundCompletion = async (request: ReturnRequest) => {
-    const amount = resolveRefundAmount(request);
-    if (amount == null) {
-      alert('يرجى تحديد مبلغ الاسترداد قبل إنهاء الطلب.');
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `هل تم صرف مبلغ ${formatPrice(amount)} للعميل؟ سيتم تعليم الطلب كمكتمل.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    await updateStatus(request.id, 'completed');
-  };
-
-  const handleExchangeCompletion = async (request: ReturnRequest) => {
-    const amount = resolveRefundAmount(request);
-    if (amount == null) {
-      alert('يرجى تحديد قيمة الكوبون قبل الإنشاء.');
-      return;
-    }
-
-    await createCoupon(request.id, amount, { autoComplete: true });
-  };
-
-  const handleExchangeFinalize = async (request: ReturnRequest) => {
-    if (!request.couponCode) {
-      alert('لا يوجد كوبون مرتبط بالطلب، قم بإنشائه أولاً.');
-      return;
-    }
-
-    const confirmed = window.confirm('سيتم تعليم الطلب كمكتمل بعد تسليم الكوبون للعميل. المتابعة؟');
-    if (!confirmed) {
-      return;
-    }
-
-    await updateStatus(request.id, 'completed');
-  };
-
-  const handleReopenRequest = async (request: ReturnRequest) => {
-    const confirmed = window.confirm('سيتم إعادة الطلب للمراجعة. هل تريد المتابعة؟');
-    if (!confirmed) {
-      return;
-    }
-
-    await updateStatus(request.id, 'pending_review');
   };
 
   return (
     <AppPageShell
       title="إدارة طلبات الإرجاع والاستبدال"
-      subtitle={`إجمالي الطلبات: ${total}`}
-      contentClassName="flex flex-1 flex-col gap-6 p-4 md:p-6"
+      subtitle="الطلبات تتقدم تلقائياً مع الشحن والفحص — دورك اعتماد الجاهز ومعالجة ما يحتاج تدخل"
+      contentClassName="flex flex-1 flex-col gap-4 p-4 md:p-6"
     >
-        {/* Header */}
-        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">إدارة طلبات الإرجاع والاستبدال</h1>
-            <p className="text-muted-foreground">
-              إجمالي الطلبات: {total}
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <Button variant="outline" asChild>
-              <Link href="/local-shipping/tracking">تتبع الشحنات المحلية</Link>
-            </Button>
-            {canManageReturnWindows && (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline">
-                    استثناء مدة الإرجاع
-                    {overrides.length > 0 && (
-                      <Badge variant="secondary" aria-label={`${overrides.length} استثناءات نشطة`}>
-                        {overrides.length}
-                      </Badge>
-                    )}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent dir="rtl" className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-                  <DialogHeader className="pr-6 text-right sm:text-right">
-                    <DialogTitle>استثناء مدة الإرجاع</DialogTitle>
-                    <DialogDescription>
-                      اسمح لطلب محدد بتجاوز حد 24 ساعة أو 3 أيام. تبقى بقية شروط الإرجاع مطبقة.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Input
-                        aria-label="رقم الطلب في سلة"
-                        value={overrideOrderNumber}
-                        onChange={(event) => setOverrideOrderNumber(event.target.value)}
-                        placeholder="رقم الطلب في سلة"
-                        disabled={overrideLoading}
-                      />
-                      <Button
-                        onClick={allowLateReturn}
-                        disabled={overrideLoading || !overrideOrderNumber.trim()}
-                      >
-                        {overrideLoading ? 'جارٍ الحفظ...' : 'السماح بالإرجاع المتأخر'}
-                      </Button>
-                    </div>
-                    {overrideMessage && <p role="status" className="text-sm text-muted-foreground">{overrideMessage}</p>}
-                    {overrides.length > 0 && (
-                      <div className="space-y-2">
-                        <FieldLabel>الاستثناءات النشطة</FieldLabel>
-                        {overrides.map((override) => (
-                          <div
-                            key={override.id}
-                            className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
-                          >
-                            <div className="text-sm">
-                              <strong>طلب #{override.orderNumber || override.orderId}</strong>
-                              <span className="mr-2 text-muted-foreground">بواسطة {override.createdBy}</span>
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => revokeLateReturn(override.id)}
-                              disabled={overrideLoading}
-                            >
-                              إلغاء الاستثناء
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
-            )}
-            <Button asChild className="bg-orange-600 text-white hover:bg-orange-700">
-              <Link href="/returns-priority">
-                ⚡ الطلبات عالية الأولوية
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/">← العودة للرئيسية</Link>
-            </Button>
-          </div>
+      {/* Header actions */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+          <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /> تحديث
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/local-shipping/tracking">تتبع الشحنات المحلية</Link>
+        </Button>
+        {canManage && <WindowOverrideDialog />}
+        <Button size="sm" asChild className="bg-orange-600 text-white hover:bg-orange-700">
+          <Link href="/returns-priority">⚡ عالية الأولوية</Link>
+        </Button>
+      </div>
+
+      {missingScopes.length > 0 && (
+        <Alert className="border-amber-300 bg-amber-50 text-amber-950">
+          <ShieldAlert className="size-4" />
+          <AlertDescription>
+            تطبيق سلة يحتاج صلاحيات إضافية لتنفيذ المعالجة تلقائياً: {missingScopes.map((m) => m.label).join('، ')}. فعّلي
+            الصلاحيات في بوابة شركاء سلة ثم أعيدي ربط المتجر. حتى ذلك، تتحول الخطوات المتأثرة إلى &quot;يحتاج تدخل&quot;.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {(missingShipmentCount > 0 || missingShipmentOnly) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="size-4" />
+            {missingShipmentCount} طلب بدون شحنة مرتجع لأكثر من 30 دقيقة — أنشئي البوليصة في سلة ثم «تحديث من سلة».
+          </span>
+          <Button
+            size="sm"
+            variant={missingShipmentOnly ? 'outline' : 'default'}
+            onClick={() => {
+              setMissingShipmentOnly((value) => !value);
+              setPage(1);
+            }}
+          >
+            {missingShipmentOnly ? 'العودة للقوائم' : 'عرضها'}
+          </Button>
         </div>
+      )}
 
-        {(missingShipmentCount > 0 || missingShipmentOnly) && (
-          <Card className="border-amber-300 bg-amber-50">
-            <CardHeader>
-              <CardTitle className="text-amber-950">
-                طلبات بدون شحنة مرتجع ({missingShipmentCount})
-              </CardTitle>
-              <CardDescription className="text-amber-900">
-                طلبات مضى عليها أكثر من 30 دقيقة ولم يصل لها رقم تتبع أو بوليصة.
-                افتح الطلب في سلة وتحقق من وجود شحنة مرتجع، ثم أنشئ البوليصة يدوياً إن لم تكن موجودة.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-3">
-              <Button
-                type="button"
-                variant={missingShipmentOnly ? 'outline' : 'default'}
-                aria-pressed={missingShipmentOnly}
-                onClick={() => {
-                  setMissingShipmentOnly((value) => !value);
-                  setSearchQuery('');
-                  setTypeFilters({ return: true, exchange: true });
-                  setPage(1);
-                }}
-              >
-                {missingShipmentOnly ? 'العودة لجميع الطلبات' : 'عرض الطلبات بدون شحنة'}
-              </Button>
-              <Button type="button" variant="outline" disabled={loading} onClick={() => void loadReturnRequests()}>
-                تحديث القائمة
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle>تدفق مبسط للطلبات</CardTitle>
-            <CardDescription>
-              تحقق من الطلب، حدّد نوعه، ثم قم بإصدار الاسترداد أو إنشاء كوبون الاستبدال لإنهائه دون المرور بحالات متعددة.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-          <Field>
-            <FieldLabel>بحث سريع</FieldLabel>
-            <Input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setPage(1);
-              }}
-              placeholder="رقم الطلب، اسم العميل، رقم التتبع..."
-            />
-          </Field>
-          <fieldset disabled={missingShipmentOnly} className="disabled:opacity-50">
-            <FieldLabel className="mb-2">تصفية حسب حالة الفحص</FieldLabel>
-            <div className="flex flex-wrap gap-4">
-              {[
-                { key: 'review' as const, label: 'تحت المراجعة' },
-                { key: 'inspected' as const, label: 'تم فحص القطع' },
-              ].map((option) => (
-                <label
-                  key={option.key}
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
-                >
-                  <Checkbox
-                    checked={inspectionFilters[option.key]}
-                    onCheckedChange={() => handleInspectionFilterChange(option.key)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div>
-            <FieldLabel className="mb-2">تصفية حسب نوع الطلب</FieldLabel>
-            <div className="flex flex-wrap gap-4">
-              {TYPE_FILTER_OPTIONS.map((option) => (
-                <label
-                  key={option.key}
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
-                >
-                  <Checkbox
-                    checked={typeFilters[option.key]}
-                    onCheckedChange={() => handleTypeFilterChange(option.key)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <fieldset disabled={missingShipmentOnly} className="disabled:opacity-50">
-            <FieldLabel className="mb-2">تصفية حسب حالة الطلب</FieldLabel>
-            <div className="flex flex-wrap gap-4">
-              {STATUS_FILTER_OPTIONS.map((option) => (
-                <label
-                  key={option.key}
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm cursor-pointer hover:border-blue-400"
-                >
-                  <Checkbox
-                    checked={statusFilters[option.key]}
-                    onCheckedChange={() => handleStatusFilterChange(option.key)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          {missingShipmentOnly && (
-            <p className="text-sm text-amber-900">
-              تعرض هذه القائمة الطلبات النشطة بدون شحنة بغض النظر عن حالة الفحص.
-            </p>
-          )}
-          </CardContent>
-        </Card>
-
-        {/* Error */}
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Loading */}
-        {loading ? (
-          <LoadingState />
-        ) : returnRequests.length === 0 ? (
-          <EmptyState title={missingShipmentOnly ? 'لا توجد طلبات بدون شحنة تطابق البحث' : 'لا توجد طلبات'} />
-        ) : (
-          <>
-            {/* Return Requests List */}
-            <div className="space-y-4">
-              {returnRequests.map((request) => {
-                const inspectionSummary = summarizeItemConditions(request.items);
-                const sallaStatus = request.sallaStatus;
-                const trackingNumber = request.smsaTrackingNumber?.trim() || '';
-                const awbNumber = request.smsaAwbNumber?.trim() || '';
-                const displayTrackingNumber = trackingNumber || awbNumber;
-                const trackingLookupKey = awbNumber || trackingNumber;
-                const detectedCompany = detectShipmentCompany(displayTrackingNumber);
-                const provider = request.smsaResponse?.provider?.trim().toLowerCase();
-                const company = SHIPMENT_COMPANIES[provider || ''] ||
-                  (detectedCompany.id !== 'unknown' ? detectedCompany : SHIPMENT_COMPANIES.smsa);
-                const trackingLink = buildTrackingUrl(
-                  trackingLookupKey,
-                  company.id,
-                  request.smsaResponse?.labelUrl || request.returnLabelUrl,
-                );
-                const carrierName = SHIPMENT_COMPANIES[trackingLink?.type || '']?.nameAr || company.nameAr;
-                const trackingInfo = request.smsaLiveStatus || null;
-                const formattedTrackingTimestamp =
-                  trackingInfo?.timestamp ? formatTrackingTimestamp(trackingInfo.timestamp) : null;
-                const majorTrackingLabel = resolveMajorSmsaStatus(trackingInfo);
-                const hasLiveStatus = Boolean(trackingInfo);
-                const canAddInspectorNotes = request.items.some((item) => !item.conditionStatus);
-                const inspectorNotesCount = request.items.filter(
-                  (item) => item.preInspectionNotes?.trim(),
-                ).length;
-                const hasPendingInspectorNotes = inspectorNotesCount > 0;
-                return (
-                  <Card key={request.id} className={`p-6 hover:shadow-lg transition-shadow ${request.needsManualShipment ? 'border-amber-400' : ''}`}>
-                    {request.needsManualShipment && (
-                      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                        <p className="font-semibold">يتطلب إنشاء شحنة مرتجع في سلة</p>
-                        <p className="mt-1">
-                          لم يصل رقم تتبع أو بوليصة لهذا الطلب. تحقق من الشحنة في سلة وأنشئ بوليصة المرتجع يدوياً إن لم تكن موجودة، ثم اضغط «تحديث من سلة» أدناه.
-                        </p>
-                        {request.orderId && (
-                          <Button asChild size="sm" className="mt-3 bg-amber-800 text-white hover:bg-amber-900">
-                            <a href={`https://s.salla.sa/orders/order/${request.orderId}`} target="_blank" rel="noopener noreferrer">
-                              فتح سلة لإنشاء شحنة المرتجع
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                      {/* Request Info */}
-                      <div className="lg:col-span-2">
-                        <div className="flex items-start gap-3 mb-3">
-                          <Badge
-                            className={`${
-                              request.type === 'return'
-                                ? 'bg-orange-100 text-orange-800 border-orange-300'
-                                : 'bg-blue-100 text-blue-800 border-blue-300'
-                            }`}
-                          >
-                            {request.type === 'return' ? 'إرجاع' : 'استبدال'}
-                          </Badge>
-                          <Badge
-                            className={`${
-                              STATUS_COLORS[request.status] || 'bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {STATUS_LABELS[request.status] || request.status}
-                          </Badge>
-                        </div>
-
-                        <h3 className="font-semibold text-lg mb-2">
-                          <Link
-                            href={`/returns-management/${request.id}`}
-                            className="text-blue-700 hover:text-blue-900 hover:underline focus-visible:underline focus-visible:outline-none"
-                          >
-                            طلب #{request.orderNumber}
-                          </Link>
-                          {request.orderId && (
-                            <div className="text-sm mt-1">
-                              <a
-                                href={`https://s.salla.sa/orders/order/${request.orderId}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-indigo-600 hover:text-indigo-800 underline"
-                              >
-                                فتح الطلب في سلة
-                              </a>
-                            </div>
-                          )}
-                        </h3>
-
-                        <div className="text-sm text-gray-600 space-y-1">
-                          <p><strong>العميل:</strong> {request.customerName}</p>
-                          <p><strong>الهاتف:</strong> {request.customerPhone}</p>
-                          {request.localShipments?.map(shipment => (
-                            <ShipmentTrackingSummary key={shipment.id} shipment={shipment} />
-                          ))}
-                          {displayTrackingNumber && (
-                            <div>
-                              <p><strong>رقم التتبع:</strong> {displayTrackingNumber}</p>
-                              {hasLiveStatus ? (
-                                <p className="text-xs text-indigo-700 mt-1">
-                                  <strong>حالة {carrierName}:</strong>{' '}
-                                  <>
-                                    {majorTrackingLabel ||
-                                      trackingInfo?.description ||
-                                      trackingInfo?.code ||
-                                      '—'}
-                                    {trackingInfo?.city ? ` • ${trackingInfo.city}` : ''}
-                                    {formattedTrackingTimestamp ? ` • ${formattedTrackingTimestamp}` : ''}
-                                  </>
-                                </p>
-                              ) : (
-                                <p className="text-xs text-gray-500 mt-1">
-                                  لا يوجد تحديث من ويب هوك {carrierName} حتى الآن
-                                </p>
-                              )}
-                              {trackingLink && (
-                                <p className="text-xs mt-1">
-                                  <a
-                                    href={trackingLink.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-indigo-600 hover:text-indigo-800 underline"
-                                  >
-                                    فتح تتبع {carrierName}
-                                  </a>
-                                </p>
-                              )}
-                            </div>
-                          )}
-                          <p>
-                            <strong>التاريخ:</strong> {gregorianDateFormatter.format(new Date(request.createdAt))}
-                          </p>
-                          <p><strong>السبب:</strong> {request.reason}</p>
-                          {request.reasonDetails && (
-                            <p className="text-gray-500 text-xs mt-1">{request.reasonDetails}</p>
-                          )}
-                          {sallaStatus?.name && (
-                            <p>
-                              <strong>حالة سلة:</strong> {sallaStatus.name}
-                              {sallaStatus.slug ? (
-                                <span className="text-xs text-gray-500 ml-2">({sallaStatus.slug})</span>
-                              ) : null}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Items */}
-                      <div className="lg:col-span-2">
-                        <h4 className="font-medium mb-2">المنتجات:</h4>
-                        <div className="space-y-1 text-sm">
-                          {request.items.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <p>{item.productName} {item.variantName ? `(${item.variantName})` : ''}</p>
-                                {item.conditionStatus && (
-                                  <p className="mt-1 text-xs text-gray-600">
-                                    حالة الفحص: {CONDITION_LABELS[item.conditionStatus]}
-                                  </p>
-                                )}
-                                {item.conditionNotes?.trim() && (
-                                  <p className="mt-1 whitespace-pre-wrap break-words text-xs text-gray-700">
-                                    <strong>ملاحظات الفحص:</strong> {item.conditionNotes.trim()}
-                                  </p>
-                                )}
-                              </div>
-                              {item.damageImageData && (
-                                <div className="relative h-14 w-11 shrink-0 overflow-hidden rounded border border-red-200 bg-red-50">
-                                  <Image
-                                    src={item.damageImageData}
-                                    alt="صورة تلف المنتج"
-                                    width={88}
-                                    height={112}
-                                    className="h-full w-full object-cover"
-                                    unoptimized
-                                  />
-                                </div>
-                              )}
-                              <span className="text-gray-600">x{item.quantity}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          {inspectionSummary.badges.map((badge, index) => (
-                            <Badge
-                              key={`${request.id}-${badge.label}-${index}`}
-                              className={`${
-                                INSPECTION_BADGE_STYLES[badge.tone] || INSPECTION_BADGE_STYLES.muted
-                              }`}
-                            >
-                              {badge.label}
-                            </Badge>
-                          ))}
-                        </div>
-
-                        {hasPendingInspectorNotes && (
-                          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                            تم تسجيل ملاحظات للمفتش لـ {inspectorNotesCount} عنصر
-                            {inspectorNotesCount > 1 ? '، يمكن تعديلها قبل الفحص.' : '، ويمكن تعديلها قبل الفحص.'}
-                          </div>
-                        )}
-
-                        {request.totalRefundAmount != null && (
-                          <div className="mt-3 pt-3 border-t">
-                            <div className="flex justify-between font-semibold">
-                              <span>المبلغ المسترد:</span>
-                              <span className="flex items-center gap-2">
-                                {request.couponAmountOverride != null && (
-                                  <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
-                                    قيمة معدّلة يدوياً
-                                  </Badge>
-                                )}
-                                <span className="text-green-600">
-                                  {formatPrice(request.totalRefundAmount ?? 0, request.currency)}
-                                </span>
-                              </span>
-                            </div>
-                          </div>
-                        )}
-
-                        {request.couponCode && (
-                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded">
-                            <p className="text-sm font-medium text-green-800">
-                              كود الكوبون: {request.couponCode}
-                            </p>
-                          </div>
-                        )}
-
-                        {request.adminNotes && (
-                          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
-                            <p className="text-xs font-medium text-blue-800 mb-1">ملاحظات الإدارة:</p>
-                            <p className="text-sm text-blue-900">{request.adminNotes}</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="space-y-3">
-                        {canAddInspectorNotes && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => openPreInspectionNotes(request)}
-                          >
-                            إضافة ملاحظات للمفتش
-                          </Button>
-                        )}
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">
-                            نوع المعالجة
-                          </label>
-                          <NativeSelect
-                            value={request.type}
-                            onChange={(e) =>
-                              updateRequestType(request.id, e.target.value as 'return' | 'exchange')
-                            }
-                            className="w-full"
-                            aria-label="نوع طلب الإرجاع"
-                          >
-                            <option value="return">استرداد مبلغ</option>
-                            <option value="exchange">استبدال بكوبون</option>
-                          </NativeSelect>
-                        </div>
-
-                        <div className="rounded-lg border p-3 space-y-2">
-                          <div className="flex items-center justify-between text-sm font-semibold">
-                            <span>بوليصة الإرجاع</span>
-                            {request.returnLabelNotificationSentAt ? (
-                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                                تم الإرسال
-                              </Badge>
-                            ) : request.returnLabelUrl ? (
-                              <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
-                                لم تُرسل
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
-                                لا توجد بوليصة
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            رقم التتبع: {request.smsaTrackingNumber || '—'}
-                          </p>
-                          {request.returnLabelUrl && (
-                            <a
-                              href={request.returnLabelUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-blue-600 underline"
-                            >
-                              فتح البوليصة
-                            </a>
-                          )}
-                          {request.returnLabelNotificationError && (
-                            <p className="text-xs text-red-600">
-                              خطأ الإرسال: {request.returnLabelNotificationError}
-                            </p>
-                          )}
-                          <div className="grid grid-cols-1 gap-2">
-                            {(['sync', 'reissue', 'resend'] as const).map((action) => (
-                              <Button
-                                key={action}
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                disabled={
-                                  labelActionBusy !== null ||
-                                  (action === 'resend' && !request.returnLabelUrl)
-                                }
-                                onClick={() => runLabelAction(request, action)}
-                              >
-                                {labelActionBusy === `${request.id}:${action}`
-                                  ? 'جاري التنفيذ...'
-                                  : LABEL_ACTION_LABELS[action]}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Available after completion too: a wrong credit is
-                            usually only noticed once the customer complains. */}
-                        {request.type === 'exchange' && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => setCouponAmountRequest(request)}
-                          >
-                            تعديل قيمة الكوبون
-                          </Button>
-                        )}
-
-                        {request.status !== 'completed' ? (
-                          <>
-                            {request.type === 'return' && (
-                              <Button className="w-full" onClick={() => handleRefundCompletion(request)}>
-                                تأكيد الاسترداد وإنهاء الطلب
-                              </Button>
-                            )}
-
-                            {request.type === 'exchange' && (
-                              <>
-                                {!request.couponCode ? (
-                                  <Button
-                                    className="w-full"
-                                    variant="outline"
-                                    onClick={() => handleExchangeCompletion(request)}
-                                  >
-                                    إنشاء كوبون وإنهاء الطلب
-                                  </Button>
-                                ) : (
-                                  <Button className="w-full" onClick={() => handleExchangeFinalize(request)}>
-                                    إنهاء الطلب بعد إرسال الكوبون
-                                  </Button>
-                                )}
-                              </>
-                            )}
-                          </>
-                        ) : (
-                          <div className="rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm px-3 py-2 text-center">
-                            تم إنهاء الطلب
-                          </div>
-                        )}
-
-                        {request.status === 'completed' && (
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => handleReopenRequest(request)}
-                          >
-                            إعادة للمراجعة
-                          </Button>
-                        )}
-
-                        <Button onClick={() => setSelectedRequest(request)} variant="outline" className="w-full">
-                          التفاصيل
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
-                <Button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  variant="outline"
-                  className="flex flex-col items-center leading-tight"
-                >
-                  <span>السابق</span>
-                  {page > 1 && (
-                    <span className="text-xs text-muted-foreground">صفحة {page - 1}</span>
-                  )}
-                </Button>
-                <div className="flex items-center gap-2 px-2">
-                  {paginationRange.map((entry, index) =>
-                    typeof entry === 'number' ? (
-                      <Button
-                        key={`page-${entry}`}
-                        variant={entry === page ? 'default' : 'outline'}
-                        onClick={() => setPage(entry)}
-                        aria-current={entry === page ? 'page' : undefined}
-                      >
-                        {entry}
-                      </Button>
-                    ) : (
-                      <span key={`ellipsis-${entry}-${index}`} className="px-1 text-sm text-muted-foreground">
-                        ...
-                      </span>
-                    ),
-                  )}
-                </div>
-                <Button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  variant="outline"
-                  className="flex flex-col items-center leading-tight"
-                >
-                  <span>التالي</span>
-                  {page < totalPages && (
-                    <span className="text-xs text-muted-foreground">صفحة {page + 1}</span>
-                  )}
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-
-        <CouponAmountDialog
-          request={couponAmountRequest}
-          onClose={() => setCouponAmountRequest(null)}
-          onSaved={(message) => {
-            alert(message);
-            loadReturnRequests();
+      {/* Queues */}
+      {!missingShipmentOnly && (
+        <Tabs
+          value={queue}
+          onValueChange={(value) => {
+            setQueue(value as QueueTab);
+            setPage(1);
+            setSelected(new Set());
           }}
-        />
-
-        {/* Details Modal */}
-        {selectedRequest && (
-          <Dialog open={Boolean(selectedRequest)} onOpenChange={(open) => !open && setSelectedRequest(null)}>
-            <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>تفاصيل الطلب #{selectedRequest.orderNumber}</DialogTitle>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-semibold mb-2">معلومات العميل</h3>
-                  <div className="text-sm space-y-1">
-                    <p><strong>الاسم:</strong> {selectedRequest.customerName}</p>
-                    <p><strong>الهاتف:</strong> {selectedRequest.customerPhone}</p>
-                    <p><strong>البريد:</strong> {selectedRequest.customerEmail}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="font-semibold mb-2">السبب</h3>
-                  <p className="text-sm">{selectedRequest.reason}</p>
-                  {selectedRequest.reasonDetails && (
-                    <p className="text-sm text-gray-600 mt-1">{selectedRequest.reasonDetails}</p>
-                  )}
-                </div>
-
-                <div>
-                  <h3 className="font-semibold mb-2">المنتجات</h3>
-                  {selectedRequest.items.map((item) => (
-                    <div key={item.id} className="py-2 border-b">
-                      <div className="flex justify-between text-sm">
-                        <span>{item.productName}</span>
-                        <span>x{item.quantity} - {formatPrice(item.price, selectedRequest.currency)}</span>
-                      </div>
-                      {item.conditionStatus && (
-                        <p className="text-xs text-gray-600 mt-1">
-                          حالة الفحص: {CONDITION_LABELS[item.conditionStatus]}{' '}
-                          {item.inspectedBy && (
-                            <>— {item.inspectedBy}</>
-                          )}
-                        </p>
-                      )}
-                      {item.conditionNotes && (
-                        <p className="text-xs text-gray-500 mt-1">{item.conditionNotes}</p>
-                      )}
-                      {item.damageImageData && (
-                        <div className="mt-3">
-                          <p className="mb-1 text-xs font-medium text-red-700">صورة التلف</p>
-                          <div className="relative h-40 w-32 overflow-hidden rounded-lg border border-red-200 bg-red-50">
-                            <Image
-                              src={item.damageImageData}
-                              alt="صورة تلف المنتج"
-                              width={256}
-                              height={320}
-                              className="h-full w-full object-cover"
-                              unoptimized
-                            />
-                          </div>
-                        </div>
-                      )}
-                      {item.preInspectionNotes && (
-                        <p className="text-xs text-amber-700 mt-1">
-                          ملاحظة للمفتش: {item.preInspectionNotes}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {selectedRequest.adminNotes && (
-                  <div>
-                    <h3 className="font-semibold mb-2">ملاحظات الإدارة</h3>
-                    <p className="text-sm">{selectedRequest.adminNotes}</p>
-                  </div>
+          dir="rtl"
+        >
+          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-muted/60 p-1">
+            {QUEUES.map((tab) => (
+              <TabsTrigger key={tab.key} value={tab.key} className="flex-none gap-2 px-3 py-1.5">
+                {tab.label}
+                {counts[tab.key] !== undefined && (
+                  <Badge
+                    variant="secondary"
+                    className={
+                      tab.key === 'ready' && counts.ready
+                        ? 'bg-emerald-600 text-white'
+                        : tab.key === 'needs_attention' && counts.needs_attention
+                          ? 'bg-red-600 text-white'
+                          : ''
+                    }
+                  >
+                    {counts[tab.key]}
+                  </Badge>
                 )}
-              </div>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
 
-              <DialogFooter className="mt-6">
-                <Button onClick={() => setSelectedRequest(null)} className="flex-1">
-                  إغلاق
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
+      {/* Toolbar */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+          <Input
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="رقم الطلب، اسم العميل، الجوال، رقم التتبع..."
+            className="pr-9"
+          />
+        </div>
+        <NativeSelect
+          aria-label="نوع الطلب"
+          value={typeFilter}
+          onChange={(event) => {
+            setTypeFilter(event.target.value as typeof typeFilter);
+            setPage(1);
+          }}
+          className="sm:w-44"
+        >
+          <option value="all">كل الأنواع</option>
+          <option value="return">فيها استرجاع</option>
+          <option value="exchange">فيها استبدال</option>
+        </NativeSelect>
+      </div>
 
-        {/* Pre-Inspection Notes Modal */}
-        {noteEditor && (
-          <Dialog open={Boolean(noteEditor)} onOpenChange={(open) => !open && closePreInspectionNotes()}>
-            <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>ملاحظات للمفتش</DialogTitle>
-                <DialogDescription>طلب #{noteEditor.orderNumber}</DialogDescription>
-              </DialogHeader>
+      {activeQueue?.hint && !missingShipmentOnly && <p className="text-sm text-gray-500">{activeQueue.hint}</p>}
 
-              <p className="text-sm text-gray-600 mb-4">
-                اكتب ملاحظات حول العيوب التي اكتشفها فريق خدمة العملاء ليطلع عليها فريق الفحص عند وصول الشحنة.
-              </p>
+      {/* Bulk bar */}
+      {queue === 'ready' && readyRows.length > 0 && !missingShipmentOnly && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              setSelected((previous) =>
+                previous.size === readyRows.length ? new Set() : new Set(readyRows.slice(0, 20).map((r) => r.id)),
+              )
+            }
+          >
+            {selected.size === readyRows.length ? 'إلغاء التحديد' : `تحديد ${Math.min(readyRows.length, 20)}`}
+          </Button>
+          <span className="text-emerald-900">
+            {selected.size > 0 ? `${selected.size} طلب محدد` : 'حدّدي الطلبات السليمة لمعالجتها دفعة واحدة'}
+          </span>
+          <Button
+            size="sm"
+            className="mr-auto bg-emerald-600 hover:bg-emerald-700"
+            disabled={selected.size === 0 || bulkRunning}
+            onClick={runBulk}
+          >
+            {bulkRunning ? <Loader2 className="size-4 animate-spin" /> : null}
+            اعتماد ومعالجة المحدد
+          </Button>
+        </div>
+      )}
 
-              {noteEditor.error && (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertDescription>{noteEditor.error}</AlertDescription>
-                </Alert>
-              )}
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-              {noteEditor.items.length > 0 ? (
-                <div className="space-y-4">
-                  {noteEditor.items.map((item) => (
-                    <div key={item.id} className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-                      <div className="flex flex-wrap justify-between gap-3 text-sm">
-                        <div>
-                          <p className="font-semibold text-gray-900">
-                            {item.productName} {item.variantName ? `(${item.variantName})` : ''}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            SKU: {item.productSku || '—'}
-                          </p>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          الكمية: x{item.quantity}
-                        </div>
-                      </div>
-                      <Textarea
-                        rows={3}
-                        placeholder="اشرح ما لاحظه العميل أو فريق خدمة العملاء"
-                        value={noteEditor.notes[item.id] ?? ''}
-                        onChange={(e) => updatePreInspectionNote(item.id, e.target.value)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <Alert className="border-green-200 bg-green-50 text-green-900">
-                  <AlertDescription>تم فحص جميع العناصر في هذا الطلب.</AlertDescription>
-                </Alert>
-              )}
+      {loading && requests.length === 0 ? (
+        <LoadingState />
+      ) : requests.length === 0 ? (
+        <EmptyState
+          title={
+            queue === 'ready'
+              ? 'لا توجد طلبات جاهزة للمعالجة 🎉'
+              : queue === 'needs_attention'
+                ? 'لا يوجد ما يحتاج تدخل'
+                : 'لا توجد طلبات'
+          }
+        />
+      ) : (
+        <div className={`space-y-2 ${loading ? 'opacity-60' : ''}`}>
+          {requests.map((request) => (
+            <RequestRow
+              key={request.id}
+              request={request}
+              selectable={queue === 'ready' && request.stage === 'ready'}
+              selected={selected.has(request.id)}
+              busy={bulkRunning && selected.has(request.id)}
+              onToggleSelect={() => toggleSelect(request.id)}
+              onOpen={() => setOpenId(request.id)}
+              onProcess={() => (request.stage === 'ready' ? setProcessRequest(request) : setOpenId(request.id))}
+            />
+          ))}
+        </div>
+      )}
 
-              <DialogFooter className="mt-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1"
-                  onClick={closePreInspectionNotes}
-                  disabled={noteEditor.saving}
-                >
-                  إلغاء
-                </Button>
-                <Button
-                  type="button"
-                  className="flex-1"
-                  onClick={savePreInspectionNotes}
-                  disabled={noteEditor.saving || noteEditor.items.length === 0}
-                >
-                  {noteEditor.saving ? 'جاري الحفظ...' : 'حفظ الملاحظات'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            السابق
+          </Button>
+          <span className="text-sm text-gray-600">
+            صفحة {page} من {totalPages}
+          </span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            التالي
+          </Button>
+        </div>
+      )}
+
+      <RequestDetailSheet
+        request={openRequest}
+        onClose={() => setOpenId(null)}
+        onChanged={() => void load()}
+        onProcess={(request) => setProcessRequest(request)}
+        onEditCoupon={(request) => setCouponRequest(request)}
+        onEditInspectorNotes={(request) => setNotesRequest(request)}
+        notify={notify}
+      />
+
+      <ProcessDialog
+        request={processRequest}
+        onClose={() => setProcessRequest(null)}
+        onDone={({ completed, message }) => {
+          setProcessRequest(null);
+          notify(message, completed ? 'default' : 'destructive');
+          void load();
+        }}
+      />
+
+      <CouponAmountDialog
+        request={couponRequest ? { ...couponRequest, items: couponRequest.items.map((item) => ({ ...item, type: item.type })) } : null}
+        onClose={() => setCouponRequest(null)}
+        onSaved={(message) => {
+          setCouponRequest(null);
+          notify(message);
+          void load();
+        }}
+      />
+
+      <InspectorNotesDialog
+        request={notesRequest}
+        onClose={() => setNotesRequest(null)}
+        onSaved={() => {
+          setNotesRequest(null);
+          notify('تم حفظ الملاحظات.');
+          void load();
+        }}
+      />
     </AppPageShell>
   );
 }

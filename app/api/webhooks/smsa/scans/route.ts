@@ -1,3 +1,5 @@
+import { markReturnsReceived } from '@/app/lib/returns/auto-progress';
+import { carrierDelivered } from '@/lib/returns/workflow';
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -327,6 +329,13 @@ const persistLiveStatus = async (shipment: NormalizedShipment) => {
         error,
       });
     }
+  }
+
+  // A delivered return moves to "received" on the server, ready for inspection.
+  if (returnRequestFilters.length > 0 && carrierDelivered(liveStatus)) {
+    await markReturnsReceived({ OR: returnRequestFilters }, 'smsa-webhook').catch((error) =>
+      log.error('Failed to mark SMSA return as received', { identifiers, error })
+    );
   }
 };
 

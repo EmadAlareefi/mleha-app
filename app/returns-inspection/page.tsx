@@ -1,5 +1,6 @@
 'use client';
 
+import { typeLabel } from '@/app/lib/returns/status';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -50,6 +51,9 @@ interface ReturnRequestItem {
   variantName?: string | null;
   quantity: number;
   price: string | number;
+  type?: 'return' | 'exchange' | string;
+  orderItemId?: string | null;
+  unitIndex?: number | null;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
   damageImageData?: string | null;
@@ -67,7 +71,7 @@ interface ReturnRequestDetails {
   orderId: string;
   orderNumber: string;
   status: string;
-  type: 'return' | 'exchange';
+  type: 'return' | 'exchange' | 'mixed';
   reason: string;
   reasonDetails?: string | null;
   smsaTrackingNumber?: string | null;
@@ -523,7 +527,11 @@ export default function ReturnInspectionPage() {
           prev
         )
       );
-      setSuccessMessage('تم حفظ نتائج الفحص، وستظهر في صفحة إدارة الإرجاع كبطاقات حالة');
+      setSuccessMessage(
+        data.readyForProcessing
+          ? 'تم حفظ نتائج الفحص. الطلب جاهز للمعالجة في صفحة إدارة الإرجاع.'
+          : 'تم حفظ نتائج الفحص. ما زالت هناك قطع لم تُفحص في هذا الطلب.'
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -614,7 +622,7 @@ export default function ReturnInspectionPage() {
                   {returnRequest.smsaTrackingNumber && (
                     <p><span className="font-medium">رقم التتبع:</span> {returnRequest.smsaTrackingNumber}</p>
                   )}
-                  <p><span className="font-medium">النوع:</span> {returnRequest.type === 'return' ? 'إرجاع' : 'استبدال'}</p>
+                  <p><span className="font-medium">النوع:</span> {typeLabel(returnRequest.type)}</p>
                   <p><span className="font-medium">الحالة:</span> {returnRequest.status}</p>
                   <p><span className="font-medium">العميل:</span> {returnRequest.customerName || '-'}</p>
                   <p><span className="font-medium">الهاتف:</span> {returnRequest.customerPhone || '-'}</p>
@@ -730,7 +738,17 @@ export default function ReturnInspectionPage() {
                         <div>
                           <p className="font-medium text-gray-900">
                             {item.productName} {item.variantName ? `(${item.variantName})` : ''}
+                            {item.orderItemId && items.filter((other) => other.orderItemId === item.orderItemId).length > 1
+                              ? ` — قطعة ${(item.unitIndex ?? 0) + 1}`
+                              : ''}
                           </p>
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                              item.type === 'exchange' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
+                            {item.type === 'exchange' ? 'استبدال' : 'استرجاع'}
+                          </span>
                           <p className="text-sm text-gray-500">
                             SKU: {item.productSku || '—'}
                           </p>

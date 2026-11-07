@@ -1,3 +1,5 @@
+import { isQueueTab, QUEUE_TABS, queueWhere } from '@/app/lib/returns/stage-filters';
+import { deriveStage } from '@/lib/returns/workflow';
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -30,16 +32,16 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
     const missingShipmentWhere = missingReturnShipmentWhere(now);
     const where: Prisma.ReturnRequestWhereInput = missingShipmentOnly ? { ...missingShipmentWhere } : {};
 
-    if (typeParams.length === 1) {
-      const [singleType] = typeParams;
-      if (singleType === 'return' || singleType === 'exchange') {
-        where.type = singleType;
-      }
-    } else if (typeParams.length > 1) {
-      const validTypes = typeParams.filter((value) => value === 'return' || value === 'exchange');
-      if (validTypes.length > 0) {
-        where.type = { in: validTypes };
-      }
+    // A mixed request has both return and exchange pieces, so it matches both filters.
+    const validTypes = Array.from(
+      new Set(
+        typeParams
+          .filter((value) => value === 'return' || value === 'exchange' || value === 'mixed')
+          .flatMap((value) => (value === 'mixed' ? ['mixed'] : [value, 'mixed'])),
+      ),
+    );
+    if (validTypes.length > 0) {
+      where.type = { in: validTypes };
     }
 
     if (statusParams.length === 1) {
@@ -109,10 +111,26 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       where.AND = existingAnd;
     }
 
+    // Queue tabs: counts use every other filter, the list adds the chosen tab.
+    const queue = searchParams.get('queue');
+    const baseWhere: Prisma.ReturnRequestWhereInput = { ...where };
+    if (isQueueTab(queue) && queue !== 'all') {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), queueWhere(queue)];
+    }
+    const withCounts = searchParams.get('counts') === '1';
+
     // Get total count
-    const [total, missingShipmentCount] = await Promise.all([
+    const [total, missingShipmentCount, queueCounts] = await Promise.all([
       prisma.returnRequest.count({ where }),
       prisma.returnRequest.count({ where: missingShipmentWhere }),
+      withCounts
+        ? Promise.all(
+            QUEUE_TABS.map(async (tab) => [
+              tab,
+              await prisma.returnRequest.count({ where: { AND: [baseWhere, queueWhere(tab)] } }),
+            ] as const),
+          ).then((entries) => Object.fromEntries(entries))
+        : Promise.resolve(null),
     ]);
 
     // Get paginated results
@@ -137,8 +155,17 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
             inspectedBy: true,
             inspectedAt: true,
             createdAt: true,
+            orderItemId: true,
+            unitIndex: true,
+            type: true,
+            ribbonRemoved: true,
+            refundIncluded: true,
+            restockStatus: true,
+            restockedAt: true,
           },
+          orderBy: [{ orderItemId: 'asc' }, { unitIndex: 'asc' }, { createdAt: 'asc' }],
         },
+        exchangeLines: true,
       },
       orderBy: {
         createdAt: 'desc',
@@ -205,6 +232,7 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       return {
         ...request,
         needsManualShipment: needsManualReturnShipment(request, now),
+        stage: deriveStage(request),
         sallaStatus: sallaStatuses[statusKey] || null,
         localShipments: localShipmentsByOrder.get(statusKey) || [],
       };
@@ -214,6 +242,7 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       success: true,
       data: enrichedRequests,
       missingShipmentCount,
+      queueCounts,
       pagination: {
         total,
         page,

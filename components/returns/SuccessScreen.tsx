@@ -12,12 +12,23 @@ interface SuccessScreenProps {
   returnRequest: {
     id: string;
     orderNumber: string;
-    type: 'return' | 'exchange';
+    type: 'return' | 'exchange' | 'mixed';
     status: string;
     smsaTrackingNumber?: string;
     smsaLabelDataUrl?: string | null;
     totalRefundAmount?: number;
+    refundAmount?: number;
+    couponAmount?: number;
     currency?: string;
+    statusUrl?: string | null;
+    exchangeOrder?: {
+      created: boolean;
+      orderNumber?: string;
+      amountDue?: number;
+      paymentUrl?: string | null;
+      leftover?: number;
+      fellBackToCoupon?: boolean;
+    } | null;
     createdAt: string;
   };
   onReset?: () => void;
@@ -117,7 +128,7 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
 
         {/* Success Message */}
         <h2 className="text-2xl font-bold text-center mb-2">
-          تم استلام طلب {returnRequest.type === 'return' ? 'الإرجاع' : 'الاستبدال'} بنجاح!
+          تم استلام طلب {returnRequest.type === 'return' ? 'الإرجاع' : returnRequest.type === 'mixed' ? 'الإرجاع والاستبدال' : 'الاستبدال'} بنجاح!
         </h2>
 
         {/* Reference Numbers */}
@@ -208,14 +219,44 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
             </div>
           )}
 
-          {returnRequest.type === 'return' && returnRequest.totalRefundAmount && (
-            <div className="p-4 bg-green-50 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">مبلغ الاسترداد المتوقع</p>
-              <p className="text-lg font-semibold text-green-700">
-                {formatMoney(returnRequest.totalRefundAmount)}
-              </p>
-            </div>
-          )}
+          {(() => {
+            const refund = returnRequest.refundAmount ?? (returnRequest.type === 'return' ? returnRequest.totalRefundAmount : undefined);
+            const exchangeOrder = returnRequest.exchangeOrder;
+            const coupon = exchangeOrder?.created ? 0 : returnRequest.couponAmount;
+            return (
+              <>
+                {refund ? (
+                  <div className="p-4 bg-green-50 rounded-lg">
+                    <p className="text-sm text-gray-600 mb-1">مبلغ الاسترداد المتوقع</p>
+                    <p className="text-lg font-semibold text-green-700">{formatMoney(refund)}</p>
+                  </div>
+                ) : null}
+                {exchangeOrder?.created ? (
+                  <div className="p-4 bg-emerald-50 rounded-lg space-y-1">
+                    <p className="text-sm text-gray-600">طلب الاستبدال الجديد</p>
+                    <p className="text-lg font-semibold text-emerald-700">#{exchangeOrder.orderNumber}</p>
+                    <p className="text-xs text-gray-600">يُشحن لك مجاناً بعد وصول القطعة المرتجعة وفحصها.</p>
+                    {exchangeOrder.leftover ? (
+                      <p className="text-xs text-gray-600">
+                        رصيدك المتبقي ({formatMoney(exchangeOrder.leftover)}) يصلك ككوبون على الواتساب بعد الفحص.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {exchangeOrder?.fellBackToCoupon ? (
+                  <div className="p-4 bg-amber-50 rounded-lg text-sm text-amber-900">
+                    تعذر تجهيز طلب البدائل الآن، لذلك سيصلك رصيد الاستبدال ككوبون على الواتساب بعد وصول القطع وفحصها.
+                  </div>
+                ) : null}
+                {coupon ? (
+                  <div className="p-4 bg-emerald-50 rounded-lg">
+                    <p className="text-sm text-gray-600 mb-1">قيمة كوبون الاستبدال المتوقعة</p>
+                    <p className="text-lg font-semibold text-emerald-700">{formatMoney(coupon)}</p>
+                  </div>
+                ) : null}
+              </>
+            );
+          })()}
         </div>
 
         {/* Instructions */}
@@ -249,6 +290,12 @@ export default function SuccessScreen({ returnRequest, onReset }: SuccessScreenP
           >
             طباعة
           </Button>
+
+          {returnRequest.statusUrl && (
+            <Button asChild variant="outline" className="flex-1">
+              <a href={returnRequest.statusUrl}>متابعة الطلب</a>
+            </Button>
+          )}
 
           {onReset && (
             <Button

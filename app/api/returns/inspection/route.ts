@@ -592,6 +592,10 @@ export async function POST(request: NextRequest) {
             : null,
           inspectedBy: item.conditionStatus ? inspector : null,
           inspectedAt: item.conditionStatus ? now : null,
+          // Default the money refund from the inspection; staff can override
+          // it in returns-management before processing. Restocked pieces keep
+          // their restock state.
+          refundIncluded: !item.conditionStatus || item.conditionStatus === 'good',
         },
       })
     )
@@ -609,15 +613,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (updatedRequest.type === 'exchange') {
+  if (updatedRequest.type !== 'return') {
     await maybeReleaseExchangeOrderHold(updatedRequest.id);
   }
 
+  // Inspecting the goods proves they arrived, even if no carrier event did.
+  if (['pending_review', 'approved', 'shipped'].includes(updatedRequest.status)) {
+    await prisma.returnRequest.update({
+      where: { id: updatedRequest.id },
+      data: { status: 'delivered', receivedAt: updatedRequest.receivedAt ?? now },
+    });
+    updatedRequest.status = 'delivered';
+  }
+
+  const readyForProcessing = updatedRequest.items.every((item) => Boolean(item.conditionStatus));
   const summary = summarizeItemConditions(toInspectableItems(updatedRequest.items));
 
   return NextResponse.json({
     success: true,
     returnRequest: updatedRequest,
     inspectionSummary: summary,
+    readyForProcessing,
   });
 }

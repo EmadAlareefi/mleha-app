@@ -24,6 +24,89 @@ The system provides a complete return/exchange workflow:
 ✅ RTL Arabic interface
 ✅ Success screen with reference numbers
 
+## Returns v2: per-piece choices and one-click processing
+
+**Customer form (`/returns`).** Every physical piece is chosen on its own. A line with quantity 2 is two pieces, and each piece gets its own *return* or *exchange* choice and its own protection-ribbon answer. Category and window rules are keyed by product, so identical pieces get identical rules:
+
+| Rule | Effect on a piece |
+|---|---|
+| 1 SAR offer, discounted categories | Blocked |
+| Return window expired (unless an admin override exists) | Blocked |
+| Outlet, National Day offers | Exchange only |
+| Protection ribbon removed | Blocked |
+| Already on an active request | Blocked (pieces are tracked by `orderItemId` + `unitIndex`) |
+
+`GET /api/returns/check` returns a `pieces` array with each piece's allowed types and block reason. `POST /api/returns/create` takes `pieces: [{ orderItemId, unitIndex, type, ribbonRemoved }]`. The pre-v2 payload (`type` + `items[].quantity`) is still accepted for one deploy cycle.
+
+**Money.** One request has one return shipment, so it is charged one fee. The rules are in `lib/returns/request-financials.ts` (`splitRequestFinancials`):
+- If any piece is a return, the return fee applies; otherwise the exchange fee applies.
+- Original shipping goes with the money refund when there is one; otherwise it goes into the coupon.
+- The fee is deducted from the refund first; anything left over comes out of the coupon.
+- `ReturnRequest.type` is `return`, `exchange` or `mixed`. `totalRefundAmount` is the money refund, except on exchange-only requests, where it keeps its old meaning (the credit). `couponAmount` holds the exchange credit.
+
+**Stages.** Requests move on the server, not in the browser (`lib/returns/workflow.ts`):
+
+| How it moves | Result |
+|---|---|
+| SMSA/AJEX delivery webhooks, or the `/api/returns/auto-progress` cron (every 15 min) | Status becomes `delivered` and `receivedAt` is set |
+| Inspecting every piece in `/returns-inspection` | Request is **ready** |
+| Pieces inspected as damaged, worn or missing parts | `refundIncluded` defaults to false; staff can switch it back in the drawer |
+| Salla order already "مسترجع" before the app processed it | Flagged **needs attention**; the app never restocks or refunds it a second time |
+
+**One-click processing.** `GET /api/returns/process` shows a preview and `POST /api/returns/process` runs it; the work is in `app/lib/returns/process-return.ts`. Steps run in this order:
+1. Restock pieces inspected as `good` (`POST /products/quantities/bulk`, increment).
+2. Refund the return pieces on the order's single refundable Salla transaction (`PUT /transactions/{id}` with `action: refund`).
+3. Create the exchange coupon and send it on WhatsApp.
+4. Set the Salla order to `RETURNS_SALLA_DONE_STATUS_SLUG` (default `restored`; empty disables it) and add a history note.
+5. Close the request.
+
+Every step is idempotent and logged in `processingAudit`, and any failure moves the request to **needs attention**. Safety rules:
+- A refund whose outcome is unknown (timeout or 5xx) is **never resent**. The cron settles it from the Salla order history.
+- If the Salla history already shows a refund, staff must confirm before the app refunds again.
+- COD or bank-transfer orders become `refundStatus = manual`. Staff confirm the transfer in the drawer.
+- The customer's refund WhatsApp comes from the existing `order.refunded` webhook journey.
+- `POST /api/returns/process/bulk` processes up to 20 ready requests and skips any whose preview has warnings.
+
+**Before the first production run:** check on a test order that setting the order to `restored` does not restock it in Salla by itself. Read `GET /products/quantities` before and after. If it does restock, set `RETURNS_SALLA_DONE_STATUS_SLUG` to a status that doesn't.
+
+**Required Salla scopes.** See `SALLA_OAUTH_SCOPES.md`. `/api/returns/salla-permissions` reports the missing ones, and the management page shows a banner for them.
+
+**Migration.** `prisma/migrations/20261103120000_returns_v2/migration.sql` is additive. Apply it manually with `prisma db execute` against `DIRECT_URL`.
+
+## Exchange v3: replacement products and paying the difference
+
+**Customer side.** When at least one piece is an exchange, the form asks how the customer wants it:
+- **Choose replacements now** (default): the customer searches the store catalog, picks a size or colour, and builds a small cart.
+  - The sticky bar shows the exchange credit, the replacements total, and one of: the amount left to pay, the credit left over, or "fully covered".
+  - If money is due, the customer picks a payment method (`RETURNS_EXCHANGE_PAYMENT_METHODS`, intersected with the store's enabled methods).
+  - After submitting, the customer is redirected to Salla's payment link.
+- **Coupon for later**: the classic exchange coupon.
+
+**What the server does** (`app/lib/returns/exchange-order-flow.ts`):
+1. Prices the cart from Salla (`priceExchangeCart`) before the return shipment is booked. Browser prices are never used.
+2. Stores the return request with its `ReturnExchangeLine` rows.
+3. Creates a single-use `EXO…` coupon for the credit applied (with free shipping), then calls `POST /orders`. The order uses the original customer, the courier and national address from the original order's outbound shipment, the replacement products, `coupon_code`, and `payment.status = pending_payment`.
+4. Stores the Salla order, the amount due, the `checkout_url` and the payment deadline. A fully covered order is put on hold (reservation status) immediately.
+5. If anything fails: cancels the order, deletes the coupon, and falls back to coupon mode. The return itself is never undone.
+
+**Payment.**
+- `order.status.updated` webhooks, plus the 15-minute `auto-progress` cron as a backup, detect payment. A paid order is put on hold.
+- One WhatsApp reminder goes out halfway through the payment window (`ZOKO_TPL_EXCHANGE_PAYMENT_PENDING`; args: name, order number, amount, pay link).
+- After the deadline (Salla's `pending_payment_ends_at`, about 21h), the order is cancelled (stock restored), the credit coupon deleted, and the request falls back to the coupon (`ZOKO_TPL_EXCHANGE_ORDER_EXPIRED`; args: name, order number).
+- Both templates are optional. When the env var is unset, the message is skipped and logged.
+
+**Release.** `maybeReleaseExchangeOrderHold` releases the order once payment is settled (`paid` or `not_required`), the return has arrived, and the **exchanged** pieces are inspected `good`. One-click processing does this, then issues any leftover credit as an `EXCHANGE…` coupon. Pieces that aren't good make the request **needs attention**, and the drawer offers:
+- ship anyway;
+- cancel the replacement, which refunds any difference paid and falls back to the coupon;
+- resend the payment link;
+- retry creation.
+
+**Customer status page.** `/returns/status/[id]?t=…` is signed with `RETURNS_STATUS_TOKEN_SECRET`, falling back to `NEXTAUTH_SECRET`. It shows progress, the exchange order and a "complete payment" button, and refreshes the payment state when the customer comes back from paying.
+
+**Salla API facts** (verified on the live store with test orders that were then cancelled) are listed at the top of `app/lib/salla-exchange-order.ts`.
+
+**Migration.** `prisma/migrations/20261104120000_exchange_orders/migration.sql` is additive. Apply it manually with `prisma db execute` against `DIRECT_URL`.
+
 ## Database Schema
 
 ### Tables Created

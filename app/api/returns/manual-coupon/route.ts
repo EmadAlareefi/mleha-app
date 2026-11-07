@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireReturnsStaff } from '@/app/lib/returns/staff-auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
-import { getSallaOrder } from '@/app/lib/salla-api';
-import {
-  applyCouponAmountOverride,
-  calculateExchangeCouponAmount,
-  SALLA_CUSTOMER_MARKUP,
-} from '@/lib/returns/exchange-coupon-amount';
-import { getReturnFeeQuoteForOrder } from '@/app/lib/returns/fee-quote';
+import { SALLA_CUSTOMER_MARKUP } from '@/lib/returns/exchange-coupon-amount';
+import { computeRequestAmounts } from '@/app/lib/returns/exchange-coupon';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
@@ -18,6 +14,9 @@ const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EX
  * Manually assign a coupon code to an exchange request (when auto-creation fails)
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireReturnsStaff();
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { returnRequestId, couponCode } = body;
@@ -43,41 +42,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if it's an exchange
-    if (returnRequest.type !== 'exchange') {
+    if (returnRequest.type !== 'exchange' && returnRequest.type !== 'mixed') {
       return NextResponse.json(
         { error: 'الكوبونات متاحة فقط لطلبات الاستبدال' },
         { status: 400 }
       );
     }
 
-    let liveOrderAmounts;
-    let liveOrderOptions;
-    let feeQuote;
-    try {
-      const order = await getSallaOrder(returnRequest.merchantId, returnRequest.orderId);
-      liveOrderAmounts = order?.amounts;
-      liveOrderOptions = order?.options;
-      if (order) {
-        feeQuote = getReturnFeeQuoteForOrder(order, 'exchange');
-      }
-    } catch (error) {
-      log.warn('Could not refresh Salla shipping amount before assigning exchange coupon', {
-        returnRequestId,
-        orderId: returnRequest.orderId,
-        error,
-      });
-    }
-
-    const currentCalculation = applyCouponAmountOverride(
-      calculateExchangeCouponAmount(
-        returnRequest,
-        liveOrderAmounts,
-        feeQuote,
-        liveOrderOptions,
-      ),
-      returnRequest.couponAmountOverride,
-    );
-    const couponAmount = currentCalculation.fullAmount;
+    const amounts = await computeRequestAmounts(returnRequest);
+    const couponAmount = amounts.couponAmount;
 
     if (!couponAmount || !Number.isFinite(couponAmount) || couponAmount <= 0) {
       return NextResponse.json(
@@ -92,12 +65,18 @@ export async function POST(request: NextRequest) {
       data: {
         couponCode: couponCode.trim(),
         couponCreatedAt: new Date(),
-        totalRefundAmount: couponAmount,
-        returnFee: currentCalculation.processingFee,
-        shippingAmount: currentCalculation.originalShipping,
-        currency: currentCalculation.currency,
-        feeExchangeRate: currentCalculation.exchangeRate,
-        feeExchangeRateSource: currentCalculation.exchangeRateSource,
+        couponAmount,
+        // Pre-v2 meaning: for exchange-only requests the "refund" is the credit.
+        ...(amounts.requestType === 'exchange'
+          ? {
+              totalRefundAmount: couponAmount,
+              returnFee: amounts.processingFee,
+              shippingAmount: amounts.originalShipping,
+              currency: amounts.currency,
+              feeExchangeRate: amounts.exchangeRate,
+              feeExchangeRateSource: amounts.exchangeRateSource,
+            }
+          : {}),
       },
       include: { items: true },
     });
@@ -106,9 +85,9 @@ export async function POST(request: NextRequest) {
       returnRequestId,
       couponCode: couponCode.trim(),
       couponAmount,
-      amountSource: currentCalculation.amountSource,
-      processingFee: currentCalculation.processingFee,
-      originalShipping: currentCalculation.originalShipping,
+      amountSource: amounts.couponSource,
+      processingFee: amounts.processingFee,
+      originalShipping: amounts.originalShipping,
     });
 
     const assumedExpiry = new Date();
@@ -124,8 +103,8 @@ export async function POST(request: NextRequest) {
       couponCode: couponCode.trim(),
       discountedAmount,
       fullAmount,
-      currency: currentCalculation.currency,
-      sarFullAmount: currentCalculation.fullAmountSar,
+      currency: amounts.currency,
+      sarFullAmount: amounts.couponAmountSar,
       expiryDate: assumedExpiry,
     });
 

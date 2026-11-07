@@ -27,7 +27,9 @@ export interface CouponAmountRequest {
   couponAmountOverride?: number | string | null;
   couponAmountOverrideBy?: string | null;
   couponAmountOverrideNote?: string | null;
-  items: { quantity: number; price: number | string }[];
+  couponAmount?: number | string | null;
+  type?: string;
+  items: { quantity: number; price: number | string; type?: string }[];
 }
 
 interface CouponAmountDialogProps {
@@ -63,7 +65,10 @@ export function CouponAmountDialog({ request, onClose, onSaved }: CouponAmountDi
     if (!request) {
       return;
     }
-    const current = toNumber(request.couponAmountOverride) ?? toNumber(request.totalRefundAmount);
+    const current =
+      toNumber(request.couponAmountOverride) ??
+      toNumber(request.couponAmount) ??
+      (request.type === 'exchange' ? toNumber(request.totalRefundAmount) : null);
     setAmount(current != null && current > 0 ? current.toFixed(2) : '');
     setNote(request.couponAmountOverrideNote || '');
     setResendNotification(false);
@@ -74,13 +79,16 @@ export function CouponAmountDialog({ request, onClose, onSaved }: CouponAmountDi
     return null;
   }
 
-  const itemsTotal = request.items.reduce((sum, item) => {
+  const mixed = request.type === 'mixed';
+  // In a mixed request the coupon covers only the exchange pieces; the fee and
+  // shipping sit with the money refund.
+  const itemsTotal = request.items.filter((item) => !mixed || item.type === 'exchange').reduce((sum, item) => {
     const price = toNumber(item.price) ?? 0;
     const quantity = Number.isFinite(item.quantity) ? Math.max(0, item.quantity) : 0;
     return sum + price * quantity;
   }, 0);
-  const shipping = toNumber(request.shippingAmount) ?? 0;
-  const fee = toNumber(request.returnFee) ?? 0;
+  const shipping = mixed ? 0 : toNumber(request.shippingAmount) ?? 0;
+  const fee = mixed ? 0 : toNumber(request.returnFee) ?? 0;
   const calculated = Math.max(0, itemsTotal + shipping - fee);
   const hasCoupon = Boolean(request.couponCode);
 

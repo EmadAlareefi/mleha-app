@@ -4,9 +4,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
-import { getOrderOptionsTotal, getOriginalShippingFee } from '@/lib/returns/fees';
-import { resolveReturnItems } from '@/lib/returns/resolve-return-items';
-import { validateRibbonItems } from '@/lib/returns/protection-ribbon';
+import { getOriginalShippingFee } from '@/lib/returns/fees';
+import {
+  deriveRequestType,
+  legacyItemsToPieces,
+  resolveRequestedPieces,
+  type RequestedPiece,
+  type ResolvedPiece,
+} from '@/lib/returns/pieces';
+import { splitRequestFinancials } from '@/lib/returns/request-financials';
+import { loadPieceRules } from '@/app/lib/returns/piece-context';
+import {
+  createExchangeOrderForRequest,
+  EXCHANGE_PAYMENT_METHODS,
+  priceExchangeCart,
+  type RequestedExchangeLine,
+} from '@/app/lib/returns/exchange-order-flow';
+import { planExchangeSettlement } from '@/lib/returns/exchange-settlement';
+import { returnStatusPath } from '@/app/lib/returns/status-token';
 import {
   isPhoneProofRequired,
   orderBelongsToPhone,
@@ -23,16 +38,6 @@ import {
   getReturnFeeQuoteForOrder,
   MissingReturnFeeExchangeRateError,
 } from '@/app/lib/returns/fee-quote';
-import {
-  evaluateReturnWindowByProductId,
-  getCategoryNamesByProductId,
-  getDiscountedProductIds,
-  getNationalDayOffersProductIds,
-  getOneRiyalOfferProductIds,
-  getOutletProductIds,
-  resolveReturnDeliveryDate,
-} from '@/lib/returns/policy';
-import { hasActiveReturnWindowOverride } from '@/lib/returns/window-override';
 import {
   CREATE_RETURN_POLICY_ACTION,
   requestSallaReturnPolicy,
@@ -67,10 +72,20 @@ interface ReturnItemRequest {
 interface CreateReturnRequest {
   merchantId: string;
   orderId: string;
-  type: 'return' | 'exchange';
+  /** Pre-v2 payloads only: one type for the whole request. */
+  type?: 'return' | 'exchange';
   reason: string;
   reasonDetails?: string;
-  items: ReturnItemRequest[];
+  /** Pre-v2 payloads only. */
+  items?: ReturnItemRequest[];
+  /** v2: one entry per physical piece, each with its own type. */
+  pieces?: RequestedPiece[];
+  /** v3: replacements for the exchange pieces instead of a coupon. */
+  exchange?: {
+    mode?: 'order' | 'coupon';
+    lines?: RequestedExchangeLine[];
+    paymentMethod?: string;
+  };
   /** Proof the requester owns the order; see `RETURNS_REQUIRE_PHONE`. */
   customerMobile?: string;
 
@@ -99,7 +114,9 @@ export async function POST(request: NextRequest) {
     const body: CreateReturnRequest = await request.json();
 
     // Validate required fields
-    if (!body.merchantId || !body.orderId || !body.type || !body.reason || !Array.isArray(body.items) || body.items.length === 0) {
+    const hasPieces = Array.isArray(body.pieces) && body.pieces.length > 0;
+    const hasLegacyItems = Boolean(body.type) && Array.isArray(body.items) && body.items.length > 0;
+    if (!body.merchantId || !body.orderId || !body.reason || (!hasPieces && !hasLegacyItems)) {
       return NextResponse.json(
         { error: 'الرجاء تقديم جميع الحقول المطلوبة' },
         { status: 400 }
@@ -165,7 +182,6 @@ export async function POST(request: NextRequest) {
       log.warn('Rejected return/exchange request for already-exchanged order', {
         merchantId: body.merchantId,
         orderId: body.orderId,
-        type: body.type,
       });
 
       return NextResponse.json({
@@ -189,137 +205,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Match every submitted line back to the order, and price it from the
-    // order. Nothing in the request body influences the refund.
-    const resolution = resolveReturnItems(order, body.items);
+    // Match every submitted piece back to the order and price it from the
+    // order. Nothing in the request body influences the refund. Browsers still
+    // on the pre-v2 bundle send one type plus per-line quantities.
+    const requestedPieces = Array.isArray(body.pieces) && body.pieces.length > 0
+      ? body.pieces
+      : legacyItemsToPieces(body.items, body.type);
 
-    if (!resolution.ok) {
-      log.warn('Rejected return request line', {
-        merchantId: body.merchantId,
-        orderId: body.orderId,
-        orderItemId: resolution.orderItemId,
-        reason: resolution.reason,
-      });
-
-      return NextResponse.json(
-        {
-          error:
-            resolution.reason === 'unknown_item'
-              ? 'أحد المنتجات المحددة غير موجود في هذا الطلب'
-              : 'الكمية المطلوبة غير صحيحة',
-        },
-        { status: 400 }
-      );
-    }
-
-    const resolvedItems = resolution.items;
-
-    const ribbonValidation = validateRibbonItems(order, body.items);
-    if (!ribbonValidation.ok) {
-      return NextResponse.json({ error: ribbonValidation.error }, { status: 400 });
-    }
-
-    const selectedProductIds = resolvedItems.map((item) => item.productId).filter(Boolean);
-    const selectedCategoriesByProductId = await getCategoryNamesByProductId(body.merchantId, selectedProductIds);
-    // Checked before the outlet / National Day rules, which would otherwise
-    // tell the customer an offer item is "exchange only".
-    const oneRiyalProductIds = getOneRiyalOfferProductIds(selectedCategoriesByProductId);
-    const oneRiyalItem = resolvedItems.find((item) => oneRiyalProductIds.has(item.productId));
-    if (oneRiyalItem) {
-      log.warn('Rejected return request for 1 SAR offer item', {
-        merchantId: body.merchantId,
-        orderId: body.orderId,
-        productId: oneRiyalItem.productId,
-        productName: oneRiyalItem.productName,
-        type: body.type,
-      });
-
-      return NextResponse.json({
-        error: ONE_RIYAL_OFFER_ERROR,
-        errorCode: 'ONE_RIYAL_OFFER_NOT_RETURNABLE',
-        message: 'لا يمكن إرجاع أو استبدال المنتجات التي تم الحصول عليها من عرض الريال الواحد.',
-        productId: oneRiyalItem.productId,
-        productName: oneRiyalItem.productName,
-      }, { status: 400 });
-    }
-
-    const outletProductIds = getOutletProductIds(selectedCategoriesByProductId);
-    const outletItem = resolvedItems.find((item) => outletProductIds.has(item.productId));
-    if (outletItem && body.type === 'return') {
-      log.warn('Rejected return request for outlet category item', {
-        merchantId: body.merchantId,
-        orderId: body.orderId,
-        productId: outletItem.productId,
-        productName: outletItem.productName,
-        categories: selectedCategoriesByProductId[outletItem.productId],
-        type: body.type,
-      });
-
-      return NextResponse.json({
-        error: 'منتجات اوتليت مليحة متاحة للاستبدال فقط',
-        errorCode: 'OUTLET_CATEGORY_EXCHANGE_ONLY',
-        message: 'لا يمكن إرجاع منتجات اوتليت مليحة. يمكنك إنشاء طلب استبدال فقط.',
-        productId: outletItem.productId,
-        productName: outletItem.productName,
-      }, { status: 400 });
-    }
-
-    const nationalDayOffersProductIds = getNationalDayOffersProductIds(
-      selectedCategoriesByProductId,
-    );
-    const nationalDayOffersItem = resolvedItems.find((item) =>
-      nationalDayOffersProductIds.has(item.productId),
-    );
-    if (nationalDayOffersItem && body.type === 'return') {
-      log.warn('Rejected return request for National Day offers category item', {
-        merchantId: body.merchantId,
-        orderId: body.orderId,
-        productId: nationalDayOffersItem.productId,
-        productName: nationalDayOffersItem.productName,
-        categories: selectedCategoriesByProductId[nationalDayOffersItem.productId],
-        type: body.type,
-      });
-
-      return NextResponse.json({
-        error: 'منتجات عروض اليوم الوطني متاحة للاستبدال فقط',
-        errorCode: 'NATIONAL_DAY_OFFERS_CATEGORY_EXCHANGE_ONLY',
-        message: 'لا يمكن إرجاع منتجات عروض اليوم الوطني. يمكنك إنشاء طلب استبدال فقط.',
-        productId: nationalDayOffersItem.productId,
-        productName: nationalDayOffersItem.productName,
-      }, { status: 400 });
-    }
-
-    const discountedProductIds = getDiscountedProductIds(selectedCategoriesByProductId);
-    const discountedItem = resolvedItems.find((item) => discountedProductIds.has(item.productId));
-    if (discountedItem) {
-      log.warn('Rejected return request for discounted category item', {
-        merchantId: body.merchantId,
-        orderId: body.orderId,
-        productId: discountedItem.productId,
-        productName: discountedItem.productName,
-        categories: selectedCategoriesByProductId[discountedItem.productId],
-        type: body.type,
-      });
-
-      return NextResponse.json({
-        error: 'منتجات التخفيضات غير قابلة للإرجاع أو الاستبدال',
-        errorCode: 'DISCOUNTED_CATEGORY_NOT_RETURNABLE',
-        message: 'لا يمكن إرجاع أو استبدال المنتجات ضمن فئات التخفيضات.',
-        productId: discountedItem.productId,
-        productName: discountedItem.productName,
-      }, { status: 400 });
-    }
-
-    // Check if shipment delivery date exceeds the category-specific return window.
-    // An admin override exempts only this time-window check.
-    const windowOverride = await hasActiveReturnWindowOverride(
-      body.merchantId,
-      String(body.orderId),
-    );
-    const deliveryDateResult = await resolveReturnDeliveryDate(body.merchantId, order as any);
+    const pieceRules = await loadPieceRules(body.merchantId, order);
+    const deliveryDateResult = pieceRules.deliveryDateResult;
     const deliveryDate = deliveryDateResult.date;
 
-    if (!deliveryDate && !windowOverride) {
+    if (!deliveryDate && !pieceRules.windowOverride) {
       log.error('No delivery date found for return window validation', {
         merchantId: body.merchantId,
         orderId: body.orderId,
@@ -333,56 +230,36 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Evaluate the return window per selected item using each product's own category, so a
-    // mix of evening dresses (24h) and other categories (3 days) only blocks the items whose
-    // own window has expired — not the whole selection.
-    const selectedWindowEvaluations = deliveryDate
-      ? evaluateReturnWindowByProductId({
-          categoriesByProductId: selectedCategoriesByProductId,
-          deliveryDate,
-        })
-      : {};
-
-    log.info('Using shipment delivery date for return window validation', {
-      merchantId: body.merchantId,
-      orderId: body.orderId,
-      dateSource: deliveryDateResult.source,
-      normalizedDate: deliveryDate?.toISOString() || null,
-      selectedCategoriesByProductId,
+    const resolution = resolveRequestedPieces(order, requestedPieces, {
+      rules: pieceRules.rules,
+      claimed: pieceRules.claimed,
     });
 
-    const expiredItem = resolvedItems.find((item) => {
-      const evaluation = selectedWindowEvaluations[item.productId];
-      return evaluation && !evaluation.eligible;
-    });
-
-    if (expiredItem && !windowOverride) {
-      const evaluation = selectedWindowEvaluations[expiredItem.productId];
-
-      log.warn('Selected item exceeds allowed return window', {
+    if (!resolution.ok) {
+      log.warn('Rejected return request piece', {
         merchantId: body.merchantId,
         orderId: body.orderId,
-        productId: expiredItem.productId,
-        productName: expiredItem.productName,
-        deliveryDate: deliveryDate!.toISOString(),
-        deliveryDateSource: deliveryDateResult.source,
-        elapsedHours: evaluation.elapsedHours.toFixed(2),
-        policyWindowHours: evaluation.policy.windowHours,
+        code: resolution.code,
+        orderItemId: resolution.piece?.orderItemId,
+        unitIndex: resolution.piece?.unitIndex,
+        productId: resolution.piece?.productId,
       });
 
       return NextResponse.json({
-        error: 'انتهت مدة الإرجاع المسموحة',
-        errorCode: 'RETURN_PERIOD_EXPIRED',
-        message: evaluation.policy.message,
-        productId: expiredItem.productId,
-        productName: expiredItem.productName,
-        daysSinceDelivery: Math.floor(evaluation.daysSinceDelivery),
-        elapsedHours: Math.floor(evaluation.elapsedHours),
-        allowedHours: evaluation.policy.windowHours,
-        deliveryDate: deliveryDate!.toISOString(),
-        deliveryDateSource: deliveryDateResult.source,
+        error: resolution.code === 'ONE_RIYAL_OFFER' ? ONE_RIYAL_OFFER_ERROR : resolution.error,
+        errorCode: PIECE_ERROR_CODES[resolution.code] ?? resolution.code,
+        message: resolution.error,
+        productId: resolution.piece?.productId,
+        productName: resolution.piece?.productName,
+        orderItemId: resolution.piece?.orderItemId,
+        unitIndex: resolution.piece?.unitIndex,
       }, { status: 400 });
     }
+
+    const resolvedPieces = resolution.pieces;
+    const requestType = deriveRequestType(resolvedPieces.map((piece) => piece.type));
+    // Lines and quantities for the carrier waybill.
+    const resolvedItems = groupPiecesIntoLines(resolvedPieces);
 
     // Allow shipped/delivering orders when the carrier's Salla update is missing.
     if (!isReturnableOrderStatus(order.status)) {
@@ -394,23 +271,17 @@ export async function POST(request: NextRequest) {
 
     const orderReference = String(order.reference_id || order.id);
 
-    // Calculate total items amount
-    // Priced from the order, never from the request body.
-    const totalItemsAmount = resolvedItems.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0
-    );
-
-    // Start from the customer-paid total, then deduct non-refundable order-level
-    // options (such as packaging) and both shipment legs.
+    // Start from what the customer paid for the selected pieces plus original
+    // shipping, then deduct one processing fee (one return shipment). Return
+    // pieces become money, exchange pieces become coupon credit.
     const originalShipping = getOriginalShippingFee(order.amounts);
-    const orderOptionsTotal = getOrderOptionsTotal(order.options);
-    const orderTotal = totalItemsAmount + originalShipping + orderOptionsTotal;
 
     // Flat policy fee is configured in SAR, then converted into the order currency.
     let feeQuote;
+    let exchangeFeeQuote;
     try {
-      feeQuote = getReturnFeeQuoteForOrder(order, body.type);
+      feeQuote = getReturnFeeQuoteForOrder(order, requestType === 'exchange' ? 'exchange' : 'return');
+      exchangeFeeQuote = getReturnFeeQuoteForOrder(order, 'exchange');
     } catch (error) {
       if (error instanceof MissingReturnFeeExchangeRateError) {
         return NextResponse.json(
@@ -423,10 +294,39 @@ export async function POST(request: NextRequest) {
       }
       throw error;
     }
-    const returnFee = feeQuote.processingFee;
 
-    // Calculate total refund: paid total - non-refundable options - return fee
-    const totalRefundAmount = Math.max(0, orderTotal - orderOptionsTotal - returnFee);
+    const split = splitRequestFinancials({
+      pieces: resolvedPieces.map((piece) => ({ type: piece.type, price: piece.unitPrice })),
+      originalShipping,
+      returnProcessingFee: feeQuote.processingFee,
+      exchangeProcessingFee: exchangeFeeQuote.processingFee,
+    });
+    const returnFee = split.processingFee;
+    // Pre-v2 meaning kept: for an exchange-only request this is the credit.
+    const totalRefundAmount = requestType === 'exchange' ? split.couponAmount : split.refundAmount;
+    const declaredValue = split.refundAmount + split.couponAmount;
+
+    // Exchange v3: replacements picked in the form, priced from Salla now so a
+    // stock or price problem is reported before the return shipment is booked.
+    const wantsExchangeOrder =
+      body.exchange?.mode === 'order' && resolvedPieces.some((piece) => piece.type === 'exchange');
+    let exchangeCart: Extract<Awaited<ReturnType<typeof priceExchangeCart>>, { ok: true }> | null = null;
+    const exchangePaymentMethod =
+      typeof body.exchange?.paymentMethod === 'string' ? body.exchange.paymentMethod : null;
+    if (wantsExchangeOrder) {
+      const priced = await priceExchangeCart(body.merchantId, body.exchange?.lines);
+      if (!priced.ok) {
+        return NextResponse.json({ error: priced.error, errorCode: 'EXCHANGE_CART_INVALID' }, { status: 400 });
+      }
+      const settlement = planExchangeSettlement(split.couponAmount, priced.total);
+      if (settlement.needsPayment && (!exchangePaymentMethod || !EXCHANGE_PAYMENT_METHODS.includes(exchangePaymentMethod))) {
+        return NextResponse.json(
+          { error: 'الرجاء اختيار طريقة دفع الفرق', errorCode: 'EXCHANGE_PAYMENT_METHOD_REQUIRED' },
+          { status: 400 },
+        );
+      }
+      exchangeCart = priced;
+    }
 
     const parsedOrderId = parseInt(body.orderId, 10);
     const normalizedOrderId = Number.isNaN(parsedOrderId) ? body.orderId : parsedOrderId;
@@ -452,7 +352,7 @@ export async function POST(request: NextRequest) {
         order,
         // The lines and quantities the customer selected on /returns.
         items: resolvedItems,
-        declaredValue: totalRefundAmount,
+        declaredValue,
         currency: feeQuote.currency,
       });
 
@@ -546,7 +446,7 @@ export async function POST(request: NextRequest) {
             order.customer.countryCode,
         ),
 
-        type: body.type,
+        type: requestType,
         status: 'pending_review',
         reason: body.reason,
         reasonDetails: body.reasonDetails,
@@ -556,6 +456,28 @@ export async function POST(request: NextRequest) {
         smsaResponse: smsaResponse as any,
 
         totalRefundAmount,
+        couponAmount: split.couponAmount > 0 ? split.couponAmount : null,
+        ...(exchangeCart
+          ? {
+              exchangeMode: 'order',
+              exchangeCreditAmount: split.couponAmount,
+              exchangePaymentMethod,
+              exchangeLines: {
+                create: exchangeCart.lines.map((line) => ({
+                  productId: line.productId,
+                  skuId: line.skuId,
+                  sku: line.sku,
+                  name: line.name,
+                  variantName: line.variantName,
+                  imageUrl: line.imageUrl,
+                  options: line.options,
+                  quantity: line.quantity,
+                  unitPrice: line.unitPrice,
+                  currency: line.currency,
+                })),
+              },
+            }
+          : {}),
         returnFee,
         shippingAmount: originalShipping,
         currency: feeQuote.currency,
@@ -563,14 +485,19 @@ export async function POST(request: NextRequest) {
         feeExchangeRateSource: feeQuote.exchangeRateSource,
 
         items: {
-          create: resolvedItems.map(item => ({
-            productId: item.productId,
-            productName: item.productName,
-            productSku: item.productSku,
-            variantId: item.variantId,
-            variantName: item.variantName,
-            quantity: item.quantity,
-            price: item.price,
+          // One row per piece so each can be inspected, refunded and restocked on its own.
+          create: resolvedPieces.map((piece) => ({
+            orderItemId: piece.orderItemId,
+            unitIndex: piece.unitIndex,
+            type: piece.type,
+            ribbonRemoved: false,
+            productId: piece.productId,
+            productName: piece.productName,
+            productSku: piece.productSku,
+            variantId: piece.variantId,
+            variantName: piece.variantName,
+            quantity: 1,
+            price: piece.unitPrice,
           })),
         },
       },
@@ -596,6 +523,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The return is stored; now the replacement order. A failure falls back to
+    // the classic coupon and never undoes the return itself.
+    const exchangeOrder = exchangeCart ? await createExchangeOrderForRequest(returnRequest.id) : null;
+
     log.info('Return request created successfully', {
       returnRequestId: returnRequest.id,
       shipmentProvider,
@@ -616,9 +547,23 @@ export async function POST(request: NextRequest) {
         sallaReturnPolicyOperationId: operationId,
         sallaReturnPolicyStatus: operationStatus,
         totalRefundAmount: returnRequest.totalRefundAmount,
+        refundAmount: split.refundAmount,
+        couponAmount: split.couponAmount,
         currency: returnRequest.currency,
         returnFee: returnRequest.returnFee,
         createdAt: returnRequest.createdAt,
+        statusUrl: returnStatusPath(returnRequest.id),
+        exchangeOrder: exchangeOrder
+          ? exchangeOrder.ok
+            ? {
+                created: true,
+                orderNumber: exchangeOrder.orderNumber,
+                amountDue: exchangeOrder.amountDue,
+                paymentUrl: exchangeOrder.paymentUrl,
+                leftover: exchangeOrder.leftover,
+              }
+            : { created: false, fellBackToCoupon: true }
+          : null,
       },
     });
 
@@ -708,4 +653,35 @@ async function requestSallaReturnPolicyShipment(
       response: actionResponse,
     } as Record<string, unknown>,
   };
+}
+
+const PIECE_ERROR_CODES: Record<string, string> = {
+  ONE_RIYAL_OFFER: 'ONE_RIYAL_OFFER_NOT_RETURNABLE',
+  DISCOUNTED_CATEGORY: 'DISCOUNTED_CATEGORY_NOT_RETURNABLE',
+  EXCHANGE_ONLY: 'EXCHANGE_ONLY_ITEM',
+  RETURN_PERIOD_EXPIRED: 'RETURN_PERIOD_EXPIRED',
+  RIBBON_REMOVED: 'PROTECTION_RIBBON_REMOVED',
+  ALREADY_REQUESTED: 'PIECE_ALREADY_REQUESTED',
+};
+
+/** Pieces back to order lines with quantities, for the carrier waybill. */
+function groupPiecesIntoLines(pieces: ResolvedPiece[]) {
+  const lines = new Map<string, { productId: string; productName: string; productSku?: string; variantId?: string; variantName?: string; quantity: number; price: number }>();
+  for (const piece of pieces) {
+    const line = lines.get(piece.orderItemId);
+    if (line) {
+      line.quantity += 1;
+    } else {
+      lines.set(piece.orderItemId, {
+        productId: piece.productId,
+        productName: piece.productName,
+        productSku: piece.productSku,
+        variantId: piece.variantId,
+        variantName: piece.variantName,
+        quantity: 1,
+        price: piece.unitPrice,
+      });
+    }
+  }
+  return Array.from(lines.values());
 }

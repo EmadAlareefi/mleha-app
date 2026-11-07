@@ -24,3 +24,17 @@ export const INSPECTION_BADGE_STYLES = {
   danger: 'bg-red-50 text-red-800 border-red-200',
   muted: 'bg-gray-100 text-gray-700 border-gray-200',
 };
+
+export const TYPE_LABELS: Record<string, string> = {
+  return: 'إرجاع',
+  exchange: 'استبدال',
+  mixed: 'إرجاع واستبدال',
+};
+
+export const TYPE_COLORS: Record<string, string> = {
+  return: 'bg-blue-100 text-blue-800 border-blue-300',
+  exchange: 'bg-green-100 text-green-800 border-green-300',
+  mixed: 'bg-indigo-100 text-indigo-800 border-indigo-300',
+};
+
+export const typeLabel = (type: string | null | undefined) => TYPE_LABELS[type || 'return'] ?? 'إرجاع';

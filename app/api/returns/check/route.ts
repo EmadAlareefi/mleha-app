@@ -5,17 +5,15 @@ import { log } from '@/app/lib/logger';
 import { getSallaOrder, getSallaOrderShipments } from '@/app/lib/salla-api';
 import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
 import {
-  getCategoryNamesByProductId,
   getDiscountedProductIds,
   getOneRiyalOfferProductIds,
   getOutletProductIds,
   getProductIdsForOrderItems,
   getReturnWindowPolicy,
   getWindowExpiredProductIds,
-  resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
-import { hasActiveReturnWindowOverride } from '@/lib/returns/window-override';
+import { loadPieceRules, toPublicPieces } from '@/app/lib/returns/piece-context';
 
 export const runtime = 'nodejs';
 
@@ -63,8 +61,10 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const windowOverride = await hasActiveReturnWindowOverride(merchantId, String(orderId));
-    const deliveryDateResult = await resolveReturnDeliveryDate(merchantId, order as any);
+    // One Salla round-trip per product for categories, shared with the per-piece rules.
+    const pieceRules = await loadPieceRules(merchantId, order);
+    const windowOverride = pieceRules.windowOverride;
+    const deliveryDateResult = pieceRules.deliveryDateResult;
     if (!deliveryDateResult.date && !windowOverride) {
       log.warn('No delivery date found for return validation', {
         merchantId,
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     }
 
     const productIds = getProductIdsForOrderItems(order.items || []);
-    const categoriesByProductId = await getCategoryNamesByProductId(merchantId, productIds);
+    const categoriesByProductId = pieceRules.categoriesByProductId;
     const discountedProductIds = getDiscountedProductIds(categoriesByProductId);
     const outletProductIds = getOutletProductIds(categoriesByProductId);
     const oneRiyalProductIds = getOneRiyalOfferProductIds(categoriesByProductId);
@@ -150,6 +150,10 @@ export async function GET(request: NextRequest) {
       log.warn('Failed to fetch multiple requests setting', { error: err });
     }
 
+    // Per-piece choices for the form: allowed types, block reasons, and pieces
+    // already claimed by earlier requests.
+    const pieces = toPublicPieces(pieceRules.pieces, pieceRules.rules, pieceRules.claimed);
+
     // Find existing return requests for this order
     const existingReturns = await prisma.returnRequest.findMany({
       where: {
@@ -175,6 +179,7 @@ export async function GET(request: NextRequest) {
         canCreateNew: true,
         returnWindowOverridden: windowOverride,
         windowExpiredProductIds: windowOverride ? [] : Array.from(windowExpiredProductIds),
+        pieces,
       });
     }
 
@@ -258,6 +263,7 @@ export async function GET(request: NextRequest) {
       canCreateNew: allowMultiple, // Can create new only if multiple requests are allowed
       returnWindowOverridden: windowOverride,
       windowExpiredProductIds: windowOverride ? [] : Array.from(windowExpiredProductIds),
+      pieces,
     });
 
   } catch (error) {

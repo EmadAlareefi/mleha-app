@@ -14,6 +14,23 @@ The application requires the following OAuth scopes from Salla to function prope
 - Scope: `marketing.read_write`
 - Status: ⚠️ **Not Currently Active**
 
+### 3. **Returns processing** (Returns v2)
+
+One-click processing in `/returns-management` needs these scopes:
+
+| Scope | Used for |
+|---|---|
+| `transactions.read_write` | Listing an order's payments and refunding (`GET /transactions`, `PUT /transactions/{id}`) |
+| `products.read_write` | Restocking returned pieces (`POST /products/quantities/bulk`) |
+| `marketing.read_write` | Exchange coupons |
+| `orders.read_write` | Order status and history notes |
+
+To turn them on:
+1. Enable the scopes on the app in the Salla Partners portal.
+2. Re-authorize the store. New scopes only reach the token after the `app.store.authorize` webhook stores them.
+
+`GET /api/returns/salla-permissions` lists what is still missing. Until a scope is granted, the affected step moves the request to "needs attention" instead of failing silently.
+
 ## How to Add Marketing Scope
 
 To enable automatic coupon creation for exchanges, you need to request the `marketing.read_write` scope during OAuth authorization:

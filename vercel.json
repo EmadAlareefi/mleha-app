@@ -20,6 +20,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/returns/auto-progress",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/expenses/process-subscriptions",
       "schedule": "0 * * * *"
     },

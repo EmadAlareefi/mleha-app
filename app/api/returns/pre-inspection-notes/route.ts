@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireReturnsStaff } from '@/app/lib/returns/staff-auth';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 
@@ -10,6 +11,9 @@ type NotePayload = {
 };
 
 export async function POST(request: NextRequest) {
+  const auth = await requireReturnsStaff();
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { returnRequestId, notes } = body as {
