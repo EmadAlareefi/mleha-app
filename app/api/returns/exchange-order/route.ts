@@ -11,6 +11,7 @@ import {
 import { getExchangeOrderState } from '@/app/lib/salla-exchange-order';
 import { listOrderTransactions, pickRefundableTransaction, refundTransaction } from '@/app/lib/salla-transactions';
 import { returnStatusPath } from '@/app/lib/returns/status-token';
+import { claimProcessing } from '@/app/lib/returns/process-return';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -24,6 +25,18 @@ async function audit(id: string, step: string, result: string, by: string, detai
     where: { id },
     data: { processingAudit: [...entries, { at: new Date().toISOString(), step, result, by, details }] as any },
   });
+}
+
+/** Amount already refunded for this replacement order by an earlier cancel attempt, or null. */
+function exchangeRefundRecorded(processingAudit: unknown, exchangeOrderId: string): number | null {
+  if (!Array.isArray(processingAudit)) return null;
+  for (const entry of processingAudit as Array<{ details?: Record<string, unknown> }>) {
+    const details = entry?.details;
+    if (details?.exchangeRefund === true && String(details.exchangeOrderId) === exchangeOrderId) {
+      return Number(details.refunded) || 0;
+    }
+  }
+  return null;
 }
 
 /**
@@ -58,17 +71,41 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, message: 'تم إطلاق طلب الاستبدال للتجهيز.' });
       }
       case 'cancel': {
-        if (returnRequest.exchangeMode !== 'order' || !returnRequest.exchangeOrderId) throw new Error('لا يوجد طلب استبدال لإلغائه');
-        const state = await getExchangeOrderState(returnRequest.merchantId, returnRequest.exchangeOrderId);
-        let refunded = 0;
-        if (state.paidAmount > 0) {
-          const option = pickRefundableTransaction(await listOrderTransactions(returnRequest.merchantId, returnRequest.exchangeOrderId));
-          if (!option.ok) throw new Error(`دفع العميل ${state.paidAmount} ولا يمكن استرجاعه تلقائياً: ${option.reason}`);
-          await refundTransaction(returnRequest.merchantId, option.transaction.id, Math.min(state.paidAmount, option.total), option.currency, option.total);
-          refunded = Math.min(state.paidAmount, option.total);
+        const exchangeOrderId = returnRequest.exchangeOrderId;
+        if (returnRequest.exchangeMode !== 'order' || !exchangeOrderId) throw new Error('لا يوجد طلب استبدال لإلغائه');
+        // One staff action at a time on this request (shares the processing lock),
+        // so a double click cannot send two refunds.
+        if (!(await claimProcessing(id))) {
+          return NextResponse.json({ error: 'الطلب قيد المعالجة حالياً، حاولي بعد قليل' }, { status: 409 });
         }
-        await expireExchangeOrder(returnRequest, productionExchangeDeps, { status: 'cancelled' });
-        await prisma.returnRequest.update({ where: { id }, data: { processingStatus: 'idle', processingError: null } });
+        let refunded = 0;
+        try {
+          // A previous attempt may have refunded and then failed to cancel; Salla can
+          // still report the order as paid, so trust our own record of that refund.
+          const alreadyRefunded = exchangeRefundRecorded(returnRequest.processingAudit, exchangeOrderId);
+          const state = await getExchangeOrderState(returnRequest.merchantId, exchangeOrderId);
+          if (state.paidAmount > 0 && alreadyRefunded === null) {
+            const option = pickRefundableTransaction(await listOrderTransactions(returnRequest.merchantId, exchangeOrderId));
+            if (!option.ok) throw new Error(`دفع العميل ${state.paidAmount} ولا يمكن استرجاعه تلقائياً: ${option.reason}`);
+            const amount = Math.min(state.paidAmount, option.total);
+            await refundTransaction(returnRequest.merchantId, option.transaction.id, amount, option.currency, option.total);
+            refunded = amount;
+            await audit(id, 'exchange_order', 'ok', actor, { exchangeRefund: true, exchangeOrderId, refunded });
+          } else if (alreadyRefunded !== null) {
+            refunded = alreadyRefunded;
+          }
+          await expireExchangeOrder(returnRequest, productionExchangeDeps, { status: 'cancelled' });
+          await prisma.returnRequest.update({ where: { id }, data: { processingStatus: 'idle', processingError: null } });
+        } catch (error) {
+          await prisma.returnRequest.update({
+            where: { id },
+            data: {
+              processingStatus: 'needs_attention',
+              processingError: error instanceof Error ? error.message : 'فشل إلغاء طلب الاستبدال',
+            },
+          });
+          throw error;
+        }
         await audit(id, 'exchange_order', 'ok', actor, { cancelled: true, refunded });
         return NextResponse.json({
           success: true,
@@ -95,7 +132,9 @@ export async function POST(request: NextRequest) {
         if (returnRequest.exchangeOrderId) throw new Error('طلب الاستبدال موجود مسبقاً');
         if (returnRequest.exchangeLines.length === 0) throw new Error('لا توجد منتجات بديلة محفوظة لهذا الطلب');
         if (returnRequest.couponCode) throw new Error('تم إصدار كوبون استبدال لهذا الطلب مسبقاً');
-        await prisma.returnRequest.update({ where: { id }, data: { exchangeMode: 'order', exchangePaymentStatus: 'none' } });
+        // Leave exchangePaymentStatus alone: createExchangeOrderForRequest claims
+        // it, so a creation still in flight ('creating') is not started twice.
+        await prisma.returnRequest.update({ where: { id }, data: { exchangeMode: 'order' } });
         const result = await createExchangeOrderForRequest(id);
         await audit(id, 'exchange_order', result.ok ? 'ok' : 'failed', actor, { retry: true, error: result.ok ? undefined : result.error });
         if (!result.ok) throw new Error(result.error);

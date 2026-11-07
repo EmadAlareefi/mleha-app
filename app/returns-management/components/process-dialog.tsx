@@ -27,6 +27,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
   const [confirmExisting, setConfirmExisting] = useState(false);
+  const [confirmRestocks, setConfirmRestocks] = useState(false);
 
   useEffect(() => {
     if (!request) return;
@@ -34,6 +35,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
     setPreview(null);
     setError('');
     setConfirmExisting(false);
+    setConfirmRestocks(false);
     setLoading(true);
     fetch(`/api/returns/process?returnRequestId=${encodeURIComponent(request.id)}`)
       .then(async (response) => {
@@ -50,7 +52,12 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
 
   const currency = preview?.amounts.currency || request?.currency || 'SAR';
   const existingRefunds = preview?.refund?.existingRefunds ?? [];
-  const blocked = !preview || preview.stage !== 'ready' || (existingRefunds.length > 0 && !confirmExisting);
+  const unknownRestocks = preview?.restock.filter((line) => line.action === 'unknown') ?? [];
+  const blocked =
+    !preview ||
+    preview.stage !== 'ready' ||
+    (existingRefunds.length > 0 && !confirmExisting) ||
+    (unknownRestocks.length > 0 && !confirmRestocks);
 
   const run = async () => {
     if (!request) return;
@@ -60,7 +67,11 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
       const response = await fetch('/api/returns/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnRequestId: request.id, ignoreExistingRefunds: confirmExisting }),
+        body: JSON.stringify({
+          returnRequestId: request.id,
+          ignoreExistingRefunds: confirmExisting,
+          confirmUnknownRestocks: confirmRestocks,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'فشلت المعالجة');
@@ -164,7 +175,9 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
                 {preview.restock.map((line) => (
                   <li key={line.itemId} className="flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-2">
-                      {line.action === 'skip' ? (
+                      {line.action === 'unknown' ? (
+                        <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+                      ) : line.action === 'skip' ? (
                         <PackageX className="size-4 shrink-0 text-gray-400" />
                       ) : (
                         <PackagePlus className="size-4 shrink-0 text-emerald-600" />
@@ -175,12 +188,22 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
                         {line.quantity > 1 ? ` ×${line.quantity}` : ''}
                       </span>
                     </span>
-                    <span className={`shrink-0 text-xs ${line.action === 'skip' ? 'text-gray-500' : 'text-emerald-700'}`}>
+                    <span
+                      className={`shrink-0 text-xs ${
+                        line.action === 'unknown' ? 'text-amber-700' : line.action === 'skip' ? 'text-gray-500' : 'text-emerald-700'
+                      }`}
+                    >
                       {line.action === 'restock' ? 'ترجع للمخزون' : line.action === 'done' ? 'تمت إعادتها' : line.reason}
                     </span>
                   </li>
                 ))}
               </ul>
+              {unknownRestocks.length > 0 && (
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-amber-900">
+                  <Checkbox checked={confirmRestocks} onCheckedChange={(value) => setConfirmRestocks(value === true)} />
+                  تحققت في سلة أن هذه القطع أُعيدت للمخزون
+                </label>
+              )}
             </section>
 
             {preview.warnings.length > 0 && (

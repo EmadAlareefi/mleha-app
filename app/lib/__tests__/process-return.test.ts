@@ -15,9 +15,11 @@ type Row = Record<string, any>;
 
 function matches(row: Row, where: Row = {}): boolean {
   return Object.entries(where).every(([key, condition]) => {
+    if (key === 'OR') return (condition as Row[]).some((branch) => matches(row, branch));
     if (condition && typeof condition === 'object' && !(condition instanceof Date)) {
       if ('in' in condition) return condition.in.includes(row[key]);
       if ('notIn' in condition) return !condition.notIn.includes(row[key]);
+      if ('lt' in condition) return row[key] instanceof Date && row[key].getTime() < condition.lt.getTime();
     }
     return row[key] === condition;
   });
@@ -171,6 +173,51 @@ test('a second click while processing is rejected by the claim', async () => {
   const result = await processReturnRequest('r1', { actor: 'staff' }, deps);
   assert.equal(result.status, 409);
   assert.equal(calls.refund.length, 0);
+});
+
+test('a processing claim left by a run that died is taken over after 5 minutes', async () => {
+  const fresh = createDb({ ...baseRequest, processingStatus: 'processing', updatedAt: new Date() }, pieces());
+  setProcessReturnDb(fresh.db);
+  assert.equal((await processReturnRequest('r1', { actor: 'staff' }, fakeDeps().deps)).status, 409);
+
+  const stale = createDb(
+    { ...baseRequest, processingStatus: 'processing', updatedAt: new Date(Date.now() - 6 * 60 * 1000) },
+    pieces(),
+  );
+  setProcessReturnDb(stale.db);
+  const result = await processReturnRequest('r1', { actor: 'staff' }, fakeDeps().deps);
+  assert.notEqual(result.status, 409);
+});
+
+test('a restock whose outcome was never recorded is not sent again until staff confirm it', async () => {
+  const { db, state } = createDb(baseRequest, pieces([{ restockStatus: 'requested' }]));
+  setProcessReturnDb(db);
+  const first = fakeDeps();
+  const blocked = await processReturnRequest('r1', { actor: 'staff' }, first.deps);
+  assert.equal(first.calls.restock.length, 0);
+  assert.equal(blocked.completed, false);
+  assert.equal(state.items[0].restockStatus, 'requested');
+
+  state.request.processingStatus = 'needs_attention';
+  const second = fakeDeps();
+  await processReturnRequest('r1', { actor: 'staff', confirmUnknownRestocks: true }, second.deps);
+  assert.equal(second.calls.restock.length, 0);
+  assert.equal(state.items[0].restockStatus, 'done');
+});
+
+test('restock is marked as sent before the Salla call', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  let statusDuringCall: string | undefined;
+  const { deps } = fakeDeps({
+    restock: async () => {
+      statusDuringCall = state.items[0].restockStatus;
+      return { ok: true };
+    },
+  });
+  await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(statusDuringCall, 'requested');
+  assert.equal(state.items[0].restockStatus, 'done');
 });
 
 test('an unknown refund outcome is never resent, and a retry does not duplicate finished steps', async () => {

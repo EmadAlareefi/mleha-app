@@ -5,6 +5,12 @@ import { requireReturnsStaff, staffActorName } from '@/app/lib/returns/staff-aut
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 const MAX_BULK = 20;
+/**
+ * Stop starting new requests after this long, so the one in flight can still
+ * finish inside maxDuration (a request can take ~2 min when Salla is slow).
+ * A function killed mid-request would leave it locked in `processing`.
+ */
+const START_BUDGET_MS = 150_000;
 
 /**
  * POST /api/returns/process/bulk { returnRequestIds: string[] }
@@ -25,8 +31,13 @@ export async function POST(request: NextRequest) {
   }
 
   const actor = staffActorName(auth.session);
+  const startedAt = Date.now();
   const results: Array<{ id: string; outcome: 'completed' | 'needs_attention' | 'skipped' | 'failed'; message?: string }> = [];
   for (const id of ids) {
+    if (Date.now() - startedAt > START_BUDGET_MS) {
+      results.push({ id, outcome: 'skipped', message: 'انتهى وقت الدفعة، أعيدي تشغيلها للطلبات المتبقية' });
+      continue;
+    }
     const preview = await buildProcessPreview(id).catch(() => null);
     if (!preview || preview.stage !== 'ready') {
       results.push({ id, outcome: 'skipped', message: preview?.notReadyReason || 'غير جاهز' });

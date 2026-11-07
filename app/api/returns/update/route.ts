@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     const current = await prisma.returnRequest.findUnique({
       where: { id },
-      select: { status: true, processingStatus: true, refundStatus: true, couponCode: true },
+      select: { status: true, processingStatus: true, refundStatus: true, couponCode: true, exchangeMode: true, exchangeOrderId: true },
     });
     if (!current) {
       return NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 });
@@ -74,10 +74,15 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const moneyMoved = current.refundStatus !== 'none' || Boolean(current.couponCode);
+    // A replacement order already spent the exchange credit, so changing piece
+    // types now would refund money that paid for it.
+    const moneyMoved =
+      current.refundStatus !== 'none' ||
+      Boolean(current.couponCode) ||
+      (current.exchangeMode === 'order' && Boolean(current.exchangeOrderId));
     if ((type || pieceUpdates.some((piece) => piece.type)) && moneyMoved) {
       return NextResponse.json(
-        { error: 'لا يمكن تغيير نوع القطع بعد الاسترجاع أو إنشاء الكوبون' },
+        { error: 'لا يمكن تغيير نوع القطع بعد الاسترجاع أو إنشاء الكوبون أو طلب الاستبدال' },
         { status: 400 },
       );
     }

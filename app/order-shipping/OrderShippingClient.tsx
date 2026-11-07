@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, FormEvent } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, FormEvent } from 'react';
 import { useSession } from 'next-auth/react';
 import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { EmptyState, LoadingState } from '@/components/dashboard/states';
@@ -621,6 +621,8 @@ export default function OrderShippingPage() {
   const [searching, setSearching] = useState(false);
   const [searchFeedback, setSearchFeedback] = useState<SearchFeedback | null>(null);
   const [currentOrder, setCurrentOrder] = useState<OrderAssignment | null>(null);
+  const currentOrderIdRef = useRef<string | null>(null);
+  currentOrderIdRef.current = currentOrder?.id ?? null;
   const [lastSearchTerm, setLastSearchTerm] = useState('');
 
   const [refreshingItems, setRefreshingItems] = useState(false);
@@ -643,6 +645,15 @@ export default function OrderShippingPage() {
   const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgentOption[]>([]);
   const [deliveryAgentsError, setDeliveryAgentsError] = useState<string | null>(null);
   const [creatingLocalShipment, setCreatingLocalShipment] = useState(false);
+  // Salla accepted a shipment request but has not confirmed it yet: block a
+  // second request for that order for a while (it would create a second policy).
+  const [pendingShipment, setPendingShipment] = useState<{ orderId: string; until: number } | null>(null);
+  // Switching orders mid-action would apply the result to the wrong order.
+  const orderActionInFlight =
+    creatingShipment || creatingLocalShipment || refreshingItems || printingShipmentLabel || printingInvoice;
+  const shipmentPendingForCurrent = Boolean(
+    pendingShipment && currentOrder && pendingShipment.orderId === currentOrder.id && pendingShipment.until > Date.now(),
+  );
   const [agentSelectionDialogOpen, setAgentSelectionDialogOpen] = useState(false);
   const [agentSelectionOptions, setAgentSelectionOptions] = useState<DeliveryAgentOption[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -1223,9 +1234,12 @@ const getPrepStatusForItem = useCallback(
     if (!currentOrder) return;
     const identifier = currentOrder.orderNumber || currentOrder.orderId || lastSearchTerm;
     if (!identifier) return;
+    const startedFor = currentOrder.id;
 
     try {
       const assignment = await fetchAssignmentByQuery(identifier);
+      // Another order was scanned while this reload was in flight; keep it.
+      if (currentOrderIdRef.current !== startedFor) return;
       setCurrentOrder(assignment);
       applyShipmentFromAssignment(assignment, { resetWhenMissing: false });
     } catch (error) {
@@ -1315,6 +1329,8 @@ const handleRefreshItems = async () => {
 
     const shouldIncludeAssignmentId =
       !currentOrder.source || currentOrder.source === 'assignment';
+    const startedFor = currentOrder.id;
+    const startedOrderNumber = currentOrder.orderNumber || currentOrder.orderId;
 
     setCreatingShipment(true);
     setShipmentError(null);
@@ -1332,7 +1348,19 @@ const handleRefreshItems = async () => {
 
       const data = await parseJsonResponse(response, 'POST /api/salla/create-shipment');
 
+      // The operator moved on to another order meanwhile: report the outcome
+      // without overwriting what is on screen.
+      if (currentOrderIdRef.current !== startedFor) {
+        alert(
+          data.success
+            ? `✅ تم إنشاء شحنة الطلب ${startedOrderNumber}`
+            : `⚠️ الطلب ${startedOrderNumber}: ${data.error || 'فشل إنشاء الشحنة'}`,
+        );
+        return;
+      }
+
       if (data.success) {
+        setPendingShipment(null);
         const labelPrinted = Boolean(data.data.labelPrinted);
         const labelPrintedAt = data.data.labelPrintedAt || null;
         const labelUrl = data.data.labelUrl || null;
@@ -1356,6 +1384,9 @@ const handleRefreshItems = async () => {
         alert(message);
         await reloadCurrentOrder();
       } else {
+        if (data.pending) {
+          setPendingShipment({ orderId: startedFor, until: Date.now() + 3 * 60 * 1000 });
+        }
         const errorMsg = data.details ? `${data.error}\n\nتفاصيل: ${data.details}` : data.error;
         console.error('Shipment creation failed:', data);
         setShipmentError(errorMsg || 'فشل إنشاء الشحنة، حاول مرة أخرى.');
@@ -1753,16 +1784,16 @@ const handleRefreshItems = async () => {
                   placeholder="رقم الطلب، رقم المرجع، رقم الهاتف، أو المعرف الخارجي"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  disabled={searching}
+                  disabled={searching || orderActionInFlight}
                   className="w-full"
                 />
               </Field>
               <div className="flex gap-2">
-                <Button type="submit" disabled={searching} className="min-w-[140px]">
+                <Button type="submit" disabled={searching || orderActionInFlight} className="min-w-[140px]">
                   {searching ? 'جاري البحث...' : '🔍 بحث'}
                 </Button>
                 {currentOrder && (
-                  <Button type="button" variant="outline" onClick={reloadCurrentOrder} disabled={searching}>
+                  <Button type="button" variant="outline" onClick={reloadCurrentOrder} disabled={searching || orderActionInFlight}>
                     تحديث الطلب
                   </Button>
                 )}
@@ -1770,7 +1801,7 @@ const handleRefreshItems = async () => {
             </form>
             <div className="mt-3">
               <OrderBarcodeScanner
-                disabled={searching}
+                disabled={searching || orderActionInFlight}
                 onDetected={handleBarcodeDetected}
               />
             </div>
@@ -2393,10 +2424,16 @@ const handleRefreshItems = async () => {
                             onConfirm: handleCreateShipment,
                           })
                         }
-                        disabled={creatingShipment || !!shipmentInfo}
+                        disabled={creatingShipment || !!shipmentInfo || shipmentPendingForCurrent}
                         className={`${ACTION_BUTTON_BASE} bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed`}
                       >
-                        {creatingShipment ? 'جاري إنشاء الشحنة...' : shipmentInfo ? '✓ تم إنشاء الشحنة' : 'انشاء شحنة'}
+                        {creatingShipment
+                          ? 'جاري إنشاء الشحنة...'
+                          : shipmentInfo
+                            ? '✓ تم إنشاء الشحنة'
+                            : shipmentPendingForCurrent
+                              ? 'قيد المعالجة في سلة، حدّث الطلب'
+                              : 'انشاء شحنة'}
                       </Button>
                     )}
                     {!isInternationalOrder && (

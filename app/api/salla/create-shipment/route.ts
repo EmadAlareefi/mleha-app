@@ -84,6 +84,39 @@ export async function POST(request: NextRequest) {
         ? String(providedOrderNumber)
         : targetOrderIdValue);
 
+    // A shipment already exists for this order (an earlier click whose response
+    // was lost or still "in progress"): return it instead of asking Salla for a
+    // second shipping policy.
+    const existingShipment = await prisma.sallaShipment.findUnique({
+      where: {
+        merchantId_orderId: {
+          merchantId: resolvedMerchantId,
+          orderId: targetOrderIdValue,
+        },
+      },
+    });
+    if (existingShipment) {
+      const raw = existingShipment.shipmentData as any;
+      log.info('Shipment already exists; not creating another', {
+        orderId: targetOrderIdValue,
+        trackingNumber: existingShipment.trackingNumber,
+      });
+      return NextResponse.json({
+        success: true,
+        alreadyExisted: true,
+        message: 'الشحنة منشأة مسبقاً لهذا الطلب',
+        data: {
+          operationId: null,
+          status: 'success',
+          trackingNumber: existingShipment.trackingNumber || 'سيتم توفير رقم التتبع قريباً',
+          courierName: existingShipment.courierName || 'شركة الشحن المعتمدة',
+          labelPrinted: existingShipment.labelPrinted || !!raw?.label_url,
+          labelPrintedAt: existingShipment.labelPrintedAt ? existingShipment.labelPrintedAt.toISOString() : null,
+          labelUrl: existingShipment.labelUrl || raw?.label_url || raw?.label?.url || null,
+        },
+      });
+    }
+
     const storedOrder = await prisma.sallaOrder.findFirst({
       where: {
         merchantId: resolvedMerchantId,
@@ -307,6 +340,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
+          pending,
           error: errorMessage,
           details: operationMessage || `opId=${operationId ?? 'n/a'}`,
         },

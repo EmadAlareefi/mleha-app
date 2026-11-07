@@ -118,7 +118,7 @@ export interface ProcessPreview {
   notReadyReason?: string;
   amounts: RequestAmounts;
   refund: RefundPlan | null;
-  restock: Array<{ itemId: string; productName: string; variantName?: string | null; quantity: number; action: 'restock' | 'skip' | 'done'; reason?: string }>;
+  restock: Array<{ itemId: string; productName: string; variantName?: string | null; quantity: number; action: 'restock' | 'skip' | 'done' | 'unknown'; reason?: string }>;
   coupon: { amount: number; existingCode?: string | null } | null;
   exchangeOrder: {
     orderNumber: string | null;
@@ -151,6 +151,9 @@ export async function buildProcessPreview(
   const restock = request.items.map((item) => {
     const base = { itemId: item.id, productName: item.productName, variantName: item.variantName, quantity: item.quantity };
     if (item.restockStatus === 'done') return { ...base, action: 'done' as const };
+    if (item.restockStatus === 'requested') {
+      return { ...base, action: 'unknown' as const, reason: 'لم يتأكد إرجاعها للمخزون، تحقق في سلة' };
+    }
     if (item.conditionStatus === 'good') return { ...base, action: 'restock' as const };
     return { ...base, action: 'skip' as const, reason: item.conditionStatus ? 'القطعة ليست بحالة جيدة' : 'لم يتم فحص القطعة' };
   });
@@ -240,6 +243,38 @@ export interface ProcessOptions {
   actor: string;
   /** Staff confirmed a refund found in the Salla order history is a different one. */
   ignoreExistingRefunds?: boolean;
+  /**
+   * Staff checked Salla and the pieces whose restock outcome was unknown (the
+   * call was sent but its result never recorded) are already back in stock.
+   */
+  confirmUnknownRestocks?: boolean;
+}
+
+/** A `processing` claim older than this is treated as abandoned (the function died). */
+export const STALE_PROCESSING_MS = 5 * 60 * 1000;
+
+/**
+ * Takes the per-request processing lock. Succeeds when the request is idle or
+ * needs attention, or when a previous run died holding it (no write for
+ * STALE_PROCESSING_MS). Returns false when someone else is processing it.
+ */
+export async function claimProcessing(
+  requestId: string,
+  where: Record<string, unknown> = {},
+  now: Date = new Date(),
+): Promise<boolean> {
+  const claimed = await db.returnRequest.updateMany({
+    where: {
+      id: requestId,
+      ...where,
+      OR: [
+        { processingStatus: { in: ['idle', 'needs_attention'] } },
+        { processingStatus: 'processing', updatedAt: { lt: new Date(now.getTime() - STALE_PROCESSING_MS) } },
+      ],
+    },
+    data: { processingStatus: 'processing', processingError: null },
+  });
+  return claimed.count > 0;
 }
 
 /** Runs every outstanding step. Safe to call again after a failure. */
@@ -248,15 +283,10 @@ export async function processReturnRequest(
   options: ProcessOptions,
   deps: ProcessDependencies = productionDependencies,
 ): Promise<ProcessResult> {
-  const claimed = await db.returnRequest.updateMany({
-    where: {
-      id: requestId,
-      processingStatus: { in: ['idle', 'needs_attention'] },
-      status: { notIn: ['completed', 'cancelled', 'rejected'] },
-    },
-    data: { processingStatus: 'processing', processingError: null },
+  const claimed = await claimProcessing(requestId, {
+    status: { notIn: ['completed', 'cancelled', 'rejected'] },
   });
-  if (claimed.count === 0) {
+  if (!claimed) {
     return { ok: false, completed: false, status: 409, error: 'الطلب قيد المعالجة أو مغلق', blockers: [] };
   }
 
@@ -277,11 +307,25 @@ export async function processReturnRequest(
     // 1. Restock good pieces only.
     for (const item of request.items) {
       if (item.restockStatus === 'done' || item.restockStatus === 'skipped') continue;
+      if (item.restockStatus === 'requested') {
+        // A previous run sent the restock but never recorded the result; sending
+        // it again could add the stock twice. Staff confirm it in Salla instead.
+        if (options.confirmUnknownRestocks) {
+          await db.returnItem.update({ where: { id: item.id }, data: { restockStatus: 'done', restockedAt: new Date() } });
+          record('restock', 'ok', { itemId: item.id, product: item.productName, confirmedByStaff: true });
+        } else {
+          record('restock', 'unknown', { itemId: item.id, product: item.productName });
+          blockers.push(`لم يتأكد إرجاع "${item.productName}" للمخزون، تحقق منه في سلة ثم أكّد`);
+        }
+        continue;
+      }
       if (item.conditionStatus !== 'good') {
         await db.returnItem.update({ where: { id: item.id }, data: { restockStatus: 'skipped' } });
         record('restock', 'skipped', { itemId: item.id, product: item.productName, condition: item.conditionStatus });
         continue;
       }
+      // Mark the call as sent first, so a crash mid-call is not retried blindly.
+      await db.returnItem.update({ where: { id: item.id }, data: { restockStatus: 'requested' } });
       const result = await deps.restock(request.merchantId, {
         productId: item.productId,
         variantId: item.variantId,
@@ -507,6 +551,16 @@ export async function markRefundedManually(
   const request = await loadRequest(requestId);
   if (!request) return { ok: false, error: 'طلب الإرجاع غير موجود' };
   if (request.refundStatus === 'refunded') return { ok: true };
+  // An automatic refund is being sent right now; recording a manual one too
+  // would pay the customer twice.
+  if (request.refundStatus === 'requested') {
+    return { ok: false, error: 'يوجد استرجاع آلي قيد التنفيذ لهذا الطلب، انتظري نتيجته.' };
+  }
+  // The automatic refund may already have gone through in Salla; only accept
+  // the refund history as proof, never a separate manual payment.
+  if (request.refundStatus === 'unknown' && !options.requireSallaEvidence) {
+    return { ok: false, error: 'نتيجة الاسترجاع الآلي غير معروفة، تحققي منها في سجل سلة بدلاً من استرجاع يدوي.' };
+  }
 
   let evidence: HistoryRefund[] = [];
   if (options.requireSallaEvidence) {

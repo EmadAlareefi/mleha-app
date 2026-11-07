@@ -49,6 +49,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (returnRequest.couponCode) {
+      return NextResponse.json(
+        { error: `لهذا الطلب كوبون مسبقاً (${returnRequest.couponCode})` },
+        { status: 409 }
+      );
+    }
+    if (returnRequest.exchangeMode === 'order' && returnRequest.exchangeOrderId) {
+      return NextResponse.json(
+        { error: 'رصيد الاستبدال مستخدم في طلب الاستبدال، لا يمكن إسناد كوبون' },
+        { status: 400 }
+      );
+    }
+
     const amounts = await computeRequestAmounts(returnRequest);
     const couponAmount = amounts.couponAmount;
 
@@ -59,9 +72,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update return request with manual coupon code
-    const updatedRequest = await prisma.returnRequest.update({
-      where: { id: returnRequestId },
+    // Only assign when no coupon exists (never overwrite one issued meanwhile).
+    const assigned = await prisma.returnRequest.updateMany({
+      where: { id: returnRequestId, couponCode: null },
       data: {
         couponCode: couponCode.trim(),
         couponCreatedAt: new Date(),
@@ -78,6 +91,15 @@ export async function POST(request: NextRequest) {
             }
           : {}),
       },
+    });
+    if (assigned.count === 0) {
+      return NextResponse.json(
+        { error: 'تم إصدار كوبون لهذا الطلب للتو، حدّثي الصفحة' },
+        { status: 409 }
+      );
+    }
+    const updatedRequest = await prisma.returnRequest.findUniqueOrThrow({
+      where: { id: returnRequestId },
       include: { items: true },
     });
 

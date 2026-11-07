@@ -197,7 +197,7 @@ export async function priceExchangeCart(
 // ---------------------------------------------------------------------------
 export type CreateExchangeOrderResult =
   | { ok: true; paymentUrl: string | null; orderNumber: string; amountDue: number; leftover: number }
-  | { ok: false; error: string; fellBackToCoupon: true };
+  | { ok: false; error: string; fellBackToCoupon: boolean };
 
 export async function createExchangeOrderForRequest(
   requestId: string,
@@ -215,6 +215,17 @@ export async function createExchangeOrderForRequest(
       amountDue: Number(request.exchangeAmountDue) || 0,
       leftover: Number(request.leftoverCouponAmount) || 0,
     };
+  }
+
+  // Claim the creation so two callers (customer submit + staff retry) cannot
+  // each create a Salla order and a credit coupon. Released by the success or
+  // failure write below.
+  const claim = await deps.db.returnRequest.updateMany({
+    where: { id: requestId, exchangeOrderId: null, exchangePaymentStatus: { in: ['none', 'failed'] } },
+    data: { exchangePaymentStatus: 'creating' },
+  });
+  if (claim.count === 0) {
+    return { ok: false, error: 'طلب الاستبدال قيد الإنشاء حالياً', fellBackToCoupon: false };
   }
 
   const credit = Number(request.exchangeCreditAmount) || 0;
@@ -325,16 +336,13 @@ export async function applyExchangeOrderState(
   state: ExchangeOrderState,
   deps: ExchangeFlowDeps = productionExchangeDeps,
 ): Promise<'paid' | 'cancelled' | 'unchanged'> {
-  if (request.exchangePaymentStatus !== 'pending') return 'unchanged';
+  // 'expiring': the cron claimed an overdue order and is re-checking it.
+  if (request.exchangePaymentStatus !== 'pending' && request.exchangePaymentStatus !== 'expiring') return 'unchanged';
 
   if (isOrderPaid(state)) {
-    // Paid: hold until the return passes inspection (Salla moves paid orders to
-    // "new order", which the warehouse would otherwise start preparing).
-    await deps.setStatus(request.merchantId, state.id, EXCHANGE_HOLD_STATUS_ID).catch((error) =>
-      log.error('Failed to hold paid exchange order', { requestId: request.id, error }),
-    );
-    await deps.db.returnRequest.update({
-      where: { id: request.id },
+    // Only the first caller (webhook, cron or status page) applies the payment.
+    const claimed = await deps.db.returnRequest.updateMany({
+      where: { id: request.id, exchangePaymentStatus: request.exchangePaymentStatus },
       data: {
         exchangePaymentStatus: 'paid',
         exchangeCheckoutUrl: null,
@@ -342,6 +350,12 @@ export async function applyExchangeOrderState(
         exchangeOrderHeldAt: deps.now(),
       },
     });
+    if (claimed.count === 0) return 'unchanged';
+    // Paid: hold until the return passes inspection (Salla moves paid orders to
+    // "new order", which the warehouse would otherwise start preparing).
+    await deps.setStatus(request.merchantId, state.id, EXCHANGE_HOLD_STATUS_ID).catch((error) =>
+      log.error('Failed to hold paid exchange order', { requestId: request.id, error }),
+    );
     return 'paid';
   }
 
@@ -438,21 +452,45 @@ export async function runExchangePaymentMaintenance(
       }
       const dueAt = request.exchangePaymentDueAt;
       if (dueAt && now.getTime() >= dueAt.getTime()) {
-        await expireExchangeOrder(request, deps);
-        report.expired++;
+        // Claim the expiry so the webhook/status page cannot mark it paid while
+        // we cancel, then re-check Salla: a payment that just landed wins.
+        const claimed = await deps.db.returnRequest.updateMany({
+          where: { id: request.id, exchangePaymentStatus: 'pending' },
+          data: { exchangePaymentStatus: 'expiring' },
+        });
+        if (claimed.count === 0) continue;
+        try {
+          const latest = await deps.getOrder(request.merchantId, request.exchangeOrderId!);
+          if (isOrderPaid(latest)) {
+            const outcome = await applyExchangeOrderState({ ...request, exchangePaymentStatus: 'expiring' }, latest, deps);
+            if (outcome === 'paid') report.paid++;
+            continue;
+          }
+          await expireExchangeOrder(request, deps);
+          report.expired++;
+        } catch (error) {
+          await deps.db.returnRequest
+            .updateMany({ where: { id: request.id, exchangePaymentStatus: 'expiring' }, data: { exchangePaymentStatus: 'pending' } })
+            .catch(() => undefined);
+          throw error;
+        }
         continue;
       }
       // One reminder in the second half of the payment window.
       const createdAt = request.exchangeOrderLinkedAt ?? request.createdAt;
       const halfway = dueAt ? createdAt.getTime() + (dueAt.getTime() - createdAt.getTime()) / 2 : null;
       if (!request.exchangeReminderSentAt && halfway && now.getTime() >= halfway) {
+        const claimed = await deps.db.returnRequest.updateMany({
+          where: { id: request.id, exchangeReminderSentAt: null },
+          data: { exchangeReminderSentAt: now },
+        });
+        if (claimed.count === 0) continue;
         await deps.notify('ZOKO_TPL_EXCHANGE_PAYMENT_PENDING', request.customerPhone, [
           request.customerName || 'عميلنا العزيز',
           request.exchangeOrderNumber || '',
           `${Number(request.exchangeAmountDue || 0).toFixed(2)} ${request.currency === 'SAR' ? 'ر.س' : request.currency}`,
           state.checkoutUrl || request.exchangeCheckoutUrl || '',
         ]);
-        await deps.db.returnRequest.update({ where: { id: request.id }, data: { exchangeReminderSentAt: now } });
         report.reminded++;
       }
     } catch (error) {

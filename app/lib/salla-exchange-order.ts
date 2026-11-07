@@ -118,18 +118,29 @@ export interface ExchangeOrderState {
   paymentMethod: string | null;
 }
 
+function amountOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function toOrderState(order: any): ExchangeOrderState {
   const remaining = order?.payment_actions?.remaining_action || {};
   const checkout = remaining.checkout_url || order?.urls?.checkout || null;
   const seconds = Number(order?.pending_payment_ends_at);
+  const total = Number(order?.amounts?.total?.amount) || 0;
+  // When Salla leaves the remaining amount out, assume nothing was paid: a
+  // missing field must never read as "fully paid" (that would hold or ship
+  // the replacement without payment).
+  const remainingAmount = amountOrNull(remaining?.remaining_amount?.amount) ?? total;
   return {
     id: String(order?.id),
     referenceId: String(order?.reference_id ?? order?.id),
     statusSlug: String(order?.status?.slug || ''),
     statusId: order?.status?.id ? Number(order.status.id) : undefined,
-    total: Number(order?.amounts?.total?.amount) || 0,
+    total,
     currency: order?.amounts?.total?.currency || order?.currency || 'SAR',
-    remainingAmount: Number(remaining?.remaining_amount?.amount) || 0,
+    remainingAmount,
     paidAmount: Number(remaining?.paid_amount?.amount) || 0,
     checkoutUrl: checkout ? String(checkout) : null,
     pendingSecondsLeft: Number.isFinite(seconds) && seconds > 0 ? seconds : null,

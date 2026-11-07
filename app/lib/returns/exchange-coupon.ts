@@ -132,6 +132,10 @@ export async function issueExchangeCoupon(
   if (returnRequest.couponCode) {
     return { ok: false, status: 400, error: 'تم إنشاء كوبون لهذا الطلب مسبقاً' };
   }
+  // The credit already went into a replacement order; a coupon would pay it twice.
+  if (returnRequest.exchangeMode === 'order' && returnRequest.exchangeOrderId) {
+    return { ok: false, status: 400, error: 'رصيد الاستبدال مستخدم في طلب الاستبدال، لا يمكن إصدار كوبون' };
+  }
 
   const amounts = await computeRequestAmounts(returnRequest, options.liveOrder);
   const couponAmountSar = amounts.couponAmountSar;
@@ -153,6 +157,17 @@ export async function issueExchangeCoupon(
   const expiryDate = new Date();
   expiryDate.setDate(expiryDate.getDate() + safeExpiryDays);
   const couponCode = generateCouponCode('EXCHANGE');
+
+  // Claim the request with the code before creating it in Salla, so a double
+  // click cannot create two coupons. couponCreatedAt stays null until the
+  // coupon exists; on failure the claim is released.
+  const claimed = await prisma.returnRequest.updateMany({
+    where: { id: returnRequestId, couponCode: null },
+    data: { couponCode },
+  });
+  if (claimed.count === 0) {
+    return { ok: false, status: 409, error: 'يتم إنشاء كوبون لهذا الطلب حالياً أو تم إنشاؤه' };
+  }
 
   log.info('Creating coupon for exchange', {
     returnRequestId,
@@ -179,6 +194,9 @@ export async function issueExchangeCoupon(
   });
 
   if (!result.success || !result.coupon) {
+    await prisma.returnRequest
+      .updateMany({ where: { id: returnRequestId, couponCode }, data: { couponCode: null } })
+      .catch(() => undefined);
     log.error('Failed to create coupon in Salla', { returnRequestId, result });
     const error = result.error || 'فشل إنشاء الكوبون';
     return { ok: false, status: 500, error, permissionDenied: /scope|marketing|403|401/i.test(error) };

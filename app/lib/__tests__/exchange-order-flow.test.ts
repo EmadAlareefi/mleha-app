@@ -63,6 +63,16 @@ function setup(request: Row, overrides: Partial<ExchangeFlowDeps> = {}) {
         Object.assign(state.request, data);
         return { ...state.request };
       },
+      async updateMany({ where, data }: any) {
+        const row = state.request;
+        const matches = Object.entries(where).every(([key, condition]: [string, any]) => {
+          if (condition && typeof condition === 'object' && Array.isArray(condition.in)) return condition.in.includes(row[key]);
+          return (row[key] ?? null) === condition;
+        });
+        if (!matches) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      },
     },
     returnExchangeLine: {},
   };
@@ -244,4 +254,55 @@ test('maintenance marks orders paid when the webhook was missed', async () => {
   const report = await runExchangePaymentMaintenance(deps);
   assert.equal(report.paid, 1);
   assert.equal(state.request.exchangePaymentStatus, 'paid');
+});
+
+test('two concurrent creations make one Salla order and one credit coupon', async () => {
+  const { calls, deps } = setup(baseRequest);
+  const [first, second] = await Promise.all([
+    createExchangeOrderForRequest('r1', deps),
+    createExchangeOrderForRequest('r1', deps),
+  ]);
+  assert.equal(calls.orders.length, 1);
+  assert.equal(calls.coupons.length, 1);
+  assert.equal([first, second].filter((result) => result.ok).length, 1);
+  const refused = [first, second].find((result) => !result.ok);
+  assert.ok(refused && !refused.ok && refused.fellBackToCoupon === false);
+});
+
+test('an overdue order paid just before the cron cancels it is marked paid, not cancelled', async () => {
+  let reads = 0;
+  const { state, calls, deps } = setup(
+    {
+      ...baseRequest,
+      exchangeOrderId: '777',
+      exchangePaymentStatus: 'pending',
+      exchangeCreditCouponId: 'c9',
+      exchangePaymentDueAt: new Date('2026-11-04T09:00:00Z'),
+    },
+    {
+      // First read: still unpaid. Second read (after the claim): paid.
+      getOrder: async () =>
+        ++reads === 1 ? orderState() : orderState({ statusSlug: 'under_review', remainingAmount: 0, paidAmount: 75 }),
+    },
+  );
+  const report = await runExchangePaymentMaintenance(deps);
+  assert.equal(report.paid, 1);
+  assert.equal(report.expired, 0);
+  assert.deepEqual(calls.cancelled, []);
+  assert.equal(state.request.exchangePaymentStatus, 'paid');
+});
+
+test('payment is applied once when the webhook and the cron see it together', async () => {
+  const paid = orderState({ statusSlug: 'under_review', remainingAmount: 0, paidAmount: 75 });
+  const { state, calls, deps } = setup(
+    { ...baseRequest, exchangeOrderId: '777', exchangePaymentStatus: 'pending' },
+    { getOrder: async () => paid },
+  );
+  const snapshot = { ...state.request };
+  const outcomes = await Promise.all([
+    applyExchangeOrderState(snapshot as any, paid, deps),
+    applyExchangeOrderState(snapshot as any, paid, deps),
+  ]);
+  assert.deepEqual(outcomes.sort(), ['paid', 'unchanged']);
+  assert.equal(calls.status.length, 1);
 });

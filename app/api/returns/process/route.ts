@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
   const result = await processReturnRequest(id, {
     actor: staffActorName(auth.session),
     ignoreExistingRefunds: body?.ignoreExistingRefunds === true,
+    confirmUnknownRestocks: body?.confirmUnknownRestocks === true,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error, blockers: result.blockers }, { status: result.status ?? 500 });

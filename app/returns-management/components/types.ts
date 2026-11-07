@@ -14,7 +14,7 @@ export interface ReturnItem {
   unitIndex?: number | null;
   type?: 'return' | 'exchange' | string;
   refundIncluded?: boolean;
-  restockStatus?: 'none' | 'done' | 'skipped' | 'failed' | string;
+  restockStatus?: 'none' | 'requested' | 'done' | 'skipped' | 'failed' | string;
   conditionStatus?: ReturnItemCondition | null;
   conditionNotes?: string | null;
   damageImageData?: string | null;
@@ -127,7 +127,7 @@ export interface ProcessPreview {
     unavailableReason?: string;
     existingRefunds: Array<{ amount: number | null; note: string; at?: string; by?: string }>;
   } | null;
-  restock: Array<{ itemId: string; productName: string; variantName?: string | null; quantity: number; action: 'restock' | 'skip' | 'done'; reason?: string }>;
+  restock: Array<{ itemId: string; productName: string; variantName?: string | null; quantity: number; action: 'restock' | 'skip' | 'done' | 'unknown'; reason?: string }>;
   coupon: { amount: number; existingCode?: string | null } | null;
   exchangeOrder: { orderNumber: string | null; paymentStatus: string; amountDue: number; held: boolean; leftover: number } | null;
   warnings: string[];
@@ -195,6 +195,7 @@ export const RESTOCK_LABELS: Record<string, string> = {
   done: 'أعيدت للمخزون',
   skipped: 'لم تُعد للمخزون',
   failed: 'فشل الإرجاع للمخزون',
+  requested: 'غير مؤكد، تحقق في سلة',
 };
 
 export const AUDIT_STEP_LABELS: Record<string, string> = {
@@ -216,4 +217,6 @@ export const EXCHANGE_PAYMENT_LABELS: Record<string, string> = {
   expired: 'انتهت مهلة الدفع',
   cancelled: 'أُلغي',
   failed: 'تعذر الإنشاء',
+  creating: 'قيد الإنشاء',
+  expiring: 'جاري الإلغاء لانتهاء المهلة',
 };
