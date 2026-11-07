@@ -34,7 +34,6 @@ interface WarehouseDashboardClientProps {
   initialAdminWarehouses?: WarehouseInfo[];
   defaultWarehouseId: string | null;
   initialShipments?: Shipment[];
-  initialShipmentsHasMore?: boolean;
   initialStats?: Stats;
   initialDateIso: string;
   initialWarehouseError?: string | null;
@@ -54,7 +53,46 @@ const EMPTY_STATS: Stats = {
   handoverConfirmed: 0,
   byCompany: [],
 };
-const SHIPMENTS_PAGE_LIMIT = 300;
+// The API caps a single page at 1000; the dashboard pages through until the
+// whole day is loaded so the list and daily report are never truncated.
+const SHIPMENTS_PAGE_LIMIT = 1000;
+const SHIPMENTS_MAX_PAGES = 50;
+
+async function fetchAllShipmentsForDay(date: string, warehouseId: string): Promise<Shipment[]> {
+  const all: Shipment[] = [];
+  const seen = new Set<string>();
+
+  for (let page = 1; page <= SHIPMENTS_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams({
+      date,
+      warehouseId,
+      page: String(page),
+      limit: String(SHIPMENTS_PAGE_LIMIT),
+    });
+    const response = await fetch(`/api/shipments?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`Failed to load shipments: ${await response.text()}`);
+    }
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error('Shipments response is not JSON');
+    }
+
+    const pageShipments: Shipment[] = await response.json();
+    for (const shipment of pageShipments) {
+      if (!seen.has(shipment.id)) {
+        seen.add(shipment.id);
+        all.push(shipment);
+      }
+    }
+
+    if (response.headers.get('X-Pagination-Has-More') !== 'true') {
+      break;
+    }
+  }
+
+  return all;
+}
 
 export default function WarehouseDashboardClient({
   isAdmin,
@@ -63,7 +101,6 @@ export default function WarehouseDashboardClient({
   initialAdminWarehouses = [],
   defaultWarehouseId,
   initialShipments = [],
-  initialShipmentsHasMore = false,
   initialStats = EMPTY_STATS,
   initialDateIso,
   initialWarehouseError = null,
@@ -72,10 +109,6 @@ export default function WarehouseDashboardClient({
   const [warehousesLoading, setWarehousesLoading] = useState(false);
   const [warehouseError, setWarehouseError] = useState<string | null>(initialWarehouseError);
   const [shipments, setShipments] = useState<Shipment[]>(initialShipments);
-  const [shipmentsPage, setShipmentsPage] = useState(1);
-  const [shipmentsHasMore, setShipmentsHasMore] = useState(initialShipmentsHasMore);
-  const [shipmentsLoadingMore, setShipmentsLoadingMore] = useState(false);
-  const shipmentsPageRef = useRef(1);
   const shipmentIdsRef = useRef(new Set(initialShipments.map((shipment) => shipment.id)));
   const [stats, setStats] = useState<Stats>(initialStats);
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -271,8 +304,6 @@ export default function WarehouseDashboardClient({
   const fetchData = useCallback(async () => {
     if (!selectedWarehouseId) {
       setShipments([]);
-      setShipmentsPage(1);
-      setShipmentsHasMore(false);
       setStats(EMPTY_STATS);
       setLoading(false);
       return;
@@ -281,40 +312,25 @@ export default function WarehouseDashboardClient({
     setLoading(true);
 
     try {
-      const params = new URLSearchParams({
+      const statsParams = new URLSearchParams({
         date: formattedDate,
         warehouseId: selectedWarehouseId,
-        page: '1',
-        limit: String(SHIPMENTS_PAGE_LIMIT),
       });
 
-      const queryString = params.toString();
-      const [shipmentsRes, statsRes] = await Promise.all([
-        fetch(`/api/shipments?${queryString}`),
-        fetch(`/api/shipments/stats?${queryString}`),
+      const [shipmentsResult, statsResult] = await Promise.allSettled([
+        fetchAllShipmentsForDay(formattedDate, selectedWarehouseId),
+        fetch(`/api/shipments/stats?${statsParams.toString()}`),
       ]);
 
-      if (shipmentsRes.ok) {
-        const contentType = shipmentsRes.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const shipmentsData = await shipmentsRes.json();
-          setShipments(shipmentsData);
-          setShipmentsPage(Number(shipmentsRes.headers.get('X-Pagination-Page')) || 1);
-          setShipmentsHasMore(shipmentsRes.headers.get('X-Pagination-Has-More') === 'true');
-        } else {
-          console.warn('Shipments response is not JSON, resetting list');
-          setShipments([]);
-          setShipmentsPage(1);
-          setShipmentsHasMore(false);
-        }
+      if (shipmentsResult.status === 'fulfilled') {
+        setShipments(shipmentsResult.value);
       } else {
-        console.error('Failed to load shipments', await shipmentsRes.text());
+        console.error('Failed to load shipments', shipmentsResult.reason);
         setShipments([]);
-        setShipmentsPage(1);
-        setShipmentsHasMore(false);
       }
 
-      if (statsRes.ok) {
+      const statsRes = statsResult.status === 'fulfilled' ? statsResult.value : null;
+      if (statsRes?.ok) {
         const contentType = statsRes.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
           const statsData = await statsRes.json();
@@ -328,82 +344,26 @@ export default function WarehouseDashboardClient({
           setStats(EMPTY_STATS);
         }
       } else {
-        console.error('Failed to load stats', await statsRes.text());
+        console.error(
+          'Failed to load stats',
+          statsRes ? await statsRes.text() : (statsResult as PromiseRejectedResult).reason
+        );
         setStats(EMPTY_STATS);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
       setShipments([]);
-      setShipmentsPage(1);
-      setShipmentsHasMore(false);
       setStats(EMPTY_STATS);
     } finally {
       setLoading(false);
     }
   }, [formattedDate, selectedWarehouseId]);
 
-  const loadMoreShipments = useCallback(async () => {
-    if (!selectedWarehouseId || shipmentsLoadingMore || !shipmentsHasMore) {
-      return;
-    }
-
-    setShipmentsLoadingMore(true);
-
-    try {
-      const nextPage = shipmentsPage + 1;
-      const params = new URLSearchParams({
-        date: formattedDate,
-        warehouseId: selectedWarehouseId,
-        page: String(nextPage),
-        limit: String(SHIPMENTS_PAGE_LIMIT),
-      });
-      const response = await fetch(`/api/shipments?${params.toString()}`);
-
-      if (!response.ok) {
-        console.error('Failed to load more shipments', await response.text());
-        return;
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        console.warn('Load-more shipments response is not JSON');
-        return;
-      }
-
-      const nextShipments: Shipment[] = await response.json();
-      setShipments((prev) => {
-        const existingIds = new Set(prev.map((shipment) => shipment.id));
-        const uniqueNext = nextShipments.filter((shipment) => !existingIds.has(shipment.id));
-        return [...prev, ...uniqueNext];
-      });
-      setShipmentsPage(Number(response.headers.get('X-Pagination-Page')) || nextPage);
-      setShipmentsHasMore(response.headers.get('X-Pagination-Has-More') === 'true');
-    } catch (error) {
-      console.error('Error loading more shipments:', error);
-    } finally {
-      setShipmentsLoadingMore(false);
-    }
-  }, [
-    formattedDate,
-    selectedWarehouseId,
-    shipmentsHasMore,
-    shipmentsLoadingMore,
-    shipmentsPage,
-  ]);
-
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => {
-      if (shipmentsPageRef.current <= 1) {
-        fetchData();
-      }
-    }, 30000);
+    const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  useEffect(() => {
-    shipmentsPageRef.current = shipmentsPage;
-  }, [shipmentsPage]);
 
   useEffect(() => {
     shipmentIdsRef.current = new Set(shipments.map((shipment) => shipment.id));
@@ -862,17 +822,6 @@ export default function WarehouseDashboardClient({
                 تم تحميل {shipments.length} شحنة
                 {companyFilter !== 'all' ? `، المعروض بعد التصفية: ${filteredShipments.length}` : ''}
               </span>
-              {shipmentsHasMore && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={loadMoreShipments}
-                  disabled={shipmentsLoadingMore}
-                  className="rounded-xl"
-                >
-                  {shipmentsLoadingMore ? 'جاري تحميل المزيد...' : 'تحميل المزيد'}
-                </Button>
-              )}
             </div>
           </>
         )}
