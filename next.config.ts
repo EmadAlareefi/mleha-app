@@ -11,6 +11,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'salla.sa',
       },
+      {
+        protocol: 'https',
+        hostname: 'cdn.files.salla.network',
+      },
     ],
   },
   outputFileTracingIncludes: {

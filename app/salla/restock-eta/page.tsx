@@ -26,9 +26,23 @@ import { addDays, arabicDays, daysBetween, riyadhToday, RESTOCK_ETA_MAX_DAYS } f
 
 type SlimProduct = { i: string; n: string; s: string; m: string; q: number | null; o: boolean };
 type Filter = 'out' | 'set' | 'expired' | 'all';
-type Snapshot = { products: SlimProduct[]; etas: Record<string, string>; today: string };
+type Snapshot = { products: SlimProduct[]; etas: Record<string, string>; catalogAt: number | null };
 
-const CACHE_KEY = 'restock-eta:v1';
+const CACHE_KEY = 'restock-eta:v2';
+const POLL_MS = 5000;
+// Hosts allowed in next.config.ts images.remotePatterns. next/image throws on
+// any other host, which would take the whole page down, so those fall back to
+// a plain <img>.
+const OPTIMIZED_IMAGE_HOSTS = new Set(['cdn.salla.sa', 'salla.sa', 'cdn.files.salla.network']);
+
+function canOptimize(src: string): boolean {
+  try {
+    const url = new URL(src);
+    return url.protocol === 'https:' && OPTIMIZED_IMAGE_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
 const PAGE_SIZE = 60;
 const QUICK_DAYS = [7, 14, 21, 30, 45, 60, 90];
 
@@ -116,9 +130,13 @@ const ProductRow = memo(function ProductRow({ product, days, selecting, selected
           </span>
         )}
         <span className="relative size-12 shrink-0 overflow-hidden rounded-lg bg-stone-100">
-          {product.m && (
-            <Image src={product.m} alt="" fill sizes="48px" className="object-cover" />
-          )}
+          {product.m &&
+            (canOptimize(product.m) ? (
+              <Image src={product.m} alt="" fill sizes="48px" className="object-cover" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={product.m} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
+            ))}
         </span>
         <span className="min-w-0 flex-1">
           <span className="line-clamp-2 text-sm font-medium leading-5 text-stone-900">{product.n}</span>
@@ -284,6 +302,7 @@ export default function RestockEtaPage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('out');
@@ -299,12 +318,19 @@ export default function RestockEtaPage() {
     setRefreshing(true);
     try {
       const response = await fetch(`/api/salla/restock-eta${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'تعذر تحميل المنتجات');
-      const next: Snapshot = { products: data.products, etas: data.etas, today: data.today };
-      setSnapshot(next);
+      // A platform error (timeout, 502) returns HTML, not JSON.
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || `تعذر تحميل المنتجات (${response.status})`);
+      }
+      const next: Snapshot = { products: data.products, etas: data.etas, catalogAt: data.catalogAt };
+      // Keep the list on screen while the very first catalog is still building.
+      setSnapshot((current) =>
+        next.products.length === 0 && current?.products.length ? { ...current, etas: next.etas } : next
+      );
+      if (next.products.length) writeCache(next);
+      setRebuilding(!!data.rebuilding);
       setError(null);
-      writeCache(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر تحميل المنتجات');
     } finally {
@@ -312,6 +338,14 @@ export default function RestockEtaPage() {
       setRefreshing(false);
     }
   }, []);
+
+  // While the server rebuilds the catalog from Salla (~1 min), check back
+  // until the new snapshot lands.
+  useEffect(() => {
+    if (!rebuilding) return;
+    const timer = setTimeout(() => void load(false), POLL_MS);
+    return () => clearTimeout(timer);
+  }, [rebuilding, load, snapshot]);
 
   // Paint the last snapshot instantly, then revalidate in the background.
   useEffect(() => {
@@ -326,7 +360,7 @@ export default function RestockEtaPage() {
   // Computed on the device rather than taken from the (possibly cached)
   // snapshot, so day counts stay right when the page is reopened tomorrow.
   const [today, setToday] = useState('');
-  useEffect(() => setToday(riyadhToday()), [snapshot]);
+  useEffect(() => setToday(riyadhToday()), [snapshot?.etas]);
   const etas = useMemo(() => snapshot?.etas ?? {}, [snapshot]);
 
   const daysFor = useCallback(
@@ -530,7 +564,16 @@ export default function RestockEtaPage() {
           </div>
         )}
 
-        {loading ? (
+        {rebuilding && (
+          <div className="mx-3 mt-3 flex items-center gap-2 rounded-xl bg-violet-50 px-3 py-2 text-xs text-violet-800">
+            <Loader2 className="size-3.5 shrink-0 animate-spin" />
+            {snapshot?.products.length
+              ? 'جاري تحديث قائمة المنتجات من سلة… يمكنك المتابعة'
+              : 'جاري تجهيز قائمة المنتجات من سلة لأول مرة، قد يستغرق ذلك دقيقة…'}
+          </div>
+        )}
+
+        {loading || (rebuilding && !snapshot?.products.length) ? (
           <div className="flex flex-1 items-center justify-center py-20 text-stone-500">
             <Loader2 className="size-6 animate-spin" />
           </div>

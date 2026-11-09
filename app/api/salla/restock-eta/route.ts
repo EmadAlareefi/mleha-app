@@ -1,9 +1,7 @@
 import { getServerSession } from 'next-auth';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
-import { listAllSallaProducts } from '@/app/lib/salla-api';
-import { resolveSallaMerchantId } from '@/app/api/salla/products/merchant';
 import { log } from '@/app/lib/logger';
 import {
   addDays,
@@ -15,64 +13,17 @@ import {
   RESTOCK_ETA_MAX_DAYS,
   RESTOCK_ETA_SERVICE_KEY,
 } from '@/app/lib/restock-eta';
+import {
+  CATALOG_STALE_MS,
+  isCatalogRebuilding,
+  readCatalogSnapshot,
+  rebuildCatalogSnapshot,
+} from '@/app/lib/restock-eta-catalog';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
-
-/** Compact product row: short keys keep the full-catalog payload small on mobile. */
-type SlimProduct = {
-  i: string; // id
-  n: string; // name
-  s: string; // sku
-  m: string; // image url
-  q: number | null; // available quantity
-  o: boolean; // sold out
-};
-
-const CATALOG_TTL_MS = 10 * 60 * 1000;
-// Fluid Compute reuses instances, so this survives across requests on a warm
-// instance. Pulling the full catalog from Salla takes several seconds.
-let catalogCache: { merchantId: string; at: number; products: SlimProduct[] } | null = null;
-let catalogInflight: Promise<SlimProduct[]> | null = null;
-
-async function loadCatalog(merchantId: string, force: boolean): Promise<SlimProduct[]> {
-  if (
-    !force &&
-    catalogCache &&
-    catalogCache.merchantId === merchantId &&
-    Date.now() - catalogCache.at < CATALOG_TTL_MS
-  ) {
-    return catalogCache.products;
-  }
-  if (catalogInflight) return catalogInflight;
-
-  catalogInflight = (async () => {
-    const { products } = await listAllSallaProducts(merchantId);
-    const slim = products
-      .filter((product) => product.status !== 'hidden' && product.status !== 'deleted')
-      .map<SlimProduct>((product) => {
-        const quantity =
-          typeof product.availableQuantity === 'number' ? product.availableQuantity : null;
-        return {
-          i: String(product.id),
-          n: product.name || '',
-          s: product.sku || '',
-          m: product.imageUrl || '',
-          q: quantity,
-          o: product.status === 'out' || (quantity !== null && quantity <= 0),
-        };
-      });
-    catalogCache = { merchantId, at: Date.now(), products: slim };
-    return slim;
-  })();
-
-  try {
-    return await catalogInflight;
-  } finally {
-    catalogInflight = null;
-  }
-}
+// A catalog rebuild runs after the response via after(); Salla needs ~1 min.
+export const maxDuration = 300;
 
 async function authorize() {
   const session = await getServerSession(authOptions);
@@ -91,9 +42,12 @@ async function loadEtas(): Promise<Record<string, string>> {
 }
 
 /**
- * GET                → { products, etas, today }
- * GET ?etas=1        → { etas, today } (cheap; no Salla call)
- * GET ?refresh=1     → bypass the server catalog cache
+ * GET              → { products, etas, today, catalogAt, rebuilding }
+ * GET ?etas=1      → { etas, today } (cheap; no catalog)
+ * GET ?refresh=1   → also start a catalog rebuild now
+ *
+ * Never waits on Salla. A missing or stale catalog is rebuilt after the
+ * response is sent; the client polls while `rebuilding` is true.
  */
 export async function GET(request: NextRequest) {
   const { allowed } = await authorize();
@@ -101,32 +55,37 @@ export async function GET(request: NextRequest) {
 
   const params = request.nextUrl.searchParams;
   const today = riyadhToday();
+  const headers = { 'Cache-Control': 'private, no-store' };
 
   try {
     if (params.get('etas') === '1') {
-      return NextResponse.json(
-        { success: true, etas: await loadEtas(), today },
-        { headers: { 'Cache-Control': 'private, no-store' } }
-      );
+      return NextResponse.json({ success: true, etas: await loadEtas(), today }, { headers });
     }
 
-    const resolved = await resolveSallaMerchantId(null);
-    if (!resolved.merchantId) {
-      return NextResponse.json({ error: resolved.error }, { status: 503 });
-    }
-
-    const [products, etas] = await Promise.all([
-      loadCatalog(resolved.merchantId, params.get('refresh') === '1'),
+    const [snapshot, etas, lockHeld] = await Promise.all([
+      readCatalogSnapshot(),
       loadEtas(),
+      isCatalogRebuilding(),
     ]);
 
+    const wantsRebuild =
+      params.get('refresh') === '1' || !snapshot || Date.now() - snapshot.at > CATALOG_STALE_MS;
+    if (wantsRebuild && !lockHeld) after(rebuildCatalogSnapshot);
+
     return NextResponse.json(
-      { success: true, products, etas, today },
-      { headers: { 'Cache-Control': 'private, no-store' } }
+      {
+        success: true,
+        products: snapshot?.products ?? [],
+        catalogAt: snapshot?.at ?? null,
+        rebuilding: lockHeld || wantsRebuild,
+        etas,
+        today,
+      },
+      { headers }
     );
   } catch (error) {
-    log.error('Failed to load restock ETA catalog', { error });
-    return NextResponse.json({ error: 'تعذر تحميل المنتجات من سلة' }, { status: 500 });
+    log.error('Failed to load restock ETA page data', { error });
+    return NextResponse.json({ error: 'تعذر تحميل البيانات' }, { status: 500 });
   }
 }
 
