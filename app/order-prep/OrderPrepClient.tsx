@@ -710,7 +710,7 @@ export default function OrderPrepClient() {
             void handleUpdateSallaStatus(
               activeAssignment,
               'under_review_a',
-              `الطلب يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). ${promoLimit.check?.message ?? ''} يجب حذف قطع العرض الزائدة أو إلغاء الطلب قبل التحضير.`,
+              `الطلب يتجاوز حد عرض الريال (قطعة واحدة في الطلب). ${promoLimit.check?.message ?? ''} يجب حذف قطع العرض الزائدة قبل التحضير.`,
             );
           }}
         />
@@ -726,7 +726,7 @@ export default function OrderPrepClient() {
               toast({
                 variant: 'destructive',
                 description:
-                  'لا يمكن إنهاء هذا الطلب: يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). عدّله في سلة أو حوّله للمراجعة.',
+                  'لا يمكن إنهاء هذا الطلب: يتجاوز حد عرض الريال (قطعة واحدة في الطلب). عدّله في سلة أو حوّله للمراجعة.',
               });
               return;
             }

@@ -52,10 +52,16 @@ test('two promo units in one order is a violation', () => {
   assert.match(result.message!, /2 قطع/);
 });
 
-test('a promo unit after an earlier promo order is a violation that names the order', () => {
+test('one promo unit is allowed even after an earlier promo order', () => {
   const result = evaluatePromoUsage({ maxPerCustomer: 1, items: [{ productId: '101', quantity: 1 }], promoIds, priorOrders: [prior] });
+  assert.equal(result.violation, false);
+  assert.equal(result.message, null);
+});
+
+test('two promo units are still a violation for a repeat promo customer', () => {
+  const result = evaluatePromoUsage({ maxPerCustomer: 1, items: [{ productId: '101', quantity: 2 }], promoIds, priorOrders: [prior] });
   assert.equal(result.violation, true);
-  assert.match(result.message!, /#24001/);
+  assert.match(result.message!, /2 قطع/);
 });
 
 test('orders without promo items are never flagged, even for past promo customers', () => {

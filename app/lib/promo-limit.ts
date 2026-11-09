@@ -7,10 +7,11 @@ import { getSallaOrderItems } from '@/app/lib/salla-api';
  * "One per customer" promotion guard.
  *
  * Every product in the promo category (sold at 1 SAR) may be bought at most
- * PROMO_LIMIT_MAX_PER_CUSTOMER times in total per customer — across the whole
- * category, in one order or spread over several. The storefront script on
- * mleha.com blocks it in the cart; order-prep and order-shipping re-check it
- * here in case an order slipped through anyway.
+ * PROMO_LIMIT_MAX_PER_CUSTOMER times per order, across the whole category. The
+ * storefront script on mleha.com blocks it in the cart; order-prep and
+ * order-shipping re-check it here in case an order slipped through anyway.
+ * Earlier promo orders by the same customer no longer block preparing or
+ * shipping a new one — only promo units within the order itself count.
  */
 
 /** "القسم المجاني" on mleha.com — the hidden category holding the 1 SAR products. */
@@ -364,16 +365,8 @@ export interface PromoOrderCheck {
   unavailable?: boolean;
 }
 
-export function buildPromoViolationMessage(check: Pick<PromoOrderCheck, 'maxPerCustomer' | 'promoUnitsInOrder' | 'priorOrders' | 'priorUnits'>): string {
-  const parts: string[] = [];
-  if (check.promoUnitsInOrder > check.maxPerCustomer) {
-    parts.push(`هذا الطلب يحتوي على ${check.promoUnitsInOrder} قطع من عرض الريال الواحد`);
-  }
-  if (check.priorOrders.length > 0) {
-    const numbers = check.priorOrders.map((order) => `#${order.orderNumber || order.orderId}`).join('، ');
-    parts.push(`العميل حصل مسبقاً على منتج من العرض في الطلب ${numbers}`);
-  }
-  return `${parts.join('، و')}. الحد المسموح ${check.maxPerCustomer} قطعة فقط لكل عميل من قسم العرض. لا تقم بتجهيز أو شحن القطع الزائدة قبل مراجعة الطلب.`;
+export function buildPromoViolationMessage(check: Pick<PromoOrderCheck, 'maxPerCustomer' | 'promoUnitsInOrder'>): string {
+  return `هذا الطلب يحتوي على ${check.promoUnitsInOrder} قطع من عرض الريال الواحد. الحد المسموح ${check.maxPerCustomer} قطعة فقط في الطلب من قسم العرض. لا تقم بتجهيز أو شحن القطع الزائدة قبل مراجعة الطلب.`;
 }
 
 export function evaluatePromoUsage(input: {
@@ -388,26 +381,17 @@ export function evaluatePromoUsage(input: {
   const promoUnitsInOrder = promoItems.reduce((sum, item) => sum + item.quantity, 0);
   const priorOrders = promoUnitsInOrder > 0 ? input.priorOrders : [];
   const priorUnits = priorOrders.reduce((sum, order) => sum + order.quantity, 0);
-  const violation = promoUnitsInOrder > 0 && promoUnitsInOrder + priorUnits > input.maxPerCustomer;
+  // Earlier promo orders are reported but never block: only this order's units count.
+  const violation = promoUnitsInOrder > input.maxPerCustomer;
   const base = { maxPerCustomer: input.maxPerCustomer, promoUnitsInOrder, promoItems, priorOrders, priorUnits };
   return { ...base, violation, message: violation ? buildPromoViolationMessage(base) : null };
-}
-
-function parseDate(value: unknown): Date | null {
-  if (typeof value === 'string' || typeof value === 'number') {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  const record = asRecord(value);
-  if (record && typeof record.date === 'string') return parseDate(record.date.replace(' ', 'T'));
-  return null;
 }
 
 /**
  * Checks one order against the promo limit. Items come from the order payload
  * the staff page is looking at when given, else the stored line items, else a
- * live Salla fetch. Only earlier orders count as "prior", so when a customer
- * sneaks in two orders the first one stays clean and the second is flagged.
+ * live Salla fetch. Only the units in this order count; a customer's earlier
+ * promo orders do not block it.
  */
 export async function checkOrderPromoLimit(params: {
   merchantId: string;
@@ -468,19 +452,8 @@ export async function checkOrderPromoLimit(params: {
 
   if (countPromoUnits(items, promoIds) === 0) return empty;
 
-  const payload = asRecord(params.orderData);
-  const payloadCustomer = asRecord(payload?.customer) || {};
-  const priorOrders = await findPriorPromoOrders({
-    merchantId: params.merchantId,
-    promoProductIds,
-    customerId: storedOrder?.customerId ?? idString(payloadCustomer.id),
-    customerMobile: storedOrder?.customerMobile ?? null,
-    customerEmail: storedOrder?.customerEmail ?? null,
-    excludeOrderId: params.orderId,
-    placedBefore: storedOrder?.placedAt ?? parseDate(payload?.date) ?? null,
-  });
-
-  return { enabled: true, ...evaluatePromoUsage({ maxPerCustomer: config.maxPerCustomer, items, promoIds, priorOrders }) };
+  // Earlier promo orders by the customer don't block this one, so they are not looked up.
+  return { enabled: true, ...evaluatePromoUsage({ maxPerCustomer: config.maxPerCustomer, items, promoIds, priorOrders: [] }) };
 }
 
 /** Error code returned by guarded staff endpoints when the order breaks the promo limit. */
@@ -489,8 +462,8 @@ export const PROMO_LIMIT_ERROR_CODE = 'PROMO_LIMIT_EXCEEDED';
 /**
  * Shared server guard for staff actions (completing prep, creating shipments).
  * Returns the 409 body when the order breaks the promo limit — there is no
- * override: the order has to be fixed in Salla (extra promo items removed, or
- * the duplicate order cancelled) before it can be prepared or shipped. Returns
+ * override: the order has to be fixed in Salla (extra promo items removed)
+ * before it can be prepared or shipped. Returns
  * null when the action may proceed. A check that errors out is logged and
  * allowed, so a Salla outage never stops the warehouse.
  */

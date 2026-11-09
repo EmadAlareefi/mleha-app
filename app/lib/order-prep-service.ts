@@ -82,8 +82,8 @@ export async function getActiveAssignmentsForUser(userId: string): Promise<Seria
 }
 
 /**
- * Orders over the 1 SAR promo limit (more than one promo unit, or a repeat
- * promo order) are kept out of order prep entirely. Assignments a preparer
+ * Orders over the 1 SAR promo limit (more than one promo unit in the order;
+ * a repeat promo customer is allowed) are kept out of order prep entirely. Assignments a preparer
  * already holds for such orders are removed so the page moves on; once the
  * order is fixed in Salla it is no longer flagged and re-enters the queue.
  */

@@ -59,9 +59,9 @@ function normalizeMobile(value: string | null): string | null {
 
 /**
  * Groups orders by customer the way the guards match them (same customer id,
- * mobile or email), then walks each customer's orders in time order and marks
- * every order that takes them past `maxPerCustomer`. Cancelled orders never use
- * up the allowance.
+ * mobile or email) so repeat promo customers stay visible, and marks every
+ * order that itself holds more than `maxPerCustomer` promo units. Earlier promo
+ * orders by the same customer are allowed and never flag a later one.
  */
 export function analyzePromoOrders(orders: PromoMonitorOrderInput[], maxPerCustomer: number): PromoMonitorOrder[] {
   const parent = orders.map((_, index) => index);
@@ -112,8 +112,9 @@ export function analyzePromoOrders(orders: PromoMonitorOrderInput[], maxPerCusto
       let extraUnits = 0;
       let reason: PromoViolationReason | null = null;
       if (!cancelled && promoUnits > 0) {
-        extraUnits = Math.max(0, priorUnits + promoUnits - maxPerCustomer);
-        if (extraUnits > 0) reason = priorUnits >= maxPerCustomer ? 'prior_order' : 'in_order';
+        // Only units within this order count; earlier promo orders are allowed.
+        extraUnits = Math.max(0, promoUnits - maxPerCustomer);
+        if (extraUnits > 0) reason = 'in_order';
         used += promoUnits;
       }
       const isFirst = !cancelled && promoUnits > 0 && firstRef == null;

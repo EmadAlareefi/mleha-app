@@ -30,18 +30,22 @@ test('one unit per customer is fine; two in one order is an in-order violation',
   assert.equal(bad.extraUnits, 2);
 });
 
-test('a later order is flagged against the first one, matched by mobile across ids', () => {
+test('a later single-unit order by the same customer is allowed; two units in it are not', () => {
   const result = analyzePromoOrders(
     [
       order({ customerId: '1', customerMobile: '+966500000001', units: [1], at: '2026-11-03T10:00:00Z', referenceId: 'FIRST' }),
       order({ customerMobile: '0500000001', units: [1], at: '2026-11-03T11:00:00Z' }),
+      order({ customerId: '1', units: [2], at: '2026-11-03T12:00:00Z' }),
     ],
     1
   );
   assert.equal(result[0].violation, false);
-  assert.equal(result[1].violation, true);
-  assert.equal(result[1].reason, 'prior_order');
+  assert.equal(result[1].violation, false);
+  assert.equal(result[1].priorUnits, 1);
   assert.equal(result[1].firstOrderRef, 'FIRST');
+  assert.equal(result[2].violation, true);
+  assert.equal(result[2].reason, 'in_order');
+  assert.equal(result[2].extraUnits, 1);
 });
 
 test('cancelled orders do not use up the allowance', () => {

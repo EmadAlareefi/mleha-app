@@ -773,7 +773,7 @@ export default function OrderShippingPage() {
     orderData: currentOrder?.orderData,
   });
   const PROMO_BLOCK_MESSAGE =
-    'لا يمكن شحن هذا الطلب: يتجاوز حد عرض الريال (قطعة واحدة لكل عميل). يجب تعديله في سلة أولاً (حذف القطع الزائدة أو إلغاء الطلب) ثم إعادة الفحص.';
+    'لا يمكن شحن هذا الطلب: يتجاوز حد عرض الريال (قطعة واحدة في الطلب). يجب تعديله في سلة أولاً (حذف القطع الزائدة) ثم إعادة الفحص.';
 
   // One entry per item: '*' when its embedded categories already include the
   // offer, otherwise its product id ('' when unknown). Keyed this way, a reload

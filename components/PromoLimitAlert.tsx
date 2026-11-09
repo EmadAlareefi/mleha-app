@@ -17,7 +17,7 @@ export interface PromoLimitCheck {
 /**
  * Checks the order on screen against the 1 SAR promo limit. A violating order
  * stays blocked — there is no override. Once the order is fixed in Salla
- * (extra promo items removed or the duplicate order cancelled), `recheck`
+ * (extra promo items removed), `recheck`
  * re-reads it and unblocks. The matching API routes enforce the same rule.
  */
 export function usePromoLimitCheck(params: { orderId?: string | number | null; merchantId?: string | null; orderData?: unknown }) {
@@ -89,7 +89,7 @@ export function PromoLimitAlert({
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-600 text-lg font-bold text-white">!</span>
         <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-base font-bold text-red-800">موقوف: تجاوز حد عرض الريال (قطعة واحدة لكل عميل)</p>
+          <p className="text-base font-bold text-red-800">موقوف: تجاوز حد عرض الريال (قطعة واحدة في الطلب)</p>
           {check.message && <p className="text-sm leading-6 text-red-700">{check.message}</p>}
           {check.promoItems.length > 0 && (
             <ul className="list-disc space-y-0.5 pr-5 text-sm text-red-800">
@@ -109,8 +109,7 @@ export function PromoLimitAlert({
             </p>
           )}
           <p className="text-sm font-semibold text-red-900">
-            لا يمكن تحضير أو شحن هذا الطلب حتى يتم تعديله في سلة: حذف قطع العرض الزائدة، أو إلغاء الطلب إذا كان العميل
-            حصل على العرض في طلب سابق.
+            لا يمكن تحضير أو شحن هذا الطلب حتى يتم تعديله في سلة: حذف قطع العرض الزائدة.
           </p>
           <div className="flex flex-wrap gap-2">
           {onSendToReview && (
