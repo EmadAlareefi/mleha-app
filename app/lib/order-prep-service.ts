@@ -202,7 +202,7 @@ export async function assignOldestOrderToUser(
   // from Salla before the prep page can receive its next assignment.
   const promoWindow = candidateOrders;
   const promoRanks = new Map<string, number>();
-  const promoProductIds = await getPromoProductIds(MERCHANT_ID).catch(() => []);
+  const promoProductIds: string[] = await getPromoProductIds(MERCHANT_ID).catch((): string[] => []);
   const candidateIdSet = new Set(orderIds);
   const ordersWithItems = promoProductIds.length > 0
     ? await prisma.sallaOrder.findMany({
