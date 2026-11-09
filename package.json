@@ -25,7 +25,7 @@
     "audit:zoko-journey": "node --env-file=.env scripts/audit-zoko-journey-templates.mjs",
     "test:delivered-date": "node --test --import tsx app/lib/__tests__/salla-order-delivered-date.test.ts",
     "test:availability": "node --test --import tsx app/lib/__tests__/availability-stock-watcher.test.ts",
-    "test:notify-widget": "node --test --import tsx app/embed/__tests__/notify-me-widget.test.ts",
+    "test:notify-widget": "node --test --import tsx app/embed/__tests__/notify-me-widget.test.ts app/lib/__tests__/restock-eta.test.ts",
     "test:notify-script-editor": "node --test --import tsx app/lib/__tests__/notify-me-script.test.ts app/embed/__tests__/notify-me-widget.test.ts",
     "test:order-reference": "node --test --import tsx app/lib/__tests__/salla-order-reference.test.ts",
     "test:returns-pricing": "node --test --import tsx lib/returns/__tests__/item-price.test.ts lib/returns/__tests__/resolve-return-items.test.ts",

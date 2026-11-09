@@ -89,6 +89,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     document.querySelector('script[src*="notify-me.js"]');
   var API_BASE = (script && script.getAttribute('data-api')) || '';
   var ENDPOINT = API_BASE.replace(/\/+$/, '') + '/api/public/availability-requests';
+  var ETA_ENDPOINT = API_BASE.replace(/\/+$/, '') + '/api/public/restock-eta';
   var DEBUG = !!(script && script.getAttribute('data-debug'));
 
   function debug() {
@@ -114,8 +115,19 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     loggedInAs: 'سنرسل الإشعار عبر واتساب على الرقم',
     registeredTitle: 'أنت مسجّل بالفعل لهذا المقاس',
     registeredProductTitle: 'أنت مسجّل بالفعل لهذا المنتج',
-    registeredBody: 'سنبلغك عبر واتساب فور توفره.'
+    registeredBody: 'سنبلغك عبر واتساب فور توفره.',
+    etaTitle: 'نتوقع توفّره خلال',
+    etaNote: 'المدة تقديرية وقد تتقدّم أو تتأخر قليلاً.'
   };
+
+  // Arabic number agreement for a count of days. Mirrors arabicDays() in
+  // app/lib/restock-eta.ts, which the staff page uses for its preview.
+  function dayPhrase(days) {
+    if (days <= 1) { return 'يوم واحد'; }
+    if (days === 2) { return 'يومين'; }
+    if (days <= 10) { return days + ' أيام'; }
+    return days + ' يوماً';
+  }
 
   /* ---------- styles ---------- */
 
@@ -167,6 +179,15 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     'border-radius:999px;background:#fff;color:var(--nm-ok);border:1px solid #cfe3d7;',
     'font-size:12px;font-weight:700;direction:ltr;}',
     '.mleha-nm__registered-body{font-size:12px;line-height:1.55;color:var(--nm-muted);}',
+    '.mleha-nm__eta{display:flex;align-items:center;gap:11px;margin:10px 0;padding:12px 14px;',
+    'border:1px solid #f0e0c8;border-radius:12px;background:linear-gradient(135deg,#fffaf2,#fbf0de);}',
+    '.mleha-nm__panel .mleha-nm__eta{margin-top:0;}',
+    '.mleha-nm__eta-icon{display:flex;align-items:center;justify-content:center;width:38px;height:38px;',
+    'flex:0 0 38px;border-radius:11px;background:#b7791f;color:#fff;}',
+    '.mleha-nm__eta-copy{min-width:0;display:flex;flex-direction:column;gap:1px;}',
+    '.mleha-nm__eta-title{font-size:14px;line-height:1.55;color:var(--nm-ink);font-weight:700;}',
+    '.mleha-nm__eta-days{color:#8a5a14;}',
+    '.mleha-nm__eta-note{font-size:12px;line-height:1.55;color:var(--nm-muted);}',
     '@media(max-width:480px){.mleha-nm{max-width:100%;overflow:hidden;}',
     '.mleha-nm__panel{padding:12px;}.mleha-nm__input{font-size:16px;}',
     '.mleha-nm__who,.mleha-nm__registered{padding:11px 12px;gap:9px;}}',
@@ -725,6 +746,80 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     return span;
   }
 
+  /* ---------- expected restock time ---------- */
+
+  // Fetched once per product as soon as a sold-out choice is shown, so the
+  // answer is usually ready by the time the customer taps the button.
+  var eta = { productId: '', loaded: false, value: null };
+  var etaVisible = false;
+
+  function prefetchEta(product) {
+    if (!product || eta.productId === product.id) { return; }
+    eta = { productId: product.id, loaded: false, value: null };
+    if (typeof fetch !== 'function') { return; }
+    var requestedFor = product.id;
+    try {
+      fetch(ETA_ENDPOINT + '?productId=' + encodeURIComponent(product.id), {
+        method: 'GET',
+        credentials: 'omit'
+      }).then(function (response) {
+        return response.ok ? response.json() : null;
+      }).then(function (data) {
+        if (eta.productId !== requestedFor) { return; }
+        var value = data && data.success && data.eta;
+        var days = value ? Number(value.days) : 0;
+        eta = { productId: requestedFor, loaded: true, value: days >= 1 ? { days: Math.round(days) } : null };
+        syncEta();
+      }).catch(function (error) {
+        debug('eta fetch failed', error);
+      });
+    } catch (error) {
+      debug('eta fetch threw', error);
+    }
+  }
+
+  function renderEta(days) {
+    var card = el('div', 'mleha-nm__eta');
+    card.setAttribute('role', 'note');
+    var icon = el('span', 'mleha-nm__eta-icon');
+    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">' +
+      '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+    card.appendChild(icon);
+
+    var copy = el('div', 'mleha-nm__eta-copy');
+    var title = el('div', 'mleha-nm__eta-title', TEXT.etaTitle + ' ');
+    title.appendChild(el('span', 'mleha-nm__eta-days', dayPhrase(days)));
+    copy.appendChild(title);
+    copy.appendChild(el('div', 'mleha-nm__eta-note', TEXT.etaNote));
+    card.appendChild(copy);
+    return card;
+  }
+
+  // Show the estimate once the customer has asked to be notified: inside the
+  // guest form when it opens, or under the "registered" card afterwards.
+  function syncEta() {
+    if (!container || !etaVisible || !eta.value) { return; }
+    if (container.querySelector('.mleha-nm__eta')) { return; }
+    var card = renderEta(eta.value.days);
+    var panel = container.querySelector('.mleha-nm__panel');
+    if (panel && panel.style.display !== 'none') {
+      panel.insertBefore(card, panel.firstChild);
+      return;
+    }
+    var registered = container.querySelector('.mleha-nm__registered');
+    if (registered && registered.nextSibling) {
+      container.insertBefore(card, registered.nextSibling);
+    } else {
+      container.appendChild(card);
+    }
+  }
+
+  function revealEta() {
+    etaVisible = true;
+    syncEta();
+  }
+
   function renderRegistered(variant) {
     var card = el('div', 'mleha-nm__registered');
     card.setAttribute('role', 'status');
@@ -743,6 +838,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     copy.appendChild(el('div', 'mleha-nm__registered-body', TEXT.registeredBody));
     card.appendChild(copy);
     container.appendChild(card);
+    revealEta();
   }
 
   function showRegisteredAfterSubmit() {
@@ -910,6 +1006,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     trigger.addEventListener('click', function () {
       panel.style.display = '';
       trigger.style.display = 'none';
+      revealEta();
       phoneInput.focus();
     });
 
@@ -980,6 +1077,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     hiddenCartButtonDisplay = '';
     renderedSelectionKey = '';
     container = null;
+    etaVisible = false;
     state = { busy: false, done: false };
   }
 
@@ -1020,6 +1118,7 @@ export const NOTIFY_ME_WIDGET_SOURCE = String.raw`
     container = el('div', 'mleha-nm');
     container.setAttribute('dir', 'rtl');
     renderedSelectionKey = selectionKey;
+    prefetchEta(product);
 
     if (isRegistered(product.id, variant.id)) {
       renderRegistered(variant);

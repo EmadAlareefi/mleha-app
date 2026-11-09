@@ -859,6 +859,22 @@ model SallaProductAvailabilityRequest {
   @@index([ipHash, createdAt])
 }
 
+/// Expected restock date per Salla product, shown to customers by the
+/// storefront notify-me widget ("متوقع توفره خلال 25 يوماً"). A row whose date
+/// has passed is no longer shown and is flagged for staff to update.
+model SallaProductRestockEta {
+  productId     String   @id // Salla product ID (string form)
+  expectedAt    DateTime @db.Date
+  productName   String?
+  productSku    String?
+  updatedById   String?
+  updatedByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([expectedAt])
+}
+
 /// One row per anonymous order lookup, used only to rate limit
 /// `GET /api/orders/lookup`. Order numbers are sequential, so without a budget
 /// the endpoint can be walked to enumerate the store's orders. Counted in the

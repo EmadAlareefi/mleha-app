@@ -526,6 +526,19 @@ const serviceDefinitionsData = [
     assignable: true,
   },
   {
+    key: 'salla-restock-eta',
+    title: 'مواعيد توفر المنتجات',
+    description: 'تحديد المدة المتوقعة لتوفر المنتجات النافدة لتظهر للعملاء في أبلغني عند التوفر',
+    icon: '⏳',
+    href: '/salla/restock-eta',
+    color: 'from-violet-500 to-rose-500',
+    // Assigned explicitly to the one staff member who owns restock timing;
+    // admins bypass service checks.
+    defaultRoles: ['admin'],
+    grantsRoles: ['store_manager'],
+    assignable: true,
+  },
+  {
     key: 'salla-purchase-requests',
     title: 'طلبات الشراء',
     description: 'طلب شراء منتجات سلة ومتابعة الطلبات قيد الشراء',
