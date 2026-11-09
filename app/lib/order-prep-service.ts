@@ -17,7 +17,7 @@ import {
   resolveOrderPrepSallaStatusId,
   resolveOrderPrepStatusName,
 } from '@/app/lib/order-prep-salla-status';
-import { checkOrderPromoLimit } from '@/app/lib/promo-limit';
+import { checkOrderPromoLimit, getPromoProductIds } from '@/app/lib/promo-limit';
 import { getViolatingPromoOrderIds } from '@/app/lib/promo-limit-monitor';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
@@ -197,23 +197,27 @@ export async function assignOldestOrderToUser(
     return null;
   }
 
-  // Classify the full candidate set so a regular order on a later page can
-  // move ahead of every 1 SAR order, while preserving oldest-first order in
-  // both groups. Batches keep Salla requests bounded.
+  // Classify from webhook-synced line items in the local database. This keeps
+  // prioritization to one local read instead of fetching every order detail
+  // from Salla before the prep page can receive its next assignment.
   const promoWindow = candidateOrders;
-  const promoDetails = new Map<string, any>();
   const promoRanks = new Map<string, number>();
-  for (let start = 0; start < promoWindow.length; start += 5) {
-    const batch = promoWindow.slice(start, start + 5);
-    await Promise.all(batch.map(async (order) => {
-      const id = extractOrderId(order);
-      if (!id) return;
-      const detail = await fetchOrderDetailWithItems(id, accessToken);
-      if (!detail) return;
-      promoDetails.set(id, detail);
-      const check = await checkOrderPromoLimit({ merchantId: MERCHANT_ID, orderId: id, orderData: detail, fetchLive: false }).catch(() => null);
-      promoRanks.set(id, check ? (check.promoUnitsInOrder ? 1 : 0) : 2);
-    }));
+  const promoProductIds = await getPromoProductIds(MERCHANT_ID).catch(() => []);
+  const candidateIdSet = new Set(orderIds);
+  const ordersWithItems = promoProductIds.length > 0
+    ? await prisma.sallaOrder.findMany({
+        where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
+        select: { orderId: true, items: { select: { productId: true } } },
+      })
+    : [];
+  const knownItemOrders = new Set(ordersWithItems.filter((order) => order.items.length > 0).map((order) => order.orderId));
+  const knownPromoOrders = new Set(ordersWithItems
+    .filter((order) => order.items.some((item) => item.productId && promoProductIds.includes(item.productId)))
+    .map((order) => order.orderId));
+  for (const id of candidateIdSet) {
+    // Unknown orders fall between known regular and known promo orders. Their
+    // full item detail is fetched only if the normal assignment scan reaches them.
+    promoRanks.set(id, !knownItemOrders.has(id) ? 1 : knownPromoOrders.has(id) ? 2 : 0);
   }
   const orderedCandidates = [
     ...[...promoWindow].sort((a, b) => (promoRanks.get(extractOrderId(a) || '') ?? 2) - (promoRanks.get(extractOrderId(b) || '') ?? 2)),
@@ -265,7 +269,7 @@ export async function assignOldestOrderToUser(
       continue;
     }
 
-    const detail = promoDetails.get(orderId) ?? await fetchOrderDetailWithItems(orderId, accessToken);
+    const detail = await fetchOrderDetailWithItems(orderId, accessToken);
     if (!detail) {
       continue;
     }
