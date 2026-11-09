@@ -70,15 +70,43 @@ export async function getActiveAssignmentsForUser(userId: string): Promise<Seria
   });
 
   const records = await releasePromoViolators(allRecords);
+  const promotableQueueRecords = await releaseUnstartedPromoAssignments(records);
   // The page shows one order (the first by prep priority). Patching the postal
   // code can call Salla, so only do it for that one; completing an order patches
   // it again anyway (updateAssignmentStatus).
-  const ordered = sortByPrepPriority(records);
+  const ordered = sortByPrepPriority(promotableQueueRecords);
   if (ordered.length > 0) {
     ordered[0] = await applyPostalPatchIfNeeded(ordered[0]);
   }
 
   return ordered.map(serializeAssignment);
+}
+
+/** Return unstarted promo orders to the shared queue while regular work exists. */
+async function releaseUnstartedPromoAssignments(records: OrderPrepAssignment[]): Promise<OrderPrepAssignment[]> {
+  const unstarted = records.filter((record) => record.status === 'assigned');
+  if (unstarted.length === 0) return records;
+
+  const checks = await Promise.all(unstarted.map((record) =>
+    checkOrderPromoLimit({
+      merchantId: record.merchantId,
+      orderId: record.orderId,
+      orderData: record.orderData,
+      fetchLive: false,
+    }).catch(() => null)
+  ));
+  const deferredIds = new Set(unstarted.flatMap((record, index) =>
+    checks[index]?.promoUnitsInOrder ? [record.id] : []
+  ));
+  if (deferredIds.size === 0) return records;
+
+  try {
+    await prisma.orderPrepAssignment.deleteMany({ where: { id: { in: [...deferredIds] }, status: 'assigned' } });
+    return records.filter((record) => !deferredIds.has(record.id));
+  } catch (error) {
+    log.error('Failed to defer unstarted 1 SAR promo assignments', { error });
+    return records;
+  }
 }
 
 /**
@@ -169,6 +197,28 @@ export async function assignOldestOrderToUser(
     return null;
   }
 
+  // Classify the full candidate set so a regular order on a later page can
+  // move ahead of every 1 SAR order, while preserving oldest-first order in
+  // both groups. Batches keep Salla requests bounded.
+  const promoWindow = candidateOrders;
+  const promoDetails = new Map<string, any>();
+  const promoRanks = new Map<string, number>();
+  for (let start = 0; start < promoWindow.length; start += 5) {
+    const batch = promoWindow.slice(start, start + 5);
+    await Promise.all(batch.map(async (order) => {
+      const id = extractOrderId(order);
+      if (!id) return;
+      const detail = await fetchOrderDetailWithItems(id, accessToken);
+      if (!detail) return;
+      promoDetails.set(id, detail);
+      const check = await checkOrderPromoLimit({ merchantId: MERCHANT_ID, orderId: id, orderData: detail, fetchLive: false }).catch(() => null);
+      promoRanks.set(id, check ? (check.promoUnitsInOrder ? 1 : 0) : 2);
+    }));
+  }
+  const orderedCandidates = [
+    ...[...promoWindow].sort((a, b) => (promoRanks.get(extractOrderId(a) || '') ?? 2) - (promoRanks.get(extractOrderId(b) || '') ?? 2)),
+  ];
+
   const [existingAssignments, existingShipments, escalatedOrders] = await Promise.all([
     prisma.orderPrepAssignment.findMany({
       where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
@@ -193,7 +243,7 @@ export async function assignOldestOrderToUser(
   const escalatedIds = new Set(escalatedOrders.map((record) => record.orderId));
   const promoViolatorIds = await promoViolatorsPromise;
 
-  for (const order of candidateOrders) {
+  for (const order of orderedCandidates) {
     const orderId = extractOrderId(order);
     if (!orderId || assignedIds.has(orderId) || escalatedIds.has(orderId)) {
       continue;
@@ -215,7 +265,7 @@ export async function assignOldestOrderToUser(
       continue;
     }
 
-    const detail = await fetchOrderDetailWithItems(orderId, accessToken);
+    const detail = promoDetails.get(orderId) ?? await fetchOrderDetailWithItems(orderId, accessToken);
     if (!detail) {
       continue;
     }
