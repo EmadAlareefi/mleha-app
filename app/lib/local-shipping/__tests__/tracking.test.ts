@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildLocalTrackingWhere, localTrackingSelect } from '../tracking-query';
-import { localShipmentLocation, RETURN_PICKUP_STATUSES } from '../tracking';
+import { localShipmentLocation, RETURN_PICKUP_STATUSES, returnPickupStatusLabel } from '../tracking';
 
 test('search, exact shipment and status remain intersected', () => {
   const where = buildLocalTrackingWhere({ id: 'shipment-1', search: '123', status: 'failed' });
@@ -30,9 +30,16 @@ test('staff selection excludes credentials and OTP fields and selects only retur
 test('location reflects custody without claiming a location after failed or cancelled delivery', () => {
   assert.match(localShipmentLocation('assigned', 'المستودع الرئيسي'), /المستودع الرئيسي/);
   assert.match(localShipmentLocation('picked_up'), /مع مندوب/);
-  assert.match(localShipmentLocation('delivered'), /للعميل/);
+  assert.match(localShipmentLocation('delivered'), /العميل/);
   assert.match(localShipmentLocation('failed'), /راجع المندوب/);
   assert.match(localShipmentLocation('cancelled'), /غير مؤكد/);
   assert.match(localShipmentLocation('unexpected'), /لا يتوفر/);
-  assert.match(RETURN_PICKUP_STATUSES.agent_completed, /بانتظار التأكيد/);
+  assert.match(RETURN_PICKUP_STATUSES.agent_completed, /تم استلام المرتجع من العميل/);
+  assert.match(RETURN_PICKUP_STATUSES.completed, /تم تسليم المرتجع للمستودع/);
+});
+
+test('failed pickup attempts are called out while the task is still open', () => {
+  assert.match(returnPickupStatusLabel('pending', 'تعذّر الاستلام (09/11, 10:00): العميل لا يرد'), /تعذر استلام المرتجع/);
+  assert.equal(returnPickupStatusLabel('pending', null), RETURN_PICKUP_STATUSES.pending);
+  assert.equal(returnPickupStatusLabel('completed', 'تعذّر الاستلام سابقاً'), RETURN_PICKUP_STATUSES.completed);
 });
