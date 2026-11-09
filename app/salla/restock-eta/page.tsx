@@ -573,8 +573,10 @@ export default function RestockEtaPage() {
         )}
       </div>
 
+      {/* `today` is only known after mount; the editor formats dates from it. */}
+      {today && (
       <EtaEditor
-        open={!!editing && !!today}
+        open={!!editing}
         title={editing?.length === 1 ? editing[0].n : `${editing?.length ?? 0} منتجات`}
         subtitle={
           editing?.length === 1
@@ -592,6 +594,7 @@ export default function RestockEtaPage() {
         onSave={(days) => editing && void save(editing, addDays(today, days))}
         onClear={() => editing && void save(editing, null)}
       />
+      )}
     </AppPageShell>
   );
 }
