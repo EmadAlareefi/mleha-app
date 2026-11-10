@@ -22,6 +22,8 @@ export type StationView = {
     printedByName: string | null;
     labelReadyAt: string | null;
     creatingAt: string | null;
+    /** The shipper may ask Salla again (failed, or label late). */
+    canRetry: boolean;
   } | null;
   order: PrepOrder;
   prep: {

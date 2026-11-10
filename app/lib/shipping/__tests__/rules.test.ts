@@ -113,3 +113,15 @@ test('pickOutgoingShipment: skips returns, cancelled and label-less entries', as
   assert.equal(pickOutgoingShipment([{ ...outgoing, type: 'return' }, { ...outgoing, id: 2 }])?.id, '2');
   assert.equal(pickOutgoingShipment(null), null);
 });
+
+test('canRetryAtStation: failed, or a label late by 3+ minutes', async () => {
+  const { canRetryAtStation } = await import('@/app/lib/shipping/rules');
+  const now = Date.UTC(2026, 10, 10, 18, 0);
+  const ago = (minutes: number) => new Date(now - minutes * 60_000);
+  assert.equal(canRetryAtStation({ state: 'failed', creatingAt: null, nowMs: now }), true);
+  assert.equal(canRetryAtStation({ state: 'awaiting_label', creatingAt: ago(1), nowMs: now }), false);
+  assert.equal(canRetryAtStation({ state: 'awaiting_label', creatingAt: ago(3), nowMs: now }), true);
+  assert.equal(canRetryAtStation({ state: 'awaiting_label', creatingAt: null, nowMs: now }), false);
+  assert.equal(canRetryAtStation({ state: 'creating', creatingAt: ago(20), nowMs: now }), false);
+  assert.equal(canRetryAtStation({ state: 'label_ready', creatingAt: ago(20), nowMs: now }), false);
+});

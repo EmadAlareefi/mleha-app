@@ -188,7 +188,18 @@ export function nextBackoffMs(attempts: number, retryAfterMs?: number | null): n
 /** A label still missing this long after the create call is checked live. */
 export const LABEL_RECONCILE_AFTER_MS = 3 * 60_000;
 /** …and after this long it's handed to a person. */
-export const LABEL_GIVE_UP_AFTER_MS = 30 * 60_000;
+export const LABEL_GIVE_UP_AFTER_MS = 10 * 60_000;
+
+/**
+ * May the shipper ask again from the station? A failed create, or a label
+ * that hasn't come a few minutes after Salla accepted the request (the retry
+ * checks Salla's shipments first, so it never makes a second waybill).
+ */
+export function canRetryAtStation(input: { state: string; creatingAt: Date | null; nowMs?: number }): boolean {
+  if (input.state === 'failed') return true;
+  if (input.state !== 'awaiting_label' || !input.creatingAt) return false;
+  return (input.nowMs ?? Date.now()) - input.creatingAt.getTime() >= LABEL_RECONCILE_AFTER_MS;
+}
 
 export const STATE_LABELS: Record<ShippingState, string> = {
   queued: 'بانتظار إنشاء الشحنة',

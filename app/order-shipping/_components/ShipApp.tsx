@@ -155,6 +155,14 @@ export default function ShipApp({ userName, isSupervisor }: { userName: string; 
     }
   }, [runAction]);
 
+  // Ask Salla again; the label then prints by itself when it arrives.
+  const retryCreate = useCallback(async () => {
+    const current = viewRef.current;
+    if (!current) return;
+    const ok = await runAction('create', '/api/shipping-v2/create-now', { orderId: current.orderId });
+    if (ok) setPrintWhenReady(true);
+  }, [runAction]);
+
   // A label still on its way: poll, and print by itself if asked to.
   const waiting = Boolean(view?.state && WAITING.has(view.state)) || Boolean(view && !view.state && view.prep.packed);
   useEffect(() => {
@@ -215,11 +223,14 @@ export default function ShipApp({ userName, isSupervisor }: { userName: string; 
       case 'queued':
       case 'creating':
       case 'awaiting_label':
+        if (view.task?.canRetry) {
+          return { label: '🔄 البوليصة تأخرت — أعد الطلب', disabled: false, onClick: () => void retryCreate() };
+        }
         return printWhenReady
           ? { label: '⏳ ستُطبع فور وصولها', disabled: true, onClick: () => undefined }
           : { label: '🖨 اطبع عند الجاهزية', disabled: false, onClick: () => setPrintWhenReady(true) };
       case 'failed':
-        return { label: '🔄 أعد إنشاء الشحنة', disabled: false, onClick: () => void runAction('create', '/api/shipping-v2/create-now', { orderId: view.orderId }) };
+        return { label: '🔄 أعد إنشاء الشحنة', disabled: false, onClick: () => void retryCreate() };
       case 'needs_agent':
         return { label: '🛵 اختر المندوب', disabled: false, onClick: () => setAgentOpen(true) };
       case 'manual_international':

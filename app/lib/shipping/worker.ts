@@ -303,7 +303,7 @@ export async function reconcileAwaitingLabels(options: { limit?: number; budgetM
     if (waitedMs > LABEL_GIVE_UP_AFTER_MS) {
       await release(task, {
         state: 'failed',
-        lastError: 'لم تصل البوليصة من سلة خلال 30 دقيقة — تحقق من الطلب في سلة ثم أعد المحاولة',
+        lastError: `لم تصل البوليصة من سلة خلال ${Math.round(LABEL_GIVE_UP_AFTER_MS / 60_000)} دقائق — تحقق من الطلب في سلة ثم أعد المحاولة`,
       });
       results.failed += 1;
     } else {

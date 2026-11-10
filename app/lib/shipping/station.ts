@@ -7,7 +7,7 @@ import { STATUS_IDS } from '@/SALLA_ORDER_STATUSES';
 import { loadLocations } from '@/app/lib/order-prep/locations';
 import { buildPrepOrder } from '@/app/lib/order-prep/payload';
 import { getShippingCompanyName } from '@/app/lib/shipping-company';
-import { decidePrint, normalizeCode, STATE_LABELS, type ShippingState } from './rules';
+import { canRetryAtStation, decidePrint, normalizeCode, STATE_LABELS, type ShippingState } from './rules';
 import { printLabelUrl, resolveLabelPrinter } from './printing';
 import { ensureShippingTask, MERCHANT_ID, methodForOrder } from './tasks';
 import type { StationError, StationView } from './types';
@@ -142,6 +142,7 @@ export async function getStationView(orderId: string): Promise<{ view: StationVi
           printedByName: task.printedByName,
           labelReadyAt: iso(task.labelReadyAt),
           creatingAt: iso(task.creatingAt),
+          canRetry: task.method === 'salla' && canRetryAtStation({ state: task.state, creatingAt: task.creatingAt }),
         }
       : null,
     order: { ...card, shippingCompany: card.shippingCompany ?? getShippingCompanyName(order.rawOrder) },
@@ -275,26 +276,46 @@ export async function printForStation(orderId: string, user: Shipper, printKey: 
 }
 
 /**
- * "Create the shipment now" — for an order that didn't come through prep, or
- * one whose create failed. Runs the same worker step, capped so the station
- * isn't left waiting on Salla.
+ * "Create the shipment now" — for an order that didn't come through prep, a
+ * failed create, or a label that's late. It runs the normal worker step,
+ * which first looks at the order's shipments in Salla: a waybill that exists
+ * is taken, never made twice. Capped so the station isn't left waiting.
  */
 export async function createNowForStation(orderId: string): Promise<Result<null>> {
   const task = await ensureShippingTask(orderId, 'manual');
   if (!task) return fail(404, 'not_found', 'لم يتم العثور على الطلب');
   if (task.method !== 'salla') return fail(409, 'wrong_method', 'هذا الطلب لا يُشحن عبر شركات سلة');
-  if (!['queued', 'failed'].includes(task.state)) {
+  const late = canRetryAtStation({ state: task.state, creatingAt: task.creatingAt });
+  if (task.state !== 'queued' && !late) {
     return { ok: true, value: null, message: STATE_LABELS[task.state as ShippingState] };
   }
-  await prisma.shippingTask.update({
-    where: { id: task.id },
-    data: { state: 'queued', attempts: 0, nextAttemptAt: new Date(), lastError: null, source: task.source === 'prep' ? 'prep' : 'manual' },
+  const now = new Date();
+  const moved = await prisma.shippingTask.updateMany({
+    where: {
+      id: task.id,
+      state: task.state,
+      OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }],
+    },
+    data: {
+      state: 'queued',
+      attempts: 0,
+      nextAttemptAt: now,
+      lastError: null,
+      source: task.source === 'prep' ? 'prep' : 'manual',
+    },
   });
+  if (moved.count === 0) return fail(409, 'busy', 'جاري التحقق من الشحنة — حاول بعد لحظات');
   const outcome = await Promise.race([
     processShippingTask(task.id, { force: true }),
     new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 10_000)),
   ]);
-  return { ok: true, value: null, message: outcome === 'created' ? 'طُلبت الشحنة من سلة' : undefined };
+  const messages: Record<string, string> = {
+    created: 'أُعيد طلب الشحنة من سلة — تُطبع فور وصولها',
+    adopted: 'وُجدت البوليصة في سلة',
+    blocked: 'تعذر الطلب — راجع السبب',
+    retry: 'تعذر الاتصال بسلة — ستُعاد المحاولة تلقائياً',
+  };
+  return { ok: true, value: null, message: messages[outcome] };
 }
 
 /**
