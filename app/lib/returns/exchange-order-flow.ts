@@ -4,6 +4,7 @@ import { log } from '@/app/lib/logger';
 import { createSallaCoupon, deleteSallaCoupon, generateCouponCode } from '@/app/lib/salla-coupons';
 import { sendWhatsAppTemplate } from '@/app/lib/zoko';
 import { normalizeKSA } from '@/app/lib/phone';
+import { env } from '@/app/lib/env';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 import { computeRequestAmounts } from '@/app/lib/returns/exchange-coupon';
 import { withStaffLock, STAFF_LOCK_MESSAGE } from '@/app/lib/returns/request-lock';
@@ -138,13 +139,14 @@ export const productionExchangeDeps: ExchangeFlowDeps = {
   },
   deleteCoupon: deleteSallaCoupon,
   async notify(templateEnv, to, args) {
-    const templateId = process.env[templateEnv];
+    // The env var overrides; app/lib/env.ts holds the approved Zoko template ids.
+    const templateId = process.env[templateEnv] || (env as Record<string, unknown>)[templateEnv];
     const recipient = normalizeKSA(to);
     if (!templateId || !recipient) {
       log.info('Exchange notification skipped', { templateEnv, hasTemplate: Boolean(templateId), hasRecipient: Boolean(recipient) });
       return 'skipped';
     }
-    await sendWhatsAppTemplate({ to: recipient, templateId, args });
+    await sendWhatsAppTemplate({ to: recipient, templateId: String(templateId), args });
     return 'sent';
   },
   async computeCredit(requestId) {

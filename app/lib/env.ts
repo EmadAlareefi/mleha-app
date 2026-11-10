@@ -14,6 +14,13 @@ export const env = {
     "return_order_label_created_ar",
   ZOKO_TPL_ASSIGNED_WELCOME:
     process.env.ZOKO_TPL_ASSIGNED_WELCOME || "assigned_welcome_ar",
+  // Replacement (exchange) orders. Approved in Zoko as Arabic templates.
+  // Args: 1 name, 2 order number, 3 amount due, 4 payment link.
+  ZOKO_TPL_EXCHANGE_PAYMENT_PENDING:
+    process.env.ZOKO_TPL_EXCHANGE_PAYMENT_PENDING || "zoko_tpl_exchange_payment_pending",
+  // Args: 1 name, 2 order number.
+  ZOKO_TPL_EXCHANGE_ORDER_EXPIRED:
+    process.env.ZOKO_TPL_EXCHANGE_ORDER_EXPIRED || "zoko_tpl_exchange_order_expired",
   // Back-in-stock template. Positional args: 1 product link.
   // Must exist and be approved in Zoko.
   ZOKO_TPL_PRODUCT_BACK_IN_STOCK:
