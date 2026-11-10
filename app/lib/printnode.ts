@@ -15,6 +15,7 @@ export const PRINTNODE_INVOICE_PAPER_NAME = 'A4‏ 210‏ ×‏ 297‏ ملم';
 export const PRINTNODE_DEFAULT_DPI = '203x203';
 const DEFAULT_LABEL_PAPER_MM = { width: 100, height: 150 } as const;
 const PRINTNODE_FETCH_TIMEOUT_MS = 7000;
+const PRINTNODE_PRINTJOB_TIMEOUT_MS = 8000;
 const LABEL_PRINTER_SIZE_OVERRIDES: Record<number, LabelPrinterSizing> = {
   75006700: {
     fitToPage: true,
@@ -99,6 +100,7 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
     };
 
     const basicAuth = Buffer.from(`${PRINTNODE_API_KEY}:`).toString('base64');
+    // A slow PrintNode call must not hold the request until the function times out.
     const response = await fetch(PRINTNODE_PRINTJOBS_URL, {
       method: 'POST',
       headers: {
@@ -106,6 +108,7 @@ export async function sendPrintJob(options: PrintJobOptions): Promise<{ success:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(printJobData),
+      signal: AbortSignal.timeout(PRINTNODE_PRINTJOB_TIMEOUT_MS),
     });
 
     if (!response.ok) {

@@ -507,6 +507,9 @@ model SallaOrder {
   orderNumber        String?
   statusSlug         String?
   statusName         String?
+  // Salla's custom status id (status.customized.id, else status.id). "طلب جديد"
+  // and its review sub-statuses share statusSlug 'under_review'; this tells them apart.
+  statusCustomId     String?
   fulfillmentStatus  String?
   paymentStatus      String?
   currency           String?
@@ -568,6 +571,7 @@ model SallaOrder {
   @@index([merchantId, customerId, placedAt])
   @@index([merchantId, trackingNumber])
   @@index([merchantId, statusSlug])
+  @@index([merchantId, statusCustomId, placedAt])
   @@index([merchantId, erpSyncedAt])
   @@index([merchantId, campaignSource])
   @@index([merchantId, campaignName])
@@ -1499,10 +1503,24 @@ model OrderPrepAssignment {
 
   lastStatusUpdateAt DateTime @updatedAt
 
+  // Prep v2 (app/lib/order-prep). A claim is held while its lease is current;
+  // the page's heartbeat renews it, and an expired one returns the order to the
+  // queue. Null on v1 rows, which v2 never expires.
+  leaseExpiresAt DateTime?
+  // Last live check of the order's Salla status, and what it found if the order
+  // is no longer packable (e.g. cancelled while it sat in the queue).
+  verifiedAt     DateTime?
+  verifyIssue    String?
+  // How the packer confirmed the items: 'scan' or 'manual'.
+  scanMethod     String?
+
   @@unique([merchantId, orderId])
   @@index([userId])
   @@index([status])
   @@index([assignedAt])
+  @@index([userId, status, assignedAt])
+  @@index([merchantId, status, leaseExpiresAt])
+  @@index([completedAt])
 }
 
 model OrderPrepUnavailableItem {
@@ -1519,6 +1537,11 @@ model OrderPrepUnavailableItem {
   resolvedAt     DateTime?
   resolvedById   String?
   resolvedByName String?
+  // Why the packer reported it: 'not_found' | 'damaged' | 'coming_soon' | 'other'.
+  reason         String?
+  // How it was closed: 'refunded' | 'found' | 'undone'. Null on older rows,
+  // which /order-shortages keeps treating as refunded.
+  resolution     String?
 
   @@unique([merchantId, orderId, normalizedSku])
   @@index([merchantId])
@@ -1543,6 +1566,35 @@ model OrderPrepEscalation {
 
   @@index([merchantId, orderId])
   @@index([merchantId, resolvedAt])
+}
+
+/// Outbox of Salla status changes made by order prep. Packing never waits on
+/// Salla: the action writes a row here and a worker (after() + a minute cron)
+/// applies it with a live compare-and-set check and retries.
+model OrderPrepSallaSync {
+  id             String    @id @default(cuid())
+  merchantId     String
+  orderId        String
+  orderNumber    String?
+  kind           String // 'packed' | 'exception' | 'requeue'
+  targetStatusId Int
+  note           String?   @db.Text
+  assignmentId   String?
+  escalationId   String?
+  state          String    @default("pending") // pending | synced | failed | conflict | dismissed
+  attempts       Int       @default(0)
+  lastError      String?   @db.Text
+  liveStatus     String? // Salla status seen by the worker, kept for conflicts
+  nextAttemptAt  DateTime  @default(now())
+  lockedUntil    DateTime?
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  syncedAt       DateTime?
+
+  @@index([state, nextAttemptAt])
+  @@index([merchantId, orderId])
 }
 
 model HighPriorityOrder {

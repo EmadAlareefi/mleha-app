@@ -14,6 +14,8 @@ import {
   extractReferenceId,
   extractPaymentMethod,
   deriveStatusInfo,
+  deriveStatusCustomId,
+  isOutOfOrderPayload,
   extractCampaign,
 } from '@/app/lib/salla-orders';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
@@ -54,6 +56,19 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       orderId,
     });
     return { success: false };
+  }
+
+  // Webhooks can arrive out of order; an older payload must not roll the order
+  // (status, items) back. Only the small updated_at field is read.
+  const stored = await prisma.$queryRaw<Array<{ updatedAt: unknown }>>`
+    SELECT "rawOrder"->'updated_at' AS "updatedAt"
+    FROM "SallaOrder"
+    WHERE "merchantId" = ${merchantId} AND "orderId" = ${orderId}
+    LIMIT 1
+  `.catch(() => []);
+  if (stored.length > 0 && isOutOfOrderPayload(order, stored[0].updatedAt)) {
+    log.info('Skipped out-of-order Salla order payload', { merchantId, orderId });
+    return { success: true, orderId, merchantId };
   }
 
   const customer = extractCustomer(order);
@@ -112,6 +127,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       orderNumber: extractOrderNumber(order) ?? undefined,
       statusSlug: statusSlug ?? undefined,
       statusName: statusName ?? undefined,
+      statusCustomId: deriveStatusCustomId(order) ?? undefined,
       fulfillmentStatus: extractFulfillmentStatus(order) ?? undefined,
       paymentStatus: extractPaymentStatus(order) ?? undefined,
       currency: currency ?? undefined,
@@ -147,6 +163,7 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
       orderNumber: extractOrderNumber(order) ?? undefined,
       statusSlug: statusSlug ?? undefined,
       statusName: statusName ?? undefined,
+      statusCustomId: deriveStatusCustomId(order) ?? undefined,
       fulfillmentStatus: extractFulfillmentStatus(order) ?? undefined,
       paymentStatus: extractPaymentStatus(order) ?? undefined,
       currency: currency ?? undefined,

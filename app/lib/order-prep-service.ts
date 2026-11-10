@@ -29,7 +29,18 @@ const DEFAULT_STATUS_FILTERS = ['under_review', '449146439', '566146469'];
 
 export type SerializedOrderPrepAssignment = Omit<
   OrderPrepAssignment,
-  'orderData' | 'assignedAt' | 'startedAt' | 'waitingAt' | 'completedAt' | 'cancelledAt' | 'lastStatusUpdateAt'
+  | 'orderData'
+  | 'assignedAt'
+  | 'startedAt'
+  | 'waitingAt'
+  | 'completedAt'
+  | 'cancelledAt'
+  | 'lastStatusUpdateAt'
+  // Prep v2 fields (app/lib/order-prep); the old page doesn't use them.
+  | 'leaseExpiresAt'
+  | 'verifiedAt'
+  | 'verifyIssue'
+  | 'scanMethod'
 > & {
   orderData: Prisma.JsonValue;
   assignedAt: string;
@@ -577,7 +588,7 @@ const SAUDI_COUNTRY_NAMES = new Set([
   'السعودية',
 ]);
 
-async function ensureInternationalPostalCode(
+export async function ensureInternationalPostalCode(
   assignment: OrderPrepAssignment,
 ): Promise<Prisma.JsonValue | null> {
   if (!assignment.merchantId || !assignment.orderId) {

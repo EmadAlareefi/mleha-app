@@ -1066,7 +1066,8 @@ function AssignmentCard({
         const response = await fetch('/api/order-prep/unavailable-items', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recordId: record.id }),
+          // Undoing a mistaken mark is not a refund (/order-shortages tells them apart).
+          body: JSON.stringify({ recordId: record.id, resolution: 'undone' }),
         });
         const data = await response.json();
         if (!response.ok || !data?.success) {

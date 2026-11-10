@@ -474,12 +474,15 @@ export async function promoLimitBlock(params: {
   context: string;
   userId?: string | null;
   orderNumber?: string | null;
+  /** false: decide from stored (webhook-synced) items without calling Salla. */
+  fetchLive?: boolean;
 }): Promise<{ code: string; error: string; promoLimit: PromoOrderCheck } | null> {
   try {
     const check = await checkOrderPromoLimit({
       merchantId: params.merchantId,
       orderId: params.orderId,
       orderData: params.orderData,
+      fetchLive: params.fetchLive,
     });
     if (!check.violation) return null;
     const details = {

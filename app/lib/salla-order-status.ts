@@ -5,6 +5,21 @@ interface UpdateStatusOptions {
   statusId?: string | number | null;
   slug?: string | null;
   subStatusId?: string | number | null;
+  /** Abort the request after this many ms (no timeout when omitted). */
+  timeoutMs?: number;
+}
+
+export type SallaWriteResult = {
+  success: boolean;
+  error?: string;
+  /** HTTP status when Salla answered. */
+  httpStatus?: number;
+  /** Raw Retry-After header on a 429. */
+  retryAfter?: string | null;
+};
+
+function timeoutSignal(timeoutMs?: number): AbortSignal | undefined {
+  return typeof timeoutMs === 'number' && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
 }
 
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -13,7 +28,7 @@ export async function updateSallaOrderStatus(
   merchantId: string,
   orderId: string,
   options: UpdateStatusOptions
-): Promise<{ success: boolean; error?: string }> {
+): Promise<SallaWriteResult> {
   if (!merchantId || !orderId) {
     return { success: false, error: 'missing_ids' };
   }
@@ -66,6 +81,7 @@ export async function updateSallaOrderStatus(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: timeoutSignal(options.timeoutMs),
     });
 
     if (!response.ok) {
@@ -77,7 +93,12 @@ export async function updateSallaOrderStatus(
         responseStatus: response.status,
         errorText,
       });
-      return { success: false, error: errorText || `status_${response.status}` };
+      return {
+        success: false,
+        error: errorText || `status_${response.status}`,
+        httpStatus: response.status,
+        retryAfter: response.headers.get('retry-after'),
+      };
     }
 
     log.info('Salla order status updated', {
@@ -102,8 +123,9 @@ export async function updateSallaOrderStatus(
 export async function createSallaOrderHistoryEntry(
   merchantId: string,
   orderId: string,
-  comment: string
-): Promise<{ success: boolean; error?: string }> {
+  comment: string,
+  options: { timeoutMs?: number } = {}
+): Promise<SallaWriteResult> {
   const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
   if (!merchantId || !orderId || !trimmedComment) {
     return { success: false, error: 'missing_history_comment' };
@@ -128,6 +150,7 @@ export async function createSallaOrderHistoryEntry(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: timeoutSignal(options.timeoutMs),
     });
 
     if (!response.ok) {
@@ -138,7 +161,12 @@ export async function createSallaOrderHistoryEntry(
         responseStatus: response.status,
         errorText,
       });
-      return { success: false, error: errorText || `history_${response.status}` };
+      return {
+        success: false,
+        error: errorText || `history_${response.status}`,
+        httpStatus: response.status,
+        retryAfter: response.headers.get('retry-after'),
+      };
     }
 
     log.info('Salla order history entry created', { merchantId, orderId });

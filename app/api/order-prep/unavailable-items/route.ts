@@ -42,6 +42,8 @@ const serializeRecord = (record: OrderPrepUnavailableItem) => ({
   resolvedAt: record.resolvedAt ? record.resolvedAt.toISOString() : null,
   resolvedById: record.resolvedById,
   resolvedByName: record.resolvedByName,
+  reason: record.reason,
+  resolution: record.resolution,
 });
 
 export async function GET(request: NextRequest) {
@@ -122,6 +124,7 @@ export async function POST(request: NextRequest) {
         resolvedAt: null,
         resolvedById: null,
         resolvedByName: null,
+        resolution: null,
       },
       create: {
         merchantId: MERCHANT_ID,
@@ -187,9 +190,14 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    const resolution =
+      body?.resolution === 'refunded' || body?.resolution === 'undone' || body?.resolution === 'found'
+        ? body.resolution
+        : null;
     const resolved = await prisma.orderPrepUnavailableItem.update({
       where: { id: existing.id },
       data: {
+        resolution,
         resolvedAt: new Date(),
         resolvedById: (session.user as any)?.id || null,
         resolvedByName:

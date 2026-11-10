@@ -326,6 +326,59 @@ export function deriveStatusInfo(order: AnyRecord): { slug: string | null; name:
   return { slug, name };
 }
 
+/**
+ * Salla's custom status id: `status.customized.id`, else the base `status.id`.
+ * "طلب جديد" (449146439) and its review sub-statuses (X4, تحت المراجعة R, …) all
+ * share the base status 566146469 and slug 'under_review'; only this id tells
+ * them apart. The migration that adds the column backfills it with the same rule.
+ */
+export function deriveStatusCustomId(order: AnyRecord): string | null {
+  const status = order?.status;
+  if (!status || typeof status !== 'object') return null;
+  const customized = (status as AnyRecord).customized;
+  const customizedId =
+    customized && typeof customized === 'object' ? normalizers.id((customized as AnyRecord).id) : null;
+  const id = customizedId || normalizers.id((status as AnyRecord).id);
+  return id && id.trim() ? id.trim() : null;
+}
+
+/**
+ * Salla's own "last updated" stamp in the shape it sends ({ date, timezone }),
+ * as a sortable key. Null when the payload carries no such object, e.g. some
+ * list payloads.
+ */
+export function remoteUpdatedKey(order: AnyRecord): { timezone: string; date: string } | null {
+  const candidates = [order?.updated_at, order?.date?.updated];
+  for (const candidate of candidates) {
+    if (
+      candidate &&
+      typeof candidate === 'object' &&
+      typeof (candidate as AnyRecord).date === 'string' &&
+      typeof (candidate as AnyRecord).timezone === 'string'
+    ) {
+      return {
+        timezone: (candidate as AnyRecord).timezone as string,
+        date: ((candidate as AnyRecord).date as string).trim(),
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * True when an incoming payload is older than the one already stored, so
+ * applying it would roll the order back (webhooks can arrive out of order).
+ * Compares Salla's own date strings ("YYYY-MM-DD HH:mm:ss.ffffff") only when
+ * both are in the same timezone, so no server-timezone parsing is involved; in
+ * any other case the payload is applied, as before.
+ */
+export function isOutOfOrderPayload(incoming: AnyRecord, storedUpdatedAt: unknown): boolean {
+  const next = remoteUpdatedKey(incoming);
+  const prev = remoteUpdatedKey({ updated_at: storedUpdatedAt });
+  if (!next || !prev || next.timezone !== prev.timezone) return false;
+  return next.date < prev.date;
+}
+
 export function extractCampaign(order: AnyRecord): {
   source: string | null;
   medium: string | null;
@@ -493,6 +546,7 @@ async function syncOrdersForMerchant(
             orderNumber: extractOrderNumber(order) ?? undefined,
             statusSlug: statusInfo.slug ?? undefined,
             statusName: statusInfo.name ?? undefined,
+            statusCustomId: deriveStatusCustomId(order) ?? undefined,
             fulfillmentStatus: extractFulfillmentStatus(order) ?? undefined,
             paymentStatus: extractPaymentStatus(order) ?? undefined,
             currency: currency ?? undefined,
@@ -530,6 +584,7 @@ async function syncOrdersForMerchant(
             orderNumber: extractOrderNumber(order) ?? undefined,
             statusSlug: statusInfo.slug ?? undefined,
             statusName: statusInfo.name ?? undefined,
+            statusCustomId: deriveStatusCustomId(order) ?? undefined,
             fulfillmentStatus: extractFulfillmentStatus(order) ?? undefined,
             paymentStatus: extractPaymentStatus(order) ?? undefined,
             currency: currency ?? undefined,

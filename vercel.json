@@ -30,6 +30,18 @@
     {
       "path": "/api/expenses/sync-invoices",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/order-prep/v2/sync",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/order-prep/v2/reconcile",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/order-prep/v2/reconcile?mode=full",
+      "schedule": "30 23 * * *"
     }
   ]
 }

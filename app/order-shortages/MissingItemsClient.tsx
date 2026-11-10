@@ -19,7 +19,13 @@ interface UnavailableItemRecord {
   createdAt: string;
   resolvedAt?: string | null;
   resolvedByName?: string | null;
+  /** 'refunded' | 'found' | 'undone'; null on older rows (counted as refunded). */
+  resolution?: string | null;
 }
+
+// Only refunds belong in the refunded tab; found items and undone marks are closed but not refunded.
+const isRefunded = (item: { resolvedAt?: string | null; resolution?: string | null }) =>
+  Boolean(item.resolvedAt) && (!item.resolution || item.resolution === 'refunded');
 
 const formatDateTime = (value: string | null) => {
   if (!value) return '—';
@@ -98,7 +104,7 @@ export default function MissingItemsClient() {
     [items]
   );
   const refundedCount = useMemo(
-    () => items.filter((item) => item.resolvedAt).length,
+    () => items.filter(isRefunded).length,
     [items]
   );
 
@@ -107,7 +113,7 @@ export default function MissingItemsClient() {
     [filteredItems]
   );
   const refundedItems = useMemo(
-    () => filteredItems.filter((item) => item.resolvedAt),
+    () => filteredItems.filter(isRefunded),
     [filteredItems]
   );
   const displayedItems = activeTab === 'pending' ? pendingItems : refundedItems;
@@ -122,7 +128,7 @@ export default function MissingItemsClient() {
         const response = await fetch('/api/order-prep/unavailable-items', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recordId: record.id }),
+          body: JSON.stringify({ recordId: record.id, resolution: 'refunded' }),
         });
         const data = await response.json();
         if (!response.ok || !data?.success) {
