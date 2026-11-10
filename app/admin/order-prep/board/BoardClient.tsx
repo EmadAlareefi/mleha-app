@@ -7,6 +7,7 @@ import type { BoardData } from '@/app/lib/order-prep/board';
 import { formatAgeAr, orderAgeMs } from '@/app/lib/order-prep/riyadh-time';
 import type { PrepSettings } from '@/app/lib/order-prep/settings';
 import { cn } from '@/lib/utils';
+import { AnalyticsSection } from '@/app/admin/order-prep/_components/analytics/AnalyticsSection';
 
 const REFRESH_MS = 15_000;
 
@@ -105,6 +106,8 @@ export default function BoardClient() {
           <Bucket label="أكثر من 4 أيام" value={board.stats.buckets.gt4d} tone="danger" />
         </div>
       </section>
+
+      <AnalyticsSection kind="prep" />
 
       <section className="rounded-xl border bg-card p-4">
         <div className="mb-3 flex items-center justify-between">

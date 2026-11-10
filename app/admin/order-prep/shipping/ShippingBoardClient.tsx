@@ -7,6 +7,7 @@ import type { BoardTask, ShippingBoardData } from '@/app/lib/shipping/board';
 import { formatAgeAr } from '@/app/lib/order-prep/riyadh-time';
 import { STATE_LABELS, type ShippingState } from '@/app/lib/shipping/rules';
 import { cn } from '@/lib/utils';
+import { AnalyticsSection } from '@/app/admin/order-prep/_components/analytics/AnalyticsSection';
 
 const REFRESH_MS = 15_000;
 const since = (iso: string) => formatAgeAr(Math.max(0, Date.now() - Date.parse(iso)));
@@ -93,6 +94,8 @@ export default function ShippingBoardClient() {
           <Bucket label="أكثر من يوم" value={board.waitingByAge.over24h} tone="danger" />
         </div>
       </section>
+
+      <AnalyticsSection kind="shipping" />
 
       <section className="rounded-xl border bg-card p-4">
         <div className="mb-3 flex items-center justify-between">
