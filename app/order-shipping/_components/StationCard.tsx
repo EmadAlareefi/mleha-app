@@ -134,9 +134,9 @@ export function StationCard({ view }: { view: StationView }) {
               key={item.key}
               className={cn('flex gap-3 rounded-2xl border bg-card p-2', isShort && 'border-red-400 bg-red-50 opacity-80')}
             >
-              <div className="relative h-36 w-28 shrink-0 overflow-hidden rounded-xl bg-muted">
+              <div className="relative h-52 w-40 shrink-0 overflow-hidden rounded-xl bg-muted">
                 {item.imageUrl ? (
-                  <Image src={item.imageUrl} alt={item.name} fill unoptimized priority sizes="112px" className="object-cover" />
+                  <Image src={item.imageUrl} alt={item.name} fill unoptimized priority sizes="160px" className="object-cover" />
                 ) : (
                   <Package className="absolute inset-0 m-auto h-10 w-10 text-muted-foreground" />
                 )}
@@ -157,7 +157,7 @@ export function StationCard({ view }: { view: StationView }) {
                   </span>
                   {item.color && <span className="text-sm text-muted-foreground">{item.color}</span>}
                 </div>
-                {item.sku && <p className="font-mono text-xs text-muted-foreground">{item.sku}</p>}
+                {item.sku && <p className="break-all font-mono text-lg font-bold text-foreground">{item.sku}</p>}
                 {isShort && <p className="text-sm font-bold text-red-700">ناقص عند التجهيز — لا يُشحن</p>}
               </div>
             </li>
