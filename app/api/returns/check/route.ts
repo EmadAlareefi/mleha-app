@@ -288,6 +288,7 @@ export async function POST(request: NextRequest) {
         reasonDetails: ret.reasonDetails,
         smsaTrackingNumber: ret.smsaTrackingNumber,
         totalRefundAmount: ret.totalRefundAmount,
+        couponAmount: ret.couponAmount,
         returnFee: ret.returnFee,
         shippingAmount: ret.shippingAmount,
         currency: ret.currency,

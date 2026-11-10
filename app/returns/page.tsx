@@ -539,16 +539,32 @@ export default function ReturnsPage() {
                       </div>
                     </div>
 
-                    {returnReq.totalRefundAmount && (
-                      <div className="border-t pt-4 mt-4">
-                        <div className="flex justify-between">
-                          <span className="font-medium">المبلغ المتوقع للإرجاع:</span>
-                          <span className="font-bold text-lg">
-                            {formatReturnMoney(returnReq.totalRefundAmount, returnReq.currency)}
-                          </span>
+                    {(() => {
+                      // On exchange-only requests totalRefundAmount stores the exchange
+                      // credit; it is never money back.
+                      const refund = returnReq.type !== 'exchange' ? returnReq.totalRefundAmount : null;
+                      const credit =
+                        returnReq.type === 'return'
+                          ? null
+                          : returnReq.couponAmount ?? (returnReq.type === 'exchange' ? returnReq.totalRefundAmount : null);
+                      if (!Number(refund) && !Number(credit)) return null;
+                      return (
+                        <div className="border-t pt-4 mt-4 space-y-2">
+                          {Number(refund) > 0 && (
+                            <div className="flex justify-between">
+                              <span className="font-medium">المبلغ المتوقع للإرجاع:</span>
+                              <span className="font-bold text-lg">{formatReturnMoney(refund, returnReq.currency)}</span>
+                            </div>
+                          )}
+                          {Number(credit) > 0 && (
+                            <div className="flex justify-between">
+                              <span className="font-medium">رصيد الاستبدال:</span>
+                              <span className="font-bold text-lg">{formatReturnMoney(credit, returnReq.currency)}</span>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {['pending_review', 'approved'].includes(returnReq.status) && (
                       <div className="border-t pt-4 mt-4">

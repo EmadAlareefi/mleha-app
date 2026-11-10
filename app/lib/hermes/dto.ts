@@ -462,7 +462,8 @@ export function presentReturn(row: ReturnRow) {
     reason_label_ar: returnReasonLabel(row.reason),
     created_at: iso(row.createdAt),
     updated_at: iso(row.updatedAt),
-    refund_amount: formatMoney(row.totalRefundAmount),
+    // On exchange-only requests totalRefundAmount stores the exchange credit, not money back.
+    refund_amount: row.type === 'exchange' ? null : formatMoney(row.totalRefundAmount),
     currency: row.currency,
     coupon_issued: row.couponIssued,
     return_tracking_number: row.returnTrackingNumber,

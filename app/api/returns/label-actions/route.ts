@@ -160,7 +160,9 @@ async function reissueAjexReturnLabel(
     prisma.returnRequest.findUnique({
       where: { id: returnRequest.id },
       select: {
+        type: true,
         totalRefundAmount: true,
+        couponAmount: true,
         currency: true,
         // The stored lines hold the quantities the customer chose on /returns.
         items: {
@@ -177,7 +179,11 @@ async function reissueAjexReturnLabel(
     merchantId: returnRequest.merchantId,
     order,
     items: stored.items,
-    declaredValue: Number(stored.totalRefundAmount) || 0,
+    // Same as creation: refund + exchange credit (exchange-only stores the credit in totalRefundAmount).
+    declaredValue:
+      stored.type === 'exchange'
+        ? Number(stored.totalRefundAmount) || 0
+        : (Number(stored.totalRefundAmount) || 0) + (Number(stored.couponAmount) || 0),
     currency: stored.currency || 'SAR',
   });
   if (!result.success || !result.trackingNumber) {
