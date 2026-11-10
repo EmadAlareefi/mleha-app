@@ -15,6 +15,8 @@ export interface SallaCoupon {
   usage_limit?: number;
   usage_limit_per_user?: number;
   active: boolean;
+  /** Salla counts only orders that reached "in progress" or later. */
+  statistics?: { num_of_usage?: number | string | null; num_of_customers?: number | string | null };
 }
 
 export interface CreateCouponRequest {
@@ -172,6 +174,18 @@ export async function getSallaCoupon(
     log.error('Error fetching Salla coupon', { error, merchantId, couponId });
     return null;
   }
+}
+
+/**
+ * How many orders used a coupon, per Salla's coupon statistics, or null when
+ * Salla can't tell us. Salla counts only orders that reached "in progress" or
+ * later, so 0 is not proof the coupon is unused: an unpaid or new order with it
+ * does not show here (see app/lib/returns/coupon-revoke.ts).
+ */
+export async function getSallaCouponUsage(merchantId: string, couponId: string): Promise<number | null> {
+  const coupon = await getSallaCoupon(merchantId, couponId);
+  const usage = Number(coupon?.statistics?.num_of_usage);
+  return coupon && coupon.statistics && Number.isFinite(usage) ? usage : null;
 }
 
 /**

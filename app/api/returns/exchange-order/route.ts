@@ -4,10 +4,13 @@ import { log } from '@/app/lib/logger';
 import { requireReturnsStaff, staffActorName } from '@/app/lib/returns/staff-auth';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
 import {
-  createExchangeOrderForRequest,
+  createStaffReplacementOrder,
+  EXCHANGE_PAYMENT_METHODS,
   expireExchangeOrder,
   productionExchangeDeps,
+  staffReplacementBlockers,
 } from '@/app/lib/returns/exchange-order-flow';
+import { revokeExchangeCoupon } from '@/app/lib/returns/coupon-revoke';
 import { getExchangeOrderState } from '@/app/lib/salla-exchange-order';
 import { listOrderTransactions, pickRefundableTransaction, refundTransaction } from '@/app/lib/salla-transactions';
 import { returnStatusPath } from '@/app/lib/returns/status-token';
@@ -16,7 +19,8 @@ import { claimProcessing } from '@/app/lib/returns/process-return';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-type Action = 'release' | 'cancel' | 'resend_link' | 'retry';
+type Action = 'release' | 'cancel' | 'resend_link' | 'retry' | 'create' | 'revoke_coupon';
+const ACTIONS: Action[] = ['release', 'cancel', 'resend_link', 'retry', 'create', 'revoke_coupon'];
 
 async function audit(id: string, step: string, result: string, by: string, details: Record<string, unknown>) {
   const current = await prisma.returnRequest.findUnique({ where: { id }, select: { processingAudit: true } });
@@ -40,11 +44,38 @@ function exchangeRefundRecorded(processingAudit: unknown, exchangeOrderId: strin
 }
 
 /**
- * POST /api/returns/exchange-order { returnRequestId, action }
- *  release     — ship the held replacement even though inspection is not all good
- *  cancel      — cancel the replacement (refunding any difference paid) and fall back to a coupon
- *  resend_link — WhatsApp the payment link again
- *  retry       — create the replacement order again after a failure
+ * GET /api/returns/exchange-order?returnRequestId=
+ * What staff need before building a replacement order: the exchange credit
+ * (as processing computes it) and anything that blocks it.
+ */
+export async function GET(request: NextRequest) {
+  const auth = await requireReturnsStaff();
+  if (auth.response) return auth.response;
+  const id = request.nextUrl.searchParams.get('returnRequestId') || '';
+  const returnRequest = id ? await prisma.returnRequest.findUnique({ where: { id }, include: { items: true } }) : null;
+  if (!returnRequest) return NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 });
+  const blockers = staffReplacementBlockers(returnRequest);
+  const { credit, currency } = await productionExchangeDeps
+    .computeCredit(id)
+    .catch(() => ({ credit: Number(returnRequest.couponAmount) || 0, currency: returnRequest.currency }));
+  return NextResponse.json({
+    success: true,
+    merchantId: returnRequest.merchantId,
+    credit,
+    currency,
+    blockers,
+    paymentMethods: EXCHANGE_PAYMENT_METHODS,
+  });
+}
+
+/**
+ * POST /api/returns/exchange-order { returnRequestId, action, ... }
+ *  create        — staff build the replacement: { lines: [{ productId, skuId, quantity }], paymentMethod?, notifyCustomer? }
+ *  release       — ship the held replacement even though inspection is not all good
+ *  cancel        — cancel the replacement (refunding any difference paid) and fall back to a coupon
+ *  resend_link   — WhatsApp the payment link again
+ *  retry         — build the replacement again from the saved products (re-priced)
+ *  revoke_coupon — delete an unused exchange coupon: { confirmUnused, confirmManualDeleted? }
  */
 export async function POST(request: NextRequest) {
   const auth = await requireReturnsStaff();
@@ -54,7 +85,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const id = typeof body?.returnRequestId === 'string' ? body.returnRequestId : '';
   const action = body?.action as Action;
-  if (!id || !['release', 'cancel', 'resend_link', 'retry'].includes(action)) {
+  if (!id || !ACTIONS.includes(action)) {
     return NextResponse.json({ error: 'طلب غير صالح' }, { status: 400 });
   }
   const returnRequest = await prisma.returnRequest.findUnique({ where: { id }, include: { exchangeLines: true } });
@@ -135,22 +166,45 @@ export async function POST(request: NextRequest) {
         await audit(id, 'exchange_order', 'info', actor, { resentPaymentLink: true, statusPath });
         return NextResponse.json({ success: true, message: 'تم إرسال رابط الدفع للعميل.' });
       }
+      case 'create':
       case 'retry': {
-        if (returnRequest.exchangeOrderId) throw new Error('طلب الاستبدال موجود مسبقاً');
-        if (returnRequest.exchangeLines.length === 0) throw new Error('لا توجد منتجات بديلة محفوظة لهذا الطلب');
-        if (returnRequest.couponCode) throw new Error('تم إصدار كوبون استبدال لهذا الطلب مسبقاً');
-        // Leave exchangePaymentStatus alone: createExchangeOrderForRequest claims
-        // it, so a creation still in flight ('creating') is not started twice.
-        await prisma.returnRequest.update({ where: { id }, data: { exchangeMode: 'order' } });
-        const result = await createExchangeOrderForRequest(id);
-        await audit(id, 'exchange_order', result.ok ? 'ok' : 'failed', actor, { retry: true, error: result.ok ? undefined : result.error });
-        if (!result.ok) throw new Error(result.error);
+        // retry: the saved products, priced again from Salla.
+        const lines =
+          action === 'retry'
+            ? returnRequest.exchangeLines.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: line.quantity }))
+            : Array.isArray(body?.lines)
+              ? body.lines
+              : [];
+        if (lines.length === 0) throw new Error('اختاري منتجاً بديلاً واحداً على الأقل');
+        const result = await createStaffReplacementOrder(id, {
+          lines,
+          paymentMethod: typeof body?.paymentMethod === 'string' ? body.paymentMethod : returnRequest.exchangePaymentMethod,
+          notifyCustomer: body?.notifyCustomer !== false,
+          actor,
+        });
+        if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+        const linkNote = result.paymentUrl
+          ? result.notification.sent
+            ? ' وأُرسل رابط الدفع للعميل على الواتساب.'
+            : ' لم يُرسل رابط الدفع تلقائياً؛ انسخيه وأرسليه للعميل.'
+          : result.released
+            ? ' الرصيد يغطي الطلب وأُرسل للتجهيز مباشرة.'
+            : ' الرصيد يغطي الطلب، وسيُحجز حتى فحص القطعة المرتجعة.';
         return NextResponse.json({
           success: true,
-          message: result.paymentUrl
-            ? `تم إنشاء طلب الاستبدال #${result.orderNumber}. أرسلي رابط الدفع للعميل.`
-            : `تم إنشاء طلب الاستبدال #${result.orderNumber}.`,
+          message: `تم إنشاء الطلب البديل #${result.orderNumber}.${linkNote}`,
+          order: result,
         });
+      }
+      case 'revoke_coupon': {
+        const result = await revokeExchangeCoupon({
+          id,
+          actor,
+          confirmUnused: body?.confirmUnused === true,
+          confirmManualDeleted: body?.confirmManualDeleted === true,
+        });
+        if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+        return NextResponse.json({ success: true, message: result.message });
       }
     }
   } catch (error) {

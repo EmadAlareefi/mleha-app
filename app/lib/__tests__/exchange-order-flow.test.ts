@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   applyExchangeOrderState,
   createExchangeOrderForRequest,
+  createStaffReplacementOrder,
   EXCHANGE_HOLD_FAILED_PREFIX,
   EXCHANGE_PIECE_FAILED_MESSAGE,
   priceExchangeCart,
@@ -142,6 +143,7 @@ function setup(request: Row, overrides: Partial<ExchangeFlowDeps> = {}) {
     echoMirrorStatus: async (...args) => {
       calls.echoed.push(args);
     },
+    computeCredit: async () => ({ credit: Number(state.request.exchangeCreditAmount) || 0, currency: 'SAR' }),
     now: () => new Date('2026-11-04T10:00:00Z'),
     ...overrides,
   };
@@ -514,3 +516,84 @@ test('a coupon already issued blocks creating a replacement order (one credit, o
   assert.equal(calls.orders.length, 0);
 });
 
+// ---------------------------------------------------------------------------
+// Staff-built replacement order
+// ---------------------------------------------------------------------------
+const staffRequest = {
+  ...baseRequest,
+  status: 'shipped',
+  processingStatus: 'idle',
+  exchangeMode: 'coupon',
+  exchangePaymentStatus: 'none',
+  exchangeCreditAmount: null,
+  exchangeLines: [],
+  couponCode: null,
+  items: [{ id: 'i1', type: 'exchange', conditionStatus: null }],
+};
+
+test('staff build the replacement: priced from Salla, order created, payment link sent on WhatsApp', async () => {
+  const { state, calls, deps } = setup(staffRequest, { computeCredit: async () => ({ credit: 170, currency: 'SAR' }) });
+  const result = await createStaffReplacementOrder(
+    'r1',
+    { lines: [{ productId: '100', skuId: '501', quantity: 1 }], paymentMethod: 'mada', actor: 'نورة' },
+    deps,
+  );
+  assert.ok(result.ok, JSON.stringify(result));
+  if (!result.ok) return;
+  assert.equal(result.paymentUrl, 'https://mtjr.at/pay');
+  assert.deepEqual(result.notification, { sent: true });
+  assert.deepEqual(calls.notify[0], ['ZOKO_TPL_EXCHANGE_PAYMENT_PENDING', '+966500000000', ['عميلة', '297842943', '75.00 ر.س', 'https://mtjr.at/pay']]);
+  assert.equal(calls.coupons[0].amount, 170);
+  assert.equal(state.request.exchangeMode, 'order');
+  assert.equal(state.request.exchangePaymentStatus, 'pending');
+  assert.equal(state.request.exchangeLines.length, 1);
+  assert.equal(state.request.exchangeLines[0].skuId, '501');
+  assert.equal(state.request.processingStatus, 'idle');
+  assert.equal(state.request.processingAudit.at(-1).details.createdByStaff, true);
+});
+
+test('a previous expired replacement is cleared so a new one can be built', async () => {
+  const { state, calls, deps } = setup(
+    { ...staffRequest, exchangeMode: 'coupon', exchangeOrderId: '666', exchangeOrderNumber: '111', exchangePaymentStatus: 'expired' },
+    { computeCredit: async () => ({ credit: 170, currency: 'SAR' }) },
+  );
+  const result = await createStaffReplacementOrder('r1', { lines: [{ productId: '100', skuId: '501', quantity: 1 }], paymentMethod: 'mada', actor: 'نورة' }, deps);
+  assert.ok(result.ok, JSON.stringify(result));
+  assert.equal(calls.orders.length, 1);
+  assert.equal(state.request.exchangeOrderId, '777');
+  assert.equal(state.request.processingAudit.at(-1).details.previous.order, '111');
+});
+
+test('staff replacement is refused while a coupon carries the credit, or without a payment method when money is due', async () => {
+  const withCoupon = setup({ ...staffRequest, couponCode: 'EXCHANGE1' }, { computeCredit: async () => ({ credit: 170, currency: 'SAR' }) });
+  const blocked = await createStaffReplacementOrder('r1', { lines: [{ productId: '100', skuId: '501', quantity: 1 }], actor: 'نورة' }, withCoupon.deps);
+  assert.equal(blocked.ok, false);
+  if (!blocked.ok) assert.match(blocked.error, /EXCHANGE1/);
+
+  const noMethod = setup(staffRequest, { computeCredit: async () => ({ credit: 170, currency: 'SAR' }) });
+  const refused = await createStaffReplacementOrder('r1', { lines: [{ productId: '100', skuId: '501', quantity: 1 }], actor: 'نورة' }, noMethod.deps);
+  assert.equal(refused.ok, false);
+  assert.equal(noMethod.calls.orders.length, 0);
+});
+
+test('a fully covered replacement built after the return passed inspection goes straight to "طلب جديد"', async () => {
+  const { calls, deps } = setup(
+    { ...staffRequest, status: 'delivered', items: [{ id: 'i1', type: 'exchange', conditionStatus: 'good' }] },
+    {
+      computeCredit: async () => ({ credit: 300, currency: 'SAR' }),
+      createOrder: async (_m, input) => {
+        calls.orders.push(input);
+        return orderState({ total: 0, remainingAmount: 0, checkoutUrl: null });
+      },
+      getOrder: async () => orderState({ total: 0, remainingAmount: 0, checkoutUrl: null, customStatusId: HOLD, statusSlug: 'under_review' }),
+    },
+  );
+  const result = await createStaffReplacementOrder('r1', { lines: [{ productId: '100', skuId: '501', quantity: 1 }], actor: 'نورة' }, deps);
+  assert.ok(result.ok, JSON.stringify(result));
+  if (result.ok) {
+    assert.equal(result.paymentUrl, null);
+    assert.equal(result.released, true);
+  }
+  // Held at creation (pending payment → hold), then released to "طلب جديد".
+  assert.deepEqual(calls.status.map((call) => call[2]), [Number(HOLD), Number(NEW_ORDER)]);
+});

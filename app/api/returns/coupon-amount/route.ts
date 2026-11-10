@@ -7,6 +7,7 @@ import { updateSallaCoupon } from '@/app/lib/salla-coupons';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 import { toSallaCouponAmount } from '@/lib/returns/exchange-coupon-amount';
 import { prisma } from '@/lib/prisma';
+import { STAFF_LOCK_MESSAGE } from '@/app/lib/returns/request-lock';
 
 export const runtime = 'nodejs';
 
@@ -69,6 +70,10 @@ export async function POST(request: NextRequest) {
 
     if (!returnRequest) {
       return NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 });
+    }
+
+    if (returnRequest.processingStatus === 'processing') {
+      return NextResponse.json({ error: STAFF_LOCK_MESSAGE }, { status: 409 });
     }
 
     if (returnRequest.type !== 'exchange' && returnRequest.type !== 'mixed') {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { log } from '@/app/lib/logger';
 import { issueExchangeCoupon } from '@/app/lib/returns/exchange-coupon';
 import { requireReturnsStaff } from '@/app/lib/returns/staff-auth';
+import { STAFF_LOCK_MESSAGE, withStaffLock } from '@/app/lib/returns/request-lock';
 
 export const runtime = 'nodejs';
 
@@ -21,7 +22,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'معرف الطلب مطلوب' }, { status: 400 });
     }
 
-    const result = await issueExchangeCoupon(String(returnRequestId), { expiryDays });
+    // Under the staff lock: a piece-type change can't run while the coupon is made.
+    const locked = await withStaffLock(String(returnRequestId), () => issueExchangeCoupon(String(returnRequestId), { expiryDays }));
+    if (!locked.ok) {
+      return locked.reason === 'not_found'
+        ? NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 })
+        : NextResponse.json({ error: STAFF_LOCK_MESSAGE }, { status: 409 });
+    }
+    const result = locked.value;
     if (!result.ok) {
       return NextResponse.json({ error: result.error, permissionDenied: result.permissionDenied }, { status: result.status });
     }

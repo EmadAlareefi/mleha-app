@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireReturnsStaff } from '@/app/lib/returns/staff-auth';
+import { STAFF_LOCK_MESSAGE } from '@/app/lib/returns/request-lock';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
@@ -49,6 +50,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (returnRequest.processingStatus === 'processing') {
+      return NextResponse.json({ error: STAFF_LOCK_MESSAGE }, { status: 409 });
+    }
     if (returnRequest.couponCode) {
       return NextResponse.json(
         { error: `لهذا الطلب كوبون مسبقاً (${returnRequest.couponCode})` },

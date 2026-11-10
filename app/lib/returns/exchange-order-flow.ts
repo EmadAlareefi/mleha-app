@@ -5,6 +5,8 @@ import { createSallaCoupon, deleteSallaCoupon, generateCouponCode } from '@/app/
 import { sendWhatsAppTemplate } from '@/app/lib/zoko';
 import { normalizeKSA } from '@/app/lib/phone';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
+import { computeRequestAmounts } from '@/app/lib/returns/exchange-coupon';
+import { withStaffLock, STAFF_LOCK_MESSAGE } from '@/app/lib/returns/request-lock';
 import {
   cancelExchangeOrder,
   createPendingExchangeOrder,
@@ -84,7 +86,7 @@ export const EXCHANGE_PIECE_FAILED_MESSAGE =
 // ---------------------------------------------------------------------------
 // Dependencies (injectable for tests)
 // ---------------------------------------------------------------------------
-type Db = Pick<typeof prisma, 'returnRequest' | 'returnExchangeLine'>;
+type Db = Pick<typeof prisma, 'returnRequest' | 'returnExchangeLine' | '$transaction'>;
 
 export interface ExchangeFlowDeps {
   db: Db;
@@ -96,7 +98,10 @@ export interface ExchangeFlowDeps {
   cancelOrder: typeof cancelExchangeOrder;
   createCoupon(merchantId: string, amount: number, prefix: string, options: { freeShipping: boolean; expiryDays: number }): Promise<{ id: string; code: string }>;
   deleteCoupon(merchantId: string, couponId: string): Promise<boolean>;
-  notify(templateEnv: string, to: string | null | undefined, args: (string | number)[]): Promise<void>;
+  /** 'skipped' when the template env var or the phone is missing. */
+  notify(templateEnv: string, to: string | null | undefined, args: (string | number)[]): Promise<void | 'sent' | 'skipped'>;
+  /** The exchange credit as processing computes it (honours a hand-set amount). */
+  computeCredit(requestId: string): Promise<{ credit: number; currency: string }>;
   notifyCoupon: typeof notifyExchangeCoupon;
   /**
    * Writes a status we just set in Salla into the local order mirror, so the
@@ -137,9 +142,16 @@ export const productionExchangeDeps: ExchangeFlowDeps = {
     const recipient = normalizeKSA(to);
     if (!templateId || !recipient) {
       log.info('Exchange notification skipped', { templateEnv, hasTemplate: Boolean(templateId), hasRecipient: Boolean(recipient) });
-      return;
+      return 'skipped';
     }
     await sendWhatsAppTemplate({ to: recipient, templateId, args });
+    return 'sent';
+  },
+  async computeCredit(requestId) {
+    const request = await prisma.returnRequest.findUnique({ where: { id: requestId }, include: { items: true } });
+    if (!request) return { credit: 0, currency: 'SAR' };
+    const amounts = await computeRequestAmounts(request);
+    return { credit: amounts.couponAmount, currency: amounts.currency };
   },
   notifyCoupon: notifyExchangeCoupon,
   async echoMirrorStatus(merchantId, orderId, statusId) {
@@ -857,3 +869,209 @@ export async function issueLeftoverCoupon(
   return { code: coupon.code, amount };
 }
 
+// ---------------------------------------------------------------------------
+// 6. Staff-built replacement order
+// ---------------------------------------------------------------------------
+const OPEN_ORDER_STATES = new Set(['creating', 'pending', 'paid', 'not_required', 'expiring']);
+const REUSABLE_ORDER_STATES = ['none', 'failed', 'expired', 'cancelled'];
+
+type StaffRequest = {
+  status: string;
+  processingStatus?: string | null;
+  currency?: string | null;
+  couponCode?: string | null;
+  leftoverCouponCode?: string | null;
+  exchangeOrderId?: string | null;
+  exchangePaymentStatus?: string | null;
+  customerId?: string | null;
+  items?: Array<{ type?: string | null }>;
+};
+
+/** Why staff can't build a replacement order for this request right now (empty: they can). */
+export function staffReplacementBlockers(request: StaffRequest): string[] {
+  const blockers: string[] = [];
+  if (['completed', 'cancelled', 'rejected'].includes(request.status)) blockers.push('الطلب مغلق؛ أعيديه للمراجعة أولاً.');
+  if (request.processingStatus === 'processing') blockers.push(STAFF_LOCK_MESSAGE);
+  if (!(request.items ?? []).some((item) => item.type === 'exchange')) {
+    blockers.push('لا توجد قطع للاستبدال في هذا الطلب؛ حوّلي القطعة إلى استبدال أولاً.');
+  }
+  if (request.couponCode) {
+    blockers.push(`أُصدر كوبون الاستبدال ${request.couponCode} لهذا الطلب؛ ألغيه أولاً (إن لم يُستخدم) ثم أنشئي الطلب البديل.`);
+  }
+  if (request.leftoverCouponCode) blockers.push('أُصدر كوبون الرصيد المتبقي لهذا الطلب.');
+  if ((request.currency || 'SAR').toUpperCase() !== 'SAR') {
+    blockers.push('الطلب البديل متاح فقط للطلبات بالريال السعودي.');
+  }
+  if (request.exchangeOrderId && OPEN_ORDER_STATES.has(request.exchangePaymentStatus || '')) {
+    blockers.push('للطلب طلب بديل نشط بالفعل.');
+  }
+  if (!request.customerId) blockers.push('رقم العميل في سلة غير متوفر لهذا الطلب.');
+  return blockers;
+}
+
+export interface StaffReplacementInput {
+  lines: RequestedExchangeLine[];
+  paymentMethod?: string | null;
+  /** WhatsApp the payment link right away (default true). */
+  notifyCustomer?: boolean;
+  actor: string;
+}
+
+export type StaffReplacementResult =
+  | {
+      ok: true;
+      orderNumber: string;
+      amountDue: number;
+      leftover: number;
+      paymentUrl: string | null;
+      notification: { sent: boolean; reason?: string };
+      released: boolean;
+    }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Staff pick the replacement products in returns-management: the app creates
+ * the Salla order (the exchange credit applied as a single-use coupon), WhatsApps
+ * the payment link, and the order follows the customer-made path — paid → held
+ * "تحت المراجعة حجز قطع" → return inspected good → "طلب جديد".
+ */
+export async function createStaffReplacementOrder(
+  requestId: string,
+  input: StaffReplacementInput,
+  deps: ExchangeFlowDeps = productionExchangeDeps,
+): Promise<StaffReplacementResult> {
+  const request = await deps.db.returnRequest.findUnique({ where: { id: requestId }, include: { items: true } });
+  if (!request) return { ok: false, status: 404, error: 'طلب الإرجاع غير موجود' };
+  const blockers = staffReplacementBlockers({ ...request, items: (request as any).items ?? [] });
+  if (blockers.length > 0) return { ok: false, status: 409, error: blockers[0] };
+
+  const priced = await priceExchangeCart(request.merchantId, input.lines, deps);
+  if (!priced.ok) return { ok: false, status: 400, error: priced.error };
+  const { credit } = await deps.computeCredit(requestId);
+  if (!(credit > 0)) return { ok: false, status: 400, error: 'رصيد الاستبدال غير متاح لهذا الطلب؛ راجعي القطع والمبالغ.' };
+  const settlement = planExchangeSettlement(credit, priced.total);
+  const paymentMethod = settlement.needsPayment ? String(input.paymentMethod || '') : null;
+  if (settlement.needsPayment && !EXCHANGE_PAYMENT_METHODS.includes(paymentMethod || '')) {
+    return { ok: false, status: 400, error: 'اختاري طريقة دفع العميل للفرق.' };
+  }
+
+  let outcome: StaffReplacementResult = { ok: false, status: 500, error: 'تعذر إنشاء الطلب البديل' };
+  const locked = await withStaffLock(
+    requestId,
+    async () => {
+      const previous = request.exchangeOrderId
+        ? { order: request.exchangeOrderNumber || request.exchangeOrderId, status: request.exchangePaymentStatus }
+        : null;
+
+      // Reset the old (expired / cancelled / failed) order's fields and store the new cart.
+      const reset = await deps.db.$transaction(async (tx) => {
+        const claimed = await tx.returnRequest.updateMany({
+          where: { id: requestId, couponCode: null, exchangePaymentStatus: { in: REUSABLE_ORDER_STATES } },
+          data: {
+            exchangeMode: 'order',
+            exchangeCreditAmount: credit,
+            exchangePaymentMethod: paymentMethod,
+            exchangePaymentStatus: 'none',
+            exchangeOrderId: null,
+            exchangeOrderNumber: null,
+            exchangeOrderLinkedAt: null,
+            exchangeOrderTotal: null,
+            exchangeCreditApplied: null,
+            exchangeAmountDue: null,
+            exchangeCheckoutUrl: null,
+            exchangePaymentDueAt: null,
+            exchangeReminderSentAt: null,
+            exchangeCreditCouponId: null,
+            exchangeOrderHoldActive: false,
+            exchangeOrderHeldAt: null,
+            exchangeOrderReleasedAt: null,
+            exchangeOrderError: null,
+            leftoverCouponAmount: null,
+          },
+        });
+        if (claimed.count === 0) return false;
+        await tx.returnExchangeLine.deleteMany({ where: { returnRequestId: requestId } });
+        await tx.returnExchangeLine.createMany({
+          data: priced.lines.map((line) => ({
+            returnRequestId: requestId,
+            productId: line.productId,
+            skuId: line.skuId,
+            sku: line.sku,
+            name: line.name,
+            variantName: line.variantName,
+            imageUrl: line.imageUrl,
+            options: line.options as any,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            currency: line.currency,
+          })),
+        });
+        return true;
+      });
+      if (!reset) {
+        outcome = { ok: false, status: 409, error: 'تغيّر الطلب للتو (كوبون أو طلب بديل)، حدّثي الصفحة.' };
+        return;
+      }
+
+      const created = await createExchangeOrderForRequest(requestId, deps);
+      if (!created.ok) {
+        await appendFlowAudit(deps, requestId, {
+          step: 'exchange_order',
+          result: 'failed',
+          by: input.actor,
+          details: { createdByStaff: true, error: created.error, previous },
+        });
+        outcome = { ok: false, status: 502, error: `تعذر إنشاء الطلب البديل في سلة: ${created.error}` };
+        return;
+      }
+
+      let notification: { sent: boolean; reason?: string } = { sent: false, reason: 'not_requested' };
+      if (created.paymentUrl && input.notifyCustomer !== false) {
+        try {
+          const status = await deps.notify('ZOKO_TPL_EXCHANGE_PAYMENT_PENDING', request.customerPhone, [
+            request.customerName || 'عميلنا العزيز',
+            created.orderNumber,
+            `${created.amountDue.toFixed(2)} ر.س`,
+            created.paymentUrl,
+          ]);
+          notification = status === 'skipped' ? { sent: false, reason: 'template_or_phone_missing' } : { sent: true };
+        } catch (error) {
+          notification = { sent: false, reason: error instanceof Error ? error.message : 'failed' };
+        }
+      }
+
+      // Fully covered: the order was held at creation; the return may already have passed.
+      let released = false;
+      if (!created.paymentUrl) {
+        released = (await releaseExchangeOrderHold(requestId, { source: 'staff', actor: input.actor }, deps)).released;
+      }
+
+      await appendFlowAudit(deps, requestId, {
+        step: 'exchange_order',
+        result: 'ok',
+        by: input.actor,
+        details: {
+          createdByStaff: true,
+          order: created.orderNumber,
+          amountDue: created.amountDue,
+          leftover: created.leftover,
+          lines: priced.lines.map((line) => `${line.name}${line.variantName ? ` (${line.variantName})` : ''} × ${line.quantity}`),
+          paymentLinkSent: notification.sent,
+          previous,
+        },
+      });
+      outcome = {
+        ok: true,
+        orderNumber: created.orderNumber,
+        amountDue: created.amountDue,
+        leftover: created.leftover,
+        paymentUrl: created.paymentUrl,
+        notification,
+        released,
+      };
+    },
+    { db: deps.db },
+  );
+  if (!locked.ok) return { ok: false, status: locked.reason === 'not_found' ? 404 : 409, error: STAFF_LOCK_MESSAGE };
+  return outcome;
+}
