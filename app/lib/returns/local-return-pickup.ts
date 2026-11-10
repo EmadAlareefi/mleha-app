@@ -47,8 +47,14 @@ export async function findDeliveredJeddahShipment(merchantId: string, orderId: s
  * Makes the agent's pickup task match the return request: opens one while the
  * return is awaiting collection, and cancels a still-open one once the return
  * is cancelled or has already reached the warehouse. Never throws.
+ *
+ * `skipIfPickedUp` (reopened requests): when the agent already completed a
+ * pickup for this return, don't book another one.
  */
-export async function syncLocalReturnPickupTask(returnRequestId: string): Promise<void> {
+export async function syncLocalReturnPickupTask(
+  returnRequestId: string,
+  options: { skipIfPickedUp?: boolean } = {},
+): Promise<void> {
   try {
     const returnRequest = await prisma.returnRequest.findUnique({
       where: { id: returnRequestId },
@@ -93,6 +99,18 @@ export async function syncLocalReturnPickupTask(returnRequestId: string): Promis
     }
 
     if (openTasks.length > 0) return;
+
+    if (options.skipIfPickedUp) {
+      const done = await prisma.deliveryAgentTask.count({
+        where: {
+          relatedShipmentId: shipment.id,
+          requestType: RETURN_PICKUP_REQUEST_TYPE,
+          status: { in: ['agent_completed', 'completed'] },
+          createdAt: { gte: returnRequest.createdAt },
+        },
+      });
+      if (done > 0) return;
+    }
 
     const isExchange = returnRequest.type === 'exchange';
     const itemsSummary = returnRequest.items
