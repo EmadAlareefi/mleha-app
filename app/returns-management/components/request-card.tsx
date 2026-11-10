@@ -175,7 +175,7 @@ export function RequestCard({ request, selected, selectable, busy, onToggleSelec
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                 <span className="line-clamp-2">{request.processingError || 'يحتاج تدخل'}</span>
               </span>
-            ) : request.exchangeOrderHoldActive ? (
+            ) : request.exchangeMode === 'order' && request.exchangeOrderHoldActive ? (
               <span className="text-amber-800">الطلب البديل محجوز حتى فحص المرتجع</span>
             ) : null}
           </p>
