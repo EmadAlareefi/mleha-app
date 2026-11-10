@@ -21,13 +21,14 @@ export type DurationBucket = { key: string; label: string; maxSec: number | null
 
 /** Buckets for "time per order"; the last one holds breaks. */
 export const DURATION_BUCKETS: DurationBucket[] = [
+  // Words, not "1–2": a digit range inside Arabic text gets reordered by the browser.
   { key: 'lt1', label: 'أقل من دقيقة', maxSec: 60 },
-  { key: '1to2', label: '1–2 د', maxSec: 120 },
-  { key: '2to3', label: '2–3 د', maxSec: 180 },
-  { key: '3to5', label: '3–5 د', maxSec: 300 },
-  { key: '5to10', label: '5–10 د', maxSec: 600 },
-  { key: '10to30', label: '10–30 د', maxSec: 1800 },
-  { key: 'break', label: 'توقف (أطول)', maxSec: null },
+  { key: '1to2', label: 'من 1 إلى 2 دقيقة', maxSec: 120 },
+  { key: '2to3', label: 'من 2 إلى 3 دقائق', maxSec: 180 },
+  { key: '3to5', label: 'من 3 إلى 5 دقائق', maxSec: 300 },
+  { key: '5to10', label: 'من 5 إلى 10 دقائق', maxSec: 600 },
+  { key: '10to30', label: 'من 10 إلى 30 دقيقة', maxSec: 1800 },
+  { key: 'break', label: 'توقف', maxSec: null },
 ];
 
 /** Bucket key for a duration; `breakSec` decides where breaks start. */

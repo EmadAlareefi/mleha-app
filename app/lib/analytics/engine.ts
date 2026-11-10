@@ -118,7 +118,7 @@ export function bucketsFor(rows: FactRow[], def: MetricDef): AnalyticsBucket[] {
   return DURATION_BUCKETS.filter((bucket) => bucket.key === 'break' || (bucket.maxSec !== null && bucket.maxSec <= def.breakSec)).map(
     (bucket) => ({
       key: bucket.key,
-      label: bucket.key === 'break' ? `توقف (أكثر من ${Math.round(def.breakSec / 60)} د)` : bucket.label,
+      label: bucket.key === 'break' ? `توقف (أكثر من ${Math.round(def.breakSec / 60)} دقيقة)` : bucket.label,
       count: counts.get(bucket.key) ?? 0,
       filter: { metric: def.key, subset: 'bucket', bucket: bucket.key },
     }),

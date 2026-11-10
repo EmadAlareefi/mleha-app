@@ -593,7 +593,7 @@ export default function SizeGuidesPage() {
 
       <Sheet open={editorOpen} onOpenChange={setEditorOpen}>
         <SheetContent side="left" className="w-full gap-0 border-[#EADFCB] bg-white p-0 sm:max-w-[680px]" dir="rtl">
-          <SheetHeader className="border-b border-[#F0E8D8] px-5 py-4 text-right">
+          <SheetHeader className="border-b border-[#F0E8D8] py-4 ps-5 pe-12 text-right">
             <SheetTitle>{editingGuide ? `تعديل الدليل — ${editingGuide.sku}` : 'دليل مقاسات جديد'}</SheetTitle>
             <SheetDescription>{editorProduct ? `${editorProduct.name} · سلة #${editorProduct.id}` : 'ابحث عن منتج سلة لاستخراج مقاساته'}</SheetDescription>
           </SheetHeader>

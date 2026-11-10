@@ -204,7 +204,7 @@ function EtaEditor({ open, title, subtitle, today, initialDays, canClear, onClos
   return (
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent side="bottom" className="mx-auto max-w-lg rounded-t-2xl p-0 pb-[max(1rem,env(safe-area-inset-bottom))]" dir="rtl">
-        <SheetHeader className="px-4 pt-4 pb-1 text-right">
+        <SheetHeader className="pt-4 pb-1 ps-4 pe-12 text-right">
           <SheetTitle className="line-clamp-2 text-base">{title}</SheetTitle>
           <SheetDescription>{subtitle}</SheetDescription>
         </SheetHeader>

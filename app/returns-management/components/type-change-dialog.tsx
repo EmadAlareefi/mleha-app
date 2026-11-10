@@ -96,7 +96,7 @@ export function TypeChangeDialog({ requestId, orderNumber, draft, preview, onClo
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !saving && onClose()}>
       <DialogContent dir="rtl" className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader className="pr-8 text-right sm:text-right">
+        <DialogHeader className="text-right sm:text-right">
           <DialogTitle>تأكيد تغيير القطع</DialogTitle>
           <DialogDescription>
             طلب #{orderNumber} — يصبح الطلب «{typeLabel(preview.after.type)}».

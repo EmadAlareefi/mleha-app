@@ -128,20 +128,24 @@ export function AnalyticsSection({ kind }: { kind: AnalyticsKind }) {
                     title={`${bucket.label}: ${bucket.count}`}
                     onClick={() => open(`${summary.mainMetricLabel}: ${bucket.label}`, bucket.filter)}
                     style={{ width: `${Math.max(share * 100, 4)}%` }}
-                    className={cn(
-                      'flex items-center justify-center border-l text-[11px] font-bold text-white last:border-l-0',
-                      bucket.key === 'break' ? 'bg-slate-400' : ['bg-emerald-600', 'bg-emerald-500', 'bg-lime-500', 'bg-amber-500', 'bg-orange-500', 'bg-red-500'][index] ?? 'bg-red-600',
-                    )}
+                    className={cn('flex items-center justify-center border-l text-[11px] font-bold text-white last:border-l-0', bucketColor(bucket.key, index))}
                   >
                     {bucket.count}
                   </button>
                 );
               })}
             </div>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-              {summary.buckets.map((bucket) => (
-                <button key={bucket.key} type="button" onClick={() => open(`${summary.mainMetricLabel}: ${bucket.label}`, bucket.filter)}>
-                  {bucket.label}: <b className="text-foreground">{bucket.count}</b>
+            <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-7">
+              {summary.buckets.map((bucket, index) => (
+                <button
+                  key={bucket.key}
+                  type="button"
+                  onClick={() => open(`${summary.mainMetricLabel}: ${bucket.label}`, bucket.filter)}
+                  className="flex items-center gap-1.5 rounded-lg border px-2 py-1 text-right text-[11px] hover:bg-muted"
+                >
+                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-sm', bucketColor(bucket.key, index))} />
+                  <bdi className="min-w-0 flex-1 truncate text-muted-foreground">{bucket.label}</bdi>
+                  <b className="text-foreground">{bucket.count}</b>
                 </button>
               ))}
             </div>
@@ -197,6 +201,12 @@ export function AnalyticsSection({ kind }: { kind: AnalyticsKind }) {
       <OrdersDrawer kind={kind} periodQuery={periodQuery} request={drillRequest} onClose={() => setDrillRequest(null)} />
     </section>
   );
+}
+
+const BUCKET_COLORS = ['bg-emerald-600', 'bg-emerald-500', 'bg-lime-500', 'bg-amber-500', 'bg-orange-500', 'bg-red-500'];
+/** Same colour for a bucket's bar segment and its legend chip. */
+function bucketColor(key: string, index: number) {
+  return key === 'break' ? 'bg-slate-400' : BUCKET_COLORS[index] ?? 'bg-red-600';
 }
 
 function Cell({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
