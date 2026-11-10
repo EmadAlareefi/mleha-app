@@ -31,6 +31,10 @@ const newId = () =>
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
+// Done stays locked this long after a new order appears, so a double tap on
+// Done can't also complete the order that swaps in under the finger.
+const DONE_ARM_MS = 1_500;
+
 const BANNER_STYLES: Record<Banner['tone'], string> = {
   error: 'border-red-500 bg-red-50 text-red-900',
   warn: 'border-amber-500 bg-amber-50 text-amber-900',
@@ -86,6 +90,15 @@ export default function PrepApp({
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [state.banners]);
 
+  const currentAssignmentId = view?.assignmentId ?? null;
+  const [armedFor, setArmedFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!currentAssignmentId) return;
+    const timer = window.setTimeout(() => setArmedFor(currentAssignmentId), DONE_ARM_MS);
+    return () => window.clearTimeout(timer);
+  }, [currentAssignmentId]);
+  const doneArming = Boolean(view) && armedFor !== currentAssignmentId;
+
   const viewRef = useRef(view);
   const progressRef = useRef(progress);
   useEffect(() => {
@@ -124,7 +137,7 @@ export default function PrepApp({
   const scanner = useBarcodeScanner({ onScan, keyboard: state.phase === 'packing' });
 
   const handleDone = useCallback(() => {
-    if (!view) return;
+    if (!view || doneArming) return;
     const confirmAll = !checkable && !allChecked;
     const { itemChecks, scanMethod } = summarizeChecks(view, progress, confirmAll);
     const orderNumber = view.order.orderNumber;
@@ -148,7 +161,7 @@ export default function PrepApp({
     // Shared printer: the ticket that comes out now belongs to this order.
     void runtime.printTicket(view.order.orderId, orderNumber);
     window.scrollTo({ top: 0 });
-  }, [allChecked, checkable, progress, runtime, view]);
+  }, [allChecked, checkable, doneArming, progress, runtime, view]);
 
   const handleProblem = useCallback(
     (items: ProblemItem[], note: string | null) => {
@@ -229,7 +242,7 @@ export default function PrepApp({
   const singleScanned = Boolean(singleItem && allScanned);
   const doneBlockedByChecks = checkable && !allChecked;
   const doneBlockedByScan = scanRequired && !allScanned && !override;
-  const doneDisabled = !view || doneBlockedByChecks || doneBlockedByScan || view.order.items.length === 0;
+  const doneDisabled = !view || doneArming || doneBlockedByChecks || doneBlockedByScan || view.order.items.length === 0;
   const doneLabel = !view
     ? 'تم التجهيز'
     : doneBlockedByChecks
