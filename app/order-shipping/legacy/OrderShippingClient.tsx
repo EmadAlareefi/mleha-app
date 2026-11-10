@@ -61,6 +61,7 @@ interface OrderAssignment {
   giftFlagNotes?: string | null;
   giftFlagMarkedAt?: string | null;
   giftFlagMarkedBy?: string | null;
+  doNotShip?: { notes: string | null; createdByName: string | null } | null;
   source?: string | null;
 }
 
@@ -1244,7 +1245,23 @@ const getPrepStatusForItem = useCallback(
       throw new Error(data?.error || 'تعذر العثور على الطلب');
     }
 
-    return data.assignment as OrderAssignment;
+    // The search route names these fields differently; map them so the
+    // priority reason, the manual gift flag and "do not ship" are shown.
+    const raw = data.assignment as Record<string, any>;
+    const giftFlag = raw.giftFlag as Record<string, any> | null | undefined;
+    const doNotShipFlag = raw.doNotShipFlag as Record<string, any> | null | undefined;
+    return {
+      ...raw,
+      highPriorityReason: raw.highPriorityReason ?? raw.priorityReason ?? null,
+      highPriorityNotes: raw.highPriorityNotes ?? raw.priorityNotes ?? null,
+      highPriorityMarkedAt: raw.highPriorityMarkedAt ?? raw.priorityCreatedAt ?? null,
+      hasGiftFlag: raw.hasGiftFlag ?? Boolean(giftFlag),
+      giftFlagReason: raw.giftFlagReason ?? giftFlag?.reason ?? null,
+      giftFlagNotes: raw.giftFlagNotes ?? giftFlag?.notes ?? null,
+      giftFlagMarkedAt: raw.giftFlagMarkedAt ?? giftFlag?.createdAt ?? null,
+      giftFlagMarkedBy: raw.giftFlagMarkedBy ?? giftFlag?.createdByName ?? null,
+      doNotShip: doNotShipFlag ? { notes: doNotShipFlag.notes ?? null, createdByName: doNotShipFlag.createdByName ?? null } : null,
+    } as OrderAssignment;
   }, []);
 
   const reloadCurrentOrder = useCallback(async () => {
@@ -1845,6 +1862,15 @@ const handleRefreshItems = async () => {
                     onRecheck={promoLimit.recheck}
                   />
                 </div>
+              )}
+              {currentOrder.doNotShip && (
+                <Alert variant="destructive" className="mb-4 md:mb-6 border-2">
+                  <AlertTitle className="text-lg font-bold">🚫 لا تشحن هذا الطلب</AlertTitle>
+                  <AlertDescription>
+                    {currentOrder.doNotShip.notes || 'الطلب موقوف عن الشحن.'}
+                    {currentOrder.doNotShip.createdByName ? ` — بواسطة ${currentOrder.doNotShip.createdByName}` : ''}
+                  </AlertDescription>
+                </Alert>
               )}
               <Card className="p-4 md:p-6 mb-4 md:mb-6">
                 <div>

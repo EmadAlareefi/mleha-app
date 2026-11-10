@@ -5,6 +5,7 @@ import { actionResponse, readJson, serverError } from '@/app/lib/order-prep/rout
 import { parseItemChecks, parseOrderId } from '@/app/lib/order-prep/request-parsing';
 import { processSyncJobsNow } from '@/app/lib/order-prep/salla-sync';
 import { verifyUnverifiedClaims } from '@/app/lib/order-prep/verify';
+import { startShippingAfterPack } from '@/app/lib/shipping/worker';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,8 @@ export async function POST(request: Request, context: { params: Promise<{ assign
     if (result.ok) {
       after(async () => {
         await processSyncJobsNow(result.syncJobIds);
+        // Shipping v2: the order's shipment is made while it walks to shipping.
+        await startShippingAfterPack(orderId);
         await verifyUnverifiedClaims(user);
       });
     }

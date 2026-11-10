@@ -160,6 +160,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, ...promoBlock }, { status: 409 });
     }
 
+    // Orders flagged "لا تشحن" must never get a waybill.
+    const doNotShip = await prisma.orderDoNotShipFlag.findUnique({
+      where: { merchantId_orderId: { merchantId: resolvedMerchantId, orderId: String(targetOrderIdValue) } },
+      select: { id: true },
+    });
+    if (doNotShip) {
+      return NextResponse.json(
+        { success: false, code: 'do_not_ship', error: 'هذا الطلب موقوف عن الشحن (لا تشحن). راجع المشرف.' },
+        { status: 409 }
+      );
+    }
+
     // Use Salla's orders/actions API to create shipping policy
     // Based on: https://docs.salla.dev/7549669e0
     const parsedOrderId = parseInt(targetOrderIdValue, 10);

@@ -1276,6 +1276,8 @@ model LocalShipment {
   @@index([warehouseId])
   @@index([status])
   @@index([isCOD])
+  // One local shipment per order (shipping v2 relies on it; no duplicates existed).
+  @@unique([merchantId, orderNumber])
 }
 
 enum OrderUserRole {
@@ -1569,6 +1571,45 @@ model OrderPrepEscalation {
 
   @@index([merchantId, orderId])
   @@index([merchantId, resolvedAt])
+}
+
+/// Shipping v2 (app/lib/shipping): one work item per order from packed to
+/// label printed. The Salla shipment is created in the background right after
+/// packing, so the label is usually waiting when the shipper scans the ticket.
+model ShippingTask {
+  id              String    @id @default(cuid())
+  merchantId      String
+  orderId         String
+  orderNumber     String?
+  /// salla | international | local
+  method          String
+  /// queued | creating | awaiting_label | label_ready | printed | needs_agent |
+  /// manual_international | blocked | failed | cancelled
+  state           String    @default("queued")
+  /// prep | manual
+  source          String    @default("prep")
+  attempts        Int       @default(0)
+  nextAttemptAt   DateTime  @default(now())
+  lockedUntil     DateTime?
+  lastError       String?   @db.Text
+  blockReason     String?
+  operationRef    String?
+  creatingAt      DateTime?
+  sallaShipmentId String?
+  localShipmentId String?
+  labelReadyAt    DateTime?
+  printedAt       DateTime?
+  printedById     String?
+  printedByName   String?
+  printCount      Int       @default(0)
+  lastPrintKey    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([state, nextAttemptAt])
+  @@index([merchantId, state, updatedAt])
+  @@index([printedAt])
 }
 
 /// Outbox of Salla status changes made by order prep. Packing never waits on

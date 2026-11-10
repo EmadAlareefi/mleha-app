@@ -12,6 +12,7 @@ import {
 } from "@/app/lib/returns/exchange-order";
 import { maybeNotifyReturnLabelCreated } from "@/app/lib/returns/return-label-notification";
 import { syncExchangePaymentFromWebhook } from "@/app/lib/returns/exchange-order-flow";
+import { markLabelArrived } from "@/app/lib/shipping/tasks";
 import {
   enqueueCustomerJourneyEvent,
   extractJourneyShipment,
@@ -329,6 +330,12 @@ async function maybePrintShipmentLabelFromStatus(
       storedShipment.labelPrinted ||
       (storedShipment.printCount ?? 0) > 0 ||
       Boolean((storedShipment.shipmentData as any)?.labelPrinted);
+
+    // Shipping v2: the order's task is now ready to print at the station.
+    await markLabelArrived(merchantId, resolvedOrderId, {
+      id: storedShipment.id,
+      printed: alreadyPrinted,
+    });
   } catch (error) {
     log.error("Failed to upsert shipment from order.updated webhook", {
       error,

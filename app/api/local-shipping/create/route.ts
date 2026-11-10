@@ -261,6 +261,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, ...promoBlock }, { status: 409 });
     }
 
+    // Orders flagged "لا تشحن" must never get a label.
+    const doNotShip = await prisma.orderDoNotShipFlag.findUnique({
+      where: { merchantId_orderId: { merchantId: String(body.merchantId), orderId: String(order.id) } },
+      select: { id: true },
+    });
+    if (doNotShip) {
+      return NextResponse.json(
+        { success: false, code: 'do_not_ship', error: 'هذا الطلب موقوف عن الشحن (لا تشحن). راجع المشرف.' },
+        { status: 409 }
+      );
+    }
+
     // Extract shipping information
     const messengerShipments = detectMessengerShipments(order);
     const primaryShipTo = extractPrimaryShipTo(order);

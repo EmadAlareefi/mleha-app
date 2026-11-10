@@ -42,6 +42,14 @@
     {
       "path": "/api/order-prep/v2/reconcile?mode=full",
       "schedule": "30 23 * * *"
+    },
+    {
+      "path": "/api/shipping-v2/worker",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/shipping-v2/reconcile",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

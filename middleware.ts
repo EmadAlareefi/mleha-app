@@ -39,6 +39,8 @@ const PUBLIC_PATHS = [
   '/api/order-users',
   '/api/order-assignments',
   '/api/order-prep',
+  // Shipping v2: each route checks the session (or CRON_SECRET) itself.
+  '/api/shipping-v2',
   '/api/warehouses',
   '/api/webhooks',
   '/api/auth',

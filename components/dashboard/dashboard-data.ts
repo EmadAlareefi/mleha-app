@@ -318,6 +318,18 @@ export function getVisibleDashboardServices({
       accentClass: categoryAccentMap.orders,
       priority: 77,
     });
+    dashboardServices.push({
+      key: 'shipping-board',
+      sourceKey: 'admin-order-prep',
+      title: 'لوحة الشحن المباشرة',
+      description: 'الطلبات المجهزة بانتظار البوليصة، الأعطال، ووتيرة الشحن',
+      href: '/admin/order-prep/shipping',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: Truck,
+      accentClass: categoryAccentMap.orders,
+      priority: 77,
+    });
   }
 
   if (affiliateName) {
