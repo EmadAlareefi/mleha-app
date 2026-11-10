@@ -15,8 +15,6 @@ export interface SallaCoupon {
   usage_limit?: number;
   usage_limit_per_user?: number;
   active: boolean;
-  /** Salla counts only orders that reached "in progress" or later. */
-  statistics?: { num_of_usage?: number | string | null; num_of_customers?: number | string | null };
 }
 
 export interface CreateCouponRequest {
@@ -177,15 +175,24 @@ export async function getSallaCoupon(
 }
 
 /**
- * How many orders used a coupon, per Salla's coupon statistics, or null when
- * Salla can't tell us. Salla counts only orders that reached "in progress" or
- * later, so 0 is not proof the coupon is unused: an unpaid or new order with it
- * does not show here (see app/lib/returns/coupon-revoke.ts).
+ * How many orders used a coupon, from Salla's coupon statistics
+ * (`GET /coupons/statistics/{id}`; coupon details carry no statistics on this
+ * store), or null when Salla can't tell us. Salla counts only orders that
+ * reached "in progress" or later, so 0 is not proof the coupon is unused: a new
+ * or unpaid order with it does not show here (see app/lib/returns/coupon-revoke.ts).
  */
 export async function getSallaCouponUsage(merchantId: string, couponId: string): Promise<number | null> {
-  const coupon = await getSallaCoupon(merchantId, couponId);
-  const usage = Number(coupon?.statistics?.num_of_usage);
-  return coupon && coupon.statistics && Number.isFinite(usage) ? usage : null;
+  try {
+    const response = await sallaMakeRequest<{
+      success: boolean;
+      data?: { num_of_usage?: number | string | null };
+    }>(merchantId, `/coupons/statistics/${encodeURIComponent(couponId)}`);
+    const usage = Number(response?.data?.num_of_usage);
+    return response?.success && Number.isFinite(usage) ? usage : null;
+  } catch (error) {
+    log.error('Error fetching Salla coupon statistics', { error, merchantId, couponId });
+    return null;
+  }
 }
 
 /**
