@@ -113,3 +113,33 @@ test('pieces excluded from the refund are not paid back', () => {
   });
   assert.equal(split.refundAmount, 170);
 });
+
+test('storedRequestAmounts: same split as creation, legacy meaning for exchange-only', async () => {
+  const { storedRequestAmounts } = await import('../request-financials');
+  // Return 200 + exchange 200 + shipping 30: refund 200+30-60 = 170, credit 200.
+  const mixed = storedRequestAmounts({
+    items: [{ type: 'return', price: 200 }, { type: 'exchange', price: 200 }],
+    shippingAmount: 30,
+    currency: 'SAR',
+  });
+  assert.deepEqual(mixed, { type: 'mixed', returnFee: 60, totalRefundAmount: 170, couponAmount: 200, refundAmount: 170, creditAmount: 200 });
+
+  // Exchange-only: shipping goes to the credit, exchange fee 40; totalRefundAmount = credit.
+  const exchange = storedRequestAmounts({ items: [{ type: 'exchange', price: 200 }], shippingAmount: 30, currency: 'SAR' });
+  assert.deepEqual(exchange, { type: 'exchange', returnFee: 40, totalRefundAmount: 190, couponAmount: 190, refundAmount: 0, creditAmount: 190 });
+
+  // A piece left out of the refund (damaged) drops from the money.
+  const excluded = storedRequestAmounts({
+    items: [{ type: 'return', price: 200, refundIncluded: false }, { type: 'return', price: 100 }],
+    shippingAmount: 0,
+    currency: 'SAR',
+  });
+  assert.equal(excluded.refundAmount, 40);
+  assert.equal(excluded.couponAmount, null);
+
+  // A hand-set credit wins, and only where there is an exchange piece.
+  const overridden = storedRequestAmounts({ items: [{ type: 'exchange', price: 200 }], currency: 'SAR', couponAmountOverride: 250 });
+  assert.equal(overridden.creditAmount, 250);
+  assert.equal(overridden.totalRefundAmount, 250);
+  assert.equal(storedRequestAmounts({ items: [{ type: 'return', price: 200 }], currency: 'SAR', couponAmountOverride: 250 }).creditAmount, 0);
+});

@@ -1,4 +1,4 @@
-import { buildReturnFeeQuote } from './fees';
+import { buildReturnFeeQuote, normalizeReturnCurrency } from './fees';
 
 type ReturnRequestType = 'return' | 'exchange';
 type NumericValue = number | string | { toString(): string } | null | undefined;
@@ -153,5 +153,64 @@ export function splitRequestFinancials({
     refundAmount,
     couponAmount,
     feeTakenFromCoupon,
+  };
+}
+
+export interface StoredAmountsInput {
+  items: Array<{ type?: string | null; price: NumericValue; quantity?: number; refundIncluded?: boolean | null }>;
+  shippingAmount?: NumericValue;
+  currency?: string | null;
+  feeExchangeRate?: NumericValue;
+  /** Credit set by hand in returns-management; wins over the calculated credit. */
+  couponAmountOverride?: NumericValue;
+}
+
+export interface StoredAmounts {
+  type: 'return' | 'exchange' | 'mixed';
+  returnFee: number;
+  /**
+   * What the `totalRefundAmount` column stores: the money refund, except on
+   * exchange-only requests, where it keeps its pre-v2 meaning (the credit).
+   */
+  totalRefundAmount: number;
+  /** What the `couponAmount` column stores (null without exchange pieces). */
+  couponAmount: number | null;
+  /** Money back for the return pieces; 0 without return pieces. */
+  refundAmount: number;
+  /** Exchange credit for the exchange pieces; 0 without exchange pieces. */
+  creditAmount: number;
+}
+
+/**
+ * The amounts stored on a request, recomputed from its pieces with the same
+ * split as creation (`splitRequestFinancials`). Used whenever staff or the
+ * warehouse change pieces, so the list never shows stale money.
+ */
+export function storedRequestAmounts(input: StoredAmountsInput): StoredAmounts {
+  const rate = toFiniteNumber(input.feeExchangeRate);
+  const safeRate = rate !== null && rate > 0 ? rate : 1;
+  const currency = normalizeReturnCurrency(input.currency);
+  const source = currency === 'SAR' ? 'sar' : 'stored';
+  const split = splitRequestFinancials({
+    pieces: input.items.map((item) => ({
+      type: item.type === 'exchange' ? 'exchange' : 'return',
+      price: item.price,
+      quantity: item.quantity,
+      refundIncluded: item.refundIncluded !== false,
+    })),
+    originalShipping: Math.max(0, toFiniteNumber(input.shippingAmount) ?? 0),
+    returnProcessingFee: buildReturnFeeQuote('return', currency, safeRate, source).processingFee,
+    exchangeProcessingFee: buildReturnFeeQuote('exchange', currency, safeRate, source).processingFee,
+  });
+  const override = toFiniteNumber(input.couponAmountOverride);
+  const hasExchange = split.requestType !== 'return';
+  const credit = hasExchange && override !== null && override > 0 ? roundCurrency(override) : split.couponAmount;
+  return {
+    type: split.requestType,
+    returnFee: split.processingFee,
+    totalRefundAmount: split.requestType === 'exchange' ? credit : split.refundAmount,
+    couponAmount: hasExchange && credit > 0 ? credit : null,
+    refundAmount: split.refundAmount,
+    creditAmount: hasExchange ? credit : 0,
   };
 }
