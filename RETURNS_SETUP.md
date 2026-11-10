@@ -107,6 +107,32 @@ Every step is idempotent and logged in `processingAudit`, and any failure moves 
 
 **Migration.** `prisma/migrations/20261104120000_exchange_orders/migration.sql` is additive. Apply it manually with `prisma db execute` against `DIRECT_URL`.
 
+## Staff tools (returns-management, Nov 2026)
+
+**Hold → release.** A replacement order the app created is held in "تحت المراجعة حجز قطع" once paid (or at once when the credit covers it). When the exchanged pieces pass inspection it moves to **"طلب جديد"** (`449146439`), the only status order-prep packs. If the inspection already passed before payment, it goes straight there.
+- The target is `SALLA_EXCHANGE_RELEASE_STATUS_ID` (default `449146439`). The old `SALLA_UNDER_REVIEW_STATUS_ID` ("تحت المراجعة R") is no longer used for releases.
+- Every hold and release is compare-and-set against the live Salla status. An order already in progress, cancelled, or moved by hand is never overwritten; staff are told instead.
+- A failed hold is recorded in `exchangeOrderError`. The 15-minute cron (`reconcileExchangeHolds`) retries it, and releases any held order whose return has passed.
+- Order-prep never hands out a replacement that is held or awaiting payment (`eligibleWhere` in `app/lib/order-prep/queue.ts`).
+- An exchanged piece that fails inspection moves the request to "يحتاج تدخل" right away. Staff then choose "إرسال للتجهيز الآن" or cancel the replacement.
+
+**Staff-built replacement.** In the detail, "إنشاء طلب بديل" opens the product picker. The app creates the Salla order with the exchange credit and WhatsApps the payment link (`ZOKO_TPL_EXCHANGE_PAYMENT_PENDING`; if it is unset, staff copy the link).
+- `POST /api/returns/exchange-order` takes `action: create | retry | revoke_coupon | release | cancel | resend_link`.
+- `GET` on the same route returns the credit and anything that blocks a replacement.
+- A coupon and a replacement order can never both carry the same credit.
+
+**Return ↔ exchange.** Staff switch a whole request or single pieces. `POST /api/returns/pieces` with `dryRun` returns the before/after money and what happens to an issued coupon.
+- **Blocked when:** the request is closed (reopen it first), money was refunded, or a replacement order is active.
+- **Coupon already issued:** it must pass the "unused" check in `app/lib/returns/coupon-revoke.ts`: no linked order, Salla usage 0, and no order in the mirror carrying the code. Staff must also confirm. The coupon is then deleted, or set to the new credit.
+- **Exchange-only categories (outlet / National Day) switched to return:** need a policy confirmation.
+
+**إعادة للمراجعة.** `POST /api/returns/reopen` (reason required) works from completed, rejected, ready and needs-attention. Received goods go back as `delivered`, so the carrier sync can't flip them and no new pickup is booked. Optionally the inspection is cleared (restocked pieces are kept). Refunds, coupons and restocks already done stay done.
+
+**Window exception scope.** `ReturnWindowOverride.scope` is `both | exchange | return`, plus an optional `note`. Past the window, a piece gets only the scope's types, intersected with its category rules.
+- **Migration:** `prisma/migrations/20261110120000_return_window_override_scope/migration.sql` is additive. Apply it before deploying; existing exceptions become `both`.
+
+**Data check.** `node --import tsx scripts/check-return-type-consistency.ts` lists requests whose stored type disagrees with their pieces. `--fix` repairs the open ones where no money has moved. Local dev points at production; run `--fix` only with approval.
+
 ## Database Schema
 
 ### Tables Created
