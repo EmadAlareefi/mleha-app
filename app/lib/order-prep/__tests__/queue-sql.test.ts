@@ -60,3 +60,16 @@ test('stats buckets use Riyadh-clock cutoffs', () => {
   assert.ok(sql.values.includes('2026-11-07 21:00:00')); // 48 h
   assert.ok(sql.values.includes('2026-11-05 21:00:00')); // 96 h
 });
+
+test('held or unpaid replacement orders from returns never reach a packer', () => {
+  const text = buildPickSql(ctx(), { limit: 1 }).text.replace(/\s+/g, ' ');
+  assert.match(
+    text,
+    /AND NOT EXISTS \( SELECT 1 FROM "ReturnRequest" rr WHERE rr\."merchantId" = s\."merchantId" AND rr\."exchangeOrderId" = s\."orderId" AND rr\."exchangeMode" = 'order' AND \(rr\."exchangeOrderHoldActive" = true OR rr\."exchangePaymentStatus" IN \('creating', 'pending', 'expiring'\)\) \)/,
+  );
+  // A released, fully covered replacement stays "pending payment" in Salla; it is let through.
+  assert.match(text, /s\."isPendingPayment" IS NOT TRUE OR EXISTS \( SELECT 1 FROM "ReturnRequest" rp/);
+  assert.match(text, /rp\."exchangePaymentStatus" = 'not_required' AND rp\."exchangeOrderHoldActive" = false AND rp\."exchangeOrderReleasedAt" IS NOT NULL/);
+  // The same rules feed the board's counts.
+  assert.match(buildStatsSql(ctx()).text.replace(/\s+/g, ' '), /FROM "ReturnRequest" rr/);
+});

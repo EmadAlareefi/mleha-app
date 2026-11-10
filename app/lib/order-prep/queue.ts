@@ -69,12 +69,31 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
-/** Orders a packer may be given: "طلب جديد", paid, untouched, not blocked. */
+/**
+ * Orders a packer may be given: "طلب جديد", paid, untouched, not blocked.
+ * A replacement order the returns app created waits until its return passed
+ * inspection (exchangeOrderHoldActive) — the Salla hold status alone can lag the
+ * payment webhook by a few seconds. Fully covered replacements stay "pending
+ * payment" in Salla, so released ones are let through that filter.
+ */
 function eligibleWhere(ctx: QueueContext): Prisma.Sql {
   return Prisma.sql`
     s."merchantId" = ${MERCHANT_ID}
     AND s."statusCustomId" = ${NEW_ORDER_STATUS_ID}
-    AND s."isPendingPayment" IS NOT TRUE
+    AND (
+      s."isPendingPayment" IS NOT TRUE
+      OR EXISTS (
+        SELECT 1 FROM "ReturnRequest" rp
+        WHERE rp."merchantId" = s."merchantId" AND rp."exchangeOrderId" = s."orderId" AND rp."exchangeMode" = 'order'
+          AND rp."exchangePaymentStatus" = 'not_required' AND rp."exchangeOrderHoldActive" = false
+          AND rp."exchangeOrderReleasedAt" IS NOT NULL
+      )
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM "ReturnRequest" rr
+      WHERE rr."merchantId" = s."merchantId" AND rr."exchangeOrderId" = s."orderId" AND rr."exchangeMode" = 'order'
+        AND (rr."exchangeOrderHoldActive" = true OR rr."exchangePaymentStatus" IN ('creating', 'pending', 'expiring'))
+    )
     AND NOT EXISTS (SELECT 1 FROM "OrderPrepAssignment" a WHERE a."merchantId" = s."merchantId" AND a."orderId" = s."orderId")
     AND NOT EXISTS (SELECT 1 FROM "SallaShipment" sh WHERE sh."merchantId" = s."merchantId" AND sh."orderId" = s."orderId")
     AND NOT EXISTS (
