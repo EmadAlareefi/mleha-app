@@ -8,7 +8,7 @@ import {
   getOutletProductIds,
   resolveReturnDeliveryDate,
 } from '@/lib/returns/policy';
-import { hasActiveReturnWindowOverride } from '@/lib/returns/window-override';
+import { getActiveReturnWindowOverride } from '@/lib/returns/window-override';
 import {
   claimedPieceKeys,
   expandOrderPieces,
@@ -17,6 +17,7 @@ import {
   type OrderPiece,
   type PieceEligibility,
   type PieceRuleContext,
+  type WindowOverrideScope,
 } from '@/lib/returns/pieces';
 
 /**
@@ -25,12 +26,42 @@ import {
  * earlier active requests. Shared by `/api/returns/check` (to show the form)
  * and `/api/returns/create` (to enforce it).
  */
+/**
+ * Which products are past their return window. With an admin exception and no
+ * known delivery date, every product counts as past it, so the exception's
+ * scope (return / exchange) still applies instead of allowing both.
+ */
+export function buildWindowContext(input: {
+  categoriesByProductId: Record<string, string[]>;
+  productIds: string[];
+  deliveryDate: Date | null;
+  hasOverride: boolean;
+}) {
+  const windowExpiredProductIds = new Set<string>();
+  const windowExpiredMessages: Record<string, string> = {};
+  if (input.deliveryDate) {
+    const evaluations = evaluateReturnWindowByProductId({
+      categoriesByProductId: input.categoriesByProductId,
+      deliveryDate: input.deliveryDate,
+    });
+    for (const [productId, evaluation] of Object.entries(evaluations)) {
+      if (!evaluation.eligible) {
+        windowExpiredProductIds.add(productId);
+        windowExpiredMessages[productId] = evaluation.policy.message;
+      }
+    }
+  } else if (input.hasOverride) {
+    input.productIds.forEach((productId) => windowExpiredProductIds.add(productId));
+  }
+  return { windowExpiredProductIds, windowExpiredMessages };
+}
+
 export async function loadPieceRules(merchantId: string, order: any) {
   const pieces = expandOrderPieces(order);
   const productIds = Array.from(new Set(pieces.map((piece) => piece.productId)));
-  const [categoriesByProductId, windowOverride, deliveryDateResult, existing] = await Promise.all([
+  const [categoriesByProductId, override, deliveryDateResult, existing] = await Promise.all([
     getCategoryNamesByProductId(merchantId, productIds),
-    hasActiveReturnWindowOverride(merchantId, String(order.id)),
+    getActiveReturnWindowOverride(merchantId, String(order.id)),
     resolveReturnDeliveryDate(merchantId, order),
     prisma.returnRequest.findMany({
       where: { merchantId, orderId: String(order.id), status: { notIn: ['cancelled', 'rejected'] } },
@@ -38,18 +69,15 @@ export async function loadPieceRules(merchantId: string, order: any) {
     }),
   ]);
 
+  const windowOverride = Boolean(override);
+  const windowOverrideScope: WindowOverrideScope | null = override?.scope ?? null;
   const deliveryDate = deliveryDateResult.date;
-  const evaluations = deliveryDate
-    ? evaluateReturnWindowByProductId({ categoriesByProductId, deliveryDate })
-    : {};
-  const windowExpiredProductIds = new Set<string>();
-  const windowExpiredMessages: Record<string, string> = {};
-  for (const [productId, evaluation] of Object.entries(evaluations)) {
-    if (!evaluation.eligible) {
-      windowExpiredProductIds.add(productId);
-      windowExpiredMessages[productId] = evaluation.policy.message;
-    }
-  }
+  const { windowExpiredProductIds, windowExpiredMessages } = buildWindowContext({
+    categoriesByProductId,
+    productIds,
+    deliveryDate,
+    hasOverride: windowOverride,
+  });
 
   const ctx: PieceRuleContext = {
     oneRiyalProductIds: getOneRiyalOfferProductIds(categoriesByProductId),
@@ -59,6 +87,7 @@ export async function loadPieceRules(merchantId: string, order: any) {
     windowExpiredProductIds,
     windowExpiredMessages,
     windowOverride,
+    windowOverrideScope,
   };
 
   const claimed = claimedPieceKeys(
@@ -72,6 +101,7 @@ export async function loadPieceRules(merchantId: string, order: any) {
     claimed,
     categoriesByProductId,
     windowOverride,
+    windowOverrideScope,
     deliveryDateResult,
     rules: (productId: string): PieceEligibility => productEligibility(productId, ctx),
   };
@@ -86,6 +116,7 @@ export interface PublicPiece {
   blockedCode?: string;
   blockedReason?: string;
   exchangeOnlyReason?: string;
+  returnOnlyReason?: string;
   alreadyRequested: boolean;
 }
 
@@ -107,6 +138,7 @@ export function toPublicPieces(
       blockedCode: alreadyRequested ? 'ALREADY_REQUESTED' : eligibility.blockedCode,
       blockedReason: alreadyRequested ? 'تم تقديم طلب لهذه القطعة مسبقاً' : eligibility.blockedReason,
       exchangeOnlyReason: eligibility.exchangeOnlyReason,
+      returnOnlyReason: eligibility.returnOnlyReason,
       alreadyRequested,
     };
   });

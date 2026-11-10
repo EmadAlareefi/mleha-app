@@ -29,7 +29,16 @@ export interface PieceEligibility {
   blockedReason?: string;
   /** Set when only exchange is allowed, to explain why return is disabled. */
   exchangeOnlyReason?: string;
+  /** Set when only return is allowed (a return-only window exception). */
+  returnOnlyReason?: string;
 }
+
+/** What an admin window exception (استثناء) allows past the window. */
+export type WindowOverrideScope = 'return' | 'exchange' | 'both';
+export const WINDOW_OVERRIDE_SCOPES: readonly WindowOverrideScope[] = ['both', 'exchange', 'return'];
+
+export const overrideScopeTypes = (scope: WindowOverrideScope | null | undefined): PieceType[] =>
+  scope === 'return' ? ['return'] : scope === 'exchange' ? ['exchange'] : ['return', 'exchange'];
 
 export interface PieceRuleContext {
   oneRiyalProductIds: Set<string>;
@@ -40,6 +49,8 @@ export interface PieceRuleContext {
   windowExpiredMessages?: Record<string, string>;
   /** An admin override exempts only the time-window rule. */
   windowOverride?: boolean;
+  /** Which types the override allows past the window; `both` when unset. */
+  windowOverrideScope?: WindowOverrideScope | null;
 }
 
 export const DISCOUNTED_PIECE_MESSAGE = 'منتجات التخفيضات غير قابلة للإرجاع أو الاستبدال';
@@ -47,6 +58,10 @@ export const OUTLET_EXCHANGE_ONLY_MESSAGE = 'منتجات اوتليت مليح�
 export const NATIONAL_DAY_EXCHANGE_ONLY_MESSAGE = 'منتجات عروض اليوم الوطني متاحة للاستبدال فقط';
 export const WINDOW_EXPIRED_PIECE_MESSAGE = 'انتهت مدة الإرجاع المسموحة لهذا المنتج';
 export const ALREADY_REQUESTED_PIECE_MESSAGE = 'تم تقديم طلب لهذه القطعة مسبقاً';
+export const OVERRIDE_EXCHANGE_ONLY_MESSAGE = 'انتهت مدة الإرجاع؛ الاستثناء الممنوح لهذا الطلب يسمح بالاستبدال فقط';
+export const OVERRIDE_RETURN_ONLY_MESSAGE = 'انتهت مدة الإرجاع؛ الاستثناء الممنوح لهذا الطلب يسمح بالإرجاع فقط';
+export const OVERRIDE_NOT_APPLICABLE_MESSAGE =
+  'انتهت مدة الإرجاع؛ الاستثناء الممنوح لهذا الطلب للإرجاع فقط، وهذا المنتج متاح للاستبدال فقط';
 
 /** Rules for one product, independent of which piece of it the customer picks. */
 export function productEligibility(productId: string, ctx: PieceRuleContext): PieceEligibility {
@@ -58,20 +73,33 @@ export function productEligibility(productId: string, ctx: PieceRuleContext): Pi
   if (ctx.discountedProductIds.has(productId)) {
     return { allowedTypes: [], blockedCode: 'DISCOUNTED_CATEGORY', blockedReason: DISCOUNTED_PIECE_MESSAGE };
   }
-  if (!ctx.windowOverride && ctx.windowExpiredProductIds.has(productId)) {
+
+  // What the product's categories allow.
+  const category: PieceEligibility = ctx.outletProductIds.has(productId)
+    ? { allowedTypes: ['exchange'], exchangeOnlyReason: OUTLET_EXCHANGE_ONLY_MESSAGE }
+    : ctx.nationalDayProductIds.has(productId)
+      ? { allowedTypes: ['exchange'], exchangeOnlyReason: NATIONAL_DAY_EXCHANGE_ONLY_MESSAGE }
+      : { allowedTypes: ['return', 'exchange'] };
+
+  if (!ctx.windowExpiredProductIds.has(productId)) return category;
+  if (!ctx.windowOverride) {
     return {
       allowedTypes: [],
       blockedCode: 'RETURN_PERIOD_EXPIRED',
       blockedReason: ctx.windowExpiredMessages?.[productId] || WINDOW_EXPIRED_PIECE_MESSAGE,
     };
   }
-  if (ctx.outletProductIds.has(productId)) {
-    return { allowedTypes: ['exchange'], exchangeOnlyReason: OUTLET_EXCHANGE_ONLY_MESSAGE };
+
+  // Past the window: the admin exception lets through only the types it was given.
+  const scopeTypes = overrideScopeTypes(ctx.windowOverrideScope);
+  const allowedTypes = category.allowedTypes.filter((type) => scopeTypes.includes(type));
+  if (allowedTypes.length === 0) {
+    return { allowedTypes: [], blockedCode: 'RETURN_PERIOD_EXPIRED', blockedReason: OVERRIDE_NOT_APPLICABLE_MESSAGE };
   }
-  if (ctx.nationalDayProductIds.has(productId)) {
-    return { allowedTypes: ['exchange'], exchangeOnlyReason: NATIONAL_DAY_EXCHANGE_ONLY_MESSAGE };
-  }
-  return { allowedTypes: ['return', 'exchange'] };
+  if (allowedTypes.length === category.allowedTypes.length) return category;
+  return allowedTypes[0] === 'exchange'
+    ? { allowedTypes, exchangeOnlyReason: OVERRIDE_EXCHANGE_ONLY_MESSAGE }
+    : { allowedTypes, returnOnlyReason: OVERRIDE_RETURN_ONLY_MESSAGE };
 }
 
 export const pieceKey = (orderItemId: string | number, unitIndex: number) =>
@@ -185,7 +213,8 @@ export type ResolvePiecesResult =
         | 'INVALID_TYPE'
         | 'RIBBON_UNANSWERED'
         | PieceBlockCode
-        | 'EXCHANGE_ONLY';
+        | 'EXCHANGE_ONLY'
+        | 'RETURN_ONLY';
       error: string;
       piece?: OrderPiece;
     };
@@ -240,7 +269,9 @@ export function resolveRequestedPieces(
       return { ok: false, code: eligibility.blockedCode, error: eligibility.blockedReason || 'هذا المنتج غير قابل للإرجاع', piece };
     }
     if (!eligibility.allowedTypes.includes(entry.type)) {
-      return { ok: false, code: 'EXCHANGE_ONLY', error: eligibility.exchangeOnlyReason || 'هذا المنتج متاح للاستبدال فقط', piece };
+      return eligibility.allowedTypes.includes('return')
+        ? { ok: false, code: 'RETURN_ONLY', error: eligibility.returnOnlyReason || 'هذا المنتج متاح للإرجاع فقط', piece }
+        : { ok: false, code: 'EXCHANGE_ONLY', error: eligibility.exchangeOnlyReason || 'هذا المنتج متاح للاستبدال فقط', piece };
     }
 
     pieces.push({ ...piece, type: entry.type, ribbonRemoved: false });

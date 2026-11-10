@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
         allowMultipleRequests: allowMultiple,
         canCreateNew: true,
         returnWindowOverridden: windowOverride,
+        returnWindowOverrideScope: pieceRules.windowOverrideScope,
         windowExpiredProductIds: windowOverride ? [] : Array.from(windowExpiredProductIds),
         pieces,
       });
@@ -305,6 +306,7 @@ export async function POST(request: NextRequest) {
       allowMultipleRequests: allowMultiple,
       canCreateNew: allowMultiple, // Can create new only if multiple requests are allowed
       returnWindowOverridden: windowOverride,
+      returnWindowOverrideScope: pieceRules.windowOverrideScope,
       windowExpiredProductIds: windowOverride ? [] : Array.from(windowExpiredProductIds),
       pieces,
     });

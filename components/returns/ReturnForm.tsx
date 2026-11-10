@@ -434,8 +434,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
                                     );
                                   })}
                                 </div>
-                                {piece.exchangeOnlyReason && (
-                                  <p className="mt-2 text-xs font-medium text-amber-700">{piece.exchangeOnlyReason}</p>
+                                {(piece.exchangeOnlyReason || piece.returnOnlyReason) && (
+                                  <p className="mt-2 text-xs font-medium text-amber-700">
+                                    {piece.exchangeOnlyReason || piece.returnOnlyReason}
+                                  </p>
                                 )}
                               </div>
                             )}

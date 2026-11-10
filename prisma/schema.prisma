@@ -1127,6 +1127,9 @@ model ReturnWindowOverride {
   merchantId  String
   orderId     String
   orderNumber String?
+  // What the exception allows past the window: return, exchange or both.
+  scope       String    @default("both")
+  note        String?   @db.Text
   createdBy   String
   createdAt   DateTime  @default(now())
   revokedBy   String?

@@ -132,3 +132,39 @@ test('request type is derived from the pieces', () => {
   assert.equal(deriveRequestType(['exchange']), 'exchange');
   assert.equal(deriveRequestType(['exchange', 'return']), 'mixed');
 });
+
+test('a scoped window exception lets through only its types, after the category rules', () => {
+  const ctx = {
+    ...emptyCtx(),
+    windowExpiredProductIds: new Set(['10', '30']),
+    outletProductIds: new Set(['30']),
+    windowOverride: true,
+  };
+  // Exchange-only exception on an ordinary product.
+  const exchangeOnly = productEligibility('10', { ...ctx, windowOverrideScope: 'exchange' as const });
+  assert.deepEqual(exchangeOnly.allowedTypes, ['exchange']);
+  assert.match(exchangeOnly.exchangeOnlyReason || '', /الاستثناء/);
+  // Return-only exception.
+  const returnOnly = productEligibility('10', { ...ctx, windowOverrideScope: 'return' as const });
+  assert.deepEqual(returnOnly.allowedTypes, ['return']);
+  assert.match(returnOnly.returnOnlyReason || '', /بالإرجاع فقط/);
+  // Both (and old rows without a scope) keep today's behaviour.
+  assert.deepEqual(productEligibility('10', { ...ctx, windowOverrideScope: 'both' as const }).allowedTypes, ['return', 'exchange']);
+  assert.deepEqual(productEligibility('10', ctx).allowedTypes, ['return', 'exchange']);
+  // An outlet product (exchange only) under a return-only exception has nothing left.
+  const outlet = productEligibility('30', { ...ctx, windowOverrideScope: 'return' as const });
+  assert.deepEqual(outlet.allowedTypes, []);
+  assert.equal(outlet.blockedCode, 'RETURN_PERIOD_EXPIRED');
+  // Products still inside their window are not narrowed by the exception.
+  assert.deepEqual(productEligibility('20', { ...ctx, windowOverrideScope: 'exchange' as const }).allowedTypes, ['return', 'exchange']);
+});
+
+test('a return-only piece submitted as exchange is refused with the return-only reason', () => {
+  const order = { items: [line(1, 10, 1)] };
+  const ctx = { ...emptyCtx(), windowExpiredProductIds: new Set(['10']), windowOverride: true, windowOverrideScope: 'return' as const };
+  const result = resolveRequestedPieces(order, [{ orderItemId: '1', unitIndex: 0, type: 'exchange', ribbonRemoved: false }], {
+    rules: (id) => productEligibility(id, ctx),
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, 'RETURN_ONLY');
+});
