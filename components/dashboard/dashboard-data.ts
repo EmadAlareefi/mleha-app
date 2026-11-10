@@ -304,6 +304,22 @@ export function getVisibleDashboardServices({
 
   const dashboardServices = visibleServices.map(mapServiceDefinition);
 
+  // The packing board lives under /admin/order-prep and shares its permission.
+  if (visibleServices.some((service) => service.key === 'admin-order-prep')) {
+    dashboardServices.push({
+      key: 'order-prep-board',
+      sourceKey: 'admin-order-prep',
+      title: 'لوحة التجهيز المباشرة',
+      description: 'الطابور، المجهزون، المشاكل، ومزامنة سلة لحظة بلحظة',
+      href: '/admin/order-prep/board',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: ClipboardCheck,
+      accentClass: categoryAccentMap.orders,
+      priority: 77,
+    });
+  }
+
   if (affiliateName) {
     dashboardServices.push({
       key: 'affiliate-stats',
