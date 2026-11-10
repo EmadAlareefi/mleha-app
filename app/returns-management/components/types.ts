@@ -93,18 +93,38 @@ export interface ReturnRequest {
   leftoverCouponAmount?: number | string | null;
   exchangeLines?: Array<{
     id: string;
+    productId?: string;
+    skuId?: string;
     name: string;
     variantName?: string | null;
     imageUrl?: string | null;
     quantity: number;
     unitPrice: number | string;
   }>;
+  exchangeOrderHeldAt?: string | null;
+  exchangeOrderLinkedAt?: string | null;
+  couponCreatedAt?: string | null;
+  customerId?: string | null;
+  feeExchangeRate?: number | string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
   adminNotes?: string | null;
   createdAt: string;
+  updatedAt?: string;
   items: ReturnItem[];
   sallaStatus?: { name?: string; slug?: string } | null;
   localShipments?: LocalTrackingShipment[];
+  /** The order's active window exception (استثناء مدة الإرجاع). */
+  windowOverride?: { scope: OverrideScope; note?: string | null; createdBy: string; createdAt: string } | null;
 }
+
+export type OverrideScope = 'both' | 'exchange' | 'return';
+
+export const OVERRIDE_SCOPE_LABELS: Record<OverrideScope, string> = {
+  both: 'إرجاع واستبدال',
+  exchange: 'استبدال فقط',
+  return: 'إرجاع فقط',
+};
 
 export interface ProcessPreview {
   requestId: string;
@@ -203,10 +223,13 @@ export const AUDIT_STEP_LABELS: Record<string, string> = {
   restock: 'المخزون',
   refund: 'الاسترجاع المالي',
   coupon: 'كوبون الاستبدال',
-  exchange_order: 'طلب الاستبدال',
+  exchange_order: 'الطلب البديل',
   salla_status: 'حالة الطلب في سلة',
   salla_history: 'سجل الطلب في سلة',
   complete: 'إغلاق الطلب',
+  type_change: 'تغيير نوع القطع',
+  type_fix: 'تصحيح نوع القطع',
+  reopen: 'إعادة للمراجعة',
   error: 'خطأ',
 };
 
@@ -221,3 +244,19 @@ export const EXCHANGE_PAYMENT_LABELS: Record<string, string> = {
   creating: 'قيد الإنشاء',
   expiring: 'جاري الإلغاء لانتهاء المهلة',
 };
+
+/** Stages "إعادة للمراجعة" applies to (see lib/returns/reopen.ts). */
+export const REOPENABLE_STAGES = new Set(['completed', 'closed', 'ready', 'needs_attention']);
+
+export const PIECE_TYPE_LABELS: Record<string, string> = { return: 'استرجاع', exchange: 'استبدال' };
+
+/** Human summary of a coupon WhatsApp result from the coupon routes. */
+export function describeCouponNotification(
+  notification: { status?: string; reason?: string; error?: string } | null | undefined,
+  sentMessage: string,
+): string {
+  if (!notification || notification.status === 'sent') return sentMessage;
+  return `لم تُرسل رسالة الواتساب: ${notification.reason || notification.error || 'سبب غير معروف'}`;
+}
+
+export type Notify = (message: string, variant?: 'default' | 'destructive') => void;

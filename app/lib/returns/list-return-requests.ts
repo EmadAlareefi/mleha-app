@@ -112,19 +112,23 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       where.AND = existingAnd;
     }
 
+    // One request by id (the detail view): no queue filter, no tab counts.
+    const idParam = searchParams.get('id')?.trim();
+    if (idParam) where.id = idParam;
+
     // Queue tabs: counts use every other filter, the list adds the chosen tab.
-    const queue = searchParams.get('queue');
+    const queue = idParam ? null : searchParams.get('queue');
     const baseWhere: Prisma.ReturnRequestWhereInput = { ...where };
     if (isQueueTab(queue) && queue !== 'all') {
       where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), queueWhere(queue)];
     }
-    const withCounts = searchParams.get('counts') === '1';
+    const withCounts = !idParam && searchParams.get('counts') === '1';
 
     // Counts and the page of rows are independent; fetch them together.
     const [[total, missingShipmentCount, queueCounts], returnRequests] = await Promise.all([
       Promise.all([
       prisma.returnRequest.count({ where }),
-      prisma.returnRequest.count({ where: missingShipmentWhere }),
+      idParam ? Promise.resolve(0) : prisma.returnRequest.count({ where: missingShipmentWhere }),
       withCounts
         ? Promise.all(
             QUEUE_TABS.map(async (tab) => [
@@ -191,8 +195,9 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
     let sallaStatuses: Record<string, { name?: string; slug?: string }> = {};
     const itemIds = returnRequests.flatMap((req) => (req.items ?? []).map((item) => item.id));
 
-    // Salla statuses, local shipments and which items have a photo: independent lookups.
-    const [sallaOrders, localShipments, itemsWithImage] = await Promise.all([
+    // Salla statuses, local shipments, which items have a photo and window
+    // exceptions: independent lookups.
+    const [sallaOrders, localShipments, itemsWithImage, windowOverrides] = await Promise.all([
       uniqueOrders.length > 0
         ? prisma.sallaOrder.findMany({
             where: {
@@ -222,7 +227,14 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
             select: { id: true },
           })
         : Promise.resolve([]),
+      uniqueOrders.length
+        ? prisma.returnWindowOverride.findMany({
+            where: { revokedAt: null, OR: uniqueOrders },
+            select: { merchantId: true, orderId: true, scope: true, note: true, createdBy: true, createdAt: true },
+          })
+        : Promise.resolve([]),
     ]);
+    const overrideByOrder = new Map(windowOverrides.map((override) => [`${override.merchantId}:${override.orderId}`, override]));
     const imageItemIds = new Set(itemsWithImage.map((item) => item.id));
 
     if (sallaOrders.length > 0) {
@@ -246,13 +258,19 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
 
     const enrichedRequests = returnRequests.map(request => {
       const statusKey = `${request.merchantId}:${request.orderId}`;
+      const override = overrideByOrder.get(statusKey);
       return {
         ...request,
+        // The raw carrier response can embed the label itself; send only what the page uses.
+        smsaResponse: slimCarrierResponse(request.smsaResponse),
         items: (request.items ?? []).map((item) => ({ ...item, hasDamageImage: imageItemIds.has(item.id) })),
         needsManualShipment: needsManualReturnShipment(request, now),
         stage: deriveStage(request),
         sallaStatus: sallaStatuses[statusKey] || null,
         localShipments: localShipmentsByOrder.get(statusKey) || [],
+        windowOverride: override
+          ? { scope: override.scope, note: override.note, createdBy: override.createdBy, createdAt: override.createdAt }
+          : null,
       };
     });
 
@@ -276,4 +294,14 @@ export async function listReturnRequests(request: NextRequest): Promise<NextResp
       { status: 500 }
     );
   }
+}
+
+function slimCarrierResponse(value: unknown): { provider?: string; labelUrl?: string | null } | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const labelUrl = typeof record.labelUrl === 'string' && /^https?:\/\//i.test(record.labelUrl) ? record.labelUrl : null;
+  return {
+    ...(typeof record.provider === 'string' ? { provider: record.provider } : {}),
+    labelUrl,
+  };
 }

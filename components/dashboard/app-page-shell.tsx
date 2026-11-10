@@ -77,7 +77,8 @@ export function AppPageShell({ title, subtitle, children, contentClassName }: Ap
         userEmail={user?.email}
         roleLabel={roleLabel}
       />
-      <SidebarInset className="min-h-svh overflow-hidden">
+      {/* overflow-clip, not hidden: clips the same but is no scroll container, so sticky bars work. */}
+      <SidebarInset className="min-h-svh overflow-clip">
         <SiteHeader
           isAuthenticated={isAuthenticated}
           userName={user?.name}

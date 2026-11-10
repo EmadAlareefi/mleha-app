@@ -98,8 +98,8 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
 
   return (
     <Dialog open={Boolean(request)} onOpenChange={(open) => !open && !running && onClose()}>
-      <DialogContent dir="rtl" className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader className="text-right sm:text-right">
+      <DialogContent dir="rtl" className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader className="pr-8 text-right sm:text-right">
           <DialogTitle>اعتماد ومعالجة الطلب #{request?.orderNumber}</DialogTitle>
           <DialogDescription>راجعي ما سيتم تنفيذه في سلة، ثم اضغطي اعتماد.</DialogDescription>
         </DialogHeader>
@@ -161,14 +161,14 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
               <section className="rounded-lg border p-3">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-2 font-medium">
-                    <Ticket className="size-4 text-green-600" /> طلب الاستبدال #{preview.exchangeOrder.orderNumber}
+                    <Ticket className="size-4 text-green-600" /> الطلب البديل #{preview.exchangeOrder.orderNumber}
                   </span>
                   <span className="text-sm text-gray-600">
-                    {preview.exchangeOrder.paymentStatus === 'pending' ? 'بانتظار الدفع' : 'جاهز للإطلاق'}
+                    {preview.exchangeOrder.paymentStatus === 'pending' ? 'بانتظار الدفع' : 'جاهز للتجهيز'}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-gray-600">
-                  {preview.exchangeOrder.held ? 'يُطلق الطلب للتجهيز والشحن' : 'الطلب غير محجوز'}
+                  {preview.exchangeOrder.held ? 'يتحول الطلب البديل إلى «طلب جديد» ليُجهّز ويُشحن' : 'الطلب البديل غير محجوز'}
                   {preview.exchangeOrder.leftover > 0
                     ? ` • يُصدر كوبون بالرصيد المتبقي ${formatMoney(preview.exchangeOrder.leftover, currency)}`
                     : ''}
@@ -267,7 +267,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
             )}
 
             <p className="flex items-center gap-2 text-xs text-gray-500">
-              <CheckCircle2 className="size-3.5" /> بعد المعالجة تتحول حالة الطلب في سلة إلى &quot;مسترجع&quot; ويُغلق الطلب هنا.
+              <CheckCircle2 className="size-3.5 shrink-0" /> بعد المعالجة تتحول حالة الطلب الأصلي في سلة إلى &quot;مسترجع&quot; ويُغلق الطلب هنا.
             </p>
           </div>
         )}
@@ -279,7 +279,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
         )}
 
         <DialogFooter className="gap-2 sm:justify-start">
-          <Button onClick={run} disabled={blocked || running} className="bg-emerald-600 hover:bg-emerald-700">
+          <Button onClick={run} disabled={blocked || running} className="h-11 bg-emerald-600 hover:bg-emerald-700 sm:h-9">
             {running ? (
               <>
                 <Loader2 className="size-4 animate-spin" /> جاري التنفيذ...
@@ -288,7 +288,7 @@ export function ProcessDialog({ request, onClose, onDone }: ProcessDialogProps) 
               'اعتماد ومعالجة'
             )}
           </Button>
-          <Button variant="outline" onClick={onClose} disabled={running}>
+          <Button variant="outline" onClick={onClose} disabled={running} className="h-11 sm:h-9">
             إلغاء
           </Button>
         </DialogFooter>

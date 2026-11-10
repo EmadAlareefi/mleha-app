@@ -61,6 +61,10 @@ export function CouponAmountDialog({ request, onClose, onSaved }: CouponAmountDi
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Initialise once per request: the parent re-renders (session refetch every
+  // 60 s, list reloads) with new objects for the same request, which must not
+  // wipe what staff typed.
+  const requestId = request?.id ?? null;
   useEffect(() => {
     if (!request) {
       return;
@@ -73,7 +77,8 @@ export function CouponAmountDialog({ request, onClose, onSaved }: CouponAmountDi
     setNote(request.couponAmountOverrideNote || '');
     setResendNotification(false);
     setError(null);
-  }, [request]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestId]);
 
   if (!request) {
     return null;
@@ -134,8 +139,8 @@ export function CouponAmountDialog({ request, onClose, onSaved }: CouponAmountDi
 
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent dir="rtl" className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader className="pr-8 text-right sm:text-right">
           <DialogTitle>تعديل قيمة الكوبون</DialogTitle>
           <DialogDescription>
             طلب رقم {request.orderNumber}
@@ -153,11 +158,11 @@ export function CouponAmountDialog({ request, onClose, onSaved }: CouponAmountDi
               <span>{format(shipping, request.currency)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">رسوم الاستبدال</span>
+              <span className="text-muted-foreground">{mixed ? 'الرسوم (تُخصم من الاسترجاع المالي)' : 'رسوم الاستبدال'}</span>
               <span>-{format(fee, request.currency)}</span>
             </div>
             <div className="flex justify-between border-t pt-1 font-semibold">
-              <span>القيمة المحسوبة تلقائياً</span>
+              <span>القيمة المحسوبة تقريباً</span>
               <span>{format(calculated, request.currency)}</span>
             </div>
           </div>
@@ -229,12 +234,12 @@ export function CouponAmountDialog({ request, onClose, onSaved }: CouponAmountDi
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            إلغاء
-          </Button>
-          <Button onClick={save} disabled={saving}>
+        <DialogFooter className="gap-2 sm:justify-start">
+          <Button onClick={save} disabled={saving} className="h-11 sm:h-9">
             {saving ? 'جاري الحفظ...' : 'حفظ القيمة'}
+          </Button>
+          <Button variant="outline" onClick={onClose} disabled={saving} className="h-11 sm:h-9">
+            إلغاء
           </Button>
         </DialogFooter>
       </DialogContent>

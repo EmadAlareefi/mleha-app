@@ -27,10 +27,13 @@ export function InspectorNotesDialog({ request, onClose, onSaved }: InspectorNot
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Once per request: a parent re-render with a new object must not wipe typed notes.
+  const requestId = request?.id ?? null;
   useEffect(() => {
     setNotes(Object.fromEntries((request?.items ?? []).map((item) => [item.id, item.preInspectionNotes || ''])));
     setError('');
-  }, [request]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestId]);
 
   const save = async () => {
     if (!request) return;
@@ -57,8 +60,8 @@ export function InspectorNotesDialog({ request, onClose, onSaved }: InspectorNot
 
   return (
     <Dialog open={Boolean(request)} onOpenChange={(open) => !open && !saving && onClose()}>
-      <DialogContent dir="rtl" className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader className="text-right sm:text-right">
+      <DialogContent dir="rtl" className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader className="pr-8 text-right sm:text-right">
           <DialogTitle>ملاحظات للمفتش</DialogTitle>
           <DialogDescription>
             طلب #{request?.orderNumber} — ما لاحظه العميل أو خدمة العملاء، يظهر لفريق الفحص عند وصول الشحنة.
@@ -71,7 +74,7 @@ export function InspectorNotesDialog({ request, onClose, onSaved }: InspectorNot
         )}
         <div className="space-y-3">
           {pending.map((item) => (
-            <div key={item.id} className="space-y-2 rounded-lg border bg-gray-50 p-3">
+            <div key={item.id} className="space-y-2 rounded-lg border bg-muted/50 p-3">
               <p className="text-sm font-medium">
                 {item.productName}
                 {item.variantName ? ` · ${item.variantName}` : ''}
@@ -88,10 +91,10 @@ export function InspectorNotesDialog({ request, onClose, onSaved }: InspectorNot
           ))}
         </div>
         <DialogFooter className="gap-2 sm:justify-start">
-          <Button onClick={save} disabled={saving || pending.length === 0}>
+          <Button onClick={save} disabled={saving || pending.length === 0} className="h-11 sm:h-9">
             {saving ? 'جاري الحفظ...' : 'حفظ الملاحظات'}
           </Button>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
+          <Button variant="outline" onClick={onClose} disabled={saving} className="h-11 sm:h-9">
             إلغاء
           </Button>
         </DialogFooter>
