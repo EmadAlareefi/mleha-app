@@ -11,6 +11,9 @@ import {
   isReturnItemCondition,
 } from '@/app/lib/returns/inspection';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
+import { syncFailedExchangePieceFlag } from '@/app/lib/returns/exchange-order-flow';
+import { repriceRequest } from '@/app/lib/returns/reprice';
+import { RECEIVABLE_STATUSES } from '@/lib/returns/workflow';
 import { extractGeneratedReturnTrackingNumbers } from '@/app/lib/returns/salla-return-tracking';
 import {
   extractSmsaReturnOrderReference,
@@ -20,6 +23,7 @@ import {
 export const runtime = 'nodejs';
 
 const ALLOWED_ROLES = ['admin', 'warehouse'];
+const CLOSED_STATUSES = new Set(['completed', 'cancelled', 'rejected']);
 const MAX_DAMAGE_IMAGE_DATA_LENGTH = 2_500_000;
 const DAMAGE_IMAGE_DATA_URL_PATTERN = /^data:image\/(jpeg|jpg|png|webp);base64,[a-z0-9+/=\s]+$/i;
 
@@ -525,6 +529,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // A running process reads the inspection; let it finish first.
+  if (requestRecord.processingStatus === 'processing') {
+    return NextResponse.json(
+      { error: 'الطلب قيد المعالجة حالياً، حاولي بعد قليل.' },
+      { status: 409 }
+    );
+  }
+
   const validIds = new Set(requestRecord.items.map((item) => item.id));
 
   for (const item of items) {
@@ -601,6 +613,43 @@ export async function POST(request: NextRequest) {
     )
   );
 
+  // Inspecting the goods proves they arrived, even if no carrier event did.
+  // Marked before the release below, which needs the return to be "arrived".
+  if (RECEIVABLE_STATUSES.includes(requestRecord.status)) {
+    await prisma.returnRequest.update({
+      where: { id: returnRequestId },
+      data: { status: 'delivered', receivedAt: requestRecord.receivedAt ?? now },
+    });
+  } else if (!requestRecord.receivedAt) {
+    await prisma.returnRequest.update({ where: { id: returnRequestId }, data: { receivedAt: now } });
+  }
+
+  // refundIncluded follows the inspection; keep the stored refund in step. A
+  // closed request's amounts are history: the warehouse may still record the
+  // condition, but nothing is repriced.
+  if (!CLOSED_STATUSES.has(requestRecord.status)) {
+    await repriceRequest(returnRequestId).catch((error) =>
+      log.error('Failed to reprice return after inspection', { returnRequestId, error })
+    );
+  }
+
+  // A held replacement order goes to "طلب جديد" once its pieces pass; if one
+  // failed, staff decide right away (ship anyway or cancel the replacement).
+  if (requestRecord.type !== 'return' && requestRecord.exchangeOrderId) {
+    const release = await maybeReleaseExchangeOrderHold(returnRequestId, {
+      source: 'inspection',
+      actor: String(inspector),
+    }).catch((error) => {
+      log.error('Exchange release after inspection failed', { returnRequestId, error });
+      return null;
+    });
+    if (!release?.released) {
+      await syncFailedExchangePieceFlag(returnRequestId).catch((error) =>
+        log.error('Failed to flag failed exchange piece', { returnRequestId, error })
+      );
+    }
+  }
+
   const updatedRequest = await prisma.returnRequest.findUnique({
     where: { id: returnRequestId },
     include: { items: true },
@@ -611,19 +660,6 @@ export async function POST(request: NextRequest) {
       { error: 'تعذر تحديث بيانات طلب الإرجاع' },
       { status: 500 }
     );
-  }
-
-  if (updatedRequest.type !== 'return') {
-    await maybeReleaseExchangeOrderHold(updatedRequest.id);
-  }
-
-  // Inspecting the goods proves they arrived, even if no carrier event did.
-  if (['pending_review', 'approved', 'shipped'].includes(updatedRequest.status)) {
-    await prisma.returnRequest.update({
-      where: { id: updatedRequest.id },
-      data: { status: 'delivered', receivedAt: updatedRequest.receivedAt ?? now },
-    });
-    updatedRequest.status = 'delivered';
   }
 
   const readyForProcessing = updatedRequest.items.every((item) => Boolean(item.conditionStatus));

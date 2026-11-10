@@ -75,11 +75,14 @@ export async function runReturnsAutoProgress(): Promise<AutoProgressReport> {
 
   // 2. Salla order already "مسترجع" before we processed it: somebody handled it
   //    in the Salla dashboard. Do not restock or refund again; flag it.
+  //    A request the app processed itself (processedAt) set that status, so a
+  //    reopened one ("إعادة للمراجعة") is not bounced back here.
   const unprocessed = await prisma.returnRequest.findMany({
     where: {
       createdAt: { gte: since },
       status: { notIn: ['completed', 'cancelled', 'rejected'] },
       processingStatus: { in: ['idle'] },
+      processedAt: null,
     },
     select: { id: true, merchantId: true, orderId: true },
   });

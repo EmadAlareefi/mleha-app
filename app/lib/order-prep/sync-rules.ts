@@ -73,6 +73,9 @@ export function statusEcho(targetStatusId: number): { statusCustomId: string; st
       return { statusCustomId: String(targetStatusId), statusSlug: 'under_review', statusName: SUB_STATUSES.UNDER_REVIEW.name };
     case STATUS_IDS.NEW_ORDER:
       return { statusCustomId: String(targetStatusId), statusSlug: 'under_review', statusName: 'طلب جديد' };
+    // Replacement orders held until their return passes inspection (returns code).
+    case STATUS_IDS.UNDER_REVIEW_RESERVATION:
+      return { statusCustomId: String(targetStatusId), statusSlug: 'under_review', statusName: SUB_STATUSES.UNDER_REVIEW_RESERVATION.name };
     default:
       return null;
   }

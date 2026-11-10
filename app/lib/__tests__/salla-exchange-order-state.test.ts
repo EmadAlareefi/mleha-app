@@ -26,3 +26,16 @@ test('an explicit zero remaining amount on a paid status is paid', () => {
 test('payment_pending is never paid', () => {
   assert.equal(isOrderPaid(toOrderState(order({ remaining_amount: { amount: 0 } }, 'payment_pending'))), false);
 });
+
+test('the custom status id tells the hold apart from "طلب جديد" (same base id and slug)', () => {
+  const held = toOrderState({
+    id: 1,
+    status: { id: 566146469, slug: 'under_review', name: 'تحت المراجعة حجز قطع', customized: { id: 1576217163 } },
+    amounts: { total: { amount: 75 } },
+  });
+  assert.equal(held.customStatusId, '1576217163');
+  assert.equal(held.statusName, 'تحت المراجعة حجز قطع');
+  const plain = toOrderState({ id: 1, status: { id: 449146439, slug: 'under_review' }, amounts: { total: { amount: 75 } } });
+  assert.equal(plain.customStatusId, '449146439');
+  assert.equal(toOrderState({ id: 1 }).customStatusId, null);
+});

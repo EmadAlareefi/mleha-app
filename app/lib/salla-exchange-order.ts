@@ -1,6 +1,7 @@
 import { fetch as undiciFetch } from 'undici';
 import { getSallaAccessToken, getSallaDispatcher } from '@/app/lib/salla-oauth';
 import { SallaCallError } from '@/app/lib/salla-transactions';
+import { STATUS_IDS } from '@/SALLA_ORDER_STATUSES';
 
 /**
  * Salla calls for app-created exchange orders.
@@ -28,7 +29,15 @@ const BASE = 'https://api.salla.dev/admin/v2';
 
 export const SALLA_CANCELED_STATUS_ID = Number(process.env.SALLA_CANCELED_STATUS_ID || '1183362113');
 export const EXCHANGE_HOLD_STATUS_ID = Number(process.env.SALLA_UNDER_REVIEW_RESERVATION_ID || '1576217163');
-export const EXCHANGE_RELEASE_STATUS_ID = Number(process.env.SALLA_UNDER_REVIEW_STATUS_ID || '1065456688');
+/**
+ * Where a held replacement goes once the return passes inspection: "طلب جديد",
+ * the only status order-prep picks up. Deliberately a new env name — the old
+ * SALLA_UNDER_REVIEW_STATUS_ID pointed at "تحت المراجعة R" (1065456688), which
+ * nobody packs.
+ */
+export const EXCHANGE_RELEASE_STATUS_ID = Number(process.env.SALLA_EXCHANGE_RELEASE_STATUS_ID || STATUS_IDS.NEW_ORDER);
+/** Where releases used to go; a held order found there is still released. */
+export const LEGACY_EXCHANGE_RELEASE_STATUS_ID = STATUS_IDS.UNDER_REVIEW;
 
 export interface ExchangeTransport {
   call(merchantId: string, method: string, path: string, body?: unknown): Promise<any>;
@@ -109,6 +118,13 @@ export interface ExchangeOrderState {
   referenceId: string;
   statusSlug: string;
   statusId?: number;
+  /**
+   * Salla's custom status id (`status.customized.id`, else `status.id`). Only
+   * this tells "طلب جديد" apart from its review sub-statuses such as the hold,
+   * which all share one base id and slug.
+   */
+  customStatusId: string | null;
+  statusName: string | null;
   total: number;
   currency: string;
   remainingAmount: number;
@@ -122,6 +138,15 @@ function amountOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Same rule as deriveStatusCustomId in salla-orders.ts (kept local: that module pulls in Prisma). */
+function customStatusIdOf(status: any): string | null {
+  if (!status || typeof status !== 'object') return null;
+  const customized = status.customized && typeof status.customized === 'object' ? status.customized.id : null;
+  const id = customized ?? status.id;
+  if (id === null || id === undefined || id === '') return null;
+  return String(id).trim() || null;
 }
 
 export function toOrderState(order: any): ExchangeOrderState {
@@ -138,6 +163,8 @@ export function toOrderState(order: any): ExchangeOrderState {
     referenceId: String(order?.reference_id ?? order?.id),
     statusSlug: String(order?.status?.slug || ''),
     statusId: order?.status?.id ? Number(order.status.id) : undefined,
+    customStatusId: customStatusIdOf(order?.status),
+    statusName: typeof order?.status?.name === 'string' ? order.status.name : null,
     total,
     currency: order?.amounts?.total?.currency || order?.currency || 'SAR',
     remainingAmount,

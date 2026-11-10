@@ -64,11 +64,18 @@ export async function POST(request: NextRequest) {
     switch (action) {
       case 'release': {
         if (returnRequest.exchangeMode !== 'order') throw new Error('لا يوجد طلب استبدال لهذا الطلب');
-        const result = await maybeReleaseExchangeOrderHold(id, { force: true });
-        await audit(id, 'exchange_order', result.released ? 'ok' : 'failed', actor, { forced: true, reason: result.reason });
-        if (!result.released) throw new Error(result.reason === 'payment_pending' ? 'العميل لم يدفع الفرق بعد' : `تعذر الإطلاق: ${result.reason}`);
-        await prisma.returnRequest.update({ where: { id }, data: { processingStatus: 'idle', processingError: null } });
-        return NextResponse.json({ success: true, message: 'تم إطلاق طلب الاستبدال للتجهيز.' });
+        // The release records itself in the audit trail when it goes through.
+        const result = await maybeReleaseExchangeOrderHold(id, { force: true, actor, source: 'staff' });
+        if (!result.released) {
+          await audit(id, 'exchange_order', 'failed', actor, { forced: true, reason: result.reason });
+          throw new Error(result.message || `تعذر الإرسال: ${result.reason}`);
+        }
+        // Staff decided; a "needs attention" about this replacement is settled.
+        await prisma.returnRequest.updateMany({
+          where: { id, processingStatus: 'needs_attention' },
+          data: { processingStatus: 'idle', processingError: null },
+        });
+        return NextResponse.json({ success: true, message: 'تم تحويل الطلب البديل إلى "طلب جديد" ليتم تجهيزه وشحنه.' });
       }
       case 'cancel': {
         const exchangeOrderId = returnRequest.exchangeOrderId;

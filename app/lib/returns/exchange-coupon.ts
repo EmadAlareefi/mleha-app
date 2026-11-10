@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { createSallaCoupon, generateCouponCode } from '@/app/lib/salla-coupons';
 import { log } from '@/app/lib/logger';
@@ -14,6 +15,12 @@ import { splitRequestFinancials } from '@/lib/returns/request-financials';
 
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
 const round = (value: number) => Math.round(value * 100) / 100;
+
+/** A replacement order that is being created, awaiting payment or paid carries the exchange credit. */
+export const REPLACEMENT_HOLDS_CREDIT: Prisma.ReturnRequestWhereInput = {
+  exchangeMode: 'order',
+  exchangePaymentStatus: { in: ['creating', 'pending', 'paid', 'not_required', 'expiring'] },
+};
 
 type RequestWithItems = NonNullable<Awaited<ReturnType<typeof loadRequest>>>;
 
@@ -161,12 +168,14 @@ export async function issueExchangeCoupon(
   // Claim the request with the code before creating it in Salla, so a double
   // click cannot create two coupons. couponCreatedAt stays null until the
   // coupon exists; on failure the claim is released.
+  // A replacement order being created or paid holds the same credit, so it
+  // blocks the coupon (createExchangeOrderForRequest refuses the other way round).
   const claimed = await prisma.returnRequest.updateMany({
-    where: { id: returnRequestId, couponCode: null },
+    where: { id: returnRequestId, couponCode: null, NOT: REPLACEMENT_HOLDS_CREDIT },
     data: { couponCode },
   });
   if (claimed.count === 0) {
-    return { ok: false, status: 409, error: 'يتم إنشاء كوبون لهذا الطلب حالياً أو تم إنشاؤه' };
+    return { ok: false, status: 409, error: 'يتم إنشاء كوبون أو طلب بديل لهذا الطلب حالياً، أو تم إنشاؤه مسبقاً' };
   }
 
   log.info('Creating coupon for exchange', {

@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { notifyExchangeCoupon } from '@/app/lib/returns/coupon-notification';
 import { SALLA_CUSTOMER_MARKUP } from '@/lib/returns/exchange-coupon-amount';
-import { computeRequestAmounts } from '@/app/lib/returns/exchange-coupon';
+import { computeRequestAmounts, REPLACEMENT_HOLDS_CREDIT } from '@/app/lib/returns/exchange-coupon';
 
 export const runtime = 'nodejs';
 const DEFAULT_COUPON_EXPIRY_DAYS = Number(process.env.EXCHANGE_COUPON_DEFAULT_EXPIRY_DAYS || '30');
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     // Only assign when no coupon exists (never overwrite one issued meanwhile).
     const assigned = await prisma.returnRequest.updateMany({
-      where: { id: returnRequestId, couponCode: null },
+      where: { id: returnRequestId, couponCode: null, NOT: REPLACEMENT_HOLDS_CREDIT },
       data: {
         couponCode: couponCode.trim(),
         couponCreatedAt: new Date(),

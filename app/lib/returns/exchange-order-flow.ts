@@ -9,12 +9,24 @@ import {
   cancelExchangeOrder,
   createPendingExchangeOrder,
   EXCHANGE_HOLD_STATUS_ID,
+  EXCHANGE_RELEASE_STATUS_ID,
   getExchangeOrderState,
   getOriginalShipping,
   isOrderPaid,
+  LEGACY_EXCHANGE_RELEASE_STATUS_ID,
   setExchangeOrderStatus,
   type ExchangeOrderState,
 } from '@/app/lib/salla-exchange-order';
+import { statusEcho } from '@/app/lib/order-prep/sync-rules';
+import { ORIGINAL_SALLA_STATUSES, STATUS_IDS } from '@/SALLA_ORDER_STATUSES';
+import {
+  decideExchangeRelease,
+  exchangePieceFailed,
+  exchangeStatusMove,
+  RELEASE_BLOCK_LABELS,
+  type ExchangeStatusIds,
+  type StatusMove,
+} from '@/lib/returns/exchange-release';
 import {
   getExchangeProduct,
   skuLabel,
@@ -51,6 +63,24 @@ const DEFAULT_PAYMENT_WINDOW_MS = 20 * 60 * 60 * 1000;
 const MAX_PAYMENT_WINDOW_MS = 48 * 60 * 60 * 1000;
 const CREDIT_COUPON_EXPIRY_DAYS = 3;
 
+const PAYMENT_PENDING_IDS = [String(STATUS_IDS.PAYMENT_PENDING), String(ORIGINAL_SALLA_STATUSES.PAYMENT_PENDING.id)];
+const BASE_NEW_ORDER_ID = String(ORIGINAL_SALLA_STATUSES.UNDER_REVIEW.id);
+
+/** Salla statuses the hold/release moves read and write (compare-and-set). */
+export const EXCHANGE_STATUS_IDS: ExchangeStatusIds = {
+  hold: String(EXCHANGE_HOLD_STATUS_ID),
+  release: String(EXCHANGE_RELEASE_STATUS_ID),
+  holdFrom: [String(STATUS_IDS.NEW_ORDER), BASE_NEW_ORDER_ID, ...PAYMENT_PENDING_IDS],
+  releaseFrom: [String(EXCHANGE_HOLD_STATUS_ID), String(LEGACY_EXCHANGE_RELEASE_STATUS_ID), BASE_NEW_ORDER_ID],
+  paymentPending: PAYMENT_PENDING_IDS,
+};
+
+/** Prefix of `exchangeOrderError` when Salla refused the hold; the cron retries only these. */
+export const EXCHANGE_HOLD_FAILED_PREFIX = 'تعذر حجز الطلب البديل في سلة: ';
+/** Set right after inspection when a held replacement's exchanged piece is not good. */
+export const EXCHANGE_PIECE_FAILED_MESSAGE =
+  'القطعة المستبدلة ليست بحالة جيدة — قرري إرسال الطلب البديل رغم ذلك أو إلغاءه وتحويله لكوبون.';
+
 // ---------------------------------------------------------------------------
 // Dependencies (injectable for tests)
 // ---------------------------------------------------------------------------
@@ -68,6 +98,11 @@ export interface ExchangeFlowDeps {
   deleteCoupon(merchantId: string, couponId: string): Promise<boolean>;
   notify(templateEnv: string, to: string | null | undefined, args: (string | number)[]): Promise<void>;
   notifyCoupon: typeof notifyExchangeCoupon;
+  /**
+   * Writes a status we just set in Salla into the local order mirror, so the
+   * order-prep queue sees it even if the following webhook is missed.
+   */
+  echoMirrorStatus(merchantId: string, orderId: string, statusId: number): Promise<void>;
   now(): Date;
 }
 
@@ -107,6 +142,11 @@ export const productionExchangeDeps: ExchangeFlowDeps = {
     await sendWhatsAppTemplate({ to: recipient, templateId, args });
   },
   notifyCoupon: notifyExchangeCoupon,
+  async echoMirrorStatus(merchantId, orderId, statusId) {
+    const echo = statusEcho(statusId);
+    if (!echo) return;
+    await prisma.sallaOrder.updateMany({ where: { merchantId, orderId }, data: echo });
+  },
   now: () => new Date(),
 };
 
@@ -220,9 +260,10 @@ export async function createExchangeOrderForRequest(
 
   // Claim the creation so two callers (customer submit + staff retry) cannot
   // each create a Salla order and a credit coupon. Released by the success or
-  // failure write below.
+  // failure write below. A coupon already carries the credit, so it blocks the
+  // order (issueExchangeCoupon refuses the other way round).
   const claim = await deps.db.returnRequest.updateMany({
-    where: { id: requestId, exchangeOrderId: null, exchangePaymentStatus: { in: ['none', 'failed'] } },
+    where: { id: requestId, exchangeOrderId: null, couponCode: null, exchangePaymentStatus: { in: ['none', 'failed'] } },
     data: { exchangePaymentStatus: 'creating' },
   });
   if (claim.count === 0) {
@@ -273,11 +314,6 @@ export async function createExchangeOrderForRequest(
     const now = deps.now();
     const windowMs = order.pendingSecondsLeft ? Math.min(order.pendingSecondsLeft * 1000, MAX_PAYMENT_WINDOW_MS) : DEFAULT_PAYMENT_WINDOW_MS;
 
-    if (!needsPayment) {
-      // Nothing to pay: hold straight away until the return is inspected.
-      await deps.setStatus(request.merchantId, order.id, EXCHANGE_HOLD_STATUS_ID);
-    }
-
     await deps.db.returnRequest.update({
       where: { id: requestId },
       data: {
@@ -297,6 +333,17 @@ export async function createExchangeOrderForRequest(
         exchangeOrderError: null,
       },
     });
+
+    if (!needsPayment) {
+      // Nothing to pay: hold straight away until the return is inspected. A
+      // refused hold is recorded for the cron to retry; meanwhile the order
+      // stays pending-payment in Salla and the prep queue skips held orders.
+      await applyExchangeHold(
+        { id: requestId, merchantId: request.merchantId, processingStatus: request.processingStatus, exchangeOrderError: null },
+        order,
+        deps,
+      ).catch((error) => log.error('Failed to hold covered exchange order', { requestId, error }));
+    }
 
     log.info('Exchange order created', { requestId, orderId: order.id, amountDue, leftover: plan.leftover });
     return {
@@ -352,10 +399,11 @@ export async function applyExchangeOrderState(
       },
     });
     if (claimed.count === 0) return 'unchanged';
-    // Paid: hold until the return passes inspection (Salla moves paid orders to
-    // "new order", which the warehouse would otherwise start preparing).
-    await deps.setStatus(request.merchantId, state.id, EXCHANGE_HOLD_STATUS_ID).catch((error) =>
-      log.error('Failed to hold paid exchange order', { requestId: request.id, error }),
+    // Paid: Salla has just moved it to "طلب جديد". Release it right away if the
+    // return already passed inspection; otherwise hold it until it does, or the
+    // warehouse would start preparing it.
+    await settlePaidExchangeOrder(request.id, state, deps).catch((error) =>
+      log.error('Failed to hold or release paid exchange order', { requestId: request.id, error }),
     );
     return 'paid';
   }
@@ -426,13 +474,15 @@ export interface ExchangeMaintenanceReport {
   reminded: number;
   expired: number;
   errors: number;
+  holdsReleased: number;
+  holdsReapplied: number;
 }
 
-/** Cron: backup for missed webhooks, reminders, and expiry. */
+/** Cron: backup for missed webhooks, reminders, expiry, and stuck holds. */
 export async function runExchangePaymentMaintenance(
   deps: ExchangeFlowDeps = productionExchangeDeps,
 ): Promise<ExchangeMaintenanceReport> {
-  const report: ExchangeMaintenanceReport = { paid: 0, reminded: 0, expired: 0, errors: 0 };
+  const report: ExchangeMaintenanceReport = { paid: 0, reminded: 0, expired: 0, errors: 0, holdsReleased: 0, holdsReapplied: 0 };
   const pending = await deps.db.returnRequest.findMany({
     where: { exchangeMode: 'order', exchangePaymentStatus: 'pending', exchangeOrderId: { not: null } },
     take: 100,
@@ -501,11 +551,285 @@ export async function runExchangePaymentMaintenance(
       log.error('Exchange payment maintenance failed', { requestId: request.id, error });
     }
   });
+
+  const holds = await reconcileExchangeHolds(deps).catch((error) => {
+    log.error('Exchange hold reconcile failed', { error });
+    return { released: 0, reheld: 0, errors: 1 };
+  });
+  report.holdsReleased = holds.released;
+  report.holdsReapplied = holds.reheld;
+  report.errors += holds.errors;
   return report;
 }
 
 // ---------------------------------------------------------------------------
-// 4. Staff actions
+// 4. Hold and release ("تحت المراجعة حجز قطع" → "طلب جديد")
+// ---------------------------------------------------------------------------
+type HeldRequest = {
+  id: string;
+  merchantId: string;
+  processingStatus?: string | null;
+  exchangeOrderError?: string | null;
+};
+
+type AuditEntryInput = { step: string; result: 'ok' | 'skipped' | 'failed' | 'info'; by?: string; details?: Record<string, unknown> };
+
+async function appendFlowAudit(deps: ExchangeFlowDeps, id: string, entry: AuditEntryInput) {
+  const current = await deps.db.returnRequest.findUnique({ where: { id }, select: { processingAudit: true } });
+  const entries = Array.isArray(current?.processingAudit) ? (current!.processingAudit as unknown[]) : [];
+  await deps.db.returnRequest.update({
+    where: { id },
+    data: { processingAudit: [...entries, { at: deps.now().toISOString(), by: 'system', ...entry }] as any },
+  });
+}
+
+/**
+ * Tells staff the replacement needs a decision: stores the reason and, when
+ * nobody is processing the request, moves it to "يحتاج تدخل".
+ */
+async function flagExchangeAttention(request: HeldRequest, message: string, deps: ExchangeFlowDeps) {
+  await deps.db.returnRequest.update({ where: { id: request.id }, data: { exchangeOrderError: message.slice(0, 2000) } });
+  await deps.db.returnRequest.updateMany({
+    where: { id: request.id, processingStatus: 'idle' },
+    data: { processingStatus: 'needs_attention', processingError: message },
+  });
+}
+
+const liveLabel = (live: ExchangeOrderState) => live.statusName || live.customStatusId || live.statusSlug || 'غير معروفة';
+
+/**
+ * Puts the replacement order on "تحت المراجعة حجز قطع" (compare-and-set
+ * against `live`). Never throws for Salla errors: a refused hold is recorded
+ * with EXCHANGE_HOLD_FAILED_PREFIX and retried by reconcileExchangeHolds.
+ */
+export async function applyExchangeHold(
+  request: HeldRequest,
+  live: ExchangeOrderState,
+  deps: ExchangeFlowDeps = productionExchangeDeps,
+): Promise<'held' | 'already' | 'failed' | 'skipped'> {
+  const move = exchangeStatusMove('hold', live, EXCHANGE_STATUS_IDS);
+  if (move === 'write') {
+    try {
+      await deps.setStatus(request.merchantId, live.id, EXCHANGE_HOLD_STATUS_ID);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await deps.db.returnRequest.update({
+        where: { id: request.id },
+        data: { exchangeOrderError: `${EXCHANGE_HOLD_FAILED_PREFIX}${message}`.slice(0, 2000) },
+      });
+      log.error('Failed to hold exchange order', { requestId: request.id, orderId: live.id, error: message });
+      return 'failed';
+    }
+    await deps.echoMirrorStatus(request.merchantId, live.id, EXCHANGE_HOLD_STATUS_ID).catch(() => undefined);
+  }
+  if (move === 'write' || move === 'already') {
+    if ((request.exchangeOrderError || '').startsWith(EXCHANGE_HOLD_FAILED_PREFIX)) {
+      await deps.db.returnRequest.update({ where: { id: request.id }, data: { exchangeOrderError: null } });
+    }
+    return move === 'write' ? 'held' : 'already';
+  }
+  // Packed, cancelled or moved by hand in Salla: never fight it, tell staff.
+  const message =
+    move === 'progressed'
+      ? `بدأ تجهيز أو شحن الطلب البديل في سلة (${liveLabel(live)}) قبل فحص المرتجع.`
+      : move === 'cancelled'
+        ? 'الطلب البديل ملغي في سلة.'
+        : `حالة الطلب البديل في سلة تغيّرت يدوياً (${liveLabel(live)})، لم يتم حجزه.`;
+  await flagExchangeAttention(request, message, deps);
+  return 'skipped';
+}
+
+/** After payment: release now when the return already passed inspection, else hold. */
+async function settlePaidExchangeOrder(requestId: string, live: ExchangeOrderState, deps: ExchangeFlowDeps) {
+  const fresh = await deps.db.returnRequest.findUnique({ where: { id: requestId }, include: { items: true } });
+  if (!fresh) return;
+  const candidate = { ...fresh, items: (fresh as any).items ?? [] };
+  if (decideExchangeRelease(candidate).release) {
+    await releaseExchangeOrderHold(requestId, { source: 'payment', live }, deps);
+    return;
+  }
+  await applyExchangeHold(fresh, live, deps);
+}
+
+export interface ReleaseOptions {
+  /** Staff chose to ship despite the inspection ("إرسال الطلب الآن"). */
+  force?: boolean;
+  actor?: string;
+  source?: 'inspection' | 'payment' | 'processing' | 'staff' | 'cron' | 'update';
+  /** A live order state the caller already fetched (skips one Salla read). */
+  live?: ExchangeOrderState;
+}
+
+export interface ReleaseResult {
+  released: boolean;
+  reason?: string;
+  /** Arabic explanation for staff when not released. */
+  message?: string;
+  outcome?: StatusMove;
+}
+
+/**
+ * Moves a held replacement order to "طلب جديد" so order-prep packs it, once
+ * payment is settled and the exchanged pieces passed inspection (or `force`).
+ * Compare-and-set against Salla's live status; idempotent.
+ */
+export async function releaseExchangeOrderHold(
+  requestId: string,
+  options: ReleaseOptions = {},
+  deps: ExchangeFlowDeps = productionExchangeDeps,
+): Promise<ReleaseResult> {
+  const request = await deps.db.returnRequest.findUnique({ where: { id: requestId }, include: { items: true } });
+  if (!request) return { released: false, reason: 'not_found', message: 'طلب الإرجاع غير موجود' };
+  const candidate = { ...request, items: (request as any).items ?? [] };
+  const decision = decideExchangeRelease(candidate, { force: options.force });
+  if (!decision.release) {
+    return { released: false, reason: decision.reason, message: RELEASE_BLOCK_LABELS[decision.reason] };
+  }
+
+  const orderId = request.exchangeOrderId!;
+  const orderRef = request.exchangeOrderNumber || orderId;
+  const actor = options.actor || 'system';
+  let live = options.live && String(options.live.id) === String(orderId) ? options.live : null;
+  if (!live) {
+    try {
+      live = await deps.getOrder(request.merchantId, orderId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { released: false, reason: 'salla_unreachable', message: `تعذر قراءة الطلب البديل من سلة: ${message}` };
+    }
+  }
+
+  const move = exchangeStatusMove('release', live, EXCHANGE_STATUS_IDS, {
+    allowReleaseFromPaymentPending: request.exchangePaymentStatus === 'not_required',
+  });
+  if (move === 'cancelled' || move === 'conflict') {
+    const message =
+      move === 'cancelled'
+        ? `الطلب البديل #${orderRef} ملغي في سلة؛ لا يمكن إرساله للتجهيز.`
+        : `حالة الطلب البديل #${orderRef} في سلة تغيّرت يدوياً (${liveLabel(live)})، لم يتم تحويله إلى طلب جديد.`;
+    await flagExchangeAttention(request, message, deps);
+    await appendFlowAudit(deps, requestId, {
+      step: 'exchange_order',
+      result: 'failed',
+      by: actor,
+      details: { release: true, outcome: move, order: orderRef, reason: message, source: options.source },
+    });
+    return { released: false, reason: move, message, outcome: move };
+  }
+
+  if (move === 'write') {
+    try {
+      await deps.setStatus(request.merchantId, orderId, EXCHANGE_RELEASE_STATUS_ID);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error('Failed to release exchange order', { requestId, orderId, error: message });
+      return { released: false, reason: 'status_update_failed', message: `تعذر تحويل الطلب البديل إلى "طلب جديد": ${message}` };
+    }
+  }
+
+  const cleared = await deps.db.returnRequest.updateMany({
+    where: { id: requestId, exchangeOrderHoldActive: true },
+    data: { exchangeOrderHoldActive: false, exchangeOrderReleasedAt: deps.now(), exchangeOrderError: null },
+  });
+  if (cleared.count === 0) return { released: false, reason: 'no_active_hold', message: RELEASE_BLOCK_LABELS.no_active_hold };
+  if (move === 'write' || move === 'already') {
+    await deps.echoMirrorStatus(request.merchantId, orderId, EXCHANGE_RELEASE_STATUS_ID).catch(() => undefined);
+  }
+  // The inspection flag this module raised no longer applies.
+  if (request.processingStatus === 'needs_attention' && (request.processingError || '').includes(EXCHANGE_PIECE_FAILED_MESSAGE)) {
+    await deps.db.returnRequest.updateMany({
+      where: { id: requestId, processingStatus: 'needs_attention' },
+      data: { processingStatus: 'idle', processingError: null },
+    });
+  }
+  await appendFlowAudit(deps, requestId, {
+    step: 'exchange_order',
+    result: 'ok',
+    by: actor,
+    details: { released: true, forced: options.force === true, outcome: move, order: orderRef, source: options.source },
+  });
+  log.info('Released exchange order hold', { requestId, orderId, outcome: move, forced: options.force === true });
+  return { released: true, outcome: move };
+}
+
+/**
+ * After inspection: when a replacement order exists (unpaid or paid) and an
+ * exchanged piece failed, staff must decide now — ship anyway or cancel the
+ * replacement — instead of discovering it at processing. Clears the flag again
+ * once no exchanged piece is failing (e.g. re-inspected as good).
+ */
+export async function syncFailedExchangePieceFlag(
+  requestId: string,
+  deps: ExchangeFlowDeps = productionExchangeDeps,
+): Promise<'flagged' | 'cleared' | 'unchanged'> {
+  const request = await deps.db.returnRequest.findUnique({ where: { id: requestId }, include: { items: true } });
+  if (!request) return 'unchanged';
+  const activeOrder =
+    request.exchangeMode === 'order' &&
+    Boolean(request.exchangeOrderId) &&
+    ['pending', 'paid', 'not_required'].includes(request.exchangePaymentStatus);
+  const failing = activeOrder && exchangePieceFailed({ exchangeMode: request.exchangeMode, items: (request as any).items ?? [] });
+  if (failing) {
+    const flagged = await deps.db.returnRequest.updateMany({
+      where: { id: requestId, processingStatus: 'idle' },
+      data: { processingStatus: 'needs_attention', processingError: EXCHANGE_PIECE_FAILED_MESSAGE },
+    });
+    return flagged.count > 0 ? 'flagged' : 'unchanged';
+  }
+  if (request.processingStatus === 'needs_attention' && request.processingError === EXCHANGE_PIECE_FAILED_MESSAGE) {
+    const cleared = await deps.db.returnRequest.updateMany({
+      where: { id: requestId, processingStatus: 'needs_attention', processingError: EXCHANGE_PIECE_FAILED_MESSAGE },
+      data: { processingStatus: 'idle', processingError: null },
+    });
+    return cleared.count > 0 ? 'cleared' : 'unchanged';
+  }
+  return 'unchanged';
+}
+
+export interface HoldReconcileReport {
+  released: number;
+  reheld: number;
+  errors: number;
+}
+
+/**
+ * Cron safety net for paid, held replacements: release the ones whose return
+ * passed inspection, and retry holds Salla refused (only those — a status staff
+ * changed by hand in Salla is never overwritten).
+ */
+export async function reconcileExchangeHolds(deps: ExchangeFlowDeps = productionExchangeDeps): Promise<HoldReconcileReport> {
+  const report: HoldReconcileReport = { released: 0, reheld: 0, errors: 0 };
+  const held = await deps.db.returnRequest.findMany({
+    where: {
+      exchangeMode: 'order',
+      exchangeOrderHoldActive: true,
+      exchangeOrderId: { not: null },
+      exchangePaymentStatus: { in: ['paid', 'not_required'] },
+    },
+    include: { items: true },
+    take: 50,
+  });
+  await mapWithConcurrency(held, 5, async (request) => {
+    try {
+      const candidate = { ...request, items: (request as any).items ?? [] };
+      if (decideExchangeRelease(candidate).release) {
+        const result = await releaseExchangeOrderHold(request.id, { source: 'cron' }, deps);
+        if (result.released) report.released++;
+        return;
+      }
+      if (!request.exchangeOrderHoldActive || !(request.exchangeOrderError || '').startsWith(EXCHANGE_HOLD_FAILED_PREFIX)) return;
+      const live = await deps.getOrder(request.merchantId, request.exchangeOrderId!);
+      if ((await applyExchangeHold(request, live, deps)) === 'held') report.reheld++;
+    } catch (error) {
+      report.errors++;
+      log.error('Exchange hold reconcile failed', { requestId: request.id, error });
+    }
+  });
+  return report;
+}
+
+// ---------------------------------------------------------------------------
+// 5. Staff actions
 // ---------------------------------------------------------------------------
 export async function issueLeftoverCoupon(
   requestId: string,
@@ -532,3 +856,4 @@ export async function issueLeftoverCoupon(
     .catch((error) => log.warn('Leftover coupon notification failed', { requestId, error }));
   return { code: coupon.code, amount };
 }
+

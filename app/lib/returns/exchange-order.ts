@@ -1,7 +1,8 @@
-import { Prisma, ReturnItem, ReturnRequest } from '@prisma/client';
+import { Prisma, ReturnRequest } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { updateSallaOrderStatus } from '@/app/lib/salla-order-status';
+import { releaseExchangeOrderHold, type ReleaseOptions, type ReleaseResult } from '@/app/lib/returns/exchange-order-flow';
 import { extractOrderDate } from '@/lib/returns/order-date';
 
 type AnyRecord = Record<string, any>;
@@ -12,9 +13,6 @@ const RESERVATION_STATUS_ID =
 // Set SALLA_EXCHANGE_RESERVATION_HOLD=true to re-enable the automatic hold.
 const RESERVATION_HOLD_ENABLED =
   (process.env.SALLA_EXCHANGE_RESERVATION_HOLD || '').toLowerCase() === 'true';
-const UNDER_REVIEW_STATUS_ID =
-  process.env.SALLA_UNDER_REVIEW_STATUS_ID || '1065456688';
-
 const RETURN_RECEIVED_STATUSES = new Set(['delivered', 'completed']);
 
 const COUPON_KEYS = [
@@ -197,13 +195,6 @@ async function hasReturnShipmentScanBeforeOrder(
   return shipment.scannedAt.getTime() <= orderCreatedAt.getTime();
 }
 
-function areItemsFullyApproved(items: ReturnItem[]): boolean {
-  if (!items || items.length === 0) {
-    return false;
-  }
-  return items.every((item) => item.conditionStatus === 'good');
-}
-
 async function updateReturnRequest(
   id: string,
   data: Prisma.ReturnRequestUpdateInput
@@ -336,70 +327,14 @@ export async function linkExchangeOrderFromWebhook(
   return { handled: true, holdApplied };
 }
 
+/**
+ * Releases a held replacement order to "طلب جديد" when payment is settled and
+ * the returned pieces passed inspection (or `force`: staff ship anyway). The
+ * logic lives in exchange-order-flow.ts; this keeps the old entry point.
+ */
 export async function maybeReleaseExchangeOrderHold(
   returnRequestId: string,
-  options: { force?: boolean } = {}
-): Promise<{ released: boolean; reason?: string }> {
-  const returnRequest = await prisma.returnRequest.findUnique({
-    where: { id: returnRequestId },
-    include: { items: true },
-  });
-
-  if (
-    !returnRequest ||
-    !returnRequest.exchangeOrderId ||
-    !returnRequest.exchangeOrderHoldActive
-  ) {
-    return { released: false, reason: 'no_active_hold' };
-  }
-
-  // Staff chose to ship despite the inspection result ("ship anyway").
-  const forced = options.force === true;
-
-  // App-created exchange orders (exchange v3) wait for payment, and only the
-  // exchanged pieces have to pass inspection.
-  const appCreated = returnRequest.exchangeMode === 'order';
-  if (appCreated && !['paid', 'not_required'].includes(returnRequest.exchangePaymentStatus)) {
-    return { released: false, reason: 'payment_pending' };
-  }
-
-  if (!forced && !hasReturnShipmentArrived(returnRequest)) {
-    return { released: false, reason: 'shipment_not_received' };
-  }
-
-  const piecesToApprove = appCreated
-    ? returnRequest.items.filter((item) => item.type === 'exchange')
-    : returnRequest.items;
-  if (!forced && !areItemsFullyApproved(piecesToApprove)) {
-    return { released: false, reason: 'items_not_approved' };
-  }
-
-  const statusResult = await updateSallaOrderStatus(
-    returnRequest.merchantId,
-    returnRequest.exchangeOrderId,
-    { statusId: UNDER_REVIEW_STATUS_ID }
-  );
-
-  if (!statusResult.success) {
-    log.error('Failed to restore new order status after inspection', {
-      returnRequestId,
-      orderId: returnRequest.exchangeOrderId,
-      merchantId: returnRequest.merchantId,
-      error: statusResult.error,
-    });
-    return { released: false, reason: 'status_update_failed' };
-  }
-
-  await updateReturnRequest(returnRequest.id, {
-    exchangeOrderHoldActive: false,
-    exchangeOrderReleasedAt: now(),
-  });
-
-  log.info('Released reservation hold for exchange order', {
-    returnRequestId,
-    orderId: returnRequest.exchangeOrderId,
-    merchantId: returnRequest.merchantId,
-  });
-
-  return { released: true };
+  options: { force?: boolean; actor?: string; source?: ReleaseOptions['source'] } = {}
+): Promise<ReleaseResult> {
+  return releaseExchangeOrderHold(returnRequestId, options);
 }

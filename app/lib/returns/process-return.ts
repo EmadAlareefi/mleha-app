@@ -34,7 +34,7 @@ import { issueLeftoverCoupon } from '@/app/lib/returns/exchange-order-flow';
  */
 
 export const SALLA_DONE_STATUS_SLUG = process.env.RETURNS_SALLA_DONE_STATUS_SLUG ?? 'restored';
-const DAMAGED_CONDITIONS = new Set(['damaged', 'worn', 'missing_parts']);
+const DAMAGED_CONDITIONS = new Set(['damaged', 'worn', 'missing_parts', 'policy_violation']);
 
 type Db = Pick<typeof prisma, 'returnRequest' | 'returnItem'>;
 let db: Db = prisma;
@@ -59,7 +59,7 @@ export interface ProcessDependencies {
   setOrderStatus(merchantId: string, orderId: string, slug: string): Promise<{ success: boolean; error?: string }>;
   addOrderHistory(merchantId: string, orderId: string, note: string): Promise<{ success: boolean; error?: string }>;
   afterStatusChange(returnRequestId: string): Promise<void>;
-  releaseExchangeOrder(returnRequestId: string): Promise<{ released: boolean; reason?: string }>;
+  releaseExchangeOrder(returnRequestId: string): Promise<{ released: boolean; reason?: string; message?: string }>;
   issueLeftoverCoupon(returnRequestId: string): Promise<{ code: string; amount: number } | null>;
 }
 
@@ -81,7 +81,7 @@ export const productionDependencies: ProcessDependencies = {
   setOrderStatus: (merchantId, orderId, slug) => updateSallaOrderStatus(merchantId, orderId, { slug }),
   addOrderHistory: createSallaOrderHistoryEntry,
   afterStatusChange: (id) => syncLocalReturnPickupTask(id).then(() => undefined),
-  releaseExchangeOrder: (id) => maybeReleaseExchangeOrderHold(id),
+  releaseExchangeOrder: (id) => maybeReleaseExchangeOrderHold(id, { source: 'processing' }),
   issueLeftoverCoupon: (id) => issueLeftoverCoupon(id),
 };
 
@@ -533,13 +533,12 @@ async function runExchangeOrderStep(
     return;
   }
   if (request.exchangeOrderHoldActive) {
-    const result = await deps.releaseExchangeOrder(request.id).catch((error) => ({
-      released: false,
-      reason: error instanceof Error ? error.message : String(error),
-    }));
-    record('exchange_order', result.released ? 'ok' : 'failed', { order: orderRef, reason: result.reason });
+    const result: { released: boolean; reason?: string; message?: string } = await deps
+      .releaseExchangeOrder(request.id)
+      .catch((error) => ({ released: false, reason: error instanceof Error ? error.message : String(error) }));
+    record('exchange_order', result.released ? 'ok' : 'failed', { order: orderRef, reason: result.message || result.reason });
     if (!result.released) {
-      blockers.push(`تعذر إطلاق طلب الاستبدال #${orderRef} للتجهيز: ${result.reason}`);
+      blockers.push(`تعذر إرسال الطلب البديل #${orderRef} للتجهيز: ${result.message || result.reason}`);
       return;
     }
   }
