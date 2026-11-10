@@ -5,9 +5,15 @@
  * returns-v2 migration window, when old code wrote pieces without a type.
  *
  * Read-only by default: prints each mismatch with its money state.
- * With --fix, open requests where no money moved get the request's type copied
- * onto their pieces (the v2 backfill rule), are repriced, and get a `type_fix`
- * audit entry. Anything else is listed for staff to settle in returns-management.
+ * With --fix, the request's type is copied onto its pieces (the v2 backfill
+ * rule), the request is repriced and gets a `type_fix` audit entry, for:
+ * - open requests where no money moved, and
+ * - "exchange" requests settled by an exchange coupon with no refund (open or
+ *   closed): the coupon locks the stored credit, so no amount changes, and an
+ *   open one can no longer be refunded on top of its coupon.
+ * Anything else (a refund already paid, a closed request's stored type) is
+ * listed for a person to settle; request types are never changed here because
+ * ERP refund credit notes depend on them.
  *
  * Usage: node --import tsx scripts/check-return-type-consistency.ts [--fix]
  * Local dev points at the production database: run --fix only with approval.
@@ -59,8 +65,18 @@ async function main() {
     const pieceType = deriveRequestType(request.items.map((item) => item.type));
     const open = !['completed', 'cancelled', 'rejected'].includes(request.status);
     const moneyMoved = refundSettled(request.refundStatus) || creditLocked(request);
+    const refundNone = (request.refundStatus || 'none') === 'none';
+    // The exchange coupon was the settlement and no money went back: the pieces
+    // are exchanges. Leaving them as returns would make processing pay a refund
+    // on top of the coupon. Only piece types change; the coupon locks the
+    // stored credit and the request type (which ERP reads) stays as it is.
+    const couponSettledExchange =
+      request.type === 'exchange' && Boolean(request.couponCode) && refundNone && request.exchangeMode !== 'order';
     // Only a single-type request has an unambiguous intended type to copy down.
-    const fixable = open && !moneyMoved && request.processingStatus !== 'processing' && request.type !== 'mixed';
+    const fixable =
+      request.processingStatus !== 'processing' &&
+      request.type !== 'mixed' &&
+      ((open && !moneyMoved) || couponSettledExchange);
     console.log(
       [
         `#${request.orderNumber ?? request.id}`,
