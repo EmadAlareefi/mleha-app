@@ -17,6 +17,7 @@ export default function SettingsPage() {
   const isAdmin = user?.role === 'admin' || user?.roles?.includes('admin') === true;
   const [allowMultipleRequests, setAllowMultipleRequests] = useState(false);
   const [zokoWebhookProcessingEnabled, setZokoWebhookProcessingEnabled] = useState(true);
+  const [exchangeOrdersEnabled, setExchangeOrdersEnabled] = useState(true);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -27,15 +28,24 @@ export default function SettingsPage() {
     setError('');
 
     try {
-      const [multipleResponse, zokoResponse] = await Promise.all([
+      const [multipleResponse, zokoResponse, exchangeOrdersResponse] = await Promise.all([
         fetch('/api/settings?key=allow_multiple_return_requests'),
         fetch('/api/settings?key=zoko_webhook_processing_enabled'),
+        fetch('/api/settings?key=returns_exchange_orders_enabled'),
       ]);
 
       if (multipleResponse.ok) {
         const multipleData = await multipleResponse.json();
         if (multipleData.setting) {
           setAllowMultipleRequests(multipleData.setting.value === 'true');
+        }
+      }
+
+      // Not saved yet = on (the default).
+      if (exchangeOrdersResponse.ok) {
+        const exchangeOrdersData = await exchangeOrdersResponse.json();
+        if (exchangeOrdersData.setting) {
+          setExchangeOrdersEnabled(exchangeOrdersData.setting.value !== 'false');
         }
       }
 
@@ -67,6 +77,12 @@ export default function SettingsPage() {
           value: allowMultipleRequests.toString(),
           description: 'السماح بإنشاء عدة طلبات إرجاع لنفس الطلب',
           errorMessage: 'فشل حفظ إعدادات الطلبات المتعددة',
+        },
+        {
+          key: 'returns_exchange_orders_enabled',
+          value: exchangeOrdersEnabled.toString(),
+          description: 'الاستبدال بطلب بديل في سلة؛ عند التعطيل يكون الاستبدال بكوبون فقط',
+          errorMessage: 'فشل حفظ إعدادات الطلبات البديلة',
         },
         {
           key: 'zoko_webhook_processing_enabled',
@@ -126,6 +142,21 @@ export default function SettingsPage() {
                   id="allowMultiple"
                   checked={allowMultipleRequests}
                   onCheckedChange={setAllowMultipleRequests}
+                  disabled={loading || saving}
+                />
+              </Field>
+              <Field orientation="horizontal" className="justify-between rounded-lg border p-4">
+                <div>
+                  <FieldLabel htmlFor="exchangeOrders">الاستبدال بطلب بديل</FieldLabel>
+                  <FieldDescription>
+                    عند التفعيل، يختار العميل البدائل في نموذج الاستبدال ويُنشأ له طلب بديل في سلة، ويستطيع الموظفون إنشاء طلب بديل من إدارة المرتجعات.
+                    عند التعطيل، يكون الاستبدال بكوبون فقط كما كان سابقاً. الطلبات البديلة الموجودة تكمل مسارها كما هي.
+                  </FieldDescription>
+                </div>
+                <Switch
+                  id="exchangeOrders"
+                  checked={exchangeOrdersEnabled}
+                  onCheckedChange={setExchangeOrdersEnabled}
                   disabled={loading || saving}
                 />
               </Field>

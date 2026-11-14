@@ -183,7 +183,7 @@ export function ExchangeSection({ request, actions }: { request: ReturnRequest; 
               إلغاء الطلب البديل
             </Button>
           )}
-          {gone && !closed && money.hasExchange && !request.couponCode && (
+          {gone && !closed && money.hasExchange && !request.couponCode && actions.exchangeOrdersEnabled && (
             <>
               {lines.length > 0 && (
                 <Button size="sm" variant="outline" className="h-11 sm:h-8" disabled={busy} onClick={() => actions.exchangeAction('retry')}>
@@ -237,17 +237,28 @@ export function ExchangeSection({ request, actions }: { request: ReturnRequest; 
         </p>
       ) : (
         canHandOut && (
-          <p className="text-sm text-muted-foreground">لم يُسلَّم الرصيد بعد: اختاري طلباً بديلاً بمنتجات يحددها العميل، أو كوبوناً يستخدمه بنفسه.</p>
+          <p className="text-sm text-muted-foreground">
+            {actions.exchangeOrdersEnabled
+              ? 'لم يُسلَّم الرصيد بعد: اختاري طلباً بديلاً بمنتجات يحددها العميل، أو كوبوناً يستخدمه بنفسه.'
+              : 'لم يُسلَّم الرصيد بعد: أنشئي كوبون الاستبدال وأرسليه للعميل.'}
+          </p>
         )
       )}
 
       <div className="grid gap-2 sm:flex sm:flex-wrap">
         {canHandOut && (
           <>
-            <Button className="h-11 sm:h-9" disabled={actions.busy !== null} onClick={() => actions.open('replacement')}>
-              <PackagePlus /> إنشاء طلب بديل وإرسال رابط الدفع
-            </Button>
-            <Button variant="outline" className="h-11 sm:h-9" disabled={actions.busy !== null} onClick={actions.issueCoupon}>
+            {actions.exchangeOrdersEnabled && (
+              <Button className="h-11 sm:h-9" disabled={actions.busy !== null} onClick={() => actions.open('replacement')}>
+                <PackagePlus /> إنشاء طلب بديل وإرسال رابط الدفع
+              </Button>
+            )}
+            <Button
+              variant={actions.exchangeOrdersEnabled ? 'outline' : 'default'}
+              className="h-11 sm:h-9"
+              disabled={actions.busy !== null}
+              onClick={actions.issueCoupon}
+            >
               {actions.busy === 'create-coupon' ? <Loader2 className="animate-spin" /> : <Ticket />}
               إنشاء كوبون وإرساله
             </Button>

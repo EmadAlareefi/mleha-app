@@ -1,6 +1,7 @@
 import { isReturnableOrderStatus } from '@/lib/returns/order-status';
 import { ONE_RIYAL_OFFER_ERROR } from '@/lib/returns/categories';
 import { NextRequest, NextResponse } from 'next/server';
+import { areExchangeOrdersEnabled } from '@/app/lib/settings';
 import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
 import { log } from '@/app/lib/logger';
@@ -313,6 +314,15 @@ export async function POST(request: NextRequest) {
     let exchangeCart: Extract<Awaited<ReturnType<typeof priceExchangeCart>>, { ok: true }> | null = null;
     const exchangePaymentMethod =
       typeof body.exchange?.paymentMethod === 'string' ? body.exchange.paymentMethod : null;
+    if (wantsExchangeOrder && !(await areExchangeOrdersEnabled())) {
+      return NextResponse.json(
+        {
+          error: 'الاستبدال بطلب جديد غير متاح حالياً؛ سيكون الاستبدال بكوبون. أرسلي الطلب مرة أخرى.',
+          errorCode: 'EXCHANGE_ORDERS_DISABLED',
+        },
+        { status: 409 },
+      );
+    }
     if (wantsExchangeOrder) {
       const priced = await priceExchangeCart(body.merchantId, body.exchange?.lines);
       if (!priced.ok) {

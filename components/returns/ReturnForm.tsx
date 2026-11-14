@@ -117,7 +117,10 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
   const [reasonDetails, setReasonDetails] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [exchangeMode, setExchangeMode] = useState<'order' | 'coupon'>('order');
+  const [chosenExchangeMode, setExchangeMode] = useState<'order' | 'coupon'>('order');
+  // null until /api/returns/exchange/config answers; off = coupon only.
+  const [exchangeOrdersEnabled, setExchangeOrdersEnabled] = useState<boolean | null>(null);
+  const exchangeMode = exchangeOrdersEnabled ? chosenExchangeMode : 'coupon';
   const [cart, setCart] = useState<ExchangeCartLine[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<Array<{ slug: string; label: string }>>([]);
   const [paymentMethod, setPaymentMethod] = useState('');
@@ -178,6 +181,13 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
   const replacing = selectedTypes.has('exchange') && exchangeMode === 'order';
   const cartTotal = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
   const settlement = planExchangeSettlement(split.couponAmount, cartTotal);
+
+  useEffect(() => {
+    fetch('/api/returns/exchange/config', { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setExchangeOrdersEnabled(data ? data.exchangeOrdersEnabled !== false : true))
+      .catch(() => setExchangeOrdersEnabled(true));
+  }, []);
 
   useEffect(() => {
     if (!replacing || paymentMethods.length > 0) return;
@@ -255,6 +265,8 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
       });
       const data = await response.json();
       if (!response.ok) {
+        // Switched off after the form loaded: fall back to the coupon choice.
+        if (data?.errorCode === 'EXCHANGE_ORDERS_DISABLED') setExchangeOrdersEnabled(false);
         throw new Error(data.message || data.error || 'فشل إنشاء الطلب');
       }
       const paymentUrl: string | undefined = data.returnRequest?.exchangeOrder?.paymentUrl;
@@ -453,7 +465,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
         </div>
       </Card>
 
-      {selectedTypes.has('exchange') && (
+      {selectedTypes.has('exchange') && exchangeOrdersEnabled && (
         <Card className="space-y-4 p-6">
           <h3 className="text-lg font-semibold">كيف تحبين الاستبدال؟</h3>
           <div className="grid grid-cols-2 gap-3">

@@ -15,12 +15,14 @@ import { getExchangeOrderState } from '@/app/lib/salla-exchange-order';
 import { listOrderTransactions, pickRefundableTransaction, refundTransaction } from '@/app/lib/salla-transactions';
 import { returnStatusPath } from '@/app/lib/returns/status-token';
 import { claimProcessing } from '@/app/lib/returns/process-return';
+import { areExchangeOrdersEnabled } from '@/app/lib/settings';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 type Action = 'release' | 'cancel' | 'resend_link' | 'retry' | 'create' | 'revoke_coupon';
 const ACTIONS: Action[] = ['release', 'cancel', 'resend_link', 'retry', 'create', 'revoke_coupon'];
+const EXCHANGE_ORDERS_DISABLED = 'الطلبات البديلة معطلة من الإعدادات؛ الاستبدال بالكوبون فقط.';
 
 async function audit(id: string, step: string, result: string, by: string, details: Record<string, unknown>) {
   const current = await prisma.returnRequest.findUnique({ where: { id }, select: { processingAudit: true } });
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
   const returnRequest = id ? await prisma.returnRequest.findUnique({ where: { id }, include: { items: true } }) : null;
   if (!returnRequest) return NextResponse.json({ error: 'طلب الإرجاع غير موجود' }, { status: 404 });
   const blockers = staffReplacementBlockers(returnRequest);
+  if (!(await areExchangeOrdersEnabled())) blockers.unshift(EXCHANGE_ORDERS_DISABLED);
   const { credit, currency } = await productionExchangeDeps
     .computeCredit(id)
     .catch(() => ({ credit: Number(returnRequest.couponAmount) || 0, currency: returnRequest.currency }));
@@ -168,6 +171,9 @@ export async function POST(request: NextRequest) {
       }
       case 'create':
       case 'retry': {
+        if (!(await areExchangeOrdersEnabled())) {
+          return NextResponse.json({ error: EXCHANGE_ORDERS_DISABLED, errorCode: 'EXCHANGE_ORDERS_DISABLED' }, { status: 409 });
+        }
         // retry: the saved products, priced again from Salla.
         const lines =
           action === 'retry'

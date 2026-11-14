@@ -13,7 +13,8 @@ export type SettingKey =
   | 'erp_auto_sync_on_status'
   | 'erp_sync_delay_seconds'
   | 'zoko_webhook_processing_enabled'
-  | 'availability_auto_notify_enabled';
+  | 'availability_auto_notify_enabled'
+  | 'returns_exchange_orders_enabled';
 
 interface SettingDefinition {
   key: SettingKey;
@@ -47,6 +48,12 @@ const SETTING_DEFINITIONS: SettingDefinition[] = [
     defaultValue: 'true',
     description:
       'Automatically send the Zoko WhatsApp back-in-stock template when a requested product returns to stock',
+  },
+  {
+    key: 'returns_exchange_orders_enabled',
+    defaultValue: 'true',
+    description:
+      'Exchanges can become a replacement Salla order (customer form and staff). When false, every exchange is settled with a coupon only',
   },
 ];
 
@@ -181,6 +188,14 @@ export async function getAllSettings(): Promise<
     logger.error('Error getting all settings', { error: error.message });
     return [];
   }
+}
+
+/**
+ * Whether exchanges may become replacement orders. Off = coupons only (the
+ * pre-November flow). Replacement orders that already exist are unaffected.
+ */
+export async function areExchangeOrdersEnabled(): Promise<boolean> {
+  return (await getSetting('returns_exchange_orders_enabled')) !== 'false';
 }
 
 /**

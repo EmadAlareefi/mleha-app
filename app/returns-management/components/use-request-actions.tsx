@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import type { PieceChangePreview } from '@/app/lib/returns/piece-changes-service';
 import { CouponAmountDialog } from './coupon-amount-dialog';
@@ -43,6 +43,8 @@ export interface RequestActions {
   issueCoupon: () => void;
   manualCoupon: { open: boolean; code: string; setCode: (code: string) => void; submit: () => Promise<void>; close: () => void };
   exchangeAction: (action: ExchangeAction) => void;
+  /** Settings switch: false = exchanges are coupon only, no new replacement orders. */
+  exchangeOrdersEnabled: boolean;
   dialogs: ReactNode;
 }
 
@@ -60,6 +62,20 @@ export function useRequestActions(
   const [pieceChange, setPieceChange] = useState<{ draft: PieceChangeDraft; preview: PieceChangePreview } | null>(null);
   const [manualCouponOpen, setManualCouponOpen] = useState(false);
   const [manualCouponCode, setManualCouponCode] = useState('');
+  const [exchangeOrdersEnabled, setExchangeOrdersEnabled] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/returns/exchange/config', { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setExchangeOrdersEnabled(data.exchangeOrdersEnabled !== false);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const run = useCallback(
     async (key: string, url: string, body: unknown, success?: (data: any) => string) => {
@@ -291,6 +307,7 @@ export function useRequestActions(
       close: () => setManualCouponOpen(false),
     },
     exchangeAction,
+    exchangeOrdersEnabled,
     dialogs,
   };
 }
