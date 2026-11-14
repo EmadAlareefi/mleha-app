@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Minus, Plus, Search, Trash2, X } from 'lucide-react';
+import { ChevronDown, Loader2, Minus, Plus, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MAX_EXCHANGE_LINE_QUANTITY, MAX_EXCHANGE_LINES } from '@/lib/returns/exchange-settlement';
 import type { CatalogProduct, CatalogProductSummary, CatalogSku } from '@/app/lib/returns/exchange-catalog';
@@ -18,14 +18,26 @@ export interface ExchangeCartLine {
   maxQuantity: number;
 }
 
+/** A piece the customer is exchanging: offered first, to swap size or color. */
+export interface ExchangeSuggestion {
+  productId: string;
+  name: string;
+  imageUrl: string | null;
+  /** Size/color the customer has now, e.g. "المقاس: M". */
+  currentVariant: string;
+}
+
 interface ExchangePickerProps {
   merchantId: string;
+  /** The exchanged products; when present the full catalog starts collapsed. */
+  suggestions?: ExchangeSuggestion[];
   cart: ExchangeCartLine[];
   onCartChange: (cart: ExchangeCartLine[]) => void;
   formatMoney: (value: number) => string;
 }
 
-export function ExchangePicker({ merchantId, cart, onCartChange, formatMoney }: ExchangePickerProps) {
+export function ExchangePicker({ merchantId, suggestions = [], cart, onCartChange, formatMoney }: ExchangePickerProps) {
+  const [browsing, setBrowsing] = useState(suggestions.length === 0);
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -44,6 +56,7 @@ export function ExchangePicker({ merchantId, cart, onCartChange, formatMoney }: 
   }, [keywordInput]);
 
   useEffect(() => {
+    if (!browsing) return;
     let cancelled = false;
     setLoading(true);
     setError('');
@@ -62,7 +75,7 @@ export function ExchangePicker({ merchantId, cart, onCartChange, formatMoney }: 
     return () => {
       cancelled = true;
     };
-  }, [merchantId, keyword, page]);
+  }, [browsing, merchantId, keyword, page]);
 
   const addLine = (line: ExchangeCartLine) => {
     const existing = cart.find((entry) => entry.skuId === line.skuId);
@@ -132,55 +145,90 @@ export function ExchangePicker({ merchantId, cart, onCartChange, formatMoney }: 
         </div>
       )}
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-        <input
-          value={keywordInput}
-          onChange={(event) => setKeywordInput(event.target.value)}
-          placeholder="ابحثي عن فستان، لون، رقم الموديل..."
-          className="w-full rounded-lg border py-2.5 pl-3 pr-9 text-sm"
-        />
-      </div>
-
-      {error && <p className="text-sm text-red-700">{error}</p>}
-
-      {/* Grid */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {products.map((product) => (
-          <button
-            key={product.id}
-            type="button"
-            onClick={() => setOpenProductId(product.id)}
-            className="overflow-hidden rounded-xl border text-right transition-shadow hover:shadow-md"
-          >
-            <div className="relative aspect-[3/4] bg-gray-100">
-              {product.imageUrl && (
-                <Image src={product.imageUrl} alt={product.name} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-cover" />
+      {/* Same dress, another size or color */}
+      {suggestions.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">نفس القطعة بمقاس أو لون آخر</p>
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion.productId}
+              type="button"
+              onClick={() => setOpenProductId(suggestion.productId)}
+              className="flex w-full items-center gap-3 rounded-xl border-2 border-gray-200 p-2 text-right transition-colors hover:border-green-600"
+            >
+              {suggestion.imageUrl ? (
+                <Image src={suggestion.imageUrl} alt={suggestion.name} width={56} height={56} className="h-14 w-14 rounded-lg object-cover" />
+              ) : (
+                <div className="h-14 w-14 rounded-lg bg-gray-100" />
               )}
-            </div>
-            <div className="space-y-0.5 p-2">
-              <p className="line-clamp-2 text-xs font-medium text-gray-900">{product.name}</p>
-              <p className="text-sm font-semibold">
-                {formatMoney(product.price)}
-                {product.regularPrice > product.price && (
-                  <span className="mr-1 text-xs font-normal text-gray-400 line-through">{formatMoney(product.regularPrice)}</span>
-                )}
-              </p>
-            </div>
-          </button>
-        ))}
-      </div>
-      {loading && (
-        <div className="flex justify-center py-4">
-          <Loader2 className="size-5 animate-spin text-gray-400" />
+              <span className="min-w-0 flex-1">
+                <span className="line-clamp-2 text-sm font-medium">{suggestion.name}</span>
+                {suggestion.currentVariant && <span className="block text-xs text-gray-500">عندك الآن: {suggestion.currentVariant}</span>}
+              </span>
+              <span className="shrink-0 rounded-lg bg-green-600 px-2.5 py-1.5 text-xs font-semibold text-white">تغيير المقاس</span>
+            </button>
+          ))}
         </div>
       )}
-      {!loading && products.length === 0 && !error && <p className="text-center text-sm text-gray-500">لا توجد منتجات مطابقة</p>}
-      {hasMore && !loading && (
-        <Button type="button" variant="outline" className="w-full" onClick={() => setPage((value) => value + 1)}>
-          عرض المزيد
+
+      {!browsing ? (
+        <Button type="button" variant="outline" className="w-full" onClick={() => setBrowsing(true)}>
+          أو اختاري قطعة أخرى من المتجر <ChevronDown className="size-4" />
         </Button>
+      ) : (
+        <>
+        {suggestions.length > 0 && <p className="text-sm font-semibold">قطعة أخرى من المتجر</p>}
+        {/* Search */}
+        <div className="relative">
+          <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+          <input
+            value={keywordInput}
+            onChange={(event) => setKeywordInput(event.target.value)}
+            placeholder="ابحثي عن فستان، لون، رقم الموديل..."
+            className="w-full rounded-lg border py-2.5 pl-3 pr-9 text-sm"
+          />
+        </div>
+
+        {error && <p className="text-sm text-red-700">{error}</p>}
+
+        {/* Grid */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {products.map((product) => (
+            <button
+              key={product.id}
+              type="button"
+              onClick={() => setOpenProductId(product.id)}
+              className="overflow-hidden rounded-xl border text-right transition-shadow hover:shadow-md"
+            >
+              <div className="relative aspect-[3/4] bg-gray-100">
+                {product.imageUrl && (
+                  <Image src={product.imageUrl} alt={product.name} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-cover" />
+                )}
+              </div>
+              <div className="space-y-0.5 p-2">
+                <p className="line-clamp-2 text-xs font-medium text-gray-900">{product.name}</p>
+                <p className="text-sm font-semibold">
+                  {formatMoney(product.price)}
+                  {product.regularPrice > product.price && (
+                    <span className="mr-1 text-xs font-normal text-gray-400 line-through">{formatMoney(product.regularPrice)}</span>
+                  )}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+        {loading && (
+          <div className="flex justify-center py-4">
+            <Loader2 className="size-5 animate-spin text-gray-400" />
+          </div>
+        )}
+        {!loading && products.length === 0 && !error && <p className="text-center text-sm text-gray-500">لا توجد منتجات مطابقة</p>}
+        {hasMore && !loading && (
+          <Button type="button" variant="outline" className="w-full" onClick={() => setPage((value) => value + 1)}>
+            عرض المزيد
+          </Button>
+        )}
+        </>
       )}
 
       {openProductId && (
@@ -275,7 +323,8 @@ function ProductSheet({
           <div className="space-y-4">
             {product.images.length > 0 && (
               <div className="space-y-2">
-                <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-100">
+                {/* Kept short so the sizes show without scrolling on a phone. */}
+                <div className="relative mx-auto aspect-[3/4] h-[38vh] overflow-hidden rounded-xl bg-gray-100">
                   <Image src={product.images[imageIndex]} alt={product.name} fill sizes="400px" className="object-cover" />
                 </div>
                 {product.images.length > 1 && (

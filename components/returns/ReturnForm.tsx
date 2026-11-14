@@ -17,7 +17,7 @@ import { pieceKey, type PieceType } from '@/lib/returns/pieces';
 import { splitRequestFinancials } from '@/lib/returns/request-financials';
 import type { PublicPiece } from '@/app/lib/returns/piece-context';
 import { planExchangeSettlement } from '@/lib/returns/exchange-settlement';
-import { ExchangePicker, type ExchangeCartLine } from './ExchangePicker';
+import { ExchangePicker, type ExchangeCartLine, type ExchangeSuggestion } from './ExchangePicker';
 
 interface OrderItem {
   id: number;
@@ -179,6 +179,20 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
   });
   const activeQuote = selectedTypes.has('return') ? returnQuote : exchangeQuote;
   const replacing = selectedTypes.has('exchange') && exchangeMode === 'order';
+  // The dresses being exchanged, offered first so a size/color swap is one tap.
+  const exchangeSuggestions: ExchangeSuggestion[] = [];
+  for (const { piece, choice } of selected) {
+    if (choice!.type !== 'exchange' || exchangeSuggestions.some((entry) => entry.productId === piece.productId)) continue;
+    const item = (order.items ?? []).find((entry) => String(entry.id) === piece.orderItemId);
+    if (!item) continue;
+    const { color, size } = getItemAttributes(item);
+    exchangeSuggestions.push({
+      productId: piece.productId,
+      name: item.name || item.product?.name || 'منتج',
+      imageUrl: item.images?.[0]?.image || item.product?.thumbnail || item.thumbnail || null,
+      currentVariant: [size && `مقاس ${size}`, color && `لون ${color}`].filter(Boolean).join('، ') || item.variant?.name || '',
+    });
+  }
   const cartTotal = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
   const settlement = planExchangeSettlement(split.couponAmount, cartTotal);
 
@@ -193,7 +207,12 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
     if (!replacing || paymentMethods.length > 0) return;
     fetch(`/api/returns/exchange/payment-methods?merchantId=${encodeURIComponent(merchantId)}`)
       .then((response) => (response.ok ? response.json() : null))
-      .then((data) => data?.methods && setPaymentMethods(data.methods))
+      .then((data) => {
+        if (!data?.methods) return;
+        setPaymentMethods(data.methods);
+        // One way to pay = nothing to choose.
+        if (data.methods.length === 1) setPaymentMethod(data.methods[0].slug);
+      })
       .catch(() => undefined);
   }, [replacing, paymentMethods.length, merchantId]);
   const needsDetails = reason === 'other' || reason === 'defective' || reason === 'wrong_item';
@@ -223,7 +242,7 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
       return;
     }
     if (replacing && cart.length === 0) {
-      setError('اختاري البدائل التي تريدينها، أو اختاري "كوبون لاستخدامه لاحقاً"');
+      setError('اختاري المقاس أو القطعة البديلة، أو اختاري "كوبون"');
       return;
     }
     if (replacing && settlement.needsPayment && !paymentMethod) {
@@ -329,7 +348,9 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
               </span>
             )}
             <span className="block font-medium text-green-800">استبدال</span>
-            <span className="text-xs text-gray-600">رسوم {formatFee(exchangeQuote)} فقط — كوبون بقيمة القطعة</span>
+            <span className="text-xs text-gray-600">
+              رسوم {formatFee(exchangeQuote)} فقط — {exchangeOrdersEnabled ? 'قطعة بديلة أو كوبون بقيمتها' : 'كوبون بقيمة القطعة'}
+            </span>
           </div>
         </div>
       </Card>
@@ -470,8 +491,8 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
           <h3 className="text-lg font-semibold">كيف تحبين الاستبدال؟</h3>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { value: 'order' as const, title: 'اختاري البدائل الآن', hint: 'نجهز طلبك الجديد فوراً' },
-              { value: 'coupon' as const, title: 'كوبون لاستخدامه لاحقاً', hint: 'يصلك على الواتساب بعد الفحص' },
+              { value: 'order' as const, title: 'قطعة بديلة', hint: 'مقاس أو لون آخر، أو قطعة أخرى' },
+              { value: 'coupon' as const, title: 'كوبون', hint: 'تستخدمينه لاحقاً بنفسك' },
             ].map((option) => (
               <button
                 key={option.value}
@@ -494,13 +515,15 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
             <>
               <div className="sticky top-2 z-10 rounded-lg border bg-white/95 p-3 text-sm shadow-sm backdrop-blur">
                 <div className="flex justify-between">
-                  <span>رصيد الاستبدال</span>
+                  <span>رصيدك للاستبدال</span>
                   <strong className="text-green-700">{formatMoney(split.couponAmount)}</strong>
                 </div>
-                <div className="flex justify-between">
-                  <span>مجموع البدائل</span>
-                  <strong>{formatMoney(cartTotal)}</strong>
-                </div>
+                {cart.length > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>البدائل المختارة</span>
+                    <span>{formatMoney(cartTotal)}</span>
+                  </div>
+                )}
                 {cart.length > 0 && (
                   <div className="mt-1 flex justify-between border-t pt-1">
                     {settlement.needsPayment ? (
@@ -520,7 +543,13 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
                 )}
               </div>
 
-              <ExchangePicker merchantId={merchantId} cart={cart} onCartChange={setCart} formatMoney={(value) => formatMoney(value)} />
+              <ExchangePicker
+                merchantId={merchantId}
+                suggestions={exchangeSuggestions}
+                cart={cart}
+                onCartChange={setCart}
+                formatMoney={(value) => formatMoney(value)}
+              />
 
               {cart.length > 0 && settlement.needsPayment && (
                 <div className="space-y-2">
@@ -541,11 +570,11 @@ export default function ReturnForm({ order, merchantId, merchantInfo, pieces, cu
                       </button>
                     ))}
                   </div>
-                  <p className="text-xs text-gray-500">بعد إرسال الطلب ننقلك لصفحة الدفع الآمنة في المتجر لإكمال دفع الفرق.</p>
+                  <p className="text-xs text-gray-500">بعد الإرسال ننقلك لصفحة الدفع في المتجر لدفع الفرق.</p>
                 </div>
               )}
               <p className="text-xs text-gray-600">
-                الشحن مجاني لطلبك الجديد، ويُشحن بعد وصول القطعة المرتجعة وفحصها.
+                شحن البديل مجاني، ونرسله بعد وصول قطعتك وفحصها.
               </p>
             </>
           )}
