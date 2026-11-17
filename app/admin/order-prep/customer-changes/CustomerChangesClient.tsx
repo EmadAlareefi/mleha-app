@@ -199,8 +199,22 @@ export default function CustomerChangesClient() {
             onChange={(value) => void saveSettings({ cancelEnabled: value })}
           />
           <Toggle
-            label="استرجاع المبلغ تلقائياً بعد الإلغاء"
-            hint="لمدى والبطاقات وتمارا و STC Pay فقط، وبالريال، وبكامل مبلغ الطلب. عند الإيقاف يدخل كل استرجاع قائمة الاسترجاع اليدوي."
+            label="تغيير المقاس"
+            hint="تغيير مقاس قطعة بنفس السعر، يُعدّل في سلة مباشرة."
+            value={settings.swapEnabled}
+            busy={busy === 'settings'}
+            onChange={(value) => void saveSettings({ swapEnabled: value })}
+          />
+          <Toggle
+            label="إلغاء قطعة أو تغيير المنتج"
+            hint="إلغاء قطع مفردة أو استبدالها بمنتج آخر. الفرق يُسترد تلقائياً، والزيادة تُدفع برابط سلة خلال 30 دقيقة وإلا يُلغى التعديل."
+            value={settings.itemsEnabled}
+            busy={busy === 'settings'}
+            onChange={(value) => void saveSettings({ itemsEnabled: value })}
+          />
+          <Toggle
+            label="استرجاع المبلغ تلقائياً"
+            hint="بعد إلغاء الطلب أو قطع منه: لمدى والبطاقات وتمارا و STC Pay فقط، وبالريال. عند الإيقاف يدخل كل استرجاع قائمة الاسترجاع اليدوي."
             value={settings.autoRefundEnabled}
             busy={busy === 'settings'}
             onChange={(value) => void saveSettings({ autoRefundEnabled: value })}
