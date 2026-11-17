@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { sallaOrderUrl } from '@/lib/salla-admin-url';
 import { buildPrepOrder } from '@/app/lib/order-prep/payload';
 import type { OrderItemsDetail } from './types';
 
@@ -35,6 +36,6 @@ export async function getOrderItemsDetail(orderId: string): Promise<OrderItemsDe
       imageUrl: item.imageUrl,
       sku: item.sku,
     })),
-    sallaUrl: `https://s.salla.sa/orders/order/${encodeURIComponent(orderId)}`,
+    sallaUrl: sallaOrderUrl(orderId),
   };
 }
