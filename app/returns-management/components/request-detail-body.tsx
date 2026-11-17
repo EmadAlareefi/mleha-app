@@ -17,6 +17,7 @@ import { CopyPhoneButton } from '@/components/CopyPhoneButton';
 import { TYPE_COLORS, typeLabel } from '@/app/lib/returns/status';
 import { summarizeRequestMoney } from '@/lib/returns/money-summary';
 import { STAGE_LABELS } from '@/lib/returns/workflow';
+import { sallaOrderUrl } from '@/lib/salla-admin-url';
 import { cn } from '@/lib/utils';
 import { AttentionPanel, InfoSection, MoneySummary, ShipmentSection, StageProgress, TimelineSection } from './detail-sections';
 import { ExchangeSection } from './exchange-section';
@@ -25,7 +26,6 @@ import { STAGE_BADGE } from './request-card';
 import type { RequestActions } from './use-request-actions';
 import { formatDate, REOPENABLE_STAGES, type ReturnRequest } from './types';
 
-const sallaOrderUrl = (orderId: string) => `https://s.salla.sa/orders/order/${orderId}`;
 
 /** Order number, type, stage and the customer; a visible back / close button on every screen size. */
 export function DetailHeader({

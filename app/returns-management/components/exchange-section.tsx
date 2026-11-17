@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { summarizeRequestMoney } from '@/lib/returns/money-summary';
+import { sallaOrderUrl } from '@/lib/salla-admin-url';
 import { cn } from '@/lib/utils';
 import type { RequestActions } from './use-request-actions';
 import { describeCouponNotification, formatDateTime, formatMoney, toNumber, type ReturnRequest } from './types';
@@ -35,7 +36,6 @@ function Step({ state, title, detail }: { state: StepState; title: string; detai
   );
 }
 
-const sallaOrderUrl = (orderId: string) => `https://s.salla.sa/orders/order/${orderId}`;
 
 export function ExchangeSection({ request, actions }: { request: ReturnRequest; actions: RequestActions }) {
   const money = summarizeRequestMoney(request);
