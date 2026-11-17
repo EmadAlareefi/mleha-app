@@ -180,7 +180,7 @@ export async function getAllSettings(): Promise<
 > {
   try {
     const settings = await prisma.settings.findMany({
-      where: { NOT: { key: { startsWith: EXPENSE_CREDENTIAL_SETTINGS_PREFIX } } },
+      where: { NOT: [{ key: { startsWith: EXPENSE_CREDENTIAL_SETTINGS_PREFIX } }, { key: { startsWith: 'lock:' } }] },
       orderBy: { key: 'asc' },
     });
     return settings;

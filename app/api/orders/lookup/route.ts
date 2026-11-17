@@ -12,6 +12,7 @@ import {
   orderBelongsToPhone,
 } from '@/app/lib/returns/customer-phone';
 import { toPublicOrderView } from '@/app/lib/returns/public-order-view';
+import { sallaDateToIso } from '@/lib/returns/customer-stage';
 import {
   buildMissingReturnFeeRateMessage,
   getReturnFeeQuotesForOrder,
@@ -22,7 +23,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/orders/lookup?merchantId=XXX&orderNumber=YYY&mobile=05XXXXXXXX
+ * POST /api/orders/lookup  { merchantId, orderNumber, mobile }   (returns page)
+ * GET /api/orders/lookup?merchantId=XXX&orderNumber=YYY&mobile=05XXXXXXXX  (older callers)
  * or
  * GET /api/orders/lookup?merchantId=XXX&contact=email@example.com  (staff only)
  *
@@ -42,7 +44,7 @@ export const dynamic = 'force-dynamic';
  *    phone, requires a session.
  *
  * An Origin allowlist is deliberately not used: browsers omit `Origin` on
- * same-origin GETs, which is how both callers of this route fetch.
+ * same-origin GETs, which is how the older callers of this route fetch.
  */
 
 /** Matches the window used by the other public endpoint in this app. */
@@ -64,21 +66,54 @@ function jsonNoStore(body: unknown, status = 200): NextResponse {
   return noStore(NextResponse.json(body, { status }));
 }
 
-async function isLookupRateLimited(ipHash: string): Promise<boolean> {
+/**
+ * Seconds until the caller may look up again, or 0 when not limited. The total
+ * budget is per IP and order number, so customers behind one network (a mall,
+ * a mobile carrier's NAT) do not use up each other's lookups; the miss budget
+ * stays per IP, since guessing numbers is what it exists to slow down.
+ */
+async function lookupRetryAfterSeconds(ipHash: string, reference: string): Promise<number> {
   const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
 
   // Counted in the database rather than an in-process Map: this runs on
   // serverless, where each instance would keep its own private counter.
   const [total, misses] = await Promise.all([
     prisma.publicOrderLookupAttempt.count({
-      where: { ipHash, createdAt: { gte: since } },
+      where: { ipHash, reference, createdAt: { gte: since } },
     }),
     prisma.publicOrderLookupAttempt.count({
       where: { ipHash, found: false, createdAt: { gte: since } },
     }),
   ]);
 
-  return total >= MAX_LOOKUPS_PER_IP || misses >= MAX_MISSES_PER_IP;
+  const overTotal = total >= MAX_LOOKUPS_PER_IP;
+  const overMisses = misses >= MAX_MISSES_PER_IP;
+  if (!overTotal && !overMisses) return 0;
+
+  // The window frees up when the oldest counted attempt ages out.
+  const oldest = await prisma.publicOrderLookupAttempt.findFirst({
+    where: overMisses
+      ? { ipHash, found: false, createdAt: { gte: since } }
+      : { ipHash, reference, createdAt: { gte: since } },
+    orderBy: { createdAt: 'asc' },
+    select: { createdAt: true },
+  });
+  const freeAt = (oldest?.createdAt.getTime() ?? Date.now()) + RATE_LIMIT_WINDOW_MS;
+  return Math.max(30, Math.ceil((freeAt - Date.now()) / 1000));
+}
+
+/** Whether a packer has already picked the order up (local prep queue). */
+async function hasPrepStarted(merchantId: string, orderId: string): Promise<boolean> {
+  try {
+    const assignment = await prisma.orderPrepAssignment.findFirst({
+      where: { merchantId, orderId },
+      select: { id: true },
+    });
+    return Boolean(assignment);
+  } catch (error) {
+    log.warn('Failed to read prep assignment for order lookup', { error });
+    return false;
+  }
 }
 
 async function recordLookupAttempt(params: {
@@ -103,13 +138,38 @@ async function recordLookupAttempt(params: {
   }
 }
 
+/**
+ * POST /api/orders/lookup  { merchantId, orderNumber, mobile }
+ *
+ * What the public returns page uses, so the customer's mobile and order number
+ * stay out of URLs, server logs and browser history.
+ */
+export async function POST(request: NextRequest) {
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === 'string' ? value : value == null ? null : String(value));
+  return lookup(request, {
+    merchantId: text(body.merchantId),
+    orderNumber: text(body.orderNumber),
+    mobile: text(body.mobile),
+    contact: null,
+  });
+}
+
 export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  return lookup(request, {
+    merchantId: searchParams.get('merchantId'),
+    orderNumber: searchParams.get('orderNumber'),
+    mobile: searchParams.get('mobile'),
+    contact: searchParams.get('contact'),
+  });
+}
+
+async function lookup(
+  request: NextRequest,
+  { merchantId, orderNumber, mobile, contact }: { merchantId: string | null; orderNumber: string | null; mobile: string | null; contact: string | null },
+) {
   try {
-    const { searchParams } = new URL(request.url);
-    const merchantId = searchParams.get('merchantId');
-    const orderNumber = searchParams.get('orderNumber');
-    const mobile = searchParams.get('mobile');
-    const contact = searchParams.get('contact');
 
     if (!merchantId) {
       return jsonNoStore({ error: 'معرف التاجر مطلوب' }, 400);
@@ -130,12 +190,20 @@ export async function GET(request: NextRequest) {
 
       const ipHash = isStaff ? null : hashIp(getClientIp(request));
 
-      if (ipHash && (await isLookupRateLimited(ipHash))) {
+      const retryAfter = ipHash ? await lookupRetryAfterSeconds(ipHash, reference) : 0;
+      if (retryAfter > 0) {
         log.warn('Order lookup rate limit reached', { merchantId });
-        return jsonNoStore(
-          { error: 'تم استقبال عدة طلبات، يرجى المحاولة لاحقاً' },
+        const minutes = Math.ceil(retryAfter / 60);
+        const response = jsonNoStore(
+          {
+            error: `محاولات كثيرة، يرجى المحاولة بعد ${minutes} ${minutes === 1 ? 'دقيقة' : minutes === 2 ? 'دقيقتين' : minutes <= 10 ? 'دقائق' : 'دقيقة'}`,
+            errorCode: 'RATE_LIMITED',
+            retryAfterSeconds: retryAfter,
+          },
           429
         );
+        response.headers.set('Retry-After', String(retryAfter));
+        return response;
       }
 
       // Anonymous callers must prove the order is theirs. A missing parameter
@@ -183,10 +251,13 @@ export async function GET(request: NextRequest) {
       const payload = isStaff
         ? { ...order, isInternational }
         : toPublicOrderView(order, { isInternational });
+      // For the returns page's per-status screens (cancel window, waiting).
+      const placedAt = sallaDateToIso(order.date?.created ?? order.date);
+      const prepStarted = await hasPrepStarted(merchantId, String(order.id));
 
       return jsonNoStore({
         success: true,
-        order: { ...payload, returnFeeQuotes, returnFeeQuoteError },
+        order: { ...payload, returnFeeQuotes, returnFeeQuoteError, placedAt, prepStarted },
       });
     }
 

@@ -1,6 +1,7 @@
 import { isReturnableOrderStatus } from '@/lib/returns/order-status';
 import { ONE_RIYAL_OFFER_ERROR } from '@/lib/returns/categories';
 import { NextRequest, NextResponse } from 'next/server';
+import { acquireCreateLock, releaseCreateLock } from '@/app/lib/returns/create-lock';
 import { areExchangeOrdersEnabled } from '@/app/lib/settings';
 import { prisma } from '@/lib/prisma';
 import { getSallaOrder } from '@/app/lib/salla-api';
@@ -111,6 +112,29 @@ interface CreateReturnRequest {
  * 3. Stores return request in database
  */
 export async function POST(request: NextRequest) {
+  // One creation per order at a time: a double tap must not create two requests.
+  const peek = (await request.clone().json().catch(() => null)) as Partial<CreateReturnRequest> | null;
+  const merchantId = peek?.merchantId ? String(peek.merchantId) : '';
+  const orderId = peek?.orderId ? String(peek.orderId) : '';
+  if (!merchantId || !orderId) return createReturnRequest(request);
+
+  if (!(await acquireCreateLock(merchantId, orderId))) {
+    return NextResponse.json(
+      {
+        error: 'طلبك قيد الإرسال بالفعل. انتظري لحظات ثم تحققي من حالة الطلب قبل إعادة المحاولة.',
+        errorCode: 'CREATE_IN_PROGRESS',
+      },
+      { status: 409 },
+    );
+  }
+  try {
+    return await createReturnRequest(request);
+  } finally {
+    await releaseCreateLock(merchantId, orderId);
+  }
+}
+
+async function createReturnRequest(request: NextRequest) {
   try {
     const body: CreateReturnRequest = await request.json();
 
