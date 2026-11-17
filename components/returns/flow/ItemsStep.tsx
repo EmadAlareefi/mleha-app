@@ -198,6 +198,8 @@ export function ItemsStep({
 function Preview({ money, replacing }: { money: Money; replacing: boolean }) {
   const { split, hasExchange, hasReturn, currency } = money;
   const fee = formatMoney(split.processingFee, currency);
+  // Same parts as the review screen, so the two never seem to disagree.
+  const plusShipping = split.originalShipping > 0 ? `يشمل شحن الطلب الأصلي ${formatMoney(split.originalShipping, currency)}، ` : '';
   let main: string;
   let sub: string;
   if (hasExchange && hasReturn) {
@@ -207,10 +209,10 @@ function Preview({ money, replacing }: { money: Money; replacing: boolean }) {
     sub = `رسوم الشحن ${fee} تُخصم مرة واحدة من المبلغ المسترد. يتحدد المبلغ النهائي بعد فحص القطعة.`;
   } else if (hasExchange) {
     main = `${replacing ? 'رصيد الاستبدال' : 'رصيد الكوبون'}: ${formatMoney(split.couponAmount, currency)}`;
-    sub = `بعد خصم رسوم الشحن ${fee}`;
+    sub = `${plusShipping}بعد خصم رسوم الشحن ${fee}`;
   } else {
     main = `المبلغ المتوقع للاسترداد: ${formatMoney(split.refundAmount, currency)}`;
-    sub = `بعد خصم رسوم الشحن ${fee}. يتحدد المبلغ النهائي بعد فحص القطعة.`;
+    sub = `${plusShipping}بعد خصم رسوم الشحن ${fee}. يتحدد المبلغ النهائي بعد فحص القطعة.`;
   }
   return (
     <>

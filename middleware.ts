@@ -2,6 +2,7 @@ import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 import { serviceDefinitions, ServiceKey } from '@/app/lib/service-definitions';
 import { prisma } from '@/lib/prisma';
+import { isUnknownPagePath } from '@/lib/app-routes';
 
 export const runtime = 'nodejs';
 
@@ -75,7 +76,11 @@ const PUBLIC_PATTERNS: RegExp[] = [];
 const isPublicPath = (pathname: string) =>
   PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
-  ) || PUBLIC_PATTERNS.some((pattern) => pattern.test(pathname));
+  ) ||
+  PUBLIC_PATTERNS.some((pattern) => pattern.test(pathname)) ||
+  // No page lives here: let Next.js show its not-found page instead of
+  // sending a customer with a mistyped link to the staff login.
+  isUnknownPagePath(pathname);
 
 const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
   ['promo-monitor', [/^\/promo-monitor(\/.*)?$/]],
@@ -380,7 +385,6 @@ export default withAuth(
 );
 
 // Protect all routes except:
-// - /returns (public return/exchange page)
 // - /login (login page)
 // - /api/returns/* (return API endpoints)
 // - /api/orders/lookup (order lookup for returns)
@@ -394,8 +398,9 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - returns (public returns page)
      * - login (login page)
+     * (/returns is public through PUBLIC_PATHS. It must not be listed here: a
+     * bare prefix also skipped /returns-management and the other staff pages.)
      * - api/returns (returns API)
      * - api/orders/lookup (order lookup)
      * - api/order-users (order users API)
@@ -407,6 +412,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - logo.png, manifest.webmanifest, cv.pdf, trademark.pdf (public branding assets)
      */
-    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|manifest.webmanifest|service-worker.js|cv.pdf|trademark.pdf).*)',
+    '/((?!login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|manifest.webmanifest|service-worker.js|cv.pdf|trademark.pdf).*)',
   ],
 };

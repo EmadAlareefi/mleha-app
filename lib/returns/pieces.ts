@@ -55,7 +55,9 @@ export interface PieceRuleContext {
 
 export const DISCOUNTED_PIECE_MESSAGE = 'منتجات التخفيضات غير قابلة للإرجاع أو الاستبدال';
 export const OUTLET_EXCHANGE_ONLY_MESSAGE = 'منتجات اوتليت مليحة متاحة للاستبدال فقط';
-export const NATIONAL_DAY_EXCHANGE_ONLY_MESSAGE = 'منتجات عروض اليوم الوطني متاحة للاستبدال فقط';
+// Worded for any season: products stay in the offers category after the
+// campaign ends, and the customer may have bought them at another time.
+export const NATIONAL_DAY_EXCHANGE_ONLY_MESSAGE = 'هذا المنتج من العروض، ومتاح للاستبدال فقط';
 export const WINDOW_EXPIRED_PIECE_MESSAGE = 'انتهت مدة الإرجاع المسموحة لهذا المنتج';
 export const ALREADY_REQUESTED_PIECE_MESSAGE = 'تم تقديم طلب لهذه القطعة مسبقاً';
 export const OVERRIDE_EXCHANGE_ONLY_MESSAGE = 'انتهت مدة الإرجاع؛ الاستثناء الممنوح لهذا الطلب يسمح بالاستبدال فقط';

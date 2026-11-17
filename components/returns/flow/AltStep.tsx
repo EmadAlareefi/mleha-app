@@ -25,7 +25,12 @@ function CreditBanner({ money, who }: { money: Money; who: string }) {
         </span>
       </div>
       {who && <div className="tiny">{who}</div>}
-      <div className="tiny">بعد خصم رسوم الشحن {formatMoney(money.split.processingFee, money.currency)}</div>
+      <div className="tiny">
+        {money.split.originalShipping > 0 && !money.hasReturn
+          ? `يشمل شحن الطلب الأصلي ${formatMoney(money.split.originalShipping, money.currency)}، `
+          : ''}
+        بعد خصم رسوم الشحن {formatMoney(money.split.processingFee, money.currency)}
+      </div>
     </div>
   );
 }
