@@ -7,7 +7,7 @@ import { buildPieceViews, orderCurrency, piecesFromOrder, type OrderItem, type P
 import { CalcBox, HelpButton, ProdRow, STORE_URL, StepsBar, Thumb, Timeline, formatMoney, maskPhone, type Calc, type CalcRow } from './ui';
 
 /**
- * Cancel or change a new order in its first 3 hours, one piece at a time
+ * Cancel or change a new order before prep starts, one piece at a time
  * (returns prototype screens 29–39). The server re-checks everything at
  * submit under the order-prep claim lock; this screen only collects choices.
  */
@@ -605,7 +605,7 @@ export function ManageFlow({
         <StepsBar on={1} />
         <div className="banner neutral">
           <b>طلب جديد</b>
-          <p>يمكنك إلغاء الطلب أو تغيير المقاس أو المنتج خلال 3 ساعات من إنشائه وقبل بدء تجهيزه.</p>
+          <p>يمكنك إلغاء الطلب أو تغيير المقاس أو المنتج قبل بدء تجهيزه.</p>
         </div>
         <div className="sect">منتجات طلبك · {views.length === 1 ? 'قطعة واحدة' : views.length === 2 ? 'قطعتان' : `${views.length} قطع`}</div>
         <div className="tiny" style={{ margin: '4px 0 12px' }}>
