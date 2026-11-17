@@ -33,6 +33,8 @@ function clearAuthCookies(res: NextResponse) {
 
 const PUBLIC_PATHS = [
   '/returns',
+  // Customer self-service (cancel / edit before prep): one-time code, no staff session.
+  '/my-order',
   '/api/returns',
   '/api/orders/lookup',
   '/api/products/category',
@@ -55,6 +57,8 @@ const PUBLIC_PATHS = [
   // Called by Vercel Cron, which carries no session; guarded by CRON_SECRET.
   '/api/salla/availability-requests/check-stock',
   '/api/customer-journey/process',
+  // Customer order changes: the worker checks CRON_SECRET, the admin route its own session.
+  '/api/order-manage',
   '/api/expenses/process-subscriptions',
   '/api/expenses/sync-invoices',
   '/salla/webhook',
@@ -403,6 +407,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - logo.png, manifest.webmanifest, cv.pdf, trademark.pdf (public branding assets)
      */
-    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|manifest.webmanifest|cv.pdf|trademark.pdf).*)',
+    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|manifest.webmanifest|service-worker.js|cv.pdf|trademark.pdf).*)',
   ],
 };

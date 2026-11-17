@@ -24,6 +24,7 @@ import { extractItemsFromWebhookPayload, upsertSallaOrderItems } from '@/app/lib
 import { normalizePhoneWithDialCode } from '@/app/lib/phone';
 import { getAffiliateCommissionRate } from '@/app/lib/affiliate-metrics';
 import { sallaOrderFactsData } from '@/app/lib/salla-order-facts';
+import { markClaimsForRecheck, statusNeedsRecheck } from '@/app/lib/order-prep/recheck';
 
 export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   success: boolean;
@@ -200,6 +201,10 @@ export async function upsertSallaOrderFromPayload(payload: any): Promise<{
   if (items.length > 0) {
     await upsertSallaOrderItems(merchantId, orderId, items, 'webhook');
   }
+
+  // A packer may be holding this order: have their next heartbeat re-check it.
+  const statusCustomId = deriveStatusCustomId(order);
+  if (statusNeedsRecheck(statusCustomId)) await markClaimsForRecheck(merchantId, orderId);
 
   return { success: true, orderId, merchantId };
 }

@@ -19,6 +19,7 @@ import {
 } from '@/app/lib/order-prep-salla-status';
 import { checkOrderPromoLimit, getPromoProductIds } from '@/app/lib/promo-limit';
 import { getViolatingPromoOrderIds } from '@/app/lib/promo-limit-monitor';
+import { lockPrepQueue } from '@/app/lib/order-prep/claim-lock';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -329,6 +330,14 @@ export async function assignOldestOrderToUser(
           await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`order-prep-assign:${user.id}`}))::text`;
           const heldNow = await findHeldAssignment(user.id, tx);
           if (heldNow) return { kind: 'held' as const, record: heldNow };
+          // Same lock customer self-service takes before holding an order, so
+          // an order the customer is changing is never handed to a packer.
+          await lockPrepQueue(tx, MERCHANT_ID);
+          const customerHold = await tx.customerOrderChange.findFirst({
+            where: { merchantId: MERCHANT_ID, orderId, holdActive: true },
+            select: { id: true },
+          });
+          if (customerHold) return { kind: 'customer_hold' as const };
           const created = await tx.orderPrepAssignment.create({
             data: {
               merchantId: MERCHANT_ID,
@@ -345,6 +354,10 @@ export async function assignOldestOrderToUser(
         { maxWait: 10_000, timeout: 15_000 },
       );
       if (outcome.kind === 'held') return serializeAssignment(outcome.record);
+      if (outcome.kind === 'customer_hold') {
+        log.info('Skipping order held by its customer', { orderId });
+        continue;
+      }
       const assignment = outcome.record;
 
       log.info('Assigned new Salla order to user', {

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 import { getPromoProductIds } from '@/app/lib/promo-limit';
+import { CUSTOMER_HOLD_MESSAGE, isOrderHeldByCustomer } from '@/app/lib/order-manage/hold';
 import { STATUS_IDS } from '@/SALLA_ORDER_STATUSES';
 import { loadLocations } from '@/app/lib/order-prep/locations';
 import { buildPrepOrder } from '@/app/lib/order-prep/payload';
@@ -332,6 +333,7 @@ export async function shipLocalForStation(orderId: string, deliveryAgentId: stri
     select: { id: true },
   });
   if (doNotShip) return fail(409, 'do_not_ship', 'هذا الطلب موقوف عن الشحن');
+  if (await isOrderHeldByCustomer(MERCHANT_ID, orderId)) return fail(409, 'customer_hold', CUSTOMER_HOLD_MESSAGE);
 
   const now = new Date();
   const locked = await prisma.shippingTask.updateMany({

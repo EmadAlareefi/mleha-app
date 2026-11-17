@@ -73,3 +73,11 @@ test('held or unpaid replacement orders from returns never reach a packer', () =
   // The same rules feed the board's counts.
   assert.match(buildStatsSql(ctx()).text.replace(/\s+/g, ' '), /FROM "ReturnRequest" rr/);
 });
+
+test('an order its customer is changing never reaches a packer', () => {
+  const clause =
+    /AND NOT EXISTS \( SELECT 1 FROM "CustomerOrderChange" c WHERE c\."merchantId" = s\."merchantId" AND c\."orderId" = s\."orderId" AND c\."holdActive" = true \)/;
+  assert.match(buildPickSql(ctx(), { limit: 1 }).text.replace(/\s+/g, ' '), clause);
+  // The board must not count it as waiting either.
+  assert.match(buildStatsSql(ctx()).text.replace(/\s+/g, ' '), clause);
+});

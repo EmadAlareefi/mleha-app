@@ -4,6 +4,7 @@ import { sallaMakeRequest } from '@/app/lib/salla-oauth';
 import { log } from '@/app/lib/logger';
 import { detectInternationalOrder } from '@/app/lib/order-destination';
 import { promoLimitBlock } from '@/app/lib/promo-limit';
+import { CUSTOMER_HOLD_MESSAGE, isOrderHeldByCustomer } from '@/app/lib/order-manage/hold';
 
 export const runtime = 'nodejs';
 
@@ -170,6 +171,9 @@ export async function POST(request: NextRequest) {
         { success: false, code: 'do_not_ship', error: 'هذا الطلب موقوف عن الشحن (لا تشحن). راجع المشرف.' },
         { status: 409 }
       );
+    }
+    if (await isOrderHeldByCustomer(resolvedMerchantId, String(targetOrderIdValue))) {
+      return NextResponse.json({ success: false, code: 'customer_hold', error: CUSTOMER_HOLD_MESSAGE }, { status: 409 });
     }
 
     // Use Salla's orders/actions API to create shipping policy

@@ -330,6 +330,18 @@ export function getVisibleDashboardServices({
       accentClass: categoryAccentMap.orders,
       priority: 77,
     });
+    dashboardServices.push({
+      key: 'customer-order-changes',
+      sourceKey: 'admin-order-prep',
+      title: 'تعديلات العملاء على الطلبات',
+      description: 'إلغاءات وتعديلات العملاء، الاسترجاع اليدوي، وإعدادات الخدمة',
+      href: '/admin/order-prep/customer-changes',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: ClipboardCheck,
+      accentClass: categoryAccentMap.orders,
+      priority: 76,
+    });
   }
 
   if (affiliateName) {

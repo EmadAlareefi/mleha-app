@@ -2,6 +2,7 @@ import type { ShippingTask } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
 import { promoLimitBlock } from '@/app/lib/promo-limit';
+import { CUSTOMER_HOLD_MESSAGE, isOrderHeldByCustomer } from '@/app/lib/order-manage/hold';
 import { fetchLiveOrder, refreshMirrorFromLive } from '@/app/lib/order-prep/salla-live';
 import {
   LABEL_GIVE_UP_AFTER_MS,
@@ -174,6 +175,7 @@ export async function processShippingTask(taskId: string, options: { force?: boo
         select: { id: true },
       });
       if (doNotShip) return block(task, 'الطلب موقوف عن الشحن (لا تشحن)');
+      if (await isOrderHeldByCustomer(task.merchantId, task.orderId)) return block(task, CUSTOMER_HOLD_MESSAGE);
 
       const promo = await promoLimitBlock({
         merchantId: task.merchantId,
