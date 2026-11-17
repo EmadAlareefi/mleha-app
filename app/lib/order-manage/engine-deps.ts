@@ -11,6 +11,13 @@ import type { ChangeRow, ChangeWhere, EngineDeps } from './engine';
 import { loadOrderContext } from './facts';
 import { isWriteAllowedInThisEnvironment, type OrderManageAction } from './settings';
 import type { WorkerStore } from './worker';
+import { callSalla } from '@/app/lib/salla-transactions';
+import { getExchangeProduct } from '@/app/lib/returns/exchange-catalog';
+import { sendWhatsAppTemplate } from '@/app/lib/zoko';
+import { normalizeKSA } from '@/app/lib/phone';
+import { env } from '@/app/lib/env';
+import { log } from '@/app/lib/logger';
+import type { ItemChangeDetails, ItemDeps } from './items';
 
 /** The real database and Salla behind the customer-change engine. */
 
@@ -191,4 +198,63 @@ export const productionWorkerStore: WorkerStore = {
     rows({ kind: 'cancel', state: 'needs_staff', writeStatus: 'unknown', createdAt: { gte: new Date(Date.now() - RECENT_MS) } }),
   findUndecidedRefunds: () => rows({ kind: 'cancel', state: 'completed', writeStatus: 'done', refundStatus: 'none' }),
   findUnknownRefunds: () => rows({ refundStatus: 'unknown', createdAt: { gte: new Date(Date.now() - RECENT_MS) } }),
+};
+
+const jsonObject = (value: unknown) => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : null);
+
+/** Engine deps plus the item writes and payment bookkeeping of items.ts. */
+export const productionItemDeps: ItemDeps = {
+  ...productionEngineDeps,
+
+  loadProduct: (merchantId, productId) => getExchangeProduct(merchantId, productId, { fresh: true }),
+
+  sallaWrite: (merchantId, method, path, body) => callSalla(merchantId, method, path, body),
+
+  async setOrderStatus(merchantId, orderId, statusId) {
+    await callSalla(merchantId, 'POST', `/orders/${encodeURIComponent(orderId)}/status`, { status_id: statusId });
+  },
+
+  async loadDetails(changeId): Promise<ItemChangeDetails | null> {
+    const record = await prisma.customerOrderChange.findUnique({ where: { id: changeId } });
+    if (!record) return null;
+    return {
+      row: toRow(record),
+      request: jsonObject(record.request) as ItemChangeDetails['request'],
+      after: jsonObject(record.after) as ItemChangeDetails['after'],
+      paymentUrl: record.paymentUrl,
+      paymentExpiresAt: record.paymentExpiresAt,
+      paymentStatus: record.paymentStatus,
+    };
+  },
+
+  async savePayment(changeId, fields) {
+    await prisma.customerOrderChange.update({
+      where: { id: changeId },
+      data: {
+        paymentUrl: fields.paymentUrl,
+        paymentExpiresAt: fields.paymentExpiresAt,
+        paymentStatus: fields.paymentStatus,
+        amountDelta: fields.amountDelta,
+      },
+    });
+  },
+
+  async notifyPaymentLink(change, amount, url) {
+    const order = await prisma.sallaOrder.findUnique({
+      where: { merchantId_orderId: { merchantId: change.merchantId, orderId: change.orderId } },
+      select: { customerMobile: true, customerName: true },
+    });
+    const to = normalizeKSA(order?.customerMobile ?? null);
+    // Args: 1 name, 2 order number, 3 amount due, 4 payment link (same as replacement orders).
+    const templateId = process.env.ZOKO_TPL_ORDER_EDIT_PAYMENT_PENDING || env.ZOKO_TPL_EXCHANGE_PAYMENT_PENDING;
+    if (!to || !templateId) {
+      log.info('Order-manage payment link not sent', { changeId: change.id, hasRecipient: Boolean(to) });
+      return;
+    }
+    await sendWhatsAppTemplate({
+      to,
+      templateId: String(templateId),
+      args: [order?.customerName || 'عميلتنا العزيزة', change.orderNumber ?? change.orderId, amount.toFixed(2), url],
+    });
+  },
 };

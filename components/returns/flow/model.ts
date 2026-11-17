@@ -42,6 +42,8 @@ export interface ReturnsOrder {
   placedAt?: string | null;
   /** A packer has already picked the order up. */
   prepStarted?: boolean;
+  /** Cancel / change before prep (null when the feature is off). */
+  manage?: { cancel: boolean; swap: boolean; items: boolean; reason: string | null } | null;
 }
 
 export interface PieceState {

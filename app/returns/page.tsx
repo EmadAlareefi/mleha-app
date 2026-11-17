@@ -1,5 +1,6 @@
 'use client';
 
+import { ManageFlow } from '@/components/returns/flow/ManageFlow';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { typeLabel } from '@/app/lib/returns/status';
 import type { PublicPiece } from '@/app/lib/returns/piece-context';
@@ -32,7 +33,7 @@ const MERCHANT = {
   city: process.env.NEXT_PUBLIC_MERCHANT_CITY || 'الرياض',
 };
 
-type Screen = 'search' | 'blocked' | 'existing' | 'items' | 'alts' | 'alt' | 'review' | 'sendfail' | 'done';
+type Screen = 'search' | 'blocked' | 'manage' | 'existing' | 'items' | 'alts' | 'alt' | 'review' | 'sendfail' | 'done';
 
 interface Notice {
   title: string;
@@ -77,7 +78,7 @@ const toLatinDigits = (value: string) =>
 const validMobile = (value: string) => /^05\d{8}$/.test(value) || /^(?:\+|00)?9665\d{8}$/.test(value);
 
 /** Order-level screens (40/41 and the waiting states), from the order's stage. */
-function blockedForStage(stage: CustomerStage, status: unknown): Blocked {
+function blockedForStage(stage: CustomerStage, status: unknown, prepStarted = false): Blocked {
   const { name } = statusParts(status);
   switch (stage) {
     case 'cancelled':
@@ -104,8 +105,11 @@ function blockedForStage(stage: CustomerStage, status: unknown): Blocked {
         lead: 'الاستبدال والاسترجاع متاحان بعد وصول الطلب إليكِ.',
         statusLabel: name,
         cardTitle: 'ماذا يمكنك فعله؟',
-        cardText:
-          'طلبك قيد التجهيز أو في الطريق إليكِ، ولم يعد بالإمكان إلغاؤه أو تعديله. بعد استلامه يمكنك طلب الاستبدال أو الاسترجاع حسب الشروط.',
+        // A packer can pick a new order up within minutes, while Salla still
+        // shows it as "طلب جديد" — say why it can no longer be changed.
+        cardText: prepStarted
+          ? 'بدأ فريقنا تجهيز طلبك، لذلك لم يعد بالإمكان إلغاؤه أو تعديله. بعد استلامه يمكنك طلب الاستبدال أو الاسترجاع حسب الشروط.'
+          : 'طلبك قيد التجهيز أو في الطريق إليكِ، ولم يعد بالإمكان إلغاؤه أو تعديله. بعد استلامه يمكنك طلب الاستبدال أو الاسترجاع حسب الشروط.',
       };
     case 'returning':
       return {
@@ -370,8 +374,13 @@ export default function ReturnsPage() {
         setScreen('existing');
         return;
       }
+      // A new order in its first 3 hours: cancel or change it here (prototype 29–39).
+      if (stage === 'editable' && found.manage && (found.manage.cancel || found.manage.swap || found.manage.items)) {
+        setScreen('manage');
+        return;
+      }
       if (stage !== 'returnable') {
-        setBlocked(blockedForStage(stage, found.status));
+        setBlocked(blockedForStage(stage, found.status, Boolean(found.prepStarted)));
         setScreen('blocked');
         return;
       }
@@ -671,6 +680,18 @@ export default function ReturnsPage() {
         )}
         <RulesBlock />
       </div>
+    );
+  }
+
+  if (screen === 'manage' && order?.manage) {
+    return (
+      <ManageFlow
+        order={order}
+        mobile={toLatinDigits(mobile).replace(/[^\d+]/g, '')}
+        merchantId={MERCHANT.merchantId}
+        verdicts={order.manage}
+        onBack={backToSearch}
+      />
     );
   }
 

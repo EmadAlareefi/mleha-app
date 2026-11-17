@@ -1,3 +1,4 @@
+import { loadOrderContext } from '@/app/lib/order-manage/facts';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
@@ -103,6 +104,28 @@ async function lookupRetryAfterSeconds(ipHash: string, reference: string): Promi
 }
 
 /** Whether a packer has already picked the order up (local prep queue). */
+/**
+ * Whether the customer may cancel or change pieces of this order now (returns
+ * prototype screens 29–39), as the order-manage rules see it. The binding
+ * check runs again at submit, under the prep claim lock.
+ */
+async function orderManageSummary(merchantId: string, orderId: string) {
+  try {
+    const context = await loadOrderContext(merchantId, orderId);
+    if (!context || !context.settings.enabled) return null;
+    const { cancel, swap, items } = context.verdicts;
+    return {
+      cancel: cancel.allowed,
+      swap: swap.allowed,
+      items: items.allowed,
+      reason: [cancel, swap, items].find((v): v is Extract<typeof v, { allowed: false }> => !v.allowed)?.reason ?? null,
+    };
+  } catch (error) {
+    log.warn('Failed to read order-manage verdicts for lookup', { error });
+    return null;
+  }
+}
+
 async function hasPrepStarted(merchantId: string, orderId: string): Promise<boolean> {
   try {
     const assignment = await prisma.orderPrepAssignment.findFirst({
@@ -254,10 +277,11 @@ async function lookup(
       // For the returns page's per-status screens (cancel window, waiting).
       const placedAt = sallaDateToIso(order.date?.created ?? order.date);
       const prepStarted = await hasPrepStarted(merchantId, String(order.id));
+      const manage = await orderManageSummary(merchantId, String(order.id));
 
       return jsonNoStore({
         success: true,
-        order: { ...payload, returnFeeQuotes, returnFeeQuoteError, placedAt, prepStarted },
+        order: { ...payload, returnFeeQuotes, returnFeeQuoteError, placedAt, prepStarted, manage },
       });
     }
 
