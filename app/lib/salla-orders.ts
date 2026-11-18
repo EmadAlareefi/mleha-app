@@ -282,23 +282,85 @@ export function extractReferenceId(order: AnyRecord): string | null {
   );
 }
 
+const SALLA_DEFAULT_TIMEZONE = 'Asia/Riyadh';
+const HAS_ZONE = /(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+const NAIVE_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?$/;
+
+/** Minutes `timeZone` is ahead of UTC at `utcMs` (Riyadh: 180, no DST). */
+function zoneOffsetMinutes(timeZone: string, utcMs: number): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(new Date(utcMs));
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+    return Math.round((asUtc - Math.floor(utcMs / 1000) * 1000) / 60000);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A Salla date as a real UTC instant. Salla sends wall-clock strings with no
+ * zone ("2026-11-09 21:51:12.000000"), either bare or as
+ * `{ date, timezone: 'Asia/Riyadh' }`; parsing them with `new Date()` on a UTC
+ * server would store Riyadh clock time labelled as UTC (3 hours late).
+ * Strings that carry their own zone, numbers and Dates are taken as-is.
+ */
+export function sallaDate(value: unknown, timeZone: string = SALLA_DEFAULT_TIMEZONE): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date || typeof value === 'number') return normalizers.date(value);
+  if (typeof value === 'object') {
+    const record = value as AnyRecord;
+    const zone = typeof record.timezone === 'string' && record.timezone.trim() ? record.timezone.trim() : timeZone;
+    return sallaDate(record.date ?? record.datetime ?? record.issued ?? record.created ?? record.updated ?? null, zone);
+  }
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (HAS_ZONE.test(text)) return normalizers.date(text);
+  const match = NAIVE_DATE_TIME.exec(text);
+  if (!match) return normalizers.date(text);
+  const [, y, mo, d, h = '0', mi = '0', s = '0', frac = ''] = match;
+  const wallMs = Date.UTC(+y, +mo - 1, +d, +h, +mi, +s, Number(frac.slice(0, 3).padEnd(3, '0')));
+  if (!Number.isFinite(wallMs)) return null;
+  // Two passes settle the offset at the instant itself (matters only for DST zones).
+  const first = zoneOffsetMinutes(timeZone, wallMs) ?? 0;
+  const offset = zoneOffsetMinutes(timeZone, wallMs - first * 60000) ?? first;
+  return new Date(wallMs - offset * 60000);
+}
+
+/**
+ * The order's created/updated dates as real UTC instants (SallaOrder.placedAt
+ * and updatedAtRemote).
+ */
 export function extractDates(
   order: AnyRecord
 ): { created: Date | null; updated: Date | null } {
+  const zone =
+    typeof order?.date?.timezone === 'string' && order.date.timezone.trim()
+      ? order.date.timezone.trim()
+      : SALLA_DEFAULT_TIMEZONE;
   return {
     created: pickFirst(
-      normalizers.date(order.date?.created),
-      normalizers.date(order.date?.date),
-      normalizers.date(order.created_at),
-      normalizers.date(order.createdAt),
-      normalizers.date(order.created)
+      sallaDate(order.date?.created, zone),
+      sallaDate(order.date?.date, zone),
+      sallaDate(order.created_at, zone),
+      sallaDate(order.createdAt, zone),
+      sallaDate(order.created, zone)
     ),
     updated: pickFirst(
-      normalizers.date(order.date?.updated),
-      normalizers.date(order.updated_at),
-      normalizers.date(order.updatedAt),
-      normalizers.date(order.updated),
-      normalizers.date(order.date?.date)
+      sallaDate(order.date?.updated, zone),
+      sallaDate(order.updated_at, zone),
+      sallaDate(order.updatedAt, zone),
+      sallaDate(order.updated, zone),
+      sallaDate(order.date?.date, zone)
     ),
   };
 }

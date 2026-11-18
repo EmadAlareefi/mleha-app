@@ -3,7 +3,6 @@ import { bucketsFor, cachedFacts, peopleFor, secondsBetween, type Facts, type Fa
 import type { Period } from '@/app/lib/analytics/period';
 import { formatDuration, summarize } from '@/app/lib/analytics/stats';
 import type { AnalyticsSummary, AnalyticsTile } from '@/app/lib/analytics/types';
-import { RIYADH_OFFSET_MS } from '@/app/lib/order-prep/riyadh-time';
 import { STATE_LABELS, type ShippingState } from './rules';
 import { MERCHANT_ID } from './tasks';
 
@@ -71,7 +70,7 @@ async function loadShippingFacts(period: Period): Promise<Facts> {
   const facts: FactRow[] = rows.map((row) => {
     // When Salla's label was stored (webhook or adoption) — accurate for both pages.
     const labelAt = row.labelStoredAt;
-    const placed = row.placedAt ? new Date(row.placedAt.getTime() - RIYADH_OFFSET_MS) : null;
+    const placed = row.placedAt;
     const tags = [row.courierName || '—'];
     if (row.creatingAt) tags.push('أُنشئت تلقائياً');
     if (!row.packedAt) tags.push('بدون تجهيز');

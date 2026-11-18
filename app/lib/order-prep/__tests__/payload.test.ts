@@ -57,7 +57,7 @@ test('builds the packer view from a stored Salla order', () => {
   const order = buildPrepOrder({
     orderId: '111',
     orderNumber: '241105',
-    placedAt: new Date('2026-11-09T21:51:12Z'),
+    placedAt: new Date('2026-11-09T18:51:12Z'),
     rawOrder,
     locations,
     promoProductIds: new Set(['1082863548']),

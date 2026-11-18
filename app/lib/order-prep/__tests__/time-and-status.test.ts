@@ -4,22 +4,20 @@ import {
   formatAgeAr,
   orderAgeMs,
   placedAtCutoff,
-  riyadhNaiveNow,
   riyadhStartOfDayUtc,
   toSqlTimestamp,
 } from '@/app/lib/order-prep/riyadh-time';
-import { deriveStatusCustomId, isOutOfOrderPayload, remoteUpdatedKey } from '@/app/lib/salla-orders';
+import { deriveStatusCustomId, extractDates, isOutOfOrderPayload, remoteUpdatedKey, sallaDate } from '@/app/lib/salla-orders';
 
 // 2026-11-09 18:51:12 UTC = 21:51:12 in Riyadh.
 const NOW = Date.UTC(2026, 10, 9, 18, 51, 12);
 
-test('placedAt is Riyadh wall-clock stored as UTC: age and cutoffs line up', () => {
-  assert.equal(riyadhNaiveNow(NOW).toISOString(), '2026-11-09T21:51:12.000Z');
-  // An order placed "21:51:12" Riyadh time, 0 minutes ago.
-  assert.equal(orderAgeMs(new Date('2026-11-09T21:51:12Z'), NOW), 0);
-  assert.equal(orderAgeMs('2026-11-09T19:51:12.000Z', NOW), 2 * 3_600_000);
+test('placedAt is a real UTC instant: age and cutoffs line up', () => {
+  // An order placed 21:51:12 Riyadh time (18:51:12 UTC), 0 minutes ago.
+  assert.equal(orderAgeMs(new Date('2026-11-09T18:51:12Z'), NOW), 0);
+  assert.equal(orderAgeMs('2026-11-09T16:51:12.000Z', NOW), 2 * 3_600_000);
   assert.equal(orderAgeMs(null, NOW), null);
-  assert.equal(toSqlTimestamp(placedAtCutoff(48, NOW)), '2026-11-07 21:51:12');
+  assert.equal(toSqlTimestamp(placedAtCutoff(48, NOW)), '2026-11-07 18:51:12');
 });
 
 test('the Riyadh day starts at 21:00 UTC the evening before', () => {
@@ -63,4 +61,24 @@ test('an older webhook payload is recognised and skipped', () => {
     timezone: 'Asia/Riyadh',
     date: '2026-01-01 00:00:00.000000',
   });
+});
+
+test('Salla dates (Riyadh wall clock) are stored as real UTC instants', () => {
+  const iso = (value: Date | null) => value?.toISOString() ?? null;
+  assert.equal(iso(sallaDate('2026-11-09 21:51:12.000000')), '2026-11-09T18:51:12.000Z');
+  assert.equal(iso(sallaDate({ date: '2026-11-10 01:30:00.000000', timezone: 'Asia/Riyadh' })), '2026-11-09T22:30:00.000Z');
+  assert.equal(iso(sallaDate({ date: '2026-11-09 10:00:00', timezone: 'UTC' })), '2026-11-09T10:00:00.000Z');
+  assert.equal(iso(sallaDate('2026-01-05T10:00:00Z')), '2026-01-05T10:00:00.000Z');
+  assert.equal(iso(sallaDate('2026-01-05T10:00:00+03:00')), '2026-01-05T07:00:00.000Z');
+  assert.equal(iso(sallaDate('2026-11-09')), '2026-11-08T21:00:00.000Z');
+  assert.equal(sallaDate(''), null);
+  assert.equal(sallaDate('not a date'), null);
+
+  const dates = extractDates({
+    date: { date: '2026-11-09 21:51:12.000000', timezone: 'Asia/Riyadh' },
+    updated_at: { date: '2026-11-09 22:00:00.000000', timezone: 'Asia/Riyadh' },
+  });
+  assert.equal(iso(dates.created), '2026-11-09T18:51:12.000Z');
+  assert.equal(iso(dates.updated), '2026-11-09T19:00:00.000Z');
+  assert.equal(iso(extractDates({ date: { created: '2026-08-01 10:00:00', updated: '2026-08-05 12:00:00' } }).created), '2026-08-01T07:00:00.000Z');
 });

@@ -36,8 +36,8 @@ test('campaign mode adds the promo lane with the age cap', () => {
   const orderBy = orderByOf(sql.text);
   assert.match(orderBy, /^ORDER BY \(hp\."id" IS NULL\) ASC, CASE WHEN s\."placedAt" > \$\d+::timestamp/);
   assert.match(orderBy, /THEN 1 ELSE 0 END ASC, s\."placedAt" ASC NULLS LAST/);
-  // Cutoff is 48 h before now in the Riyadh-clock convention (18:00Z + 3 h − 48 h).
-  assert.ok(sql.values.includes('2026-11-07 21:00:00'));
+  // Cutoff is 48 h before now (18:00Z − 48 h).
+  assert.ok(sql.values.includes('2026-11-07 18:00:00'));
 });
 
 test('campaign mode without any promo products falls back to oldest-first', () => {
@@ -54,11 +54,11 @@ test('only / exclude narrow the pick', () => {
   assert.match(sql.text, /AND NOT \(s\."orderId" = ANY\(\$\d+::text\[\]\)\)/);
 });
 
-test('stats buckets use Riyadh-clock cutoffs', () => {
+test('stats buckets use UTC cutoffs', () => {
   const sql = buildStatsSql(ctx());
-  assert.ok(sql.values.includes('2026-11-08 21:00:00')); // 24 h
-  assert.ok(sql.values.includes('2026-11-07 21:00:00')); // 48 h
-  assert.ok(sql.values.includes('2026-11-05 21:00:00')); // 96 h
+  assert.ok(sql.values.includes('2026-11-08 18:00:00')); // 24 h
+  assert.ok(sql.values.includes('2026-11-07 18:00:00')); // 48 h
+  assert.ok(sql.values.includes('2026-11-05 18:00:00')); // 96 h
 });
 
 test('held or unpaid replacement orders from returns never reach a packer', () => {
