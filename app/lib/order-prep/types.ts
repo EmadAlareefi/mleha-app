@@ -26,7 +26,7 @@ export type PrepItem = {
 export type PrepOrder = {
   orderId: string;
   orderNumber: string;
-  /** Riyadh wall-clock time stored as if UTC (see riyadh-time.ts). */
+  /** ISO instant the order was placed (UTC). */
   placedAt: string | null;
   isInternational: boolean;
   country: string | null;

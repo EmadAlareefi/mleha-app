@@ -275,11 +275,16 @@ function tryAdjustItemDiscountToMatchTotal(items: ERPInvoiceItem[], deltaHalalas
 function getSallaOrderDate(order: SallaOrder): Date {
   const rawOrder = order.rawOrder as any;
 
+  // placedAt / updatedAtRemote are real UTC instants. The ERP has always been
+  // sent Salla's Riyadh wall clock (labelled Z), so keep that exact format.
+  const riyadhClock = (value: Date | null) =>
+    value ? new Date(value.getTime() + 3 * 60 * 60 * 1000) : null;
+
   const candidates: Array<string | Date | null | undefined> = [
     rawOrder?.date?.created,
     rawOrder?.date?.updated,
-    order.placedAt,
-    order.updatedAtRemote,
+    riyadhClock(order.placedAt),
+    riyadhClock(order.updatedAtRemote),
     order.createdAt,
     order.updatedAt,
   ];

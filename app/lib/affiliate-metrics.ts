@@ -73,12 +73,16 @@ export function isDelivered(statusSlug: string | null | undefined, statusName: s
   return normalizedName === 'تم التوصيل';
 }
 
+const RIYADH_MONTH_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 export function getMonthKey(date: Date | null | undefined): string | null {
   if (!date) {
     return null;
   }
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  // Month of the Riyadh calendar date (placedAt is a real UTC instant).
+  const riyadh = new Date(date.getTime() + RIYADH_MONTH_OFFSET_MS);
+  const year = riyadh.getUTCFullYear();
+  const month = String(riyadh.getUTCMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
 }
 
@@ -89,7 +93,7 @@ export function getMonthLabel(date: Date | null | undefined): string {
   const monthFormatter = new Intl.DateTimeFormat('ar-u-ca-gregory-nu-latn', {
     month: 'long',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone: 'Asia/Riyadh',
   });
   return monthFormatter.format(date);
 }

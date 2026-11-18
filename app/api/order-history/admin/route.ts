@@ -10,6 +10,7 @@ import {
   getERPOrderSyncError,
   hasSuccessfulERPSync,
 } from '@/lib/erp-order-sync';
+import { riyadhDayEnd, riyadhDayStart } from '@/app/lib/order-prep/riyadh-time';
 
 export const runtime = 'nodejs';
 
@@ -162,8 +163,8 @@ export async function GET(request: NextRequest) {
 
     if (startDate || endDate) {
       where.placedAt = {
-        gte: startDate ? new Date(`${startDate}T00:00:00.000Z`) : undefined,
-        lte: endDate ? new Date(`${endDate}T23:59:59.999Z`) : undefined,
+        gte: riyadhDayStart(startDate),
+        lte: riyadhDayEnd(endDate),
       };
     }
 

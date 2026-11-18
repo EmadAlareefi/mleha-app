@@ -4,7 +4,6 @@ import type { Period } from '@/app/lib/analytics/period';
 import { formatDuration, summarize } from '@/app/lib/analytics/stats';
 import type { AnalyticsSummary, AnalyticsTile } from '@/app/lib/analytics/types';
 import { MERCHANT_ID } from './queue';
-import { RIYADH_OFFSET_MS } from './riyadh-time';
 
 /**
  * Packing analytics for the prep board: time per order and the orders behind
@@ -52,9 +51,6 @@ const REASONS: Record<string, string> = {
   promo_limit: 'حد عرض الريال',
 };
 
-/** placedAt is Riyadh wall-clock stored as UTC; shift it back to a real instant. */
-const placedInstant = (placedAt: Date | null) => (placedAt ? new Date(placedAt.getTime() - RIYADH_OFFSET_MS) : null);
-
 async function loadPrepFacts(period: Period): Promise<Facts> {
   const [rows, problems] = await Promise.all([
     prisma.$queryRaw<PrepFactRow[]>`
@@ -89,7 +85,7 @@ async function loadPrepFacts(period: Period): Promise<Facts> {
   ]);
 
   const facts: FactRow[] = rows.map((row) => {
-    const placed = placedInstant(row.placedAt);
+    const placed = row.placedAt;
     const tags = [row.scanMethod === 'scan' ? 'مسح' : 'يدوي'];
     if (row.shortages > 0) tags.push(`نقص ${row.shortages}`);
     return {

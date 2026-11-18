@@ -30,6 +30,7 @@ import {
   isDefiniteRefundStatus,
   isPotentialRefundStatus,
 } from '@/lib/refund-status';
+import { riyadhDayEnd, riyadhDayStart } from '@/app/lib/order-prep/riyadh-time';
 
 export type PendingERPOrderRowStatus = 'ready' | 'error' | 'synced' | 'internal-transfer';
 export type PendingERPRefundRowStatus = 'ready' | 'error' | 'waiting';
@@ -687,8 +688,9 @@ async function deleteERPRefundOrderSyncRecord(orderRecordId: string): Promise<vo
 }
 
 async function listPendingERPOrders(dateRange: DateRangeInput = {}): Promise<PendingERPOrderRow[]> {
-  const startDate = parseDateStart(dateRange.startDate);
-  const endDate = parseDateEnd(dateRange.endDate);
+  // placedAt is a real UTC instant; the picked dates are Riyadh days.
+  const startDate = riyadhDayStart(dateRange.startDate);
+  const endDate = riyadhDayEnd(dateRange.endDate);
   const where: Prisma.SallaOrderWhereInput = {};
 
   if (startDate || endDate) {
@@ -843,10 +845,13 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
   const endDate = parseDateEnd(dateRange.endDate);
 
   const refundOrdersWhere: Prisma.SallaOrderWhereInput = {};
-  if (startDate || endDate) {
+  const placedFrom = riyadhDayStart(dateRange.startDate);
+  const placedTo = riyadhDayEnd(dateRange.endDate);
+  if (placedFrom || placedTo) {
+    // placedAt is a real UTC instant; issueDate below still holds Salla's Riyadh clock.
     refundOrdersWhere.placedAt = {
-      gte: startDate,
-      lte: endDate,
+      gte: placedFrom,
+      lte: placedTo,
     };
   }
 

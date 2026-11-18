@@ -53,7 +53,8 @@
     "test:hermes": "node --test --import tsx app/lib/hermes/__tests__/*.test.ts",
     "test:erp-refunds": "node --test --import tsx app/lib/__tests__/erp-refund-invoice.test.ts",
     "hermes:credentials": "node --import tsx scripts/hermes-credentials.ts",
-    "backfill:salla-order-facts": "node --import tsx scripts/backfill-salla-order-facts.ts"
+    "backfill:salla-order-facts": "node --import tsx scripts/backfill-salla-order-facts.ts",
+    "backfill:salla-order-utc-dates": "node --import tsx scripts/backfill-salla-order-utc-dates.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
