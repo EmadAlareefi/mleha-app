@@ -7,6 +7,7 @@ import {
   type ProcessDependencies,
 } from '../returns/process-return';
 import { SallaCallError } from '../salla-transactions';
+import { decodeTabbyRefundId, TabbyCallError, tabbyRefundOption } from '../tabby';
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory stand-in for prisma.returnRequest / prisma.returnItem.
@@ -87,7 +88,7 @@ const paidTx = { id: 77, total: { amount: 430, currency: 'SAR' }, status: { slug
 let currentState: { request: Row } | null = null;
 
 function fakeDeps(overrides: Partial<ProcessDependencies> = {}) {
-  const calls = { restock: [] as any[], refund: [] as any[], coupon: [] as any[], status: [] as any[], history: [] as any[], release: [] as any[], leftover: [] as any[] };
+  const calls = { tabby: [] as any[], restock: [] as any[], refund: [] as any[], coupon: [] as any[], status: [] as any[], history: [] as any[], release: [] as any[], leftover: [] as any[] };
   const deps: ProcessDependencies = {
     getOrder: async () => null,
     listTransactions: async () => [paidTx],
@@ -95,6 +96,14 @@ function fakeDeps(overrides: Partial<ProcessDependencies> = {}) {
     refund: async (...args) => {
       calls.refund.push(args);
       return { success: true };
+    },
+    tabby: {
+      configured: () => true,
+      findPayment: async () => null,
+      refund: async (input) => {
+        calls.tabby.push(input);
+        return { id: input.paymentId };
+      },
     },
     restock: async (_merchantId, item) => {
       calls.restock.push(item);
@@ -406,4 +415,102 @@ test('"already restocked" never applies to a piece that is not in good condition
   const { deps } = fakeDeps();
   await processReturnRequest('r1', { actor: 'staff', alreadyRestockedItemIds: ['i2'] }, deps);
   assert.equal(state.items[1].restockStatus, 'skipped');
+});
+
+// ---------------------------------------------------------------------------
+// Tabby: Salla marks Tabby payments not refundable; refund on Tabby instead.
+// ---------------------------------------------------------------------------
+const tabbyTx = { id: 88, total: { amount: 430, currency: 'SAR' }, status: { slug: 'paid' }, available_actions: [], payment_method: { slug: 'tabby_installment', is_refundable: false } };
+const tabbyPayment = (overrides: Row = {}) => ({
+  id: 'tp-1',
+  status: 'CLOSED',
+  currency: 'SAR',
+  created_at: new Date().toISOString(),
+  order: { reference_id: '1001' },
+  captures: [{ id: 'c1', amount: '430.00' }],
+  refunds: [],
+  ...overrides,
+});
+
+test('tabby order: refunds on the Tabby payment with an idempotency key', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps({ listTransactions: async () => [tabbyTx] });
+  deps.tabby.findPayment = async () => tabbyPayment() as any;
+
+  const result = await processReturnRequest('r1', { actor: 'staff' }, deps);
+
+  assert.equal(result.completed, true);
+  assert.equal(calls.refund.length, 0);
+  assert.equal(calls.tabby.length, 1);
+  assert.equal(calls.tabby[0].paymentId, 'tp-1');
+  assert.equal(calls.tabby[0].amount, 170);
+  assert.equal(calls.tabby[0].refundable, 430);
+  assert.match(calls.tabby[0].referenceId, /^ret-r1-/);
+  assert.deepEqual(decodeTabbyRefundId(state.request.refundTransactionId), { paymentId: 'tp-1', referenceId: calls.tabby[0].referenceId });
+  assert.equal(state.request.refundStatus, 'refunded');
+  assert.equal(state.request.refundedAmount, 170);
+});
+
+test('tabby order without a configured key stays a manual refund', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps({ listTransactions: async () => [tabbyTx] });
+  deps.tabby.configured = () => false;
+  const result = await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(result.completed, false);
+  assert.equal(calls.tabby.length, 0);
+  assert.equal(state.request.refundStatus, 'manual');
+});
+
+test('tabby payment not found becomes a manual refund with the reason', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps({ listTransactions: async () => [tabbyTx] });
+  const result = await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(result.completed, false);
+  assert.equal(calls.tabby.length, 0);
+  assert.equal(state.request.refundStatus, 'manual');
+  assert.match(state.request.refundError, /تابي/);
+});
+
+test('a refund already made in the Tabby portal blocks an automatic second one', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps({ listTransactions: async () => [tabbyTx] });
+  deps.tabby.findPayment = async () =>
+    tabbyPayment({ refunds: [{ id: 'rf1', amount: '170.00', created_at: '2026-11-02T10:00:00Z' }] }) as any;
+  const result = await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(result.completed, false);
+  assert.equal(calls.tabby.length, 0);
+  assert.equal(state.request.refundStatus, 'none');
+
+  const recorded = await processReturnRequest('r1', { actor: 'staff', refundAlreadyInSalla: true }, deps);
+  assert.equal(recorded.completed, true);
+  assert.equal(calls.tabby.length, 0);
+  assert.equal(state.request.refundedAmount, 170);
+});
+
+test('an unknown Tabby outcome is never resent', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  let attempts = 0;
+  const { deps } = fakeDeps({ listTransactions: async () => [tabbyTx] });
+  deps.tabby.findPayment = async () => tabbyPayment() as any;
+  deps.tabby.refund = async () => {
+    attempts++;
+    throw new TabbyCallError('timeout', undefined, true);
+  };
+  await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(state.request.refundStatus, 'unknown');
+  await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(attempts, 1);
+});
+
+test('tabbyRefundOption: only CLOSED payments, up to captured minus refunded', () => {
+  assert.equal(tabbyRefundOption(tabbyPayment({ status: 'AUTHORIZED' }) as any).ok, false);
+  const option = tabbyRefundOption(tabbyPayment({ refunds: [{ amount: '100.50' }] }) as any);
+  assert.ok(option.ok);
+  assert.equal(option.ok && option.refundable, 329.5);
+  assert.equal(tabbyRefundOption(tabbyPayment({ refunds: [{ amount: '430.00' }] }) as any).ok, false);
 });

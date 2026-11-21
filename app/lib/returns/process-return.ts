@@ -16,12 +16,24 @@ import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup
 import { allItemsInspected } from '@/lib/returns/workflow';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
 import { issueLeftoverCoupon } from '@/app/lib/returns/exchange-order-flow';
+import {
+  encodeTabbyRefundId,
+  findTabbyPaymentForOrder,
+  isTabbyConfigured,
+  isTabbyOrder,
+  refundTabbyPayment,
+  tabbyRefundOption,
+  tabbyRefundsAsHistory,
+  TabbyCallError,
+  type TabbyPayment,
+} from '@/app/lib/tabby';
 
 /**
  * One-click processing of a received and inspected return request:
  *
  *   1. restock   — pieces inspected as `good` go back to Salla stock
  *   2. refund    — return pieces are refunded on the order's Salla payment
+ *                  (Tabby orders: on the Tabby payment, via the Tabby API)
  *   3. coupon    — exchange pieces become one exchange coupon (WhatsApp)
  *   4. salla     — order status + history note
  *   5. complete  — request closed
@@ -54,6 +66,11 @@ export interface ProcessDependencies {
   listTransactions: typeof listOrderTransactions;
   historyRefunds(merchantId: string, orderId: string): Promise<HistoryRefund[]>;
   refund: typeof refundTransaction;
+  tabby: {
+    configured(): boolean;
+    findPayment(request: { merchantId: string; orderId: string; orderNumber: string | null; createdAt: Date }, liveOrder: any): Promise<TabbyPayment | null>;
+    refund: typeof refundTabbyPayment;
+  };
   restock(merchantId: string, item: { productId: string; variantId?: string | null; quantity: number }): Promise<{ ok: boolean; error?: string }>;
   issueCoupon(returnRequestId: string, liveOrder: any): Promise<{ ok: boolean; error?: string; couponCode?: string }>;
   setOrderStatus(merchantId: string, orderId: string, slug: string): Promise<{ success: boolean; error?: string }>;
@@ -68,6 +85,11 @@ export const productionDependencies: ProcessDependencies = {
   listTransactions: listOrderTransactions,
   historyRefunds: findHistoryRefunds,
   refund: refundTransaction,
+  tabby: {
+    configured: isTabbyConfigured,
+    findPayment: findTabbyPaymentForSallaOrder,
+    refund: refundTabbyPayment,
+  },
   async restock(merchantId, item) {
     const result = item.variantId
       ? await incrementSallaStock('variant_id', item.variantId, item.quantity, { merchantId })
@@ -84,6 +106,54 @@ export const productionDependencies: ProcessDependencies = {
   releaseExchangeOrder: (id) => maybeReleaseExchangeOrderHold(id, { source: 'processing' }),
   issueLeftoverCoupon: (id) => issueLeftoverCoupon(id),
 };
+
+/** Salla's order date strings are naive Riyadh time ("2026-11-10 14:05:00.000000"). */
+function parseSallaDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const date = new Date(`${value.trim().replace(' ', 'T').replace(/\.\d+$/, '')}+03:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function findTabbyPaymentForSallaOrder(
+  request: { merchantId: string; orderId: string; orderNumber: string | null; createdAt: Date },
+  liveOrder: any,
+): Promise<TabbyPayment | null> {
+  const stored = await prisma.sallaOrder
+    .findUnique({
+      where: { merchantId_orderId: { merchantId: request.merchantId, orderId: request.orderId } },
+      select: { placedAt: true, referenceId: true, orderNumber: true },
+    })
+    .catch(() => null);
+  const placedAt = stored?.placedAt ?? parseSallaDate(liveOrder?.date?.date);
+  if (!placedAt) throw new TabbyCallError('تعذر معرفة تاريخ الطلب للبحث عن دفعة تابي.');
+  return findTabbyPaymentForOrder({
+    placedAt,
+    references: [request.orderNumber, stored?.referenceId, stored?.orderNumber, liveOrder?.reference_id, request.orderId],
+  });
+}
+
+type TabbyResolution =
+  | { ok: true; payment: TabbyPayment; refundable: number; currency: string; history: HistoryRefund[] }
+  | { ok: false; reason: string };
+
+/**
+ * For an order Salla cannot refund because it was paid with Tabby: the Tabby
+ * payment to refund instead. Null when the order is not a Tabby order or the
+ * Tabby key is not set (the request then falls back to a manual refund).
+ */
+async function resolveTabbyRefund(
+  request: { merchantId: string; orderId: string; orderNumber: string | null; createdAt: Date },
+  liveOrder: any,
+  transactions: Awaited<ReturnType<typeof listOrderTransactions>>,
+  deps: ProcessDependencies,
+): Promise<TabbyResolution | null> {
+  if (!isTabbyOrder(transactions, liveOrder) || !deps.tabby.configured()) return null;
+  const payment = await deps.tabby.findPayment(request, liveOrder);
+  if (!payment) return { ok: false, reason: 'لم يُعثر على دفعة هذا الطلب في تابي.' };
+  const option = tabbyRefundOption(payment);
+  if (!option.ok) return option;
+  return { ok: true, payment, refundable: option.refundable, currency: option.currency, history: tabbyRefundsAsHistory(payment) };
+}
 
 export interface AuditEntry {
   at: string;
@@ -108,6 +178,8 @@ export interface RefundPlan {
   transactionId?: string;
   transactionTotal?: number;
   paymentMethod?: string;
+  /** Where the refund is sent: Salla's transaction API, or Tabby's API for Tabby orders. */
+  provider?: 'salla' | 'tabby';
   unavailableReason?: string;
   existingRefunds: HistoryRefund[];
 }
@@ -175,7 +247,22 @@ export async function buildProcessPreview(
       ]);
       const option = pickRefundableTransaction(transactions);
       refund.existingRefunds = sinceCreation(history, request.createdAt);
-      if (option.ok) {
+      const tabby = option.ok ? null : await resolveTabbyRefund(request, order, transactions, deps);
+      if (tabby?.ok) {
+        refund.provider = 'tabby';
+        refund.transactionId = String(tabby.payment.id);
+        refund.transactionTotal = tabby.refundable;
+        refund.paymentMethod = 'Tabby (تابي)';
+        refund.currency = tabby.currency;
+        refund.existingRefunds = [...refund.existingRefunds, ...sinceCreation(tabby.history, request.createdAt)];
+        if (amounts.refundAmount > tabby.refundable) {
+          warnings.push('مبلغ الاسترجاع أكبر من المبلغ المتبقي في دفعة تابي');
+        }
+      } else if (tabby && !tabby.ok) {
+        refund.unavailableReason = tabby.reason;
+        warnings.push(`${tabby.reason} سيتم تحويله لاسترجاع يدوي.`);
+      } else if (option.ok) {
+        refund.provider = 'salla';
         refund.transactionId = String(option.transaction.id);
         refund.transactionTotal = option.total;
         refund.paymentMethod = option.transaction.payment_method?.name || option.transaction.payment_method?.slug;
@@ -188,7 +275,11 @@ export async function buildProcessPreview(
         warnings.push(`${option.reason} سيتم تحويله لاسترجاع يدوي.`);
       }
       if (refund.existingRefunds.length > 0) {
-        warnings.push('يوجد استرجاع مسجل في سجل الطلب في سلة، تأكد قبل الاسترجاع مرة أخرى.');
+        warnings.push(
+          refund.provider === 'tabby'
+            ? 'يوجد استرجاع مسجل لهذا الطلب في سلة أو تابي، تأكد قبل الاسترجاع مرة أخرى.'
+            : 'يوجد استرجاع مسجل في سجل الطلب في سلة، تأكد قبل الاسترجاع مرة أخرى.',
+        );
       }
     } catch (error) {
       refund.unavailableReason = error instanceof Error ? error.message : 'تعذر قراءة مدفوعات الطلب من سلة';
@@ -360,7 +451,7 @@ export async function processReturnRequest(
 
     // 2. Refund the return pieces.
     if (amounts.refundAmount > 0) {
-      await runRefundStep(request, amounts, options, deps, record, blockers);
+      await runRefundStep(request, amounts, options, deps, record, blockers, order);
     } else if (request.items.some((item) => item.type === 'return')) {
       record('refund', 'skipped', { reason: 'مبلغ الاسترجاع صفر' });
     }
@@ -424,6 +515,7 @@ async function runRefundStep(
   deps: ProcessDependencies,
   record: (step: string, result: AuditEntry['result'], details?: Record<string, unknown>) => void,
   blockers: string[],
+  liveOrder: any = null,
 ) {
   switch (request.refundStatus) {
     case 'refunded':
@@ -440,8 +532,18 @@ async function runRefundStep(
     deps.listTransactions(request.merchantId, request.orderId),
     deps.historyRefunds(request.merchantId, request.orderId),
   ]);
+  const option = pickRefundableTransaction(transactions);
+  let tabby: TabbyResolution | null = null;
+  if (!option.ok) {
+    try {
+      tabby = await resolveTabbyRefund(request, liveOrder, transactions, deps);
+    } catch (error) {
+      tabby = { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
 
-  const existing = sinceCreation(history, request.createdAt);
+  // Refunds made in the Tabby portal never show in the Salla history.
+  const existing = sinceCreation([...history, ...(tabby?.ok ? tabby.history : [])], request.createdAt);
   if (options.refundAlreadyInSalla) {
     // Never refund here: only record what the Salla history proves was paid.
     if (existing.length === 0) {
@@ -468,14 +570,19 @@ async function runRefundStep(
     return;
   }
 
-  const option = pickRefundableTransaction(transactions);
+  if (tabby?.ok) {
+    await runTabbyRefund(request, amounts, tabby, deps, record, blockers);
+    return;
+  }
+
   if (!option.ok) {
+    const reason = tabby && !tabby.ok ? tabby.reason : option.reason;
     await db.returnRequest.update({
       where: { id: request.id },
-      data: { refundStatus: 'manual', refundError: option.reason },
+      data: { refundStatus: 'manual', refundError: reason },
     });
-    blockers.push(`استرجاع يدوي مطلوب: ${option.reason}`);
-    record('refund', 'skipped', { reason: option.reason, code: option.code, manual: true });
+    blockers.push(`استرجاع يدوي مطلوب: ${reason}`);
+    record('refund', 'skipped', { reason, code: option.code, manual: true, tabby: tabby ? true : undefined });
     return;
   }
 
@@ -509,6 +616,53 @@ async function runRefundStep(
     });
     blockers.push(unknown ? `نتيجة الاسترجاع غير معروفة: ${message}` : `فشل الاسترجاع: ${message}`);
     record('refund', unknown ? 'unknown' : 'failed', { amount: amounts.refundAmount, error: message });
+  }
+}
+
+async function runTabbyRefund(
+  request: Request,
+  amounts: RequestAmounts,
+  tabby: Extract<TabbyResolution, { ok: true }>,
+  deps: ProcessDependencies,
+  record: (step: string, result: AuditEntry['result'], details?: Record<string, unknown>) => void,
+  blockers: string[],
+) {
+  const paymentId = String(tabby.payment.id);
+  // Tabby's idempotency key. Unique per attempt so a reopened request can be
+  // refunded again; stored before the call so an unknown outcome can be
+  // settled later from the payment's refunds[].
+  const referenceId = `ret-${request.id}-${Date.now().toString(36)}`;
+  const claim = await db.returnRequest.updateMany({
+    where: { id: request.id, refundStatus: { in: ['none', 'failed', 'manual'] } },
+    data: { refundStatus: 'requested', refundTransactionId: encodeTabbyRefundId(paymentId, referenceId), refundError: null },
+  });
+  if (claim.count === 0) {
+    blockers.push('تم إرسال طلب استرجاع لهذا الطلب مسبقاً.');
+    return;
+  }
+
+  try {
+    await deps.tabby.refund({
+      paymentId,
+      amount: amounts.refundAmount,
+      refundable: tabby.refundable,
+      referenceId,
+      reason: `Mleha return ${request.orderNumber || request.orderId}`,
+    });
+    await db.returnRequest.update({
+      where: { id: request.id },
+      data: { refundStatus: 'refunded', refundedAmount: amounts.refundAmount, refundedAt: new Date(), refundError: null },
+    });
+    record('refund', 'ok', { provider: 'tabby', amount: amounts.refundAmount, currency: tabby.currency, paymentId, referenceId });
+  } catch (error) {
+    const unknown = error instanceof TabbyCallError && error.outcomeUnknown;
+    const message = error instanceof Error ? error.message : String(error);
+    await db.returnRequest.update({
+      where: { id: request.id },
+      data: { refundStatus: unknown ? 'unknown' : 'failed', refundError: message },
+    });
+    blockers.push(unknown ? `نتيجة استرجاع تابي غير معروفة: ${message}` : `فشل الاسترجاع في تابي: ${message}`);
+    record('refund', unknown ? 'unknown' : 'failed', { provider: 'tabby', amount: amounts.refundAmount, paymentId, referenceId, error: message });
   }
 }
 
