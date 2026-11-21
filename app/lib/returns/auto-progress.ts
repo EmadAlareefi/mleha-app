@@ -7,6 +7,7 @@ import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup
 import { runExchangePaymentMaintenance, type ExchangeMaintenanceReport } from '@/app/lib/returns/exchange-order-flow';
 import { mapWithConcurrency } from '@/lib/concurrency';
 import { decodeTabbyRefundId, getTabbyPayment } from '@/app/lib/tabby';
+import { notifyTabbyRefund } from '@/app/lib/returns/process-return';
 
 /** Salla history lookups per run, and how many run at once (3 pages each). */
 const UNKNOWN_REFUND_BATCH = 50;
@@ -119,7 +120,16 @@ export async function runReturnsAutoProgress(): Promise<AutoProgressReport> {
       createdAt: { gte: since },
       updatedAt: { lte: new Date(Date.now() - 2 * 60 * 1000) },
     },
-    select: { id: true, merchantId: true, orderId: true, createdAt: true, refundTransactionId: true },
+    select: {
+      id: true,
+      merchantId: true,
+      orderId: true,
+      orderNumber: true,
+      customerName: true,
+      customerPhone: true,
+      createdAt: true,
+      refundTransactionId: true,
+    },
     orderBy: { updatedAt: 'asc' },
     take: UNKNOWN_REFUND_BATCH,
   });
@@ -142,6 +152,13 @@ export async function runReturnsAutoProgress(): Promise<AutoProgressReport> {
               }
             : { refundStatus: 'failed', refundError: 'لم يتم الاسترجاع في تابي، يمكن إعادة المحاولة.' },
         });
+        if (done) {
+          await notifyTabbyRefund(request, null, {
+            amount: Number(done.amount) || 0,
+            currency: payment.currency || 'SAR',
+            referenceId: tabbyRef.referenceId,
+          }).catch((error) => log.warn('Could not queue Tabby refund WhatsApp', { returnRequestId: request.id, error }));
+        }
         report.refundsResolved++;
         return;
       }

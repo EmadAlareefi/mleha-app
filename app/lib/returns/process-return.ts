@@ -16,6 +16,7 @@ import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup
 import { allItemsInspected } from '@/lib/returns/workflow';
 import { maybeReleaseExchangeOrderHold } from '@/app/lib/returns/exchange-order';
 import { issueLeftoverCoupon } from '@/app/lib/returns/exchange-order-flow';
+import { enqueueCustomerJourneyEvent } from '@/app/lib/customer-journey-notifications';
 import {
   encodeTabbyRefundId,
   findTabbyPaymentForOrder,
@@ -42,7 +43,8 @@ import {
  * re-runs only what is not done. A refund whose outcome is unknown is never
  * sent again; the auto-progress cron resolves it from the order history.
  * The customer's refund WhatsApp is sent by the existing `order.refunded`
- * webhook journey, which Salla fires for API refunds too.
+ * webhook journey, which Salla fires for API refunds too. Tabby refunds never
+ * reach Salla, so the app queues that same journey message itself.
  */
 
 export const SALLA_DONE_STATUS_SLUG = process.env.RETURNS_SALLA_DONE_STATUS_SLUG ?? 'restored';
@@ -70,6 +72,8 @@ export interface ProcessDependencies {
     configured(): boolean;
     findPayment(request: { merchantId: string; orderId: string; orderNumber: string | null; createdAt: Date }, liveOrder: any): Promise<TabbyPayment | null>;
     refund: typeof refundTabbyPayment;
+    /** Queues the customer's refund WhatsApp (Salla's webhook does it for Salla refunds). */
+    notifyRefunded(request: TabbyNotifyRequest, liveOrder: any, refund: { amount: number; currency: string; referenceId: string }): Promise<unknown>;
   };
   restock(merchantId: string, item: { productId: string; variantId?: string | null; quantity: number }): Promise<{ ok: boolean; error?: string }>;
   issueCoupon(returnRequestId: string, liveOrder: any): Promise<{ ok: boolean; error?: string; couponCode?: string }>;
@@ -89,6 +93,7 @@ export const productionDependencies: ProcessDependencies = {
     configured: isTabbyConfigured,
     findPayment: findTabbyPaymentForSallaOrder,
     refund: refundTabbyPayment,
+    notifyRefunded: notifyTabbyRefund,
   },
   async restock(merchantId, item) {
     const result = item.variantId
@@ -129,6 +134,41 @@ async function findTabbyPaymentForSallaOrder(
   return findTabbyPaymentForOrder({
     placedAt,
     references: [request.orderNumber, stored?.referenceId, stored?.orderNumber, liveOrder?.reference_id, request.orderId],
+  });
+}
+
+export interface TabbyNotifyRequest {
+  merchantId: string;
+  orderId: string;
+  orderNumber: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+}
+
+/**
+ * Queues the `refunded` customer-journey WhatsApp for a Tabby refund, the same
+ * message Salla's `order.refunded` webhook queues for Salla refunds. Keyed on
+ * the Tabby reference id, so a repeat call never sends twice. Does nothing when
+ * the customer journey is switched off (ZOKO_CUSTOMER_JOURNEY_ENABLED).
+ */
+export function notifyTabbyRefund(
+  request: TabbyNotifyRequest,
+  liveOrder: any,
+  refund: { amount: number; currency: string; referenceId: string },
+) {
+  const customer = liveOrder?.customer?.mobile
+    ? liveOrder.customer
+    : { first_name: request.customerName || liveOrder?.customer?.first_name, mobile: request.customerPhone };
+  return enqueueCustomerJourneyEvent({
+    event: 'order.refunded',
+    merchantId: request.merchantId,
+    order: {
+      ...(liveOrder || {}),
+      id: request.orderId,
+      reference_id: liveOrder?.reference_id ?? request.orderNumber ?? undefined,
+      customer,
+    },
+    data: { refund: { id: refund.referenceId, amount: refund.amount.toFixed(2), currency: refund.currency } },
   });
 }
 
@@ -571,7 +611,7 @@ async function runRefundStep(
   }
 
   if (tabby?.ok) {
-    await runTabbyRefund(request, amounts, tabby, deps, record, blockers);
+    await runTabbyRefund(request, amounts, tabby, deps, record, blockers, liveOrder);
     return;
   }
 
@@ -626,6 +666,7 @@ async function runTabbyRefund(
   deps: ProcessDependencies,
   record: (step: string, result: AuditEntry['result'], details?: Record<string, unknown>) => void,
   blockers: string[],
+  liveOrder: any,
 ) {
   const paymentId = String(tabby.payment.id);
   // Tabby's idempotency key. Unique per attempt so a reopened request can be
@@ -654,6 +695,13 @@ async function runTabbyRefund(
       data: { refundStatus: 'refunded', refundedAmount: amounts.refundAmount, refundedAt: new Date(), refundError: null },
     });
     record('refund', 'ok', { provider: 'tabby', amount: amounts.refundAmount, currency: tabby.currency, paymentId, referenceId });
+    // Not blocking: the money is back; a failed message must not hold the return.
+    try {
+      const queued = await deps.tabby.notifyRefunded(request, liveOrder, { amount: amounts.refundAmount, currency: tabby.currency, referenceId });
+      record('refund_whatsapp', 'info', { result: queued as Record<string, unknown> });
+    } catch (error) {
+      record('refund_whatsapp', 'failed', { error: error instanceof Error ? error.message : String(error) });
+    }
   } catch (error) {
     const unknown = error instanceof TabbyCallError && error.outcomeUnknown;
     const message = error instanceof Error ? error.message : String(error);
