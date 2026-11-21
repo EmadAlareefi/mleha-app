@@ -4,7 +4,6 @@ import { log } from '@/app/lib/logger';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import {
   calculateCommissionableNetAmount,
-  calculateNetAmount,
   getAffiliateCommissionRate,
   getMonthKey,
   getMonthLabel,
@@ -390,7 +389,6 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
       const commissionableNetAmount = calculateCommissionableNetAmount(
         order.totalAmount,
         order.shippingAmount,
@@ -404,9 +402,13 @@ export async function GET(request: NextRequest) {
       const potentialCommission = commissionableNetAmount * (commissionRate / 100);
       const delivered = isDelivered(order.statusSlug, order.statusName);
       const realizedCommission = delivered ? potentialCommission : 0;
+      // "netSales"/"netAmount" carry the commission base (amount × rate = commission), not raw
+      // net sales: zero-rate orders are left out, and totals only count delivered orders.
+      const netAmount = commissionRate > 0 ? commissionableNetAmount : 0;
+      const deliveredBase = delivered ? netAmount : 0;
 
       bucket.totalOrders += 1;
-      bucket.netSales += netAmount;
+      bucket.netSales += deliveredBase;
       bucket.commissionPotential += potentialCommission;
       bucket.latestOrders.push({
         id: order.id,
@@ -463,7 +465,7 @@ export async function GET(request: NextRequest) {
         };
         bucketMonthly.totalOrders += 1;
         bucketMonthly.deliveredOrders += delivered ? 1 : 0;
-        bucketMonthly.netSales += netAmount;
+        bucketMonthly.netSales += deliveredBase;
         bucketMonthly.commissionEarned += realizedCommission;
         bucketMonthly.commissionPending += potentialCommission - realizedCommission;
         bucket.monthlyMap.set(monthKey, bucketMonthly);
@@ -480,7 +482,7 @@ export async function GET(request: NextRequest) {
         };
         globalMonth.totalOrders += 1;
         globalMonth.deliveredOrders += delivered ? 1 : 0;
-        globalMonth.netSales += netAmount;
+        globalMonth.netSales += deliveredBase;
         globalMonth.commissionEarned += realizedCommission;
         globalMonth.commissionPending += potentialCommission - realizedCommission;
         globalMonthly.set(monthKey, globalMonth);
@@ -491,7 +493,7 @@ export async function GET(request: NextRequest) {
     const responseAffiliates: AffiliateRecord[] = [];
 
     for (const bucket of bucketMap.values()) {
-      const averageOrderValue = bucket.totalOrders > 0 ? bucket.netSales / bucket.totalOrders : 0;
+      const averageOrderValue = bucket.deliveredOrders > 0 ? bucket.netSales / bucket.deliveredOrders : 0;
       const conversionRate = bucket.totalOrders > 0 ? (bucket.deliveredOrders / bucket.totalOrders) * 100 : 0;
       const monthlyReports = Array.from(bucket.monthlyMap.values()).sort((a, b) => {
         if (!a.periodDate || !b.periodDate) {
@@ -573,7 +575,7 @@ export async function GET(request: NextRequest) {
         phone: bucket.meta.phone,
         affiliateName: bucket.meta.affiliateName,
         normalizedAffiliateName: bucket.meta.normalizedAffiliateName,
-        commissionRate: bucket.meta.commissionRate,
+        commissionRate: getAffiliateCommissionRate(generatedAt, null, bucket.meta.commissionRate),
         joinedAt: bucket.meta.joinedAt,
         stats: {
           totalOrders: bucket.totalOrders,
@@ -624,8 +626,8 @@ export async function GET(request: NextRequest) {
         deliveredCommission: 0,
         pendingCommission: 0,
         averageCommissionRate:
-          affiliateMetas.reduce((sum, meta) => sum + meta.commissionRate, 0) /
-          (affiliateMetas.length || 1),
+          responseAffiliates.reduce((sum, affiliate) => sum + affiliate.commissionRate, 0) /
+          (responseAffiliates.length || 1),
       }
     );
 

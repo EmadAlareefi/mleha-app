@@ -290,7 +290,7 @@ export default function AffiliateStatsPage() {
               <CreditCard className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">إجمالي المبيعات الصافية</p>
+              <p className="text-sm text-muted-foreground">إجمالي المبلغ الخاضع للعمولة</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.totalSales || 0)}</h3>
             </div>
             </CardContent>
@@ -301,7 +301,7 @@ export default function AffiliateStatsPage() {
               <TrendingUp className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">متوسط قيمة الطلب الصافي</p>
+              <p className="text-sm text-muted-foreground">متوسط المبلغ الخاضع للعمولة للطلب</p>
               <h3 className="text-2xl font-bold">{formatCurrency(stats?.averageOrderValue || 0)}</h3>
             </div>
             </CardContent>
@@ -440,7 +440,7 @@ export default function AffiliateStatsPage() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground">المبيعات الصافية</p>
+                    <p className="text-xs text-muted-foreground">المبلغ الخاضع للعمولة</p>
                     <p className="text-sm font-semibold">{formatCurrency(stat.netAmount || 0)}</p>
                     <p className="text-xs text-primary mt-1">
                       {formatCurrency(stat.commissionEarned || 0)} عمولة
@@ -464,7 +464,7 @@ export default function AffiliateStatsPage() {
                   <TableRow>
                     <TableHead>رقم الطلب</TableHead>
                     <TableHead>التاريخ</TableHead>
-                    <TableHead>المبلغ الصافي</TableHead>
+                    <TableHead>المبلغ الخاضع للعمولة</TableHead>
                     <TableHead>العمولة</TableHead>
                     <TableHead>الحالة</TableHead>
                   </TableRow>

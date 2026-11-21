@@ -7,7 +7,6 @@ import { Prisma } from '@prisma/client';
 import { normalizeAffiliateName, sanitizeAffiliateName } from '@/lib/affiliate';
 import {
   calculateCommissionableNetAmount,
-  calculateNetAmount,
   decimalToNumber,
   getAffiliateCommissionRate,
   isDelivered,
@@ -114,16 +113,18 @@ export async function GET(request: NextRequest) {
     let commissionEligibleCount = 0;
 
     for (const order of ordersForStats) {
-      const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
       const commissionableNetAmount = calculateCommissionableNetAmount(
         order.totalAmount,
         order.shippingAmount,
         excludedNationalDayAmounts.get(order.id)
       );
-      totalSales += netAmount;
-
       const commissionRate = getAffiliateCommissionRate(order.placedAt, order.affiliateCommission);
       const eligibleForCommission = isDelivered(order.statusSlug, order.statusName);
+      // Report the commission base (amount × rate = commission), not raw net sales.
+      const netAmount = commissionRate > 0 ? commissionableNetAmount : 0;
+      if (eligibleForCommission) {
+        totalSales += netAmount;
+      }
       const commissionEarned = eligibleForCommission ? commissionableNetAmount * (commissionRate / 100) : 0;
 
       if (eligibleForCommission) {
@@ -157,13 +158,13 @@ export async function GET(request: NextRequest) {
     const recentOrders = recentOrdersRaw.map(order => {
       const totalAmount = decimalToNumber(order.totalAmount);
       const shippingAmount = decimalToNumber(order.shippingAmount);
-      const netAmount = calculateNetAmount(order.totalAmount, order.shippingAmount);
       const commissionableNetAmount = calculateCommissionableNetAmount(
         order.totalAmount,
         order.shippingAmount,
         excludedNationalDayAmounts.get(order.id)
       );
       const commissionRate = getAffiliateCommissionRate(order.placedAt, order.affiliateCommission);
+      const netAmount = commissionRate > 0 ? commissionableNetAmount : 0;
       const eligibleForCommission = isDelivered(order.statusSlug, order.statusName);
       const commissionAmount = eligibleForCommission ? commissionableNetAmount * (commissionRate / 100) : 0;
       return {
@@ -183,7 +184,7 @@ export async function GET(request: NextRequest) {
       stats: {
         totalOrders: totalCount,
         totalSales: totalSales,
-        averageOrderValue: totalCount > 0 ? totalSales / totalCount : 0,
+        averageOrderValue: commissionEligibleCount > 0 ? totalSales / commissionEligibleCount : 0,
         totalCommissionEarned: totalCommissionEarned,
         averageCommissionPerOrder: commissionEligibleCount > 0 ? totalCommissionEarned / commissionEligibleCount : 0,
       },
