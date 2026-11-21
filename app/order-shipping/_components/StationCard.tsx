@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { AlertOctagon, Gift, Globe, Loader2, Package, Truck, Zap } from 'lucide-react';
 import type { StationView } from '@/app/lib/shipping/types';
 import { cn } from '@/lib/utils';
+import { LastStopBanner } from '@/components/LastStopBanner';
 
 const WAITING_STATES = new Set(['queued', 'creating', 'awaiting_label']);
 
@@ -67,6 +68,8 @@ export function StationCard({ view }: { view: StationView }) {
         </div>
         {banner.detail && <p className="mt-1 text-sm font-semibold opacity-90">{banner.detail}</p>}
       </div>
+
+      {view.lastStop && !(view.state === 'blocked' && view.lastStop.source === 'shipping') && <LastStopBanner stop={view.lastStop} />}
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

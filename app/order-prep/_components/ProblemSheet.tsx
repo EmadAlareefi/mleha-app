@@ -41,7 +41,8 @@ export function ProblemSheet({
     .filter((item) => reasons[item.index])
     .map((item) => ({ index: item.index, sku: item.sku, name: item.name, reason: reasons[item.index] }));
   const outcome = decideProblemOutcome(items.length, problems);
-  const needsNote = problems.some((item) => item.reason === 'other');
+  // "Other" needs words; so does every stop to X4, so the next person sees why.
+  const needsNote = outcome === 'refund' || problems.some((item) => item.reason === 'other');
   const canSubmit = problems.length > 0 && (!needsNote || note.trim().length > 0);
 
   return (
@@ -99,7 +100,9 @@ export function ProblemSheet({
             onChange={(event) => setNote(event.target.value)}
             maxLength={400}
             rows={2}
-            placeholder={needsNote ? 'اكتب المشكلة (مطلوب)' : 'ملاحظة للمشرف (اختياري)'}
+            placeholder={
+              outcome === 'refund' ? 'سبب إيقاف الطلب (مطلوب)' : needsNote ? 'اكتب المشكلة (مطلوب)' : 'ملاحظة للمشرف (اختياري)'
+            }
             className="w-full rounded-xl border bg-background p-3 text-sm"
           />
 

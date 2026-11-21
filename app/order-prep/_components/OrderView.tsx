@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useState } from 'react';
 import { AlertOctagon, Check, Gift, Globe, MapPin, RotateCcw, Tag, X, Zap } from 'lucide-react';
 import type { PrepAssignmentView, PrepItem } from '@/app/lib/order-prep/types';
+import { LastStopBanner } from '@/components/LastStopBanner';
 import { cn } from '@/lib/utils';
 import type { ItemProgress } from './prep-store';
 
@@ -49,6 +50,8 @@ export function OrderView({
           </div>
         </div>
       )}
+
+      {view.lastStop && <LastStopBanner stop={view.lastStop} />}
 
       <Flags view={view} />
 
@@ -313,3 +316,4 @@ function ItemRow({
     </div>
   );
 }
+

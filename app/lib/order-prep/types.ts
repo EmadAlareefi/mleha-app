@@ -1,3 +1,4 @@
+import type { StopReason } from './stop-reason';
 /**
  * Shared shapes for order prep v2. Everything the packer's phone needs for an
  * order is built on the server in one pass (payload.ts) and stored with the
@@ -50,6 +51,8 @@ export type PrepAssignmentView = {
   leaseExpiresAt: string | null;
   /** Set when a live Salla check found the order is no longer packable. */
   verifyIssue: string | null;
+  /** Staff stopped this order before (X4): why, by whom, when. */
+  lastStop: StopReason | null;
   order: PrepOrder;
 };
 

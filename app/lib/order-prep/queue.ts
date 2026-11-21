@@ -17,6 +17,7 @@ import { placedAtCutoff, riyadhStartOfDayUtc, toSqlTimestamp } from './riyadh-ti
 import { lockPrepQueue } from './claim-lock';
 import { getPrepSettings, type PrepSettings } from './settings';
 import { NEW_ORDER_STATUS_ID } from './sync-rules';
+import { loadLastStops, type StopReason } from './stop-reason';
 import type {
   ActionError,
   ItemCheck,
@@ -539,6 +540,9 @@ export async function reportProblem(
   if (!outcome) {
     return { ok: false, status: 400, error: { code: 'invalid', message: 'حدد المنتج وسبب المشكلة' } };
   }
+  if (outcome === 'refund' && !input.note?.trim()) {
+    return { ok: false, status: 400, error: { code: 'invalid', message: 'اكتب سبب إيقاف الطلب (X4)' } };
+  }
   if (outcome === 'partial') {
     return completeAssignment(user, {
       assignmentId: input.assignmentId,
@@ -632,7 +636,7 @@ export async function releaseForUser(
 
 // ---------------------------------------------------------------- reading
 
-async function toView(row: OrderPrepAssignment, ctx?: QueueContext): Promise<PrepAssignmentView> {
+async function toView(row: OrderPrepAssignment, ctx?: QueueContext, lastStop: StopReason | null = null): Promise<PrepAssignmentView> {
   const data = row.orderData && typeof row.orderData === 'object' && !Array.isArray(row.orderData) ? (row.orderData as Record<string, any>) : {};
   let prep = data.prep as PrepOrder | undefined;
   if (!prep) {
@@ -658,6 +662,7 @@ async function toView(row: OrderPrepAssignment, ctx?: QueueContext): Promise<Pre
     startedAt: row.startedAt?.toISOString() ?? null,
     leaseExpiresAt: row.leaseExpiresAt?.toISOString() ?? null,
     verifyIssue: row.verifyIssue ?? null,
+    lastStop,
     order: prep,
   };
 }
@@ -721,9 +726,12 @@ export async function getStateForUser(userId: string): Promise<PrepState> {
   ]);
   const current = rows.find((row) => row.status === 'preparing') ?? null;
   const next = rows.find((row) => row.status === 'assigned') ?? null;
+  const stops = await loadLastStops([current?.orderId, next?.orderId].filter((id): id is string => Boolean(id))).catch(
+    () => new Map<string, StopReason>(),
+  );
   return {
-    current: current ? await toView(current) : null,
-    next: next ? await toView(next) : null,
+    current: current ? await toView(current, undefined, stops.get(current.orderId) ?? null) : null,
+    next: next ? await toView(next, undefined, stops.get(next.orderId) ?? null) : null,
     stats,
     myCompletedToday,
   };
