@@ -104,6 +104,7 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/api\/promo-limit\/order-check$/,
     ],
   ],
+  ['shipping-board', [/^\/admin\/order-prep\/shipping(\/.*)?$/]],
   ['warehouse', [/^\/warehouse(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   [
     'local-shipping',
