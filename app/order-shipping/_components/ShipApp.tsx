@@ -451,14 +451,15 @@ function ProblemSheet({
           <textarea
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder="ملاحظة (اختياري)"
+            placeholder="سبب إيقاف الطلب (مطلوب) — يظهر لمن يفتح الطلب بعدك"
+            maxLength={500}
             rows={2}
             className="rounded-xl border bg-card p-3 text-base"
           />
           <button
             type="button"
-            disabled={busy}
-            onClick={() => onSubmit(reason, note.trim() || null)}
+            disabled={busy || !note.trim()}
+            onClick={() => onSubmit(reason, note.trim())}
             className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-red-600 text-lg font-extrabold text-white disabled:opacity-50"
           >
             {busy && <Loader2 className="h-5 w-5 animate-spin" />} إيقاف الطلب

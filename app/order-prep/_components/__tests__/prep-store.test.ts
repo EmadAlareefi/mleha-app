@@ -27,6 +27,7 @@ function view(id: string, items: Array<{ quantity: number; sku?: string }> = [{ 
     startedAt: null,
     leaseExpiresAt: null,
     verifyIssue: null,
+    lastStop: null,
     order: {
       orderId: id,
       orderNumber: `#${id}`,

@@ -1,4 +1,5 @@
 import type { PrepOrder } from '@/app/lib/order-prep/types';
+import type { StopReason } from '@/app/lib/order-prep/stop-reason';
 import type { ShippingMethod, ShippingState } from './rules';
 
 /** Everything the shipping station shows for one scanned order. */
@@ -40,6 +41,8 @@ export type StationView = {
   };
   shipment: { courier: string | null; trackingNumber: string | null; hasLabel: boolean; printCount: number } | null;
   local: { trackingNumber: string; agentName: string | null } | null;
+  /** Staff stopped this order before (X4): why, by whom, when. */
+  lastStop: StopReason | null;
 };
 
 export type StationError = { code: string; message: string };

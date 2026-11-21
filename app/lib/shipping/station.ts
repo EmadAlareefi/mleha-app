@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { loadLastStops } from '@/app/lib/order-prep/stop-reason';
 import { log } from '@/app/lib/logger';
 import { printCommercialInvoiceIfInternational } from '@/app/lib/international-printing';
 import { getPromoProductIds } from '@/app/lib/promo-limit';
@@ -68,7 +69,7 @@ export async function getStationView(orderId: string): Promise<{ view: StationVi
   });
   if (!order) return null;
 
-  const [prepRow, sallaShipment, doNotShip, highPriority, gift, existingTask] = await Promise.all([
+  const [prepRow, sallaShipment, doNotShip, highPriority, gift, existingTask, stops] = await Promise.all([
     prisma.orderPrepAssignment.findUnique({
       where: key,
       select: { status: true, userName: true, completedAt: true, orderData: true },
@@ -81,6 +82,7 @@ export async function getStationView(orderId: string): Promise<{ view: StationVi
     prisma.highPriorityOrder.findUnique({ where: key, select: { reason: true, notes: true } }),
     prisma.orderGiftFlag.findUnique({ where: key, select: { reason: true, notes: true } }),
     prisma.shippingTask.findUnique({ where: key }),
+    loadLastStops([orderId]).catch(() => null),
   ]);
   const orderNumber = order.referenceId || order.orderNumber || order.orderId;
   const localShipment = await prisma.localShipment.findFirst({
@@ -163,6 +165,7 @@ export async function getStationView(orderId: string): Promise<{ view: StationVi
     local: localShipment
       ? { trackingNumber: localShipment.trackingNumber, agentName: agent ? agent.name || agent.username : null }
       : null,
+    lastStop: stops?.get(orderId) ?? null,
   };
 
   const kickTaskId =
@@ -406,6 +409,7 @@ export async function reportShippingProblem(
   input: { reason: string; note: string | null },
   user: Shipper,
 ): Promise<Result<{ syncJobId: string | null }>> {
+  if (!input.note?.trim()) return fail(400, 'invalid', 'اكتب سبب إيقاف الطلب');
   const task = await ensureShippingTask(orderId, 'manual');
   if (!task) return fail(404, 'not_found', 'لم يتم العثور على الطلب');
   const reasonLabel = SHIPPING_PROBLEM_REASONS[input.reason] ?? SHIPPING_PROBLEM_REASONS.other;
