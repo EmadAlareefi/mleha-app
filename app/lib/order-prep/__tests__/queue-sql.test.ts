@@ -81,3 +81,10 @@ test('an order its customer is changing never reaches a packer', () => {
   // The board must not count it as waiting either.
   assert.match(buildStatsSql(ctx()).text.replace(/\s+/g, ' '), clause);
 });
+
+test('an international order waiting for its shipping info never reaches a packer', () => {
+  const clause =
+    /AND NOT EXISTS \( SELECT 1 FROM "ShippingInfoRequest" si WHERE si\."merchantId" = s\."merchantId" AND si\."orderId" = s\."orderId" AND si\."holdActive" = true \)/;
+  assert.match(buildPickSql(ctx(), { limit: 1 }).text.replace(/\s+/g, ' '), clause);
+  assert.match(buildStatsSql(ctx()).text.replace(/\s+/g, ' '), clause);
+});

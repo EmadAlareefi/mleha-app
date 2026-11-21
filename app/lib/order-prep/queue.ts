@@ -73,7 +73,8 @@ function isUniqueViolation(error: unknown): boolean {
 
 /**
  * Orders a packer may be given: "طلب جديد", paid, untouched, not blocked, and
- * not being changed by their customer right now (CustomerOrderChange hold).
+ * not being changed by their customer right now (CustomerOrderChange hold), and
+ * not waiting for its customer to complete the shipping info (ShippingInfoRequest).
  * A replacement order the returns app created waits until its return passed
  * inspection (exchangeOrderHoldActive) — the Salla hold status alone can lag the
  * payment webhook by a few seconds. Fully covered replacements stay "pending
@@ -107,6 +108,10 @@ function eligibleWhere(ctx: QueueContext): Prisma.Sql {
     AND NOT EXISTS (
       SELECT 1 FROM "CustomerOrderChange" c
       WHERE c."merchantId" = s."merchantId" AND c."orderId" = s."orderId" AND c."holdActive" = true
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM "ShippingInfoRequest" si
+      WHERE si."merchantId" = s."merchantId" AND si."orderId" = s."orderId" AND si."holdActive" = true
     )
     AND NOT (s."orderId" = ANY(${ctx.violatorIds}::text[]))
   `;

@@ -36,6 +36,8 @@ const PUBLIC_PATHS = [
   '/returns',
   // Customer self-service (cancel / edit before prep): one-time code, no staff session.
   '/my-order',
+  // International orders: the customer completes their shipping info through a signed link.
+  '/shipping-info',
   '/api/returns',
   '/api/orders/lookup',
   '/api/products/category',
@@ -60,6 +62,8 @@ const PUBLIC_PATHS = [
   '/api/customer-journey/process',
   // Customer order changes: the worker checks CRON_SECRET, the admin route its own session.
   '/api/order-manage',
+  // Shipping-info reminders: the worker checks CRON_SECRET, the admin route its own session.
+  '/api/shipping-info',
   '/api/expenses/process-subscriptions',
   '/api/expenses/sync-invoices',
   '/salla/webhook',

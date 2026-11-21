@@ -17,6 +17,7 @@ import {
   enqueueCustomerJourneyEvent,
   extractJourneyShipment,
 } from "@/app/lib/customer-journey-notifications";
+import { maybeHoldIncompleteInternationalOrder } from "@/app/lib/shipping-info/service";
 
 type AnyObj = Record<string, any>;
 
@@ -576,6 +577,8 @@ export async function process_salla_order_status_updated(
 
   await upsertSallaOrderFromPayload(data);
   await maybePrintShipmentLabelFromStatus(order, data, meta);
+  // Orders paid after creation reach "طلب جديد" here, not in order.created.
+  await maybeHoldIncompleteInternationalOrder({ merchantId: meta?.merchantId, order });
   log.debug("Exchange link attempt", {
     orderId,
     merchantId: meta?.merchantId,
@@ -652,6 +655,8 @@ export async function process_salla_order_created(
     merchantId: meta?.merchantId,
     orderId: meta?.orderId ?? order?.id?.toString?.() ?? null,
   });
+  // International order with an incomplete name/address: hold it and ask the customer.
+  await maybeHoldIncompleteInternationalOrder({ merchantId: meta?.merchantId, order });
 
   if (env.ZOKO_CUSTOMER_JOURNEY_ENABLED) {
     const queued = await enqueueCustomerJourneyEvent({

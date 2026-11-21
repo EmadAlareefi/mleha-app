@@ -37,6 +37,10 @@ export const env = {
     process.env.ZOKO_TPL_ORDER_CANCELLED || "order_cancelled_ar_v1",
   ZOKO_TPL_ORDER_REFUNDED:
     process.env.ZOKO_TPL_ORDER_REFUNDED || "order_refund_processed_ar_v1",
+  // International orders missing shipping info (Zoko button template, e.g.
+  // 21_11_26_template_u7jk): {{1}} name, {{2}} the button's URL (full signed form link).
+  // No default: nothing is sent until an approved template is configured.
+  ZOKO_TPL_SHIPPING_INFO_REQUEST: process.env.ZOKO_TPL_SHIPPING_INFO_REQUEST || "",
   CUSTOMER_RATING_DELAY_HOURS:
     Number(process.env.CUSTOMER_RATING_DELAY_HOURS || "24"),
   CUSTOMER_DOCUMENT_SIGNING_SECRET:

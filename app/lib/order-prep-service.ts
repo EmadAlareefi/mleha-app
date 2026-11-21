@@ -235,7 +235,7 @@ export async function assignOldestOrderToUser(
     ...[...promoWindow].sort((a, b) => (promoRanks.get(extractOrderId(a) || '') ?? 2) - (promoRanks.get(extractOrderId(b) || '') ?? 2)),
   ];
 
-  const [existingAssignments, existingShipments, escalatedOrders] = await Promise.all([
+  const [existingAssignments, existingShipments, escalatedOrders, shippingInfoHolds] = await Promise.all([
     prisma.orderPrepAssignment.findMany({
       where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
       select: { orderId: true },
@@ -252,16 +252,22 @@ export async function assignOldestOrderToUser(
       },
       select: { orderId: true },
     }),
+    // International orders waiting for their customer to complete the shipping info.
+    prisma.shippingInfoRequest.findMany({
+      where: { merchantId: MERCHANT_ID, orderId: { in: orderIds }, holdActive: true },
+      select: { orderId: true },
+    }),
   ]);
 
   const assignedIds = new Set(existingAssignments.map((record) => record.orderId));
   const shippedIds = new Set(existingShipments.map((record) => record.orderId));
   const escalatedIds = new Set(escalatedOrders.map((record) => record.orderId));
+  const shippingInfoHeldIds = new Set(shippingInfoHolds.map((record) => record.orderId));
   const promoViolatorIds = await promoViolatorsPromise;
 
   for (const order of orderedCandidates) {
     const orderId = extractOrderId(order);
-    if (!orderId || assignedIds.has(orderId) || escalatedIds.has(orderId)) {
+    if (!orderId || assignedIds.has(orderId) || escalatedIds.has(orderId) || shippingInfoHeldIds.has(orderId)) {
       continue;
     }
 
@@ -338,6 +344,11 @@ export async function assignOldestOrderToUser(
             select: { id: true },
           });
           if (customerHold) return { kind: 'customer_hold' as const };
+          const shippingInfoHold = await tx.shippingInfoRequest.findFirst({
+            where: { merchantId: MERCHANT_ID, orderId, holdActive: true },
+            select: { id: true },
+          });
+          if (shippingInfoHold) return { kind: 'customer_hold' as const };
           const created = await tx.orderPrepAssignment.create({
             data: {
               merchantId: MERCHANT_ID,

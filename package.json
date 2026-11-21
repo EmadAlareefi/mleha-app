@@ -57,7 +57,9 @@
     "backfill:salla-order-utc-dates": "DOTENV_CONFIG_PATH=.env.local node -r dotenv/config --import tsx scripts/backfill-salla-order-utc-dates.ts",
     "probe:order-manage": "node --import tsx scripts/probe-order-manage.ts",
     "test:app-routes": "node --test --import tsx lib/__tests__/app-routes.test.ts",
-    "test:order-manage": "node --test --import tsx app/lib/order-manage/__tests__/*.test.ts"
+    "test:order-manage": "node --test --import tsx app/lib/order-manage/__tests__/*.test.ts",
+    "shipping-info": "node --import tsx scripts/shipping-info-setup.ts",
+    "test:shipping-info": "node --test --import tsx app/lib/shipping-info/__tests__/*.test.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",

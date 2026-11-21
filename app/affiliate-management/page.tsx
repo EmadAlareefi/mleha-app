@@ -469,7 +469,7 @@ export default function AffiliateManagementPage() {
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">صافي المبيعات</p>
+                <p className="text-sm text-gray-500">المبلغ الخاضع للعمولة</p>
                 <p className="mt-2 text-2xl font-bold">{formatCurrency(data?.summary.lifetimeNetSales ?? 0)}</p>
               </div>
               <BarChart3 className="h-8 w-8 text-indigo-500" />
@@ -512,7 +512,7 @@ export default function AffiliateManagementPage() {
                 <TableHead>المسوق</TableHead>
                 <TableHead>كود الحملة</TableHead>
                 <TableHead>الطلبات</TableHead>
-                <TableHead>صافي المبيعات</TableHead>
+                <TableHead>المبلغ الخاضع للعمولة</TableHead>
                 <TableHead>العمولة المكتسبة</TableHead>
                 <TableHead>الرصيد المتاح</TableHead>
               </TableRow>
@@ -576,9 +576,8 @@ export default function AffiliateManagementPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="rounded-2xl border bg-slate-50/70 p-4">
-                  <p className="text-sm text-gray-500">صافي المبيعات</p>
+                  <p className="text-sm text-gray-500">المبلغ الخاضع للعمولة</p>
                   <p className="mt-2 text-xl font-semibold">{formatCurrency(highlightedAffiliate.stats.netSales)}</p>
-                  <p className="text-xs text-gray-400">متوسط الطلب {formatCurrency(highlightedAffiliate.stats.averageOrderValue)}</p>
                 </div>
                 <div className="rounded-2xl border bg-emerald-50/70 p-4">
                   <p className="text-sm text-emerald-700">عمولات مكتسبة</p>
@@ -814,7 +813,7 @@ export default function AffiliateManagementPage() {
                   <TableRow>
                     <TableHead>الشهر</TableHead>
                     <TableHead>الطلبات</TableHead>
-                    <TableHead>صافي المبيعات</TableHead>
+                    <TableHead>المبلغ الخاضع للعمولة</TableHead>
                     <TableHead>عمولة جاهزة</TableHead>
                     <TableHead>قيد التسوية</TableHead>
                   </TableRow>
@@ -857,7 +856,7 @@ export default function AffiliateManagementPage() {
                     <TableHead>رقم الطلب</TableHead>
                     <TableHead>تاريخ الطلب</TableHead>
                     <TableHead>الحالة</TableHead>
-                    <TableHead>صافي المبيعات</TableHead>
+                    <TableHead>المبلغ الخاضع للعمولة</TableHead>
                     <TableHead>العمولة</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -905,7 +904,7 @@ export default function AffiliateManagementPage() {
                   <TableRow>
                     <TableHead>الشهر</TableHead>
                     <TableHead>إجمالي الطلبات</TableHead>
-                    <TableHead>صافي المبيعات</TableHead>
+                    <TableHead>المبلغ الخاضع للعمولة</TableHead>
                     <TableHead>عمولات مدفوعة</TableHead>
                     <TableHead>عمولات قيد الانتظار</TableHead>
                   </TableRow>

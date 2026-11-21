@@ -176,6 +176,20 @@ export const SUB_STATUSES = {
     originalId: 566146469
   },
 
+  // International order held until the customer completes the shipping info
+  // (app/lib/shipping-info). Created through the API on 2026-11-21.
+  AWAITING_SHIPPING_INFO: {
+    id: 75345945,
+    slug: 'under_review',
+    name: 'بانتظار استكمال بيانات الشحن',
+    nameEn: 'Awaiting Shipping Info',
+    icon: 'sicon-location',
+    type: 'custom',
+    parentId: 449146439,
+    parentName: 'طلب جديد',
+    originalId: 566146469
+  },
+
   // Under "In Progress" (جاري التجهيز)
   IN_PROGRESS_INTERNATIONAL: {
     id: 523521855,
@@ -380,6 +394,7 @@ export const STATUS_IDS = {
   UNDER_REVIEW_RESERVATION: 1576217163,
   UNDER_REVIEW_A: 1882207425,
   UNDER_REVIEW_X4: 2046404155,
+  AWAITING_SHIPPING_INFO: 75345945,
   IN_PROGRESS_INTERNATIONAL: 523521855,
   DELIVERING: 1647503939,
   DELIVERED: 1008666956,

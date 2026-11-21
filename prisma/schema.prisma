@@ -2552,3 +2552,35 @@ model CustomerOrderChange {
   @@index([state, updatedAt])
   @@index([refundStatus, createdAt])
 }
+
+/// International order held until the customer completes its shipping info
+/// (3-part name, district, street) through a signed link sent on WhatsApp.
+/// While holdActive is true the order stays out of the prep queue.
+model ShippingInfoRequest {
+  id               String    @id @default(cuid())
+  merchantId       String
+  orderId          String
+  orderNumber      String?
+  status           String    @default("pending") // pending | applied | failed | released | cancelled
+  holdActive       Boolean   @default(true)
+  missingFields    String[]
+  country          String?
+  customerPhone    String?
+  customerName     String?
+  originalStatusId String?
+  holdStatusSet    Boolean   @default(false)
+  sentAt           DateTime?
+  sendError        String?   @db.Text
+  reminderSentAt   DateTime?
+  submittedAt      DateTime?
+  submittedData    Json?
+  attempts         Int       @default(0)
+  appliedAt        DateTime?
+  lastError        String?   @db.Text
+  resolvedByName   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([status, createdAt])
+}

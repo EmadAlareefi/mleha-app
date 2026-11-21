@@ -54,6 +54,7 @@ export const APP_PAGE_SEGMENTS: ReadonlySet<string> = new Set([
   'settings',
   'settlements',
   'shipment-assignments',
+  'shipping-info',
   'smsa-webhook',
   'user-recognition',
   'warehouse',

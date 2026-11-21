@@ -54,6 +54,10 @@
     {
       "path": "/api/order-manage/worker",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/shipping-info/worker",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
