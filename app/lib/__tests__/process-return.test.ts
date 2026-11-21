@@ -88,7 +88,7 @@ const paidTx = { id: 77, total: { amount: 430, currency: 'SAR' }, status: { slug
 let currentState: { request: Row } | null = null;
 
 function fakeDeps(overrides: Partial<ProcessDependencies> = {}) {
-  const calls = { tabby: [] as any[], restock: [] as any[], refund: [] as any[], coupon: [] as any[], status: [] as any[], history: [] as any[], release: [] as any[], leftover: [] as any[] };
+  const calls = { tabby: [] as any[], notify: [] as any[], restock: [] as any[], refund: [] as any[], coupon: [] as any[], status: [] as any[], history: [] as any[], release: [] as any[], leftover: [] as any[] };
   const deps: ProcessDependencies = {
     getOrder: async () => null,
     listTransactions: async () => [paidTx],
@@ -103,6 +103,10 @@ function fakeDeps(overrides: Partial<ProcessDependencies> = {}) {
       refund: async (input) => {
         calls.tabby.push(input);
         return { id: input.paymentId };
+      },
+      notifyRefunded: async (_request, _order, refund) => {
+        calls.notify.push(refund);
+        return { status: 'queued' };
       },
     },
     restock: async (_merchantId, item) => {
@@ -450,6 +454,21 @@ test('tabby order: refunds on the Tabby payment with an idempotency key', async 
   assert.deepEqual(decodeTabbyRefundId(state.request.refundTransactionId), { paymentId: 'tp-1', referenceId: calls.tabby[0].referenceId });
   assert.equal(state.request.refundStatus, 'refunded');
   assert.equal(state.request.refundedAmount, 170);
+  assert.deepEqual(calls.notify, [{ amount: 170, currency: 'SAR', referenceId: calls.tabby[0].referenceId }]);
+});
+
+test('a failing refund WhatsApp does not hold a finished Tabby refund', async () => {
+  const { db, state } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps } = fakeDeps({ listTransactions: async () => [tabbyTx] });
+  deps.tabby.findPayment = async () => tabbyPayment() as any;
+  deps.tabby.notifyRefunded = async () => {
+    throw new Error('zoko down');
+  };
+  const result = await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(result.completed, true);
+  assert.equal(state.request.refundStatus, 'refunded');
+  assert.ok(state.request.processingAudit.some((entry: any) => entry.step === 'refund_whatsapp' && entry.result === 'failed'));
 });
 
 test('tabby order without a configured key stays a manual refund', async () => {
@@ -505,6 +524,18 @@ test('an unknown Tabby outcome is never resent', async () => {
   assert.equal(state.request.refundStatus, 'unknown');
   await processReturnRequest('r1', { actor: 'staff' }, deps);
   assert.equal(attempts, 1);
+});
+
+test('no refund WhatsApp when the Tabby refund did not happen', async () => {
+  const { db } = createDb(baseRequest, pieces());
+  setProcessReturnDb(db);
+  const { deps, calls } = fakeDeps({ listTransactions: async () => [tabbyTx] });
+  deps.tabby.findPayment = async () => tabbyPayment() as any;
+  deps.tabby.refund = async () => {
+    throw new TabbyCallError('تابي (400): refund amount should be less or equal than billed amount', 400);
+  };
+  await processReturnRequest('r1', { actor: 'staff' }, deps);
+  assert.equal(calls.notify.length, 0);
 });
 
 test('tabbyRefundOption: only CLOSED payments, up to captured minus refunded', () => {
