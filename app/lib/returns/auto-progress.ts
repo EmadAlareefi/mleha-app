@@ -6,6 +6,7 @@ import { carrierDelivered, RECEIVABLE_STATUSES } from '@/lib/returns/workflow';
 import { syncLocalReturnPickupTask } from '@/app/lib/returns/local-return-pickup';
 import { runExchangePaymentMaintenance, type ExchangeMaintenanceReport } from '@/app/lib/returns/exchange-order-flow';
 import { mapWithConcurrency } from '@/lib/concurrency';
+import { decodeTabbyRefundId, getTabbyPayment } from '@/app/lib/tabby';
 
 /** Salla history lookups per run, and how many run at once (3 pages each). */
 const UNKNOWN_REFUND_BATCH = 50;
@@ -118,12 +119,32 @@ export async function runReturnsAutoProgress(): Promise<AutoProgressReport> {
       createdAt: { gte: since },
       updatedAt: { lte: new Date(Date.now() - 2 * 60 * 1000) },
     },
-    select: { id: true, merchantId: true, orderId: true, createdAt: true },
+    select: { id: true, merchantId: true, orderId: true, createdAt: true, refundTransactionId: true },
     orderBy: { updatedAt: 'asc' },
     take: UNKNOWN_REFUND_BATCH,
   });
   await mapWithConcurrency(pending, SALLA_CONCURRENCY, async (request) => {
     try {
+      // Tabby refunds carry their idempotency key: the payment's refunds[]
+      // says for certain whether it went through.
+      const tabbyRef = decodeTabbyRefundId(request.refundTransactionId);
+      if (tabbyRef) {
+        const payment = await getTabbyPayment(tabbyRef.paymentId);
+        const done = (payment.refunds || []).find((refund) => refund.reference_id === tabbyRef.referenceId);
+        await prisma.returnRequest.update({
+          where: { id: request.id },
+          data: done
+            ? {
+                refundStatus: 'refunded',
+                refundedAt: done.created_at ? new Date(done.created_at) : new Date(),
+                ...(Number(done.amount) > 0 ? { refundedAmount: Number(done.amount) } : {}),
+                refundError: null,
+              }
+            : { refundStatus: 'failed', refundError: 'لم يتم الاسترجاع في تابي، يمكن إعادة المحاولة.' },
+        });
+        report.refundsResolved++;
+        return;
+      }
       const refunds = (await findHistoryRefunds(request.merchantId, request.orderId)).filter(
         (refund) => !refund.at || new Date(refund.at).getTime() >= request.createdAt.getTime() - 60_000,
       );
