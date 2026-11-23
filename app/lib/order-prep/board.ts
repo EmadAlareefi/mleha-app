@@ -177,7 +177,7 @@ export async function getBoardData(): Promise<BoardData> {
 
 type Actor = { id: string | null; name: string };
 
-export type BoardActionResult = { ok: true; syncJobIds?: string[] } | { ok: false; error: string };
+export type BoardActionResult = { ok: true; syncJobIds?: string[]; message?: string } | { ok: false; error: string };
 
 /** Hands back every order a packer holds (e.g. they went home mid-order). */
 export async function releasePackerClaims(userId: string, actor: Actor): Promise<BoardActionResult> {
@@ -248,6 +248,31 @@ export async function resolveEscalation(
 export async function retrySync(jobId: string): Promise<BoardActionResult> {
   const outcome = await retrySyncJob(jobId);
   return outcome === 'synced' || outcome === 'already' ? { ok: true } : { ok: false, error: `لم تنجح المحاولة (${outcome})` };
+}
+
+/** Most failed sync jobs one bulk retry will touch; each one calls Salla, so they run one after another. */
+export const BULK_SYNC_LIMIT = 30;
+
+/**
+ * Retry every failed Salla sync job (oldest first, up to BULK_SYNC_LIMIT).
+ * Conflicts are left alone on purpose: the order's status changed in Salla,
+ * so a person has to decide whether to overwrite it.
+ */
+export async function retryAllFailedSync(): Promise<BoardActionResult> {
+  const jobs = await prisma.orderPrepSallaSync.findMany({
+    where: { state: 'failed' },
+    orderBy: { createdAt: 'asc' },
+    take: BULK_SYNC_LIMIT,
+    select: { id: true },
+  });
+  if (jobs.length === 0) return { ok: true, message: 'لا توجد تحديثات فاشلة' };
+  let synced = 0;
+  for (const job of jobs) {
+    const outcome = await retrySyncJob(job.id).catch(() => 'error' as const);
+    if (outcome === 'synced' || outcome === 'already') synced += 1;
+  }
+  const failed = jobs.length - synced;
+  return { ok: true, message: failed === 0 ? `نجح تحديث ${synced} طلب في سلة` : `نجح ${synced} من ${jobs.length} — ${failed} ما زالت فاشلة` };
 }
 
 export async function dismissSync(jobId: string): Promise<BoardActionResult> {
