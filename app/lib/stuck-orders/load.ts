@@ -286,9 +286,11 @@ export function returnItem(r: ReturnSnapshot, opts: ClassifyOptions): StuckItem 
 const sortByAge = (items: StuckItem[]) =>
   items.sort((a, b) => (b.diagnosis.ageMs ?? -1) - (a.diagnosis.ageMs ?? -1));
 
-/** The list: every order and return that stopped moving for longer than the threshold. */
-export async function loadStuckOrders({ thresholdHours, nowMs = Date.now() }: { thresholdHours: number; nowMs?: number }): Promise<StuckOrdersResult> {
-  const opts: ClassifyOptions = { nowMs, thresholdMs: thresholdHours * 3_600_000 };
+/** The raw rows behind the list. Independent of the threshold, so one load serves every threshold. */
+export type StuckInputs = { loadedAt: number; snapshots: OrderSnapshot[]; returns: ReturnSnapshot[] };
+
+/** The expensive part: every open order (and in-warehouse return) of the last LOOKBACK_DAYS, fully snapshotted. */
+export async function loadStuckInputs(nowMs = Date.now()): Promise<StuckInputs> {
   const since = new Date(nowMs - LOOKBACK_DAYS * DAY_MS);
 
   const [openOrders, cancelledWithTask, returns] = await Promise.all([
@@ -320,14 +322,20 @@ export async function loadStuckOrders({ thresholdHours, nowMs = Date.now() }: { 
 
   const ids = [...new Set([...openOrders.map((o) => o.orderId), ...cancelledWithTask.map((o) => o.orderId)])];
   const snapshots = await loadSnapshots(ids);
+  return { loadedAt: nowMs, snapshots, returns: returns.map(toReturnSnapshot) };
+}
+
+/** The cheap part: classify the rows against a threshold at `nowMs`. Pure. */
+export function classifyStuckInputs(inputs: StuckInputs, thresholdHours: number, nowMs = Date.now()): StuckOrdersResult {
+  const opts: ClassifyOptions = { nowMs, thresholdMs: thresholdHours * 3_600_000 };
 
   const items: StuckItem[] = [];
-  for (const snapshot of snapshots) {
+  for (const snapshot of inputs.snapshots) {
     const item = orderItem(snapshot, opts);
     if (item.diagnosis.stuck) items.push(item);
   }
-  for (const row of returns) {
-    const item = returnItem(toReturnSnapshot(row), opts);
+  for (const row of inputs.returns) {
+    const item = returnItem(row, opts);
     if (item.diagnosis.stuck) items.push(item);
   }
 
@@ -345,7 +353,18 @@ export async function loadStuckOrders({ thresholdHours, nowMs = Date.now() }: { 
     summary.oldestAgeMs = Math.max(summary.oldestAgeMs ?? 0, item.diagnosis.ageMs ?? 0);
   }
 
-  return { generatedAt: new Date(nowMs).toISOString(), thresholdHours, counts, heldCount, items: sortByAge(items) };
+  return {
+    generatedAt: new Date(inputs.loadedAt).toISOString(),
+    thresholdHours,
+    counts,
+    heldCount,
+    items: sortByAge(items),
+  };
+}
+
+/** The list: every order and return that stopped moving for longer than the threshold. Uncached. */
+export async function loadStuckOrders({ thresholdHours, nowMs = Date.now() }: { thresholdHours: number; nowMs?: number }): Promise<StuckOrdersResult> {
+  return classifyStuckInputs(await loadStuckInputs(nowMs), thresholdHours, nowMs);
 }
 
 /** Order ids matching a search: an exact code first, then phone or customer name. */

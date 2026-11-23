@@ -4,6 +4,7 @@ import { requireShippingBoardUser } from '@/app/lib/order-prep/route-auth';
 import { readJson } from '@/app/lib/order-prep/route-responses';
 import { closeShippingTask, retryShippingTask } from '@/app/lib/shipping/board';
 import { sanitizeShippingSettingsPatch, updateShippingSettings } from '@/app/lib/shipping/settings';
+import { invalidateStuckOrders } from '@/app/lib/stuck-orders/cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,5 +43,8 @@ export async function POST(request: Request) {
   } catch (error) {
     log.error('Shipping board action failed', { error: error instanceof Error ? error.message : error });
     return NextResponse.json({ success: false, error: 'تعذر تنفيذ الإجراء' }, { status: 500 });
+  } finally {
+    // The action may have moved an order: the stuck list must not serve the old state.
+    invalidateStuckOrders();
   }
 }
