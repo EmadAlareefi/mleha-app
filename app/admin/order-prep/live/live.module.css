@@ -1,0 +1,154 @@
+/* Motion for the live warehouse dashboard. Everything is disabled under reduced motion. */
+
+.enter {
+  animation: enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Hero band: a slow drifting glow behind the pipeline. */
+.hero {
+  background:
+    radial-gradient(1200px 300px at 85% -40%, rgba(214, 170, 104, 0.35), transparent 60%),
+    radial-gradient(900px 260px at 10% 140%, rgba(16, 185, 129, 0.18), transparent 60%),
+    linear-gradient(135deg, #2a2118 0%, #3b2f22 45%, #241c14 100%);
+  background-size: 160% 160%, 160% 160%, 100% 100%;
+  animation: drift 18s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  from {
+    background-position: 0% 0%, 100% 100%, 0 0;
+  }
+  to {
+    background-position: 100% 30%, 0% 70%, 0 0;
+  }
+}
+
+/* Flowing dashes between pipeline stages (flows right → left, the RTL reading order). */
+.flow {
+  background-image: linear-gradient(90deg, rgba(232, 200, 150, 0.85) 50%, transparent 50%);
+  background-size: 14px 2px;
+  background-repeat: repeat-x;
+  animation: flow 900ms linear infinite;
+}
+
+.flowIdle {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.18) 50%, transparent 50%);
+  background-size: 14px 2px;
+  background-repeat: repeat-x;
+}
+
+@keyframes flow {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: -14px 0;
+  }
+}
+
+/* Live dot. */
+.ping {
+  animation: ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes ping {
+  75%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+/* A number that just changed glows once. */
+.bump {
+  animation: bump 900ms ease-out;
+}
+
+@keyframes bump {
+  0% {
+    text-shadow: 0 0 0 transparent;
+    transform: scale(1);
+  }
+  25% {
+    text-shadow: 0 0 18px rgba(232, 200, 150, 0.9);
+    transform: scale(1.06);
+  }
+  100% {
+    text-shadow: 0 0 0 transparent;
+    transform: scale(1);
+  }
+}
+
+/* A row that just appeared: a warm highlight that fades out. */
+.fresh {
+  animation: fresh 2.4s ease-out 3;
+}
+
+@keyframes fresh {
+  0% {
+    background-color: rgba(251, 191, 36, 0.35);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Critical things breathe. */
+.breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.18);
+  }
+}
+
+/* Busy packer: a slow sweeping sheen across the card's status bar. */
+.sheen {
+  background-image: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: sheen 2.2s linear infinite;
+}
+
+@keyframes sheen {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 111, 71, 0.35) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .hero,
+  .flow,
+  .ping,
+  .bump,
+  .breathe,
+  .fresh,
+  .sheen {
+    animation: none !important;
+  }
+}

@@ -311,6 +311,18 @@ export function getVisibleDashboardServices({
   // The packing board lives under /admin/order-prep and shares its permission.
   if (visibleServices.some((service) => service.key === 'admin-order-prep')) {
     dashboardServices.push({
+      key: 'warehouse-live',
+      sourceKey: 'admin-order-prep',
+      title: 'مركز قيادة المستودع',
+      description: 'شاشة كاملة مباشرة: التجهيز والشحن والطلبات العالقة والتنبيهات في مكان واحد',
+      href: '/admin/order-prep/live',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: Warehouse,
+      accentClass: categoryAccentMap.orders,
+      priority: 78,
+    });
+    dashboardServices.push({
       key: 'order-prep-board',
       sourceKey: 'admin-order-prep',
       title: 'لوحة التجهيز المباشرة',
