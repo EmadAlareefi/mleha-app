@@ -12,8 +12,8 @@ import { DEFAULT_THRESHOLD_HOURS, parseThreshold } from '@/app/lib/stuck-orders/
 import type { ActionTarget, StuckItem } from '@/app/lib/stuck-orders/types';
 import { cn } from '@/lib/utils';
 import { AnalyticsSection } from '@/app/admin/order-prep/_components/analytics/AnalyticsSection';
-import { ACTION_META } from '@/app/admin/order-prep/stuck/_components/labels';
-import { OrderJourneySheet } from '@/app/admin/order-prep/stuck/_components/OrderJourneySheet';
+import { ACTION_META } from './_components/labels';
+import { OrderJourneySheet } from './_components/OrderJourneySheet';
 import styles from './live.module.css';
 import { AlertsPanel, type AlertAction } from './_components/AlertsPanel';
 import { interventionKeys, newKeys } from './_lib/metrics';

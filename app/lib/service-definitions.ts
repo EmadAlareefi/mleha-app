@@ -76,10 +76,10 @@ const serviceDefinitionsData = [
   },
   {
     key: 'shipping-board',
-    title: 'لوحة الشحن المباشرة',
-    description: 'المتبقي للشحن لكل شركة، الطلبات بانتظار البوليصة، الأعطال، ووتيرة الشحن',
+    title: 'مركز قيادة الشحن',
+    description: 'شاشة كاملة مباشرة: المتبقي للشحن لكل شركة، الأعطال، الشاحنون، والإنتاجية بالساعة',
     icon: '🚚',
-    href: '/admin/order-prep/shipping',
+    href: '/admin/order-prep/live',
     color: 'from-emerald-500 to-teal-600',
     defaultRoles: ['admin'],
     grantsRoles: [],
