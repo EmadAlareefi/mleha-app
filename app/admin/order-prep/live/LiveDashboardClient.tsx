@@ -380,7 +380,7 @@ export default function LiveDashboardClient() {
       <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 xl:px-6">
         {view === 'live' && (
           <>
-            <PipelineHero board={board.data} shipping={shipping.data} history={live.history} stale={staleNote(board, shipping)} />
+            <PipelineHero board={board.data} shipping={shipping.data} history={live.history} stale={staleNote(board, shipping)} hourly={live.hourly.data} hourlyError={live.hourly.error} />
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 xl:grid-rows-2 2xl:grid-cols-4 2xl:grid-rows-1">
               <div className="h-[520px] xl:col-start-1 xl:row-start-1 xl:h-auto 2xl:col-start-1">
                 <TeamPanel board={board.data} shipping={shipping.data} busy={busy} onRelease={onRelease} delay={200} stale={boardStale ?? shippingStale} />

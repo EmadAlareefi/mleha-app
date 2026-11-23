@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BoardData, BoardPacker } from '@/app/lib/order-prep/board';
 import type { ShippingBoardData } from '@/app/lib/shipping/board';
-import { clearTime, idleMinutes, interventionKeys, newKeys, since, staleNote } from '@/app/admin/order-prep/live/_lib/metrics';
+import { clearTime, compareSoFar, idleMinutes, interventionKeys, newKeys, since, staleNote } from '@/app/admin/order-prep/live/_lib/metrics';
 
 const NOW = Date.parse('2026-11-23T12:00:00Z');
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -80,4 +80,14 @@ test('staleNote: null when every feed is fine, otherwise names the error', () =>
   const note = staleNote({ error: null, at: NOW }, { error: 'boom', at: null });
   assert.match(note ?? '', /boom/);
   assert.match(note ?? '', /لم تُحمَّل بعد/);
+});
+
+test('compareSoFar: compares finished hours only, null before the first hour ends', () => {
+  const today = [5, 5, 5, 99, 0];
+  const yesterday = [4, 4, 2, 1, 50];
+  assert.equal(compareSoFar(today, yesterday, 0), null);
+  // currentHour 3: hours 0–2 only; today's 99 in hour 3 is in progress.
+  assert.deepEqual(compareSoFar(today, yesterday, 3), { today: 15, yesterday: 10, deltaPct: 50 });
+  assert.deepEqual(compareSoFar([1, 1], [0, 0], 2), { today: 2, yesterday: 0, deltaPct: null });
+  assert.equal(compareSoFar([2, 2], [4, 4], 2)?.deltaPct, -50);
 });

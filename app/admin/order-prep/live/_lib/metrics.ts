@@ -87,3 +87,20 @@ export function staleNote(...sources: Array<{ error: string | null; at: number |
   const age = Number.isFinite(at) ? `آخر بيانات قبل ${since(new Date(at).toISOString())}` : 'لم تُحمَّل بعد';
   return `تعذر التحديث (${failed[0].error}) · ${age} · نعيد المحاولة تلقائياً`;
 }
+
+/**
+ * Today vs yesterday over the same finished hours (0 … currentHour-1). The
+ * hour in progress is left out: a half-hour of today against a full hour of
+ * yesterday would always look like a drop. Null before the first hour ends.
+ */
+export function compareSoFar(
+  today: number[],
+  yesterday: number[],
+  currentHour: number,
+): { today: number; yesterday: number; deltaPct: number | null } | null {
+  if (currentHour <= 0) return null;
+  const sum = (values: number[]) => values.slice(0, currentHour).reduce((total, value) => total + value, 0);
+  const a = sum(today);
+  const b = sum(yesterday);
+  return { today: a, yesterday: b, deltaPct: b > 0 ? Math.round(((a - b) / b) * 100) : null };
+}
