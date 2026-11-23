@@ -1,42 +1,38 @@
 import type { MetadataRoute } from "next";
 
+const BRAND_BACKGROUND = "#eee2d4";
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    id: "/",
     name: "متجر مليحة للفساتين",
     short_name: "مليحة",
     description: "نظام إدارة طلبات متجر مليحة",
-    start_url: "/",
-    id: "/",
-    scope: "/",
-    dir: "rtl",
     lang: "ar",
+    dir: "rtl",
+    start_url: "/?source=pwa",
+    scope: "/",
     display: "standalone",
     display_override: ["standalone", "minimal-ui"],
     orientation: "portrait",
     theme_color: "#11101a",
-    background_color: "#ffffff",
-    categories: ["shopping", "productivity"],
+    // Matches the icons, so the launch splash screen is seamless.
+    background_color: BRAND_BACKGROUND,
+    categories: ["business", "productivity"],
+    prefer_related_applications: false,
     icons: [
-      {
-        src: "/logo.png",
-        type: "image/png",
-        sizes: "192x192",
-        purpose: "maskable",
-      },
-      {
-        src: "/logo.png",
-        type: "image/png",
-        sizes: "512x512",
-        purpose: "maskable",
-      },
+      { src: "/pwa/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/pwa/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/pwa/maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/pwa/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
       {
-        name: "الطلبات الحالية",
-        short_name: "الطلبات",
-        description: "انتقل بسرعة إلى إدارة الطلبات",
-        url: "/order-prep",
-        icons: [{ src: "/logo.png", sizes: "192x192", type: "image/png" }],
+        name: "تجهيز الطلبات",
+        short_name: "التجهيز",
+        description: "انتقل بسرعة إلى تجهيز الطلبات",
+        url: "/order-prep?source=pwa-shortcut",
+        icons: [{ src: "/pwa/icon-192.png", sizes: "192x192", type: "image/png" }],
       },
     ],
   };

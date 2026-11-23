@@ -60,6 +60,10 @@ const PUBLIC_PATHS = [
   '/salla/webhook',
   '/logo.png',
   '/manifest.webmanifest',
+  // PWA icons, worker and offline page: fetched without a session.
+  '/pwa',
+  '/service-worker.js',
+  '/offline.html',
   '/cv.pdf',
   '/trademark.pdf',
 ];
@@ -403,7 +407,8 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - logo.png, manifest.webmanifest, cv.pdf, trademark.pdf (public branding assets)
+     * - pwa/, service-worker.js, offline.html (PWA icons, worker, offline page)
      */
-    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|manifest.webmanifest|cv.pdf|trademark.pdf).*)',
+    '/((?!returns|login|api/returns|api/orders/lookup|api/order-users|api/order-assignments|api/warehouses|api/webhooks|api/auth|api/salla/sync-invoices|salla/webhook|_next/static|_next/image|favicon.ico|logo.png|manifest.webmanifest|service-worker.js|offline.html|pwa/|cv.pdf|trademark.pdf).*)',
   ],
 };

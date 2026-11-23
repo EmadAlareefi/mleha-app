@@ -28,7 +28,7 @@ export function SiteHeader({
   title = 'لوحة التحكم',
   subtitle,
 }: SiteHeaderProps) {
-  const { showInstallButton, isInstallPromptReady, requestInstall } = usePwaInstallPrompt();
+  const { showInstallButton, requestInstall } = usePwaInstallPrompt();
   const resolvedSubtitle =
     subtitle || (isAuthenticated ? `مرحباً، ${userName || 'المستخدم'}` : 'سجّل الدخول لعرض خدماتك');
 
@@ -58,7 +58,6 @@ export function SiteHeader({
               variant="outline"
               size="sm"
               onClick={requestInstall}
-              disabled={!isInstallPromptReady}
             >
               <Download className="size-4" />
               <span className="hidden sm:inline">تثبيت التطبيق</span>

@@ -1,105 +1,128 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useSyncExternalStore } from 'react';
+import { canOfferInstall, detectInstallPlatform, type InstallPlatform } from '@/lib/pwa';
 
-type BeforeInstallPromptEvent = Event & {
+export type BeforeInstallPromptEvent = Event & {
   readonly platforms: string[];
   prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
-function resolveStandaloneState() {
-  if (typeof window === "undefined") {
-    return false;
+declare global {
+  interface Window {
+    /** Captured by the inline script in app/layout.tsx, before React hydrates. */
+    __installPrompt?: BeforeInstallPromptEvent | null;
   }
+}
 
-  const navigatorStandalone = (window.navigator as unknown as { standalone?: boolean }).standalone;
-  const mediaQuery = window.matchMedia?.("(display-mode: standalone)");
-  return Boolean(navigatorStandalone) || Boolean(mediaQuery?.matches);
+type InstallState = {
+  installed: boolean;
+  hasPrompt: boolean;
+  platform: InstallPlatform;
+  guideOpen: boolean;
+};
+
+const SERVER_STATE: InstallState = {
+  installed: true, // render nothing install-related on the server
+  hasPrompt: false,
+  platform: 'desktop',
+  guideOpen: false,
+};
+
+// One shared store: Chrome fires `beforeinstallprompt` once per page load,
+// so every button and the badge must read the same captured event.
+let state: InstallState = SERVER_STATE;
+let initialised = false;
+const listeners = new Set<() => void>();
+
+function setState(patch: Partial<InstallState>) {
+  state = { ...state, ...patch };
+  listeners.forEach((listener) => listener());
+}
+
+function isStandalone() {
+  return (
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
+function init() {
+  if (initialised || typeof window === 'undefined') return;
+  initialised = true;
+
+  state = {
+    installed: isStandalone(),
+    hasPrompt: Boolean(window.__installPrompt),
+    platform: detectInstallPlatform(
+      navigator.userAgent,
+      navigator.platform,
+      navigator.maxTouchPoints
+    ),
+    guideOpen: false,
+  };
+
+  // The inline script captures the event; it re-dispatches `installable`.
+  document.addEventListener('installable', () => setState({ hasPrompt: true }));
+  window.addEventListener('appinstalled', () => {
+    window.__installPrompt = null;
+    setState({ installed: true, hasPrompt: false, guideOpen: false });
+  });
+  window
+    .matchMedia?.('(display-mode: standalone)')
+    .addEventListener?.('change', () => setState({ installed: isStandalone() }));
+}
+
+function subscribe(listener: () => void) {
+  init();
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+const getSnapshot = () => {
+  init();
+  return state;
+};
+const getServerSnapshot = () => SERVER_STATE;
+
+export type InstallResult = 'accepted' | 'dismissed' | 'guide';
+
+/** Opens the native install dialog, or our step-by-step guide when there is none. */
+export async function requestInstall(): Promise<InstallResult> {
+  const deferred = window.__installPrompt;
+  if (!deferred) {
+    setState({ guideOpen: true });
+    return 'guide';
+  }
+  // A captured prompt can only be used once.
+  window.__installPrompt = null;
+  setState({ hasPrompt: false });
+  await deferred.prompt();
+  const { outcome } = await deferred.userChoice;
+  if (outcome === 'accepted') setState({ installed: true });
+  return outcome;
+}
+
+export function setInstallGuideOpen(open: boolean) {
+  setState({ guideOpen: open });
 }
 
 export function usePwaInstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(resolveStandaloneState());
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const mediaQuery =
-      typeof window.matchMedia === "function" ? window.matchMedia("(display-mode: standalone)") : null;
-    const onDisplayModeChange = () => setIsInstalled(resolveStandaloneState());
-
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setDeferredPrompt(event as BeforeInstallPromptEvent);
-    };
-
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setDeferredPrompt(null);
-    };
-
-    const addDisplayModeListener = () => {
-      if (!mediaQuery) {
-        return;
-      }
-
-      if (typeof mediaQuery.addEventListener === "function") {
-        mediaQuery.addEventListener("change", onDisplayModeChange);
-      } else if (typeof mediaQuery.addListener === "function") {
-        mediaQuery.addListener(onDisplayModeChange);
-      }
-    };
-
-    const removeDisplayModeListener = () => {
-      if (!mediaQuery) {
-        return;
-      }
-
-      if (typeof mediaQuery.removeEventListener === "function") {
-        mediaQuery.removeEventListener("change", onDisplayModeChange);
-      } else if (typeof mediaQuery.removeListener === "function") {
-        mediaQuery.removeListener(onDisplayModeChange);
-      }
-    };
-
-    addDisplayModeListener();
-
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-    window.addEventListener("appinstalled", handleAppInstalled);
-
-    return () => {
-      removeDisplayModeListener();
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", handleAppInstalled);
-    };
-  }, []);
-
-  const requestInstall = useCallback(async () => {
-    if (!deferredPrompt) {
-      return false;
-    }
-
-    deferredPrompt.prompt();
-    const choiceResult = await deferredPrompt.userChoice;
-    setDeferredPrompt(null);
-
-    if (choiceResult.outcome === "accepted") {
-      setIsInstalled(true);
-      return true;
-    }
-
-    return false;
-  }, [deferredPrompt]);
-
-  const showInstallButton = useMemo(() => !isInstalled, [isInstalled]);
+  const current = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const request = useCallback(() => requestInstall(), []);
 
   return {
-    isInstalled,
-    isInstallPromptReady: Boolean(deferredPrompt),
-    requestInstall,
-    showInstallButton,
+    isInstalled: current.installed,
+    isInstallPromptReady: current.hasPrompt,
+    platform: current.platform,
+    guideOpen: current.guideOpen,
+    /** True when an install button would do something useful on this device. */
+    showInstallButton: canOfferInstall({
+      installed: current.installed,
+      hasPrompt: current.hasPrompt,
+      platform: current.platform,
+    }),
+    requestInstall: request,
   };
 }
