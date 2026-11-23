@@ -32,7 +32,7 @@ interface AppNavbarProps {
 
 export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: AppNavbarProps) {
   const { data: session } = useSession();
-  const { showInstallButton, isInstallPromptReady, requestInstall } = usePwaInstallPrompt();
+  const { showInstallButton, requestInstall } = usePwaInstallPrompt();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(!collapseOnMobile);
   const sectionId = useId();
   const userName = session?.user?.name || 'المستخدم';
@@ -233,7 +233,6 @@ export default function AppNavbar({ title, subtitle, collapseOnMobile = true }: 
                   aria-label="تثبيت التطبيق"
                   title="تثبيت التطبيق على جهازك"
                   variant="ghost"
-                  disabled={!isInstallPromptReady}
                 >
                   <Download className="h-4 w-4" />
                   <span className="hidden sm:inline">تثبيت التطبيق</span>
