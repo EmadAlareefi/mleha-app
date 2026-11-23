@@ -5,6 +5,8 @@ import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
 
+export { since, staleNote } from '../_lib/metrics';
+
 const numberFormat = new Intl.NumberFormat('en-US');
 
 /** Tweens to each new value and glows once when it changes. */
@@ -220,24 +222,4 @@ export function PanelSkeleton({ rows = 4 }: { rows?: number }) {
       ))}
     </div>
   );
-}
-
-export const since = (iso: string | null | undefined) => {
-  if (!iso) return '—';
-  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60_000));
-  if (minutes < 1) return 'الآن';
-  if (minutes < 60) return `${minutes} د`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} س`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? 'يوم' : days === 2 ? 'يومان' : `${days} أيام`;
-};
-
-/** "Couldn't refresh — showing data from 3 min ago", or null when the feed is fine. */
-export function staleNote(...sources: Array<{ error: string | null; at: number | null }>): string | null {
-  const failed = sources.filter((source) => source.error);
-  if (failed.length === 0) return null;
-  const at = Math.min(...failed.map((source) => source.at ?? Infinity));
-  const age = Number.isFinite(at) ? `آخر بيانات قبل ${since(new Date(at).toISOString())}` : 'لم تُحمَّل بعد';
-  return `تعذر التحديث (${failed[0].error}) · ${age} · نعيد المحاولة تلقائياً`;
 }

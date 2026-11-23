@@ -58,6 +58,7 @@
     "probe:order-manage": "node --import tsx scripts/probe-order-manage.ts",
     "test:app-routes": "node --test --import tsx lib/__tests__/app-routes.test.ts",
     "test:stuck-orders": "node --test --import tsx app/lib/stuck-orders/__tests__/*.test.ts",
+    "test:warehouse-live": "node --test --import tsx app/admin/order-prep/live/_lib/__tests__/*.test.ts",
     "test:order-manage": "node --test --import tsx app/lib/order-manage/__tests__/*.test.ts",
     "shipping-info": "node --import tsx scripts/shipping-info-setup.ts",
     "test:shipping-info": "node --test --import tsx app/lib/shipping-info/__tests__/*.test.ts"

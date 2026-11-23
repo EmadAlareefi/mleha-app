@@ -52,19 +52,6 @@ const KIND_STYLE: Record<Row['kind'], { Icon: typeof BellRing; chip: string; bar
 
 const FILTER_KEYS: Filter[] = ['all', 'exceptions', 'sync', 'shipping', 'international', 'local'];
 
-/**
- * Keys of everything that needs a person (not the international / courier
- * waiting lists). Same keys as the rows below, so the page can tell which
- * rows are new since the last refresh.
- */
-export function interventionKeys(board: BoardData | null, shipping: ShippingBoardData | null): string[] {
-  return [
-    ...(board?.exceptions ?? []).map((item) => `ex:${item.id}`),
-    ...(board?.syncIssues ?? []).map((job) => `sync:${job.id}`),
-    ...(shipping?.problems ?? []).map((task) => `shipping:${task.id}`),
-  ];
-}
-
 /** Every open thing someone has to act on, in one feed. */
 export function AlertsPanel({
   board,

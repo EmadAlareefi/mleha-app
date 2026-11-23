@@ -15,7 +15,8 @@ import { AnalyticsSection } from '@/app/admin/order-prep/_components/analytics/A
 import { ACTION_META } from '@/app/admin/order-prep/stuck/_components/labels';
 import { OrderJourneySheet } from '@/app/admin/order-prep/stuck/_components/OrderJourneySheet';
 import styles from './live.module.css';
-import { AlertsPanel, interventionKeys, type AlertAction } from './_components/AlertsPanel';
+import { AlertsPanel, type AlertAction } from './_components/AlertsPanel';
+import { interventionKeys, newKeys } from './_lib/metrics';
 import { BacklogPanel } from './_components/BacklogPanel';
 import { OrderSearch } from './_components/OrderSearch';
 import { PipelineHero } from './_components/PipelineHero';
@@ -84,8 +85,7 @@ export default function LiveDashboardClient() {
     const keys = interventionKeys(board.data, shipping.data);
     const previous = seenKeys.current;
     seenKeys.current = new Set(keys);
-    if (!previous) return; // first load: everything is "existing", not new
-    const added = keys.filter((key) => !previous.has(key));
+    const added = newKeys(previous, keys); // first load: nothing counts as new
     if (added.length === 0) return;
     play();
     setFreshKeys((current) => new Set([...current, ...added]));
@@ -123,10 +123,39 @@ export default function LiveDashboardClient() {
     };
   }, []);
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen?.().catch(() => undefined);
+  }, []);
+
+  // Keyboard: 1/2/3 switch views, R refresh, F full screen, M sound. "/" (search) lives in OrderSearch.
+  const shortcuts = useRef<Record<string, () => void>>({});
+  shortcuts.current = {
+    '1': () => setView('live'),
+    '2': () => setView('analytics'),
+    '3': () => setView('settings'),
+    r: () => void live.refreshAll(),
+    f: toggleFullscreen,
+    m: () => chime.setEnabled(!chime.enabled),
   };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+      // Leave keys alone while a dialog or sheet is open.
+      if (document.querySelector('[role="dialog"]')) return;
+      // Match by physical key too, so shortcuts work with an Arabic keyboard layout.
+      const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.code.startsWith('Digit') ? event.code.slice(5) : event.key.toLowerCase();
+      const action = shortcuts.current[key];
+      if (action) {
+        event.preventDefault();
+        action();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   /** POST an action, toast the outcome, refresh what it touched. */
   const post = useCallback(
@@ -243,10 +272,10 @@ export default function LiveDashboardClient() {
     },
   ];
 
-  const VIEWS: Array<{ key: View; label: string; Icon: typeof Activity }> = [
-    { key: 'live', label: 'مباشر', Icon: Activity },
-    { key: 'analytics', label: 'التحليلات', Icon: BarChart3 },
-    { key: 'settings', label: 'الإعدادات', Icon: Settings2 },
+  const VIEWS: Array<{ key: View; label: string; Icon: typeof Activity; shortcut: string }> = [
+    { key: 'live', label: 'مباشر', Icon: Activity, shortcut: '1' },
+    { key: 'analytics', label: 'التحليلات', Icon: BarChart3, shortcut: '2' },
+    { key: 'settings', label: 'الإعدادات', Icon: Settings2, shortcut: '3' },
   ];
 
   return (
@@ -279,6 +308,7 @@ export default function LiveDashboardClient() {
               key={entry.key}
               type="button"
               onClick={() => setView(entry.key)}
+              title={`${entry.label} (${entry.shortcut})`}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
                 view === entry.key ? 'bg-[#e8c896] text-[#1f1912] shadow' : 'text-white/70 hover:text-white',
@@ -319,7 +349,7 @@ export default function LiveDashboardClient() {
           </div>
           <div className="flex items-center gap-1">
             <IconButton
-              label={chime.enabled ? (chime.unlocked ? 'صوت التنبيهات مفعّل' : 'صوت التنبيهات: اضغط في أي مكان لتفعيله') : 'صوت التنبيهات متوقف'}
+              label={chime.enabled ? (chime.unlocked ? 'صوت التنبيهات مفعّل (M)' : 'صوت التنبيهات: اضغط في أي مكان لتفعيله (M)') : 'صوت التنبيهات متوقف (M)'}
               onClick={() => chime.setEnabled(!chime.enabled)}
               active={chime.enabled && chime.unlocked}
             >
@@ -334,10 +364,10 @@ export default function LiveDashboardClient() {
                 {wake.enabled ? <MonitorCheck className="h-4 w-4" /> : <MonitorOff className="h-4 w-4" />}
               </IconButton>
             )}
-            <IconButton label="تحديث الكل" onClick={() => void live.refreshAll()}>
+            <IconButton label="تحديث الكل (R)" onClick={() => void live.refreshAll()}>
               {live.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
             </IconButton>
-            <IconButton label={fullscreen ? 'خروج من ملء الشاشة' : 'ملء الشاشة'} onClick={toggleFullscreen}>
+            <IconButton label={fullscreen ? 'خروج من ملء الشاشة (F)' : 'ملء الشاشة (F)'} onClick={toggleFullscreen}>
               {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             </IconButton>
             <Link href="/" aria-label="الرئيسية" title="الرئيسية" className="rounded-lg p-2 text-white/70 transition hover:bg-white/10 hover:text-white">

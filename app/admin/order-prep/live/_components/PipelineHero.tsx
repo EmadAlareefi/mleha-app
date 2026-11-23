@@ -8,25 +8,7 @@ import { formatAgeAr, orderAgeMs } from '@/app/lib/order-prep/riyadh-time';
 import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
 import { AnimatedNumber, Ring, Sparkline } from './primitives';
-
-/**
- * How long a backlog takes at the last hour's pace. Null when there's no
- * pace to project from (nothing done in the last hour).
- */
-export function clearTime(backlog: number, perHour: number): { label: string; hours: number } | null {
-  if (backlog <= 0) return { label: 'لا شيء متبقٍ', hours: 0 };
-  if (perHour <= 0) return null;
-  const hours = backlog / perHour;
-  if (hours < 1) return { label: `~${Math.max(1, Math.round(hours * 60))} دقيقة`, hours };
-  if (hours < 24) {
-    const whole = Math.floor(hours);
-    const minutes = Math.round((hours - whole) * 60 / 15) * 15;
-    return { label: minutes > 0 && minutes < 60 ? `~${whole} س ${minutes} د` : `~${Math.round(hours)} س`, hours };
-  }
-  const days = Math.floor(hours / 24);
-  const rest = Math.round(hours - days * 24);
-  return { label: `~${days} ${days === 1 ? 'يوم' : days === 2 ? 'يومان' : 'أيام'}${rest > 0 ? ` و${rest} س` : ''}`, hours };
-}
+import { clearTime } from '../_lib/metrics';
 
 type Stage = {
   key: string;
