@@ -114,6 +114,7 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   'order-shipping': 'orders',
   'order-monitor': 'orders',
   'admin-order-prep': 'orders',
+  'shipping-board': 'orders',
   'order-invoice-search': 'orders',
   'salla-product-search': 'store',
   'returns-priority': 'orders',
@@ -167,6 +168,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'order-shipping': Truck,
   'order-monitor': Satellite,
   'admin-order-prep': BarChart3,
+  'shipping-board': Truck,
   warehouse: Package,
   'local-shipping': Truck,
   'warehouse-locations': Navigation,
@@ -234,6 +236,7 @@ const priorityMap: Partial<Record<ServiceKey, number>> = {
   invoices: 84,
   'order-reports': 80,
   'admin-order-prep': 76,
+  'shipping-board': 77,
   'cod-tracker': 72,
   'fabric-management': 70,
   'fabric-tailor-hub': 70,
@@ -318,18 +321,21 @@ export function getVisibleDashboardServices({
       accentClass: categoryAccentMap.orders,
       priority: 77,
     });
-    dashboardServices.push({
-      key: 'shipping-board',
-      sourceKey: 'admin-order-prep',
-      title: 'لوحة الشحن المباشرة',
-      description: 'الطلبات المجهزة بانتظار البوليصة، الأعطال، ووتيرة الشحن',
-      href: '/admin/order-prep/shipping',
-      category: 'orders',
-      categoryLabel: categoryLabels.orders,
-      Icon: Truck,
-      accentClass: categoryAccentMap.orders,
-      priority: 77,
-    });
+    // Users with the shipping-board permission already get it as its own tile.
+    if (!visibleServices.some((service) => service.key === 'shipping-board')) {
+      dashboardServices.push({
+        key: 'shipping-board',
+        sourceKey: 'admin-order-prep',
+        title: 'لوحة الشحن المباشرة',
+        description: 'الطلبات المجهزة بانتظار البوليصة، الأعطال، ووتيرة الشحن',
+        href: '/admin/order-prep/shipping',
+        category: 'orders',
+        categoryLabel: categoryLabels.orders,
+        Icon: Truck,
+        accentClass: categoryAccentMap.orders,
+        priority: 77,
+      });
+    }
     dashboardServices.push({
       key: 'customer-order-changes',
       sourceKey: 'admin-order-prep',

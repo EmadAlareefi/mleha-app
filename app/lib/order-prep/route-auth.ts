@@ -52,6 +52,28 @@ export async function requireBoardUser(): Promise<{ actor: { id: string | null; 
   return { actor: { id: audit.id, name: audit.name || session.user.name || 'المشرف' } };
 }
 
+/**
+ * Shipping board (/admin/order-prep/shipping): its own shipping-board
+ * permission, or the whole admin-order-prep area. Only the latter may change
+ * the global shipping switches or see the prep board's analytics.
+ */
+export async function requireShippingBoardUser(): Promise<
+  { actor: { id: string | null; name: string }; isPrepAdmin: boolean } | { response: NextResponse }
+> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { response: NextResponse.json({ success: false, error: 'يجب تسجيل الدخول' }, { status: 401 }) };
+  }
+  if (!hasServiceAccess(session, ['shipping-board', 'admin-order-prep'])) {
+    return { response: NextResponse.json({ success: false, error: 'ليست لديك صلاحية للوصول' }, { status: 403 }) };
+  }
+  const audit = getAuditUser(session.user as any);
+  return {
+    actor: { id: audit.id, name: audit.name || session.user.name || 'المشرف' },
+    isPrepAdmin: hasServiceAccess(session, ['admin-order-prep']),
+  };
+}
+
 /** Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. */
 export function isCronAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET?.trim();

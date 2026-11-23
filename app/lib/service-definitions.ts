@@ -75,6 +75,17 @@ const serviceDefinitionsData = [
     assignable: true,
   },
   {
+    key: 'shipping-board',
+    title: 'لوحة الشحن المباشرة',
+    description: 'المتبقي للشحن لكل شركة، الطلبات بانتظار البوليصة، الأعطال، ووتيرة الشحن',
+    icon: '🚚',
+    href: '/admin/order-prep/shipping',
+    color: 'from-emerald-500 to-teal-600',
+    defaultRoles: ['admin'],
+    grantsRoles: [],
+    assignable: true,
+  },
+  {
     key: 'promo-monitor',
     title: 'مراقبة عرض الريال',
     description: 'متابعة مباشرة لطلبات عرض الريال والتجاوزات وحالة الحاجز في المتجر',

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, RefreshCcw, RotateCcw, XCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import type { BoardTask, ShippingBoardData } from '@/app/lib/shipping/board';
+import type { BoardTask, CompanyBacklogRow, ShippingBoardData } from '@/app/lib/shipping/board';
 import { formatAgeAr } from '@/app/lib/order-prep/riyadh-time';
 import { STATE_LABELS, type ShippingState } from '@/app/lib/shipping/rules';
 import { cn } from '@/lib/utils';
@@ -18,6 +18,7 @@ export default function ShippingBoardClient() {
   const [board, setBoard] = useState<ShippingBoardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [canManageSettings, setCanManageSettings] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -25,6 +26,7 @@ export default function ShippingBoardClient() {
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'تعذر تحميل اللوحة');
       setBoard(data.board);
+      setCanManageSettings(Boolean(data.canManageSettings));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر تحميل اللوحة');
@@ -85,6 +87,8 @@ export default function ShippingBoardClient() {
         <Kpi label="دولي / مندوب" text={`${open('manual_international')} / ${open('needs_agent')}`} />
       </section>
 
+      <CompanyBacklog rows={board.companies} />
+
       <section className="rounded-xl border bg-card p-4">
         <h2 className="mb-3 text-base font-bold">مجهّزة ولم تُطبع بوليصتها</h2>
         <div className="grid grid-cols-4 gap-2 text-center text-sm">
@@ -144,26 +148,94 @@ export default function ShippingBoardClient() {
       <TaskList title="دولي — بانتظار شحنة DHL" empty="لا توجد طلبات دولية بالانتظار." tasks={board.international} busy={busy} />
       <TaskList title="توصيل محلي — بانتظار المندوب" empty="لا توجد طلبات محلية بالانتظار." tasks={board.local} busy={busy} />
 
-      <section className="rounded-xl border bg-card p-4">
-        <h2 className="mb-3 text-base font-bold">الإعدادات</h2>
-        <div className="flex flex-col gap-3 text-sm">
-          <Toggle
-            label="إنشاء الشحنة تلقائياً بعد التجهيز"
-            hint="عند الإيقاف تُنشأ الشحنة عند مسح الطلب في محطة الشحن."
-            value={board.settings.precreateEnabled}
-            busy={busy === 'settings'}
-            onChange={(value) => void act('settings', { action: 'settings', settings: { precreateEnabled: value } })}
-          />
-          <Toggle
-            label="صفحة الشحن الجديدة للجميع"
-            hint="الصفحة القديمة تبقى متاحة على /order-shipping?v=1"
-            value={board.settings.v2Enabled}
-            busy={busy === 'settings'}
-            onChange={(value) => void act('settings', { action: 'settings', settings: { v2Enabled: value } })}
-          />
-        </div>
-      </section>
+      {canManageSettings && (
+        <section className="rounded-xl border bg-card p-4">
+          <h2 className="mb-3 text-base font-bold">الإعدادات</h2>
+          <div className="flex flex-col gap-3 text-sm">
+            <Toggle
+              label="إنشاء الشحنة تلقائياً بعد التجهيز"
+              hint="عند الإيقاف تُنشأ الشحنة عند مسح الطلب في محطة الشحن."
+              value={board.settings.precreateEnabled}
+              busy={busy === 'settings'}
+              onChange={(value) => void act('settings', { action: 'settings', settings: { precreateEnabled: value } })}
+            />
+            <Toggle
+              label="صفحة الشحن الجديدة للجميع"
+              hint="الصفحة القديمة تبقى متاحة على /order-shipping?v=1"
+              value={board.settings.v2Enabled}
+              busy={busy === 'settings'}
+              onChange={(value) => void act('settings', { action: 'settings', settings: { v2Enabled: value } })}
+            />
+          </div>
+        </section>
+      )}
     </div>
+  );
+}
+
+const BACKLOG_COLUMNS: Array<{ key: keyof Omit<CompanyBacklogRow, 'company' | 'oldestAt'>; label: string }> = [
+  { key: 'total', label: 'الإجمالي' },
+  { key: 'inPrep', label: 'لم تُجهَّز' },
+  { key: 'onHold', label: 'تحت المراجعة' },
+  { key: 'awaitingLabel', label: 'بانتظار البوليصة' },
+  { key: 'labelReady', label: 'البوليصة جاهزة' },
+  { key: 'problem', label: 'فشل / موقوف' },
+];
+
+function CompanyBacklog({ rows }: { rows: CompanyBacklogRow[] }) {
+  const sum = (key: (typeof BACKLOG_COLUMNS)[number]['key']) => rows.reduce((acc, row) => acc + row[key], 0);
+  return (
+    <section className="rounded-xl border bg-card p-4">
+      <h2 className="mb-3 text-base font-bold">المتبقي للشحن حسب شركة الشحن</h2>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">لا توجد طلبات متبقية.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="text-xs text-muted-foreground">
+              <tr className="text-right">
+                <th className="py-1">الشركة</th>
+                {BACKLOG_COLUMNS.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
+                <th>الأقدم</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.company} className="border-t">
+                  <td className="py-2 font-semibold">{row.company}</td>
+                  {BACKLOG_COLUMNS.map((column) => (
+                    <td
+                      key={column.key}
+                      className={cn(
+                        column.key === 'total' && 'font-black',
+                        column.key === 'problem' && row.problem > 0 && 'font-bold text-red-700',
+                        row[column.key] === 0 && column.key !== 'total' && 'text-muted-foreground',
+                      )}
+                    >
+                      {row[column.key]}
+                    </td>
+                  ))}
+                  <td className="text-xs text-muted-foreground">{row.oldestAt ? `منذ ${since(row.oldestAt)}` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+            {rows.length > 1 && (
+              <tfoot>
+                <tr className="border-t-2 font-bold">
+                  <td className="py-2">المجموع</td>
+                  {BACKLOG_COLUMNS.map((column) => (
+                    <td key={column.key}>{sum(column.key)}</td>
+                  ))}
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

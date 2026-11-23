@@ -5,7 +5,7 @@ import { getOrderItemsDetail } from '@/app/lib/analytics/order-items';
 import { resolvePeriod } from '@/app/lib/analytics/period';
 import type { DrillFilter } from '@/app/lib/analytics/types';
 import { PREP_METRICS, getPrepAnalytics, getPrepFacts } from '@/app/lib/order-prep/analytics';
-import { requireBoardUser } from '@/app/lib/order-prep/route-auth';
+import { requireShippingBoardUser } from '@/app/lib/order-prep/route-auth';
 import { SHIPPING_METRICS, getShippingAnalytics, getShippingFacts } from '@/app/lib/shipping/analytics';
 
 export const runtime = 'nodejs';
@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
  *   ?view=items&orderId — one order's items
  */
 export async function GET(request: Request) {
-  const auth = await requireBoardUser();
+  const auth = await requireShippingBoardUser();
   if ('response' in auth) return auth.response;
   try {
     const url = new URL(request.url);
@@ -33,6 +33,10 @@ export async function GET(request: Request) {
     }
 
     const kind = param('kind') === 'shipping' ? 'shipping' : 'prep';
+    // shipping-board users see the shipping analytics only.
+    if (kind === 'prep' && !auth.isPrepAdmin) {
+      return NextResponse.json({ success: false, error: 'ليست لديك صلاحية للوصول' }, { status: 403 });
+    }
     const period = resolvePeriod({ preset: param('preset'), from: param('from'), to: param('to') });
 
     if (view === 'orders') {
