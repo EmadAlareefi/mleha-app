@@ -104,3 +104,9 @@ export function compareSoFar(
   const b = sum(yesterday);
   return { today: a, yesterday: b, deltaPct: b > 0 ? Math.round(((a - b) / b) * 100) : null };
 }
+
+/** Dark from 18:00 to 06:00 Riyadh time (UTC+3, no DST): the evening shift and overnight wall screens. */
+export function autoTheme(nowMs: number): 'light' | 'dark' {
+  const hour = new Date(nowMs + 3 * 3_600_000).getUTCHours();
+  return hour >= 18 || hour < 6 ? 'dark' : 'light';
+}

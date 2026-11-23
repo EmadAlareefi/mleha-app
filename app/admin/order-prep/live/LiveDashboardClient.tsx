@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Activity, BarChart3, Expand, House, Loader2, MonitorCheck, MonitorOff, RefreshCcw, Settings2, Shrink, Volume2, VolumeX } from 'lucide-react';
+import { Activity, BarChart3, Expand, House, Loader2, Moon, MonitorCheck, MonitorOff, RefreshCcw, Settings2, Shrink, Sun, SunMoon, Tv, Volume2, VolumeX, X } from 'lucide-react';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import type { BoardPacker } from '@/app/lib/order-prep/board';
@@ -26,7 +26,8 @@ import { StuckPanel } from './_components/StuckPanel';
 import { TeamPanel } from './_components/TeamPanel';
 import { useLiveData } from './_components/useLiveData';
 import { useUrlParam } from './_components/useUrlParam';
-import { useChime, useWakeLock } from './_components/useWallScreen';
+import { useChime, useTheme, useWakeLock } from './_components/useWallScreen';
+import { LiveModeContext, type LiveScope } from './_components/LiveMode';
 
 const FRESH_MS = 12_000;
 const BASE_TITLE = 'مركز قيادة المستودع';
@@ -42,18 +43,25 @@ const dateFormat = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', { timeZ
  * One full-screen command centre for the warehouse: the prep board, the
  * shipping board and the stuck-orders monitor on a single live page.
  */
-export default function LiveDashboardClient() {
+export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveScope }) {
   const { toast } = useToast();
+  const full = scope === 'full';
+  const [tvParam, setTvParam] = useUrlParam('tv');
+  const kiosk = tvParam === '1';
+  const theme = useTheme();
+  const [cursorHidden, setCursorHidden] = useState(false);
   const [rawThreshold, setThresholdParam] = useUrlParam('t', String(DEFAULT_THRESHOLD_HOURS));
   const threshold = parseThreshold(rawThreshold);
   const setThreshold = (hours: number) => setThresholdParam(String(hours));
-  const live = useLiveData(threshold);
+  const live = useLiveData(threshold, scope);
   const { board, shipping, stuck } = live;
   const [rawView, setViewParam] = useUrlParam('view', 'live');
-  const view: View = rawView === 'analytics' || rawView === 'settings' ? rawView : 'live';
+  // TV mode is the live view only; shipping-only users have no settings to change.
+  const view: View = kiosk ? 'live' : rawView === 'analytics' || (rawView === 'settings' && full) ? rawView : 'live';
   const setView = (next: View) => setViewParam(next);
   const [openParam, setOpenParam] = useUrlParam('open');
-  const openOrderId = openParam ? openParam.slice(0, 64) : null;
+  // The order journey reads the stuck-orders API, which needs prep-admin access.
+  const openOrderId = full && openParam ? openParam.slice(0, 64) : null;
   const setOpenOrderId = useCallback((orderId: string | null) => setOpenParam(orderId), [setOpenParam]);
   const chime = useChime();
   const wake = useWakeLock();
@@ -81,7 +89,7 @@ export default function LiveDashboardClient() {
   // New things needing a person since the last refresh: chime, highlight, and count in the tab title.
   const { play } = chime;
   useEffect(() => {
-    if (!board.data || !shipping.data) return;
+    if ((full && !board.data) || !shipping.data) return;
     const keys = interventionKeys(board.data, shipping.data);
     const previous = seenKeys.current;
     seenKeys.current = new Set(keys);
@@ -101,7 +109,32 @@ export default function LiveDashboardClient() {
       });
     }, FRESH_MS);
     freshTimers.current.add(timer);
-  }, [board.data, shipping.data, play]);
+  }, [full, board.data, shipping.data, play]);
+
+  useEffect(() => {
+    if (!kiosk) {
+      setCursorHidden(false);
+      return;
+    }
+    let timer = window.setTimeout(() => setCursorHidden(true), 3000);
+    const onMove = () => {
+      setCursorHidden(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setCursorHidden(true), 3000);
+    };
+    window.addEventListener('pointermove', onMove);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pointermove', onMove);
+    };
+  }, [kiosk]);
+
+  const enterKiosk = useCallback(() => {
+    setTvParam('1');
+    // Entering TV mode is a click, so the browser allows full screen here.
+    if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => undefined);
+  }, [setTvParam]);
+  const exitKiosk = useCallback(() => setTvParam(null), [setTvParam]);
 
   useEffect(() => {
     const timers = freshTimers.current;
@@ -131,12 +164,14 @@ export default function LiveDashboardClient() {
   // Keyboard: 1/2/3 switch views, R refresh, F full screen, M sound. "/" (search) lives in OrderSearch.
   const shortcuts = useRef<Record<string, () => void>>({});
   shortcuts.current = {
-    '1': () => setView('live'),
-    '2': () => setView('analytics'),
-    '3': () => setView('settings'),
+    '1': () => !kiosk && setView('live'),
+    '2': () => !kiosk && setView('analytics'),
+    '3': () => !kiosk && full && setView('settings'),
     r: () => void live.refreshAll(),
     f: toggleFullscreen,
     m: () => chime.setEnabled(!chime.enabled),
+    t: theme.cycle,
+    k: () => (kiosk ? exitKiosk() : enterKiosk()),
   };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -255,13 +290,13 @@ export default function LiveDashboardClient() {
     void post('ship-settings', '/api/shipping-v2/board/actions', { action: 'settings', settings: patch }, undefined, [live.loadShipping]);
 
   const ageSeconds = now && live.lastAt ? Math.max(0, Math.round((now - live.lastAt) / 1000)) : null;
-  const failedSources = [board, shipping, stuck].filter((source) => source.error).length;
+  const failedSources = (full ? [board, shipping, stuck, live.hourly] : [shipping, live.hourly]).filter((source) => source.error).length;
   const healthy = failedSources === 0 && ageSeconds !== null && ageSeconds < 60;
   const boardStale = staleNote(board);
   const shippingStale = staleNote(shipping);
 
   const stuckCritical = stuck.data ? Object.values(stuck.data.counts).reduce((sum, summary) => sum + (summary?.critical ?? 0), 0) : 0;
-  const pills = [
+  const allPills = [
     { label: 'عالقة', value: stuck.data ? stuck.data.items.length - stuck.data.heldCount : null, hot: stuckCritical > 0 },
     { label: 'استثناءات', value: board.data?.exceptions.length ?? null, hot: false },
     { label: 'مزامنة معلّقة', value: board.data?.pendingSync.count ?? null, hot: (board.data?.pendingSync.count ?? 0) > 20 },
@@ -272,21 +307,48 @@ export default function LiveDashboardClient() {
     },
   ];
 
-  const VIEWS: Array<{ key: View; label: string; Icon: typeof Activity; shortcut: string }> = [
+  const pills = full ? allPills : allPills.filter((pill) => pill.label === 'أعطال شحن');
+
+  const VIEWS_ALL: Array<{ key: View; label: string; Icon: typeof Activity; shortcut: string }> = [
     { key: 'live', label: 'مباشر', Icon: Activity, shortcut: '1' },
     { key: 'analytics', label: 'التحليلات', Icon: BarChart3, shortcut: '2' },
     { key: 'settings', label: 'الإعدادات', Icon: Settings2, shortcut: '3' },
   ];
+  const VIEWS = full ? VIEWS_ALL : VIEWS_ALL.filter((entry) => entry.key !== 'settings');
+
+  const onBulkRetry = (kind: 'sync' | 'shipping', count: number) =>
+    setConfirm(
+      kind === 'sync'
+        ? {
+            title: `إعادة كل تحديثات سلة الفاشلة (${count})`,
+            message: `نحاول تحديث حالة كل طلب في سلة من جديد، واحداً بعد الآخر (حتى 30 في المرة). التعارضات لا تُمس: تحتاج قراراً لكل طلب.`,
+            label: 'أعد المحاولة للكل',
+            run: () => post('bulk:sync', '/api/order-prep/v2/board/actions', { action: 'retry_all_sync' }, undefined, [live.loadBoard, live.loadStuck]),
+          }
+        : {
+            title: `إعادة كل مهام الشحن الفاشلة (${count})`,
+            message: 'تعود كل مهمة شحن فاشلة لمحطة الشحن لتُنشأ شحنتها من جديد (حتى 100 في المرة). المهام الموقوفة لا تُمس: تنتظر إصلاحاً يدوياً.',
+            label: 'أعد المحاولة للكل',
+            run: () => post('bulk:shipping', '/api/shipping-v2/board/actions', { action: 'retry_all' }, undefined, [live.loadShipping, live.loadStuck]),
+          },
+    );
+
+  const ThemeIcon = theme.mode === 'auto' ? SunMoon : theme.mode === 'dark' ? Moon : Sun;
+  const themeLabel = theme.mode === 'auto' ? 'المظهر: تلقائي (داكن من 6م إلى 6ص) (T)' : theme.mode === 'dark' ? 'المظهر: داكن (T)' : 'المظهر: فاتح (T)';
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[radial-gradient(1200px_600px_at_100%_0%,#f7efe4_0%,transparent_60%),linear-gradient(180deg,#efe5d8_0%,#e9dccb_100%)] text-[#2c2416] xl:h-dvh xl:overflow-hidden">
+    <LiveModeContext.Provider value={{ kiosk, scope }}>
+    <div
+      data-theme={theme.resolved}
+      className={cn(styles.root, kiosk && styles.kiosk, kiosk && cursorHidden && styles.cursorHidden, 'flex min-h-dvh flex-col xl:h-dvh xl:overflow-hidden')}
+    >
       {/* Top bar */}
       <header className="relative z-30 flex shrink-0 flex-wrap items-center gap-3 bg-[#1f1912] px-4 py-2.5 text-white shadow-lg xl:flex-nowrap xl:px-6">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="" className="h-9 w-9 rounded-xl bg-white/90 object-contain p-1" />
           <div className="leading-tight">
-            <h1 className="text-base font-black tracking-tight">مركز قيادة المستودع</h1>
+            <h1 className="text-base font-black tracking-tight">{full ? 'مركز قيادة المستودع' : 'مركز قيادة الشحن'}</h1>
             <p className="flex items-center gap-1.5 text-[11px] text-white/60">
               <LiveDot ok={healthy} />
               {failedSources > 0 ? (
@@ -302,6 +364,7 @@ export default function LiveDashboardClient() {
           </div>
         </div>
 
+        {!kiosk && (
         <nav className="flex rounded-xl bg-white/[0.07] p-1 ring-1 ring-white/10">
           {VIEWS.map((entry) => (
             <button
@@ -318,12 +381,18 @@ export default function LiveDashboardClient() {
             </button>
           ))}
         </nav>
+        )}
 
-        <div className="order-last w-full xl:order-none xl:w-auto xl:flex-1">
-          <OrderSearch threshold={threshold} onOpen={setOpenOrderId} />
-        </div>
+        {/* Search reads the stuck-orders API (prep admins); TV mode shows the pills in its place. */}
+        {full && !kiosk ? (
+          <div className="order-last w-full xl:order-none xl:w-auto xl:flex-1">
+            <OrderSearch threshold={threshold} onOpen={setOpenOrderId} />
+          </div>
+        ) : (
+          <div className="hidden xl:block xl:flex-1" />
+        )}
 
-        <div className="hidden items-center gap-1.5 2xl:flex">
+        <div className={cn('hidden items-center gap-1.5', kiosk || !full ? 'lg:flex' : '2xl:flex')}>
           {pills.map((pill) => (
             <span
               key={pill.label}
@@ -347,7 +416,28 @@ export default function LiveDashboardClient() {
               {now ? dateFormat.format(now) : ''}
             </p>
           </div>
+          {kiosk ? (
+            <div className="flex items-center gap-1">
+              <IconButton label={themeLabel} onClick={theme.cycle}>
+                <ThemeIcon className="h-4 w-4" />
+              </IconButton>
+              <button
+                type="button"
+                onClick={exitKiosk}
+                title="خروج من وضع الشاشة (K)"
+                className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white/70 ring-1 ring-white/15 transition hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-3.5 w-3.5" /> خروج
+              </button>
+            </div>
+          ) : (
           <div className="flex items-center gap-1">
+            <IconButton label={themeLabel} onClick={theme.cycle} active={theme.mode !== 'light'}>
+              <ThemeIcon className="h-4 w-4" />
+            </IconButton>
+            <IconButton label="وضع الشاشة: للعرض فقط، أكبر، والقوائم تتمرر وحدها (K)" onClick={enterKiosk}>
+              <Tv className="h-4 w-4" />
+            </IconButton>
             <IconButton
               label={chime.enabled ? (chime.unlocked ? 'صوت التنبيهات مفعّل (M)' : 'صوت التنبيهات: اضغط في أي مكان لتفعيله (M)') : 'صوت التنبيهات متوقف (M)'}
               onClick={() => chime.setEnabled(!chime.enabled)}
@@ -374,13 +464,44 @@ export default function LiveDashboardClient() {
               <House className="h-4 w-4" />
             </Link>
           </div>
+          )}
         </div>
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 xl:px-6">
         {view === 'live' && (
           <>
-            <PipelineHero board={board.data} shipping={shipping.data} history={live.history} stale={staleNote(board, shipping)} hourly={live.hourly.data} hourlyError={live.hourly.error} />
+            <PipelineHero
+              board={board.data}
+              shipping={shipping.data}
+              history={live.history}
+              stale={full ? staleNote(board, shipping) : shippingStale}
+              hourly={live.hourly.data}
+              hourlyError={live.hourly.error}
+            />
+            {!full ? (
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="h-[520px] xl:h-auto">
+                  <TeamPanel board={null} shipping={shipping.data} busy={busy} onRelease={onRelease} delay={200} stale={shippingStale} />
+                </div>
+                <div className="h-[520px] xl:h-auto">
+                  <AlertsPanel
+                    board={null}
+                    shipping={shipping.data}
+                    busy={busy}
+                    onAction={onAlert}
+                    onOpenOrder={setOpenOrderId}
+                    delay={260}
+                    freshKeys={freshKeys}
+                    stale={shippingStale}
+                    onBulkRetry={onBulkRetry}
+                  />
+                </div>
+                <div className="h-[520px] md:col-span-2 xl:col-span-1 xl:h-auto">
+                  <BacklogPanel board={null} shipping={shipping.data} delay={320} stale={shippingStale} />
+                </div>
+              </div>
+            ) : (
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 xl:grid-rows-2 2xl:grid-cols-4 2xl:grid-rows-1">
               <div className="h-[520px] xl:col-start-1 xl:row-start-1 xl:h-auto 2xl:col-start-1">
                 <TeamPanel board={board.data} shipping={shipping.data} busy={busy} onRelease={onRelease} delay={200} stale={boardStale ?? shippingStale} />
@@ -395,6 +516,7 @@ export default function LiveDashboardClient() {
                   delay={260}
                   freshKeys={freshKeys}
                   stale={staleNote(board, shipping)}
+                  onBulkRetry={onBulkRetry}
                 />
               </div>
               <div className="h-[520px] xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:h-auto 2xl:row-span-1">
@@ -413,17 +535,20 @@ export default function LiveDashboardClient() {
                 <BacklogPanel board={board.data} shipping={shipping.data} delay={380} stale={shippingStale ?? boardStale} />
               </div>
             </div>
+            )}
           </>
         )}
 
         {view === 'analytics' && (
-          <div className={cn('grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto pb-4 2xl:grid-cols-2', styles.scroll)}>
+          <div className={cn('grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto pb-4', full && '2xl:grid-cols-2', styles.scroll)}>
+            {full && (
+              <div className="space-y-2">
+                <h2 className="px-1 text-sm font-black text-[var(--lv-ink)]">التجهيز</h2>
+                <AnalyticsSection kind="prep" />
+              </div>
+            )}
             <div className="space-y-2">
-              <h2 className="px-1 text-sm font-black text-[#3b2f22]">التجهيز</h2>
-              <AnalyticsSection kind="prep" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="px-1 text-sm font-black text-[#3b2f22]">الشحن</h2>
+              <h2 className="px-1 text-sm font-black text-[var(--lv-ink)]">الشحن</h2>
               <AnalyticsSection kind="shipping" />
             </div>
           </div>
@@ -441,6 +566,7 @@ export default function LiveDashboardClient() {
         )}
       </main>
 
+      {full && (
       <OrderJourneySheet
         orderId={openOrderId}
         threshold={threshold}
@@ -455,6 +581,7 @@ export default function LiveDashboardClient() {
           )
         }
       />
+      )}
 
       <ConfirmationDialog
         open={Boolean(confirm)}
@@ -470,6 +597,7 @@ export default function LiveDashboardClient() {
         onCancel={() => setConfirm(null)}
       />
     </div>
+    </LiveModeContext.Provider>
   );
 }
 

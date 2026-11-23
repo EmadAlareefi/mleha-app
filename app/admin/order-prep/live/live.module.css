@@ -152,3 +152,120 @@
     animation: none !important;
   }
 }
+
+/* ---------- Theme ---------- */
+
+.root {
+  --lv-bg: radial-gradient(1200px 600px at 100% 0%, #f7efe4 0%, transparent 60%), linear-gradient(180deg, #efe5d8 0%, #e9dccb 100%);
+  --lv-ink: #2c2416;
+  --lv-ink2: #5c4f41;
+  --lv-muted: #6b5d4f;
+  --lv-faint: #9a8b7a;
+  --lv-line: #e3d5c3;
+  --lv-line2: #efe4d6;
+  --lv-chip: #f5ebe0;
+  --lv-track: #f3eadf;
+  --lv-hover: #fbf7f2;
+  --lv-card: #ffffff;
+  --lv-panel: rgba(255, 255, 255, 0.85);
+  --lv-panel-solid: rgba(255, 255, 255, 0.95);
+  --lv-strong: #3b2f22;
+  --lv-strong-ink: #ffffff;
+  background: var(--lv-bg);
+  color: var(--lv-ink);
+  transition: background 600ms ease, color 600ms ease;
+}
+
+.root[data-theme='dark'] {
+  --lv-bg: radial-gradient(1200px 600px at 100% 0%, #2a2219 0%, transparent 60%), linear-gradient(180deg, #16120d 0%, #110e0a 100%);
+  --lv-ink: #f3ebe0;
+  --lv-ink2: #d6c9b8;
+  --lv-muted: #a8998a;
+  --lv-faint: #7d7064;
+  --lv-line: #3a3026;
+  --lv-line2: #2e261e;
+  --lv-chip: #2e261e;
+  --lv-track: #2a231b;
+  --lv-hover: #241e17;
+  --lv-card: #1d1812;
+  --lv-panel: rgba(29, 24, 18, 0.88);
+  --lv-panel-solid: rgba(29, 24, 18, 0.96);
+  --lv-strong: #e8c896;
+  --lv-strong-ink: #1f1912;
+
+  /* App tokens, so reused components (analytics, skeletons) follow the theme inside this page. */
+  --background: #16120d;
+  --foreground: #f3ebe0;
+  --card: #1d1812;
+  --card-foreground: #f3ebe0;
+  --muted: #2a231b;
+  --muted-foreground: #a8998a;
+  --border: #3a3026;
+  --input: #3a3026;
+  color-scheme: dark;
+}
+
+/* Pastel status chips → deep tints with light text in the dark theme. */
+.root[data-theme='dark'] :global(.bg-amber-100),
+.root[data-theme='dark'] :global(.bg-amber-50) { background-color: rgba(245, 158, 11, 0.18); }
+.root[data-theme='dark'] :global(.bg-amber-50\/40) { background-color: rgba(245, 158, 11, 0.07); }
+.root[data-theme='dark'] :global(.bg-rose-100),
+.root[data-theme='dark'] :global(.bg-rose-50),
+.root[data-theme='dark'] :global(.bg-red-50) { background-color: rgba(244, 63, 94, 0.18); }
+.root[data-theme='dark'] :global(.bg-emerald-100) { background-color: rgba(16, 185, 129, 0.18); }
+.root[data-theme='dark'] :global(.bg-sky-100) { background-color: rgba(14, 165, 233, 0.18); }
+.root[data-theme='dark'] :global(.bg-orange-100) { background-color: rgba(249, 115, 22, 0.18); }
+.root[data-theme='dark'] :global(.bg-violet-100) { background-color: rgba(139, 92, 246, 0.2); }
+.root[data-theme='dark'] :global(.bg-teal-100) { background-color: rgba(20, 184, 166, 0.18); }
+.root[data-theme='dark'] :global(.bg-blue-100) { background-color: rgba(59, 130, 246, 0.2); }
+.root[data-theme='dark'] :global(.bg-indigo-100) { background-color: rgba(99, 102, 241, 0.2); }
+.root[data-theme='dark'] :global(.bg-fuchsia-100) { background-color: rgba(217, 70, 239, 0.18); }
+.root[data-theme='dark'] :global(.bg-stone-100),
+.root[data-theme='dark'] :global(.bg-slate-200) { background-color: rgba(168, 162, 158, 0.16); }
+.root[data-theme='dark'] :global(.bg-stone-200) { background-color: #3a3026; }
+.root[data-theme='dark'] :global(.bg-sky-50) { background-color: rgba(14, 165, 233, 0.12); }
+
+.root[data-theme='dark'] :global(.text-amber-700),
+.root[data-theme='dark'] :global(.text-amber-800),
+.root[data-theme='dark'] :global(.text-amber-900) { color: #fcd34d; }
+.root[data-theme='dark'] :global(.text-rose-600),
+.root[data-theme='dark'] :global(.text-rose-700),
+.root[data-theme='dark'] :global(.text-rose-800),
+.root[data-theme='dark'] :global(.text-red-700),
+.root[data-theme='dark'] :global(.text-red-800) { color: #fda4af; }
+.root[data-theme='dark'] :global(.text-emerald-700),
+.root[data-theme='dark'] :global(.text-emerald-800) { color: #6ee7b7; }
+.root[data-theme='dark'] :global(.text-sky-700),
+.root[data-theme='dark'] :global(.text-sky-800) { color: #7dd3fc; }
+.root[data-theme='dark'] :global(.text-orange-700) { color: #fdba74; }
+.root[data-theme='dark'] :global(.text-violet-700) { color: #c4b5fd; }
+.root[data-theme='dark'] :global(.text-teal-700) { color: #5eead4; }
+.root[data-theme='dark'] :global(.text-blue-700) { color: #93c5fd; }
+.root[data-theme='dark'] :global(.text-indigo-700) { color: #a5b4fc; }
+.root[data-theme='dark'] :global(.text-fuchsia-700) { color: #f0abfc; }
+.root[data-theme='dark'] :global(.text-stone-700),
+.root[data-theme='dark'] :global(.text-slate-700) { color: #d6d3d1; }
+.root[data-theme='dark'] :global(.border-amber-200),
+.root[data-theme='dark'] :global(.border-amber-300) { border-color: rgba(251, 191, 36, 0.3); }
+.root[data-theme='dark'] :global(.border-rose-200),
+.root[data-theme='dark'] :global(.border-rose-300) { border-color: rgba(244, 63, 94, 0.35); }
+
+/* ---------- TV mode ---------- */
+
+/* Scale everything up for a screen seen from across the floor, and hide an idle cursor. */
+.kiosk {
+  zoom: 1.12;
+  /* zoom scales viewport units too: divide so the page still fits the screen exactly. */
+  min-height: calc(100dvh / 1.12) !important;
+}
+
+@media (min-width: 1280px) {
+  .kiosk {
+    height: calc(100dvh / 1.12) !important;
+  }
+}
+
+.kiosk.cursorHidden,
+.kiosk.cursorHidden * {
+  cursor: none !important;
+}

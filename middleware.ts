@@ -108,7 +108,8 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
       /^\/api\/promo-limit\/order-check$/,
     ],
   ],
-  ['shipping-board', [/^\/admin\/order-prep\/shipping(\/.*)?$/]],
+  // The live dashboard serves shipping-board users a shipping-only view.
+  ['shipping-board', [/^\/admin\/order-prep\/shipping(\/.*)?$/, /^\/admin\/order-prep\/live$/]],
   ['warehouse', [/^\/warehouse(\/.*)?$/, /^\/api\/shipments(\/.*)?$/]],
   [
     'local-shipping',

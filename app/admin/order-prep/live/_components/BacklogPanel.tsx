@@ -42,10 +42,10 @@ export function BacklogPanel({
         <div className="space-y-4 p-3">
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {totals.map((segment) => (
-              <span key={segment.key} className="flex items-center gap-1 text-[10px] text-[#6b5d4f]">
+              <span key={segment.key} className="flex items-center gap-1 text-[10px] text-[var(--lv-muted)]">
                 <span className={cn('h-2 w-2 rounded-full', segment.dot)} />
                 {segment.label}
-                <b className="tabular-nums text-[#2c2416]">{segment.value}</b>
+                <b className="tabular-nums text-[var(--lv-ink)]">{segment.value}</b>
               </span>
             ))}
           </div>
@@ -57,10 +57,10 @@ export function BacklogPanel({
               {rows.map((row, index) => (
                 <li key={row.company} style={{ animationDelay: `${index * 50}ms` }} className={styles.enter}>
                   <div className="mb-1 flex items-baseline gap-2">
-                    <span className="truncate text-xs font-bold text-[#2c2416]">{row.company}</span>
+                    <span className="truncate text-xs font-bold text-[var(--lv-ink)]">{row.company}</span>
                     {row.problem > 0 && <span className="rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-700">{row.problem} عطل</span>}
-                    <span className="mr-auto text-[10px] text-[#9a8b7a]">{row.oldestAt ? `الأقدم منذ ${since(row.oldestAt)}` : ''}</span>
-                    <span className="text-sm font-black tabular-nums text-[#2c2416]">
+                    <span className="mr-auto text-[10px] text-[var(--lv-faint)]">{row.oldestAt ? `الأقدم منذ ${since(row.oldestAt)}` : ''}</span>
+                    <span className="text-sm font-black tabular-nums text-[var(--lv-ink)]">
                       <AnimatedNumber value={row.total} />
                     </span>
                   </div>
@@ -78,7 +78,8 @@ export function BacklogPanel({
             </ul>
           )}
 
-          <div className="grid grid-cols-1 gap-3 border-t border-[#efe4d6] pt-3 2xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 border-t border-[var(--lv-line2)] pt-3 2xl:grid-cols-2">
+{board && (
             <AgeStrip
               title="عمر طلبات طابور التجهيز"
               buckets={
@@ -92,6 +93,7 @@ export function BacklogPanel({
                   : null
               }
             />
+            )}
             <AgeStrip
               title="مجهّزة ولم تُطبع بوليصتها"
               buckets={[
@@ -112,23 +114,23 @@ function AgeStrip({ title, buckets }: { title: string; buckets: Array<{ label: s
   const max = buckets ? Math.max(1, ...buckets.map((bucket) => bucket.value)) : 1;
   return (
     <div>
-      <p className="mb-2 flex items-center gap-1 text-[11px] font-bold text-[#6b5d4f]">
+      <p className="mb-2 flex items-center gap-1 text-[11px] font-bold text-[var(--lv-muted)]">
         <Hourglass className="h-3 w-3" /> {title}
       </p>
       <div className="grid h-24 grid-cols-4 items-end gap-1.5">
         {(buckets ?? []).map((bucket) => {
           const color =
-            bucket.value === 0 ? 'bg-[#efe4d6]' : bucket.tone === 'ok' ? 'bg-emerald-400' : bucket.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-500';
+            bucket.value === 0 ? 'bg-[var(--lv-line2)]' : bucket.tone === 'ok' ? 'bg-emerald-400' : bucket.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-500';
           return (
             <div key={bucket.label} className="flex h-full flex-col items-center justify-end gap-1">
-              <span className={cn('text-xs font-black tabular-nums', bucket.value > 0 && bucket.tone === 'danger' ? 'text-rose-600' : 'text-[#2c2416]')}>
+              <span className={cn('text-xs font-black tabular-nums', bucket.value > 0 && bucket.tone === 'danger' ? 'text-rose-600' : 'text-[var(--lv-ink)]')}>
                 {bucket.value}
               </span>
               <span
                 className={cn('w-full rounded-t-md', color)}
                 style={{ height: `${Math.max(6, (bucket.value / max) * 56)}px`, transition: 'height 900ms cubic-bezier(0.22,1,0.36,1)' }}
               />
-              <span className="text-[10px] whitespace-nowrap text-[#9a8b7a]">{bucket.label}</span>
+              <span className="text-[10px] whitespace-nowrap text-[var(--lv-faint)]">{bucket.label}</span>
             </div>
           );
         })}

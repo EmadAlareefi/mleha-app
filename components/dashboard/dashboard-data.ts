@@ -308,6 +308,25 @@ export function getVisibleDashboardServices({
 
   const dashboardServices = visibleServices.map(mapServiceDefinition);
 
+  // Shipping-only users get the live dashboard's shipping view.
+  if (
+    visibleServices.some((service) => service.key === 'shipping-board') &&
+    !visibleServices.some((service) => service.key === 'admin-order-prep')
+  ) {
+    dashboardServices.push({
+      key: 'warehouse-live',
+      sourceKey: 'shipping-board',
+      title: 'مركز قيادة الشحن',
+      description: 'شاشة كاملة مباشرة: المتبقي للشحن، الأعطال، الشاحنون، والإنتاجية بالساعة',
+      href: '/admin/order-prep/live',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: Warehouse,
+      accentClass: categoryAccentMap.orders,
+      priority: 78,
+    });
+  }
+
   // The packing board lives under /admin/order-prep and shares its permission.
   if (visibleServices.some((service) => service.key === 'admin-order-prep')) {
     dashboardServices.push({

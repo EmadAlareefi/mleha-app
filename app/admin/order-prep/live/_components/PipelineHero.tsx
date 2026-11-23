@@ -12,6 +12,7 @@ import { AnimatedNumber, Ring, Sparkline } from './primitives';
 import { clearTime } from '../_lib/metrics';
 import { HourlyChart } from './HourlyChart';
 import { useUrlParam } from './useUrlParam';
+import { useLiveMode } from './LiveMode';
 
 type Stage = {
   key: string;
@@ -42,6 +43,8 @@ export function PipelineHero({
   hourly: HourlyThroughput | null;
   hourlyError: string | null;
 }) {
+  const { scope } = useLiveMode();
+  const shippingOnly = scope === 'shipping';
   const [hourlyParam, setHourlyParam] = useUrlParam('hourly', '1');
   const showHourly = hourlyParam !== '0';
   const s = shipping?.byState ?? {};
@@ -50,7 +53,7 @@ export function PipelineHero({
   const activePackers = board ? board.packers.filter((packer) => packer.current).length : null;
   const slowLabels = shipping ? shipping.waitingByAge.h4to24 + shipping.waitingByAge.over24h : 0;
 
-  const stages: Stage[] = [
+  const allStages: Stage[] = [
     {
       key: 'queue',
       label: 'بانتظار التجهيز',
@@ -93,6 +96,7 @@ export function PipelineHero({
       tone: 'good',
     },
   ];
+  const stages = shippingOnly ? allStages.filter((stage) => stage.key !== 'queue' && stage.key !== 'packing') : allStages;
 
   // Share of the prep queue that is still under a day old.
   const fresh = board ? board.stats.buckets.lt24h : 0;
@@ -102,10 +106,12 @@ export function PipelineHero({
   const prepClear = board ? clearTime(board.stats.waiting, board.packedLastHour) : null;
   const shipBacklog = shipping ? (awaitingLabel ?? 0) + (s.label_ready ?? 0) : 0;
   const shipClear = shipping ? clearTime(shipBacklog, shipping.printedLastHour) : null;
-  const etas = [
+  const etasAll = [
     { key: 'prep', label: 'طابور التجهيز', ready: Boolean(board), eta: prepClear, pace: board ? `${board.packedLastHour}/س` : '' },
     { key: 'ship', label: 'الطباعة والشحن', ready: Boolean(shipping), eta: shipClear, pace: shipping ? `${shipping.printedLastHour}/س` : '' },
   ];
+  // Shipping-only users have no prep data: drop the prep stages and the prep clear time.
+  const etas = shippingOnly ? etasAll.filter((entry) => entry.key !== 'prep') : etasAll;
 
   return (
     <section className={cn(styles.hero, styles.enter, 'relative overflow-hidden rounded-3xl p-4 text-white shadow-[0_20px_50px_-20px_rgba(36,28,20,0.7)] xl:p-5')}>
@@ -115,6 +121,7 @@ export function PipelineHero({
         </p>
       )}
       <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch">
+        {!shippingOnly && (
         <div className="flex shrink-0 items-center gap-4 rounded-2xl bg-white/[0.06] px-4 py-3 ring-1 ring-white/10 xl:w-64">
           <Ring percent={health} size={78} stroke={8} color={healthColor}>
             <span className="text-lg font-black tabular-nums">{health}%</span>
@@ -127,6 +134,7 @@ export function PipelineHero({
             <p className="mt-0.5 text-[11px] text-white/50">نسبة الطلبات بالانتظار أقل من يوم</p>
           </div>
         </div>
+        )}
 
         <div className="flex shrink-0 flex-col justify-center gap-2 rounded-2xl bg-white/[0.06] px-4 py-3 ring-1 ring-white/10 xl:w-56">
           <p className="text-xs font-medium text-white/60">يُنجز بالوتيرة الحالية خلال</p>
@@ -153,7 +161,7 @@ export function PipelineHero({
           <p className="text-[10px] text-white/40">المتبقي ÷ ما أُنجز في آخر ساعة</p>
         </div>
 
-        <ol className="grid flex-1 grid-cols-2 gap-3 md:grid-cols-5 md:gap-0">
+        <ol className={cn('grid flex-1 grid-cols-2 gap-3 md:gap-0', shippingOnly ? 'md:grid-cols-3' : 'md:grid-cols-5')}>
           {stages.map((stage, index) => {
             const next = stages[index + 1];
             const flowing = (stage.value ?? 0) > 0;

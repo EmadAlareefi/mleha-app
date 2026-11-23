@@ -8,7 +8,7 @@ import type { ShippingBoardData } from '@/app/lib/shipping/board';
 import { cn } from '@/lib/utils';
 import { Panel, PanelSkeleton } from './primitives';
 
-const field = 'w-full rounded-xl border border-[#e3d5c3] bg-white p-2.5 text-sm outline-none transition focus:border-[#8b6f47] focus:ring-4 focus:ring-[#8b6f47]/15';
+const field = 'w-full rounded-xl border border-[var(--lv-line)] bg-[var(--lv-card)] p-2.5 text-sm outline-none transition focus:border-[#8b6f47] focus:ring-4 focus:ring-[#8b6f47]/15';
 
 export function SettingsView({
   board,
@@ -102,7 +102,7 @@ export function SettingsView({
                 حفظ الإعدادات
               </button>
               {draft && (
-                <button type="button" onClick={() => setDraft(null)} className="rounded-xl border border-[#e3d5c3] px-5 py-2 text-sm">
+                <button type="button" onClick={() => setDraft(null)} className="rounded-xl border border-[var(--lv-line)] px-5 py-2 text-sm">
                   إلغاء
                 </button>
               )}
@@ -115,7 +115,7 @@ export function SettingsView({
         {!shipping ? (
           <PanelSkeleton />
         ) : !canManageShipping ? (
-          <p className="text-sm text-[#6b5d4f]">تغيير إعدادات الشحن متاح لمشرفي التجهيز فقط.</p>
+          <p className="text-sm text-[var(--lv-muted)]">تغيير إعدادات الشحن متاح لمشرفي التجهيز فقط.</p>
         ) : (
           <div className="space-y-3">
             <Switch
@@ -159,16 +159,16 @@ function Switch({
       aria-checked={value}
       disabled={disabled}
       onClick={() => onChange(!value)}
-      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[#efe4d6] bg-white p-3 text-right transition hover:border-[#c9a97a] disabled:opacity-50"
+      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--lv-line2)] bg-[var(--lv-card)] p-3 text-right transition hover:border-[#c9a97a] disabled:opacity-50"
     >
       <span>
-        <span className="block text-sm font-bold text-[#2c2416]">{label}</span>
-        <span className="block text-xs text-[#6b5d4f]">{hint}</span>
+        <span className="block text-sm font-bold text-[var(--lv-ink)]">{label}</span>
+        <span className="block text-xs text-[var(--lv-muted)]">{hint}</span>
       </span>
       <span className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors', value ? 'bg-emerald-500' : 'bg-stone-300')}>
         <span
           className={cn(
-            'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-300',
+            'absolute top-0.5 h-5 w-5 rounded-full bg-[var(--lv-card)] shadow transition-all duration-300',
             value ? 'right-0.5' : 'right-[calc(100%-1.375rem)]',
           )}
         />

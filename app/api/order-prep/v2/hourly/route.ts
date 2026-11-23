@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import { log } from '@/app/lib/logger';
 import { getHourlyThroughput } from '@/app/lib/order-prep/hourly';
-import { requireBoardUser } from '@/app/lib/order-prep/route-auth';
+import { requireShippingBoardUser } from '@/app/lib/order-prep/route-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** Today's placed / packed / printed per Riyadh hour, with yesterday for comparison. */
 export async function GET() {
-  const auth = await requireBoardUser();
+  // Aggregate counts only, so shipping-board users may see them on their view too.
+  const auth = await requireShippingBoardUser();
   if ('response' in auth) return auth.response;
   try {
     return NextResponse.json({ success: true, hourly: await getHourlyThroughput() });

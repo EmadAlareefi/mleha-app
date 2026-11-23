@@ -10,6 +10,7 @@ import { StageStepper } from '@/app/admin/order-prep/stuck/_components/StageStep
 import styles from '../live.module.css';
 import { EmptyNote, Panel, PanelSkeleton } from './primitives';
 import { useUrlParam } from './useUrlParam';
+import { useLiveMode } from './LiveMode';
 
 const PAGE = 30;
 
@@ -60,7 +61,7 @@ export function StuckPanel({
       delay={delay}
       stale={stale}
       actions={
-        <div className="flex rounded-lg bg-[#f5ebe0] p-0.5 text-[11px] font-bold" role="radiogroup" aria-label="مدة التعليق">
+        <div className="flex rounded-lg bg-[var(--lv-chip)] p-0.5 text-[11px] font-bold" role="radiogroup" aria-label="مدة التعليق">
           {THRESHOLD_OPTIONS.map((hours) => (
             <button
               key={hours}
@@ -71,7 +72,7 @@ export function StuckPanel({
                 onThreshold(hours);
                 setLimit(PAGE);
               }}
-              className={cn('rounded-md px-2 py-1 transition', threshold === hours ? 'bg-white text-[#2c2416] shadow-sm' : 'text-[#6b5d4f] hover:text-[#2c2416]')}
+              className={cn('rounded-md px-2 py-1 transition', threshold === hours ? 'bg-[var(--lv-card)] text-[var(--lv-ink)] shadow-sm' : 'text-[var(--lv-muted)] hover:text-[var(--lv-ink)]')}
             >
               {THRESHOLD_LABELS[hours]}
             </button>
@@ -83,7 +84,7 @@ export function StuckPanel({
         <PanelSkeleton rows={6} />
       ) : (
         <>
-          <div className="space-y-1 border-b border-[#efe4d6] p-3">
+          <div className="space-y-1 border-b border-[var(--lv-line2)] p-3">
             <div className="mb-2 flex items-center gap-2 text-[11px]">
               {critical > 0 && (
                 <span className={cn('rounded-full bg-rose-600 px-2 py-0.5 font-bold text-white', styles.breathe)}>{critical} حرجة</span>
@@ -94,7 +95,7 @@ export function StuckPanel({
                   setCategory(null);
                   setShowHeld(false);
                 }}
-                className={cn('rounded-full px-2 py-0.5 font-bold', !category && !showHeld ? 'bg-[#3b2f22] text-white' : 'text-[#6b5d4f] hover:bg-[#f5ebe0]')}
+                className={cn('rounded-full px-2 py-0.5 font-bold', !category && !showHeld ? 'bg-[var(--lv-strong)] text-[var(--lv-strong-ink)]' : 'text-[var(--lv-muted)] hover:bg-[var(--lv-chip)]')}
               >
                 الكل {total}
               </button>
@@ -107,7 +108,7 @@ export function StuckPanel({
                   }}
                   className={cn(
                     'mr-auto flex items-center gap-1 rounded-full px-2 py-0.5 font-bold',
-                    showHeld ? 'bg-sky-100 text-sky-800' : 'text-[#6b5d4f] hover:bg-[#f5ebe0]',
+                    showHeld ? 'bg-sky-100 text-sky-800' : 'text-[var(--lv-muted)] hover:bg-[var(--lv-chip)]',
                   )}
                 >
                   <Hand className="h-3 w-3" /> معلّقة عمداً {result.heldCount}
@@ -131,20 +132,20 @@ export function StuckPanel({
                     }}
                     className={cn(
                       'group flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-right transition',
-                      active ? 'bg-[#f5ebe0]' : 'hover:bg-[#fbf7f2]',
+                      active ? 'bg-[var(--lv-chip)]' : 'hover:bg-[var(--lv-hover)]',
                     )}
                   >
                     <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-md', meta.chip)}>
                       <meta.Icon className="h-3.5 w-3.5" />
                     </span>
-                    <span className="w-28 shrink-0 truncate text-[11px] font-bold text-[#2c2416] 2xl:w-36">{meta.label}</span>
-                    <span className="relative h-2 flex-1 overflow-hidden rounded-full bg-[#f3eadf]">
+                    <span className="w-28 shrink-0 truncate text-[11px] font-bold text-[var(--lv-ink)] 2xl:w-36">{meta.label}</span>
+                    <span className="relative h-2 flex-1 overflow-hidden rounded-full bg-[var(--lv-track)]">
                       <span
                         className={cn('absolute inset-y-0 right-0 rounded-full', (summary?.critical ?? 0) > 0 ? 'bg-rose-500' : 'bg-[#c9a97a]')}
                         style={{ width: `${(count / maxCount) * 100}%`, transition: 'width 900ms cubic-bezier(0.22,1,0.36,1)' }}
                       />
                     </span>
-                    <span className="w-7 shrink-0 text-left text-xs font-black tabular-nums text-[#2c2416]">{count}</span>
+                    <span className="w-7 shrink-0 text-left text-xs font-black tabular-nums text-[var(--lv-ink)]">{count}</span>
                   </button>
                 );
               })}
@@ -162,7 +163,7 @@ export function StuckPanel({
                   <button
                     type="button"
                     onClick={() => setLimit((value) => value + PAGE)}
-                    className="w-full rounded-xl border border-dashed border-[#e3d5c3] py-2 text-xs font-bold text-[#6b5d4f] hover:bg-[#fbf7f2]"
+                    className="w-full rounded-xl border border-dashed border-[var(--lv-line)] py-2 text-xs font-bold text-[var(--lv-muted)] hover:bg-[var(--lv-hover)]"
                   >
                     عرض المزيد ({visible.length - limit})
                   </button>
@@ -192,7 +193,8 @@ function StuckRow({
   const { diagnosis } = item;
   const meta = diagnosis.category ? CATEGORY_META[diagnosis.category] : null;
   const critical = diagnosis.severity === 'critical';
-  const primary = diagnosis.actions[0];
+  const { kiosk } = useLiveMode();
+  const primary = kiosk ? undefined : diagnosis.actions[0];
   return (
     <li
       role="button"
@@ -207,8 +209,8 @@ function StuckRow({
       style={{ animationDelay: `${Math.min(index, 12) * 35}ms` }}
       className={cn(
         styles.enter,
-        'relative cursor-pointer overflow-hidden rounded-xl border bg-white p-2.5 transition hover:-translate-y-px hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#8b6f47] focus-visible:outline-none',
-        critical ? 'border-rose-200' : 'border-[#efe4d6]',
+        'relative cursor-pointer overflow-hidden rounded-xl border bg-[var(--lv-card)] p-2.5 transition hover:-translate-y-px hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#8b6f47] focus-visible:outline-none',
+        critical ? 'border-rose-200' : 'border-[var(--lv-line2)]',
       )}
     >
       <span aria-hidden className={cn('absolute inset-y-0 right-0 w-1', critical ? 'bg-rose-500' : 'bg-amber-400')} />
@@ -220,13 +222,13 @@ function StuckRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span dir="ltr" className="font-mono text-sm font-extrabold text-[#2c2416]">
+            <span dir="ltr" className="font-mono text-sm font-extrabold text-[var(--lv-ink)]">
               #{item.orderNumber ?? item.orderId}
             </span>
             {item.kind === 'return' && <span className="rounded-full bg-fuchsia-100 px-1.5 text-[10px] font-bold text-fuchsia-700">مرتجع</span>}
-            {item.customerCity && <span className="truncate text-[10px] text-[#9a8b7a]">{item.customerCity}</span>}
+            {item.customerCity && <span className="truncate text-[10px] text-[var(--lv-faint)]">{item.customerCity}</span>}
           </div>
-          <p className="truncate text-[11px] text-[#5c4f41]">{diagnosis.reason}</p>
+          <p className="truncate text-[11px] text-[var(--lv-ink2)]">{diagnosis.reason}</p>
         </div>
         <span
           className={cn(
