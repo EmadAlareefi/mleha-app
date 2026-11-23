@@ -6,6 +6,7 @@ import {
   requeueEscalation,
   resolveEscalation,
   retrySync,
+  retryAllFailedSync,
   saveSettings,
   type BoardActionResult,
 } from '@/app/lib/order-prep/board';
@@ -47,6 +48,10 @@ export async function POST(request: Request) {
       case 'retry_sync': {
         const jobId = id(body.jobId);
         result = jobId ? await retrySync(jobId) : { ok: false, error: 'jobId مطلوب' };
+        break;
+      }
+      case 'retry_all_sync': {
+        result = await retryAllFailedSync();
         break;
       }
       case 'dismiss_sync': {

@@ -262,6 +262,32 @@ export async function retryShippingTask(taskId: string) {
 }
 
 /** Supervisor: dealt with outside the system (cancelled, shipped by hand…). */
+/** Most failed tasks one bulk retry will reset. */
+export const BULK_TASK_LIMIT = 100;
+
+/**
+ * Send every failed shipping task back to the worker (up to BULK_TASK_LIMIT).
+ * Blocked tasks are left alone: they wait on something a person must fix
+ * (address, company, status), so retrying them would only fail again.
+ */
+export async function retryAllFailedShippingTasks() {
+  const tasks = await prisma.shippingTask.findMany({
+    where: { merchantId: MERCHANT_ID, state: 'failed' },
+    orderBy: { createdAt: 'asc' },
+    take: BULK_TASK_LIMIT,
+    select: { id: true },
+  });
+  let retried = 0;
+  for (const task of tasks) {
+    const result = await retryShippingTask(task.id).catch(() => ({ ok: false as const }));
+    if (result.ok) retried += 1;
+  }
+  return {
+    ok: true as const,
+    message: tasks.length === 0 ? 'لا توجد مهام فاشلة' : `أُعيدت ${retried} مهمة شحن للمحاولة${retried < tasks.length ? ` (تعذرت ${tasks.length - retried})` : ''}`,
+  };
+}
+
 export async function closeShippingTask(taskId: string) {
   await prisma.shippingTask.update({ where: { id: taskId }, data: { state: 'cancelled', lockedUntil: null } });
   return { ok: true as const, message: 'أُغلقت المهمة' };
