@@ -18,7 +18,7 @@ export function OrderSearch({ threshold, onOpen }: { threshold: number; onOpen: 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (event.key === '/' && target?.tagName !== 'INPUT' && target?.tagName !== 'TEXTAREA' && target?.tagName !== 'SELECT') {
+      if ((event.key === '/' || event.code === 'Slash') && !event.ctrlKey && !event.metaKey && target?.tagName !== 'INPUT' && target?.tagName !== 'TEXTAREA' && target?.tagName !== 'SELECT') {
         event.preventDefault();
         inputRef.current?.focus();
       }

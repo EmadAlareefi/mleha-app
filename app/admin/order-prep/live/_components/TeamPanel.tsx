@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
 import { AnimatedNumber, EmptyNote, Panel, PanelSkeleton, since } from './primitives';
 import { useUrlParam } from './useUrlParam';
+import { idleMinutes } from '../_lib/metrics';
 
 const initials = (name: string) =>
   name
@@ -41,7 +42,12 @@ export function TeamPanel({
   const maxPrinted = Math.max(1, ...shippers.map((shipper) => shipper.printedToday));
 
   // Busy first, then by output.
-  const sorted = [...packers].sort((a, b) => Number(Boolean(b.current)) - Number(Boolean(a.current)) || b.completedToday - a.completedToday);
+  const waiting = board?.stats.waiting ?? 0;
+  const idleById = new Map(packers.map((packer) => [packer.userId, idleMinutes(packer, waiting)]));
+  const idleCount = [...idleById.values()].filter((minutes) => minutes !== null).length;
+  // Working first, then idle-while-orders-wait (needs attention), then by output.
+  const rank = (packer: BoardPacker) => (packer.current ? 0 : (idleById.get(packer.userId) ?? null) !== null ? 1 : 2);
+  const sorted = [...packers].sort((a, b) => rank(a) - rank(b) || b.completedToday - a.completedToday);
 
   return (
     <Panel
@@ -50,6 +56,15 @@ export function TeamPanel({
       delay={delay}
       stale={stale}
       actions={
+        <>
+          {idleCount > 0 && (
+            <span
+              title="مجهِّزون بلا طلب منذ 15 دقيقة أو أكثر والطابور فيه طلبات"
+              className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800"
+            >
+              {idleCount} متوقف
+            </span>
+          )}
         <div className="flex rounded-lg bg-[#f5ebe0] p-0.5 text-[11px] font-bold">
           {(
             [
@@ -67,6 +82,7 @@ export function TeamPanel({
             </button>
           ))}
         </div>
+        </>
       }
     >
       {tab === 'packers' ? (
@@ -78,6 +94,7 @@ export function TeamPanel({
           <ul className="space-y-2 p-3">
             {sorted.map((packer, index) => {
               const slow = (packer.current?.minutes ?? 0) > 10;
+              const idle = idleById.get(packer.userId) ?? null;
               const scanRate = packer.completedToday > 0 ? Math.round((packer.scannedToday / packer.completedToday) * 100) : null;
               return (
                 <li
@@ -86,7 +103,7 @@ export function TeamPanel({
                   className={cn(
                     styles.enter,
                     'group relative overflow-hidden rounded-xl border bg-white p-2.5 transition hover:shadow-md',
-                    packer.current?.verifyIssue ? 'border-rose-200' : slow ? 'border-amber-200' : 'border-[#efe4d6]',
+                    packer.current?.verifyIssue ? 'border-rose-200' : slow || idle !== null ? 'border-amber-200 bg-amber-50/40' : 'border-[#efe4d6]',
                   )}
                 >
                   <div className="flex items-center gap-2.5">
@@ -121,7 +138,13 @@ export function TeamPanel({
                             {packer.next && <span dir="ltr" className="font-mono opacity-70">← #{packer.next.orderNumber}</span>}
                           </>
                         ) : (
-                          <span>متوقف{packer.lastCompletedAt ? ` · آخر طلب منذ ${since(packer.lastCompletedAt)}` : ''}</span>
+                          idle !== null ? (
+                            <span className="rounded bg-amber-100 px-1 font-bold text-amber-800">
+                              متوقف منذ {since(packer.lastCompletedAt)} والطابور فيه {waiting}
+                            </span>
+                          ) : (
+                            <span>متوقف{packer.lastCompletedAt ? ` · آخر طلب منذ ${since(packer.lastCompletedAt)}` : ''}</span>
+                          )
                         )}
                       </div>
                     </div>
