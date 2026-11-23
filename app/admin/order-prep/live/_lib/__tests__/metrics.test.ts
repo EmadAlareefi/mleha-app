@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BoardData, BoardPacker } from '@/app/lib/order-prep/board';
 import type { ShippingBoardData } from '@/app/lib/shipping/board';
-import { clearTime, compareSoFar, idleMinutes, interventionKeys, newKeys, since, staleNote } from '@/app/admin/order-prep/live/_lib/metrics';
+import { autoTheme, clearTime, compareSoFar, idleMinutes, interventionKeys, newKeys, since, staleNote } from '@/app/admin/order-prep/live/_lib/metrics';
 
 const NOW = Date.parse('2026-11-23T12:00:00Z');
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -90,4 +90,12 @@ test('compareSoFar: compares finished hours only, null before the first hour end
   assert.deepEqual(compareSoFar(today, yesterday, 3), { today: 15, yesterday: 10, deltaPct: 50 });
   assert.deepEqual(compareSoFar([1, 1], [0, 0], 2), { today: 2, yesterday: 0, deltaPct: null });
   assert.equal(compareSoFar([2, 2], [4, 4], 2)?.deltaPct, -50);
+});
+
+test('autoTheme: dark from 18:00 to 06:00 Riyadh time', () => {
+  assert.equal(autoTheme(Date.parse('2026-11-23T14:59:00Z')), 'light'); // 17:59 Riyadh
+  assert.equal(autoTheme(Date.parse('2026-11-23T15:00:00Z')), 'dark'); // 18:00 Riyadh
+  assert.equal(autoTheme(Date.parse('2026-11-23T23:30:00Z')), 'dark'); // 02:30 Riyadh
+  assert.equal(autoTheme(Date.parse('2026-11-24T02:59:00Z')), 'dark'); // 05:59 Riyadh
+  assert.equal(autoTheme(Date.parse('2026-11-24T03:00:00Z')), 'light'); // 06:00 Riyadh
 });

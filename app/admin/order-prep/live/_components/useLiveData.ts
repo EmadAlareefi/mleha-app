@@ -26,7 +26,9 @@ async function getJson(url: string) {
  * Polls the three warehouse feeds (prep board, shipping board, stuck orders)
  * while the tab is visible, and keeps a short in-memory history for trend lines.
  */
-export function useLiveData(threshold: number) {
+export function useLiveData(threshold: number, scope: 'full' | 'shipping' = 'full') {
+  // Shipping-only users: the prep board and stuck list would only answer 403.
+  const full = scope === 'full';
   const [board, setBoard] = useState<Source<BoardData>>(empty);
   const [shipping, setShipping] = useState<Source<ShippingBoardData>>(empty);
   const [stuck, setStuck] = useState<Source<StuckOrdersResult>>(empty);
@@ -92,17 +94,17 @@ export function useLiveData(threshold: number) {
   }, []);
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([loadBoard(), loadShipping(), loadStuck(true), loadHourly()]);
-  }, [loadBoard, loadShipping, loadStuck, loadHourly]);
+    await Promise.all(full ? [loadBoard(), loadShipping(), loadStuck(true), loadHourly()] : [loadShipping(), loadHourly()]);
+  }, [full, loadBoard, loadShipping, loadStuck, loadHourly]);
   const refreshAllRef = useRef(refreshAll);
   refreshAllRef.current = refreshAll;
 
   useEffect(() => {
-    void loadBoard();
+    if (full) void loadBoard();
     void loadShipping();
     const fast = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
-      void loadBoard();
+      if (full) void loadBoard();
       void loadShipping();
     }, FAST_MS);
     const onVisible = () => {
@@ -113,15 +115,16 @@ export function useLiveData(threshold: number) {
       window.clearInterval(fast);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [loadBoard, loadShipping]);
+  }, [full, loadBoard, loadShipping]);
 
   useEffect(() => {
+    if (!full) return;
     void loadStuck();
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void loadStuck();
     }, STUCK_MS);
     return () => window.clearInterval(timer);
-  }, [loadStuck, threshold]);
+  }, [full, loadStuck, threshold]);
 
   useEffect(() => {
     void loadHourly();

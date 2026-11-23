@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { autoTheme } from '../_lib/metrics';
 
 function readPref(key: string, fallback: boolean) {
   try {
@@ -133,4 +134,37 @@ export function useChime() {
   }, [enabled]);
 
   return { enabled, unlocked, setEnabled, play };
+}
+
+export type ThemeMode = 'light' | 'dark' | 'auto';
+const THEME_KEY = 'warehouse-live:theme';
+
+/** Light / dark / auto (by Riyadh time), remembered per browser. Re-evaluated every minute in auto. */
+export function useTheme() {
+  const [mode, setModeState] = useState<ThemeMode>('light');
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(THEME_KEY);
+      if (stored === 'light' || stored === 'dark' || stored === 'auto') setModeState(stored);
+    } catch {
+      /* default */
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeState(next);
+    try {
+      window.localStorage.setItem(THEME_KEY, next);
+    } catch {
+      /* this visit only */
+    }
+  }, []);
+
+  const cycle = useCallback(() => setMode(mode === 'light' ? 'dark' : mode === 'dark' ? 'auto' : 'light'), [mode, setMode]);
+  const resolved: 'light' | 'dark' = mode === 'auto' ? autoTheme(now) : mode;
+  return { mode, resolved, setMode, cycle };
 }

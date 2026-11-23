@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { BellRing, CheckCircle2, Globe2, RefreshCwOff, RotateCcw, Truck, TriangleAlert, Bike, X } from 'lucide-react';
+import { BellRing, CheckCircle2, ListRestart, Globe2, RefreshCwOff, RotateCcw, Truck, TriangleAlert, Bike, X } from 'lucide-react';
 import type { BoardData, BoardException, BoardSyncIssue } from '@/app/lib/order-prep/board';
 import type { BoardTask, ShippingBoardData } from '@/app/lib/shipping/board';
 import { STATE_LABELS } from '@/app/lib/shipping/rules';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
 import { Panel, PanelSkeleton, since } from './primitives';
 import { useUrlParam } from './useUrlParam';
+import { useLiveMode } from './LiveMode';
 
 const REASON_LABELS: Record<string, string> = {
   missing_items: 'نقص (X4)',
@@ -62,6 +63,7 @@ export function AlertsPanel({
   delay,
   freshKeys,
   stale,
+  onBulkRetry,
 }: {
   board: BoardData | null;
   shipping: ShippingBoardData | null;
@@ -72,9 +74,14 @@ export function AlertsPanel({
   /** Rows that appeared since the page last refreshed: highlighted for a few seconds. */
   freshKeys: Set<string>;
   stale?: string | null;
+  /** Retry every failed Salla sync / every failed shipping task. */
+  onBulkRetry: (kind: 'sync' | 'shipping', count: number) => void;
 }) {
+  const { kiosk, scope } = useLiveMode();
   const [rawFilter, setFilterParam] = useUrlParam('alerts', 'all');
-  const filter: Filter = FILTER_KEYS.includes(rawFilter as Filter) ? (rawFilter as Filter) : 'all';
+  const known = FILTER_KEYS.includes(rawFilter as Filter) ? (rawFilter as Filter) : 'all';
+  // A shared link may name a prep tab that shipping-only users don't have.
+  const filter: Filter = scope === 'shipping' && (known === 'exceptions' || known === 'sync') ? 'all' : known;
   const setFilter = (next: Filter) => setFilterParam(next);
 
   const rows = useMemo<Row[]>(() => {
@@ -153,7 +160,7 @@ export function AlertsPanel({
   // "All" = things that need a person; the waiting lists are their own tabs.
   const visible = filter === 'all' ? rows.filter((row) => row.kind !== 'international' && row.kind !== 'local') : rows.filter((row) => row.kind === filter);
 
-  const FILTERS: Array<[Filter, string]> = [
+  const ALL_FILTERS: Array<[Filter, string]> = [
     ['all', 'تحتاج تدخلاً'],
     ['exceptions', 'استثناءات التجهيز'],
     ['sync', 'مزامنة سلة'],
@@ -161,10 +168,26 @@ export function AlertsPanel({
     ['international', 'دولي'],
     ['local', 'مندوب'],
   ];
+  // Shipping-only users get no prep data, so no prep tabs.
+  const FILTERS = scope === 'shipping' ? ALL_FILTERS.filter(([key]) => key !== 'exceptions' && key !== 'sync') : ALL_FILTERS;
+
+  // Bulk retries only touch plain failures; conflicts and blocked tasks need a person each.
+  const failedSync = (board?.syncIssues ?? []).filter((job) => job.state === 'failed').length;
+  const failedTasks = (shipping?.problems ?? []).filter((task) => task.state === 'failed').length;
+  const bulk = kiosk
+    ? []
+    : [
+        ...(failedSync > 1 && (filter === 'all' || filter === 'sync')
+          ? [{ kind: 'sync' as const, count: failedSync, label: `أعد كل تحديثات سلة الفاشلة (${failedSync})` }]
+          : []),
+        ...(failedTasks > 1 && (filter === 'all' || filter === 'shipping')
+          ? [{ kind: 'shipping' as const, count: failedTasks, label: `أعد كل مهام الشحن الفاشلة (${failedTasks})` }]
+          : []),
+      ];
 
   return (
     <Panel title="مركز التنبيهات" Icon={BellRing} count={counts.all} tone="danger" delay={delay} stale={stale}>
-      <div className="sticky top-0 z-10 flex gap-1.5 overflow-x-auto border-b border-[#efe4d6] bg-white/95 px-3 py-2 backdrop-blur">
+      <div className="sticky top-0 z-10 flex gap-1.5 overflow-x-auto border-b border-[var(--lv-line2)] bg-[var(--lv-panel-solid)] px-3 py-2 backdrop-blur">
         {FILTERS.map(([key, label]) => (
           <button
             key={key}
@@ -172,26 +195,44 @@ export function AlertsPanel({
             onClick={() => setFilter(key)}
             className={cn(
               'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition',
-              filter === key ? 'border-[#3b2f22] bg-[#3b2f22] text-white' : 'border-[#e3d5c3] text-[#6b5d4f] hover:border-[#8b6f47] hover:text-[#2c2416]',
+              filter === key ? 'border-[var(--lv-strong)] bg-[var(--lv-strong)] text-[var(--lv-strong-ink)]' : 'border-[var(--lv-line)] text-[var(--lv-muted)] hover:border-[#8b6f47] hover:text-[var(--lv-ink)]',
             )}
           >
             {label}
-            <span className={cn('rounded-full px-1.5 tabular-nums', filter === key ? 'bg-white/20' : 'bg-[#f5ebe0]')}>{counts[key]}</span>
+            <span className={cn('rounded-full px-1.5 tabular-nums', filter === key ? 'bg-white/20' : 'bg-[var(--lv-chip)]')}>{counts[key]}</span>
           </button>
         ))}
       </div>
+      {bulk.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-b border-[var(--lv-line2)] bg-[var(--lv-hover)] px-3 py-1.5">
+          {bulk.map((entry) => (
+            <button
+              key={entry.kind}
+              type="button"
+              disabled={busy !== null}
+              onClick={() => onBulkRetry(entry.kind, entry.count)}
+              className={cn(
+                'flex items-center gap-1 rounded-md border border-[var(--lv-line)] bg-[var(--lv-card)] px-2 py-1 text-[11px] font-bold text-[var(--lv-ink2)] transition hover:border-[#8b6f47] hover:text-[var(--lv-ink)] disabled:opacity-50',
+                busy === `bulk:${entry.kind}` && 'animate-pulse',
+              )}
+            >
+              <ListRestart className="h-3.5 w-3.5" /> {entry.label}
+            </button>
+          ))}
+        </div>
+      )}
       {!board && !shipping ? (
         <PanelSkeleton rows={5} />
       ) : visible.length === 0 ? (
         <div className="flex h-[calc(100%-44px)] items-center justify-center">
           <div className="text-center">
             <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
-            <p className="mt-2 text-sm font-bold text-[#2c2416]">لا شيء يحتاج تدخلاً</p>
-            <p className="text-xs text-[#6b5d4f]">كل شيء يسير كما يجب</p>
+            <p className="mt-2 text-sm font-bold text-[var(--lv-ink)]">لا شيء يحتاج تدخلاً</p>
+            <p className="text-xs text-[var(--lv-muted)]">كل شيء يسير كما يجب</p>
           </div>
         </div>
       ) : (
-        <ul className="divide-y divide-[#f3eadf]">
+        <ul className="divide-y divide-[var(--lv-track)]">
           {visible.map((row, index) => {
             const style = KIND_STYLE[row.kind];
             const old = Date.now() - Date.parse(row.createdAt) > 24 * 3_600_000;
@@ -200,7 +241,7 @@ export function AlertsPanel({
               <li
                 key={row.key}
                 style={{ animationDelay: `${Math.min(index, 12) * 35}ms` }}
-                className={cn(styles.enter, 'relative px-3 py-2.5 transition hover:bg-[#fbf7f2]')}
+                className={cn(styles.enter, 'relative px-3 py-2.5 transition hover:bg-[var(--lv-hover)]')}
               >
                 {isFresh && <span aria-hidden className={cn('pointer-events-none absolute inset-0', styles.fresh)} />}
                 <span aria-hidden className={cn('absolute inset-y-2 right-0 w-1 rounded-l-full', style.bar)} />
@@ -213,22 +254,24 @@ export function AlertsPanel({
                       <button
                         type="button"
                         onClick={() => onOpenOrder(row.orderId)}
+                        // The order journey needs the prep-admin permission.
+                        disabled={scope === 'shipping'}
                         dir="ltr"
-                        className="font-mono text-sm font-extrabold text-[#2c2416] underline-offset-2 hover:text-[#8b6f47] hover:underline"
+                        className="font-mono text-sm font-extrabold text-[var(--lv-ink)] underline-offset-2 hover:text-[#8b6f47] hover:underline disabled:pointer-events-none"
                       >
                         #{row.orderNumber}
                       </button>
                       {isFresh && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-black text-white">جديد</span>}
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold', row.badge.className)}>{row.badge.text}</span>
-                      <span className="text-[11px] text-[#6b5d4f]">{row.title}</span>
-                      <span className={cn('mr-auto text-[10px] tabular-nums', old ? 'font-bold text-rose-600' : 'text-[#9a8b7a]')}>
+                      <span className="text-[11px] text-[var(--lv-muted)]">{row.title}</span>
+                      <span className={cn('mr-auto text-[10px] tabular-nums', old ? 'font-bold text-rose-600' : 'text-[var(--lv-faint)]')}>
                         منذ {since(row.createdAt)}
                       </span>
                     </div>
-                    {row.detail && <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#5c4f41]">{row.detail}</p>}
-                    {(row.actions.length > 0 || row.meta) && (
+                    {row.detail && <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[var(--lv-ink2)]">{row.detail}</p>}
+                    {((!kiosk && row.actions.length > 0) || row.meta) && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        {row.actions.map((entry) => {
+                        {(kiosk ? [] : row.actions).map((entry) => {
                           const key = `${entry.action.type}:${entry.action.item.id}`;
                           return (
                             <button
@@ -241,8 +284,8 @@ export function AlertsPanel({
                                 entry.primary
                                   ? 'bg-[#8b6f47] text-white shadow-sm hover:bg-[#765d3a]'
                                   : entry.danger
-                                    ? 'border border-[#efe4d6] text-rose-700 hover:bg-rose-50'
-                                    : 'border border-[#efe4d6] text-[#5c4f41] hover:bg-[#f5ebe0]',
+                                    ? 'border border-[var(--lv-line2)] text-rose-700 hover:bg-rose-50'
+                                    : 'border border-[var(--lv-line2)] text-[var(--lv-ink2)] hover:bg-[var(--lv-chip)]',
                                 busy === key && 'animate-pulse',
                               )}
                             >
@@ -251,7 +294,7 @@ export function AlertsPanel({
                             </button>
                           );
                         })}
-                        {row.meta && <span className="mr-auto text-[10px] text-[#9a8b7a]">{row.meta}</span>}
+                        {row.meta && <span className="mr-auto text-[10px] text-[var(--lv-faint)]">{row.meta}</span>}
                       </div>
                     )}
                   </div>

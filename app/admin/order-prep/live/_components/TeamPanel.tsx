@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
 import { AnimatedNumber, EmptyNote, Panel, PanelSkeleton, since } from './primitives';
 import { useUrlParam } from './useUrlParam';
+import { useLiveMode } from './LiveMode';
 import { idleMinutes } from '../_lib/metrics';
 
 const initials = (name: string) =>
@@ -33,8 +34,10 @@ export function TeamPanel({
   delay?: number;
   stale?: string | null;
 }) {
+  const { kiosk, scope } = useLiveMode();
   const [rawTab, setTabParam] = useUrlParam('team', 'packers');
-  const tab: 'packers' | 'shippers' = rawTab === 'shippers' ? 'shippers' : 'packers';
+  // Shipping-only users have no packer data: always the shippers tab.
+  const tab: 'packers' | 'shippers' = scope === 'shipping' || rawTab === 'shippers' ? 'shippers' : 'packers';
   const setTab = (next: 'packers' | 'shippers') => setTabParam(next);
   const packers = board?.packers ?? [];
   const shippers = shipping?.shippers ?? [];
@@ -65,18 +68,20 @@ export function TeamPanel({
               {idleCount} متوقف
             </span>
           )}
-        <div className="flex rounded-lg bg-[#f5ebe0] p-0.5 text-[11px] font-bold">
+        <div className="flex rounded-lg bg-[var(--lv-chip)] p-0.5 text-[11px] font-bold">
           {(
-            [
-              ['packers', `المجهِّزون ${packers.length}`],
-              ['shippers', `الشاحنون ${shippers.length}`],
-            ] as const
+            (scope === 'shipping'
+              ? [['shippers', `الشاحنون ${shippers.length}`]]
+              : [
+                  ['packers', `المجهِّزون ${packers.length}`],
+                  ['shippers', `الشاحنون ${shippers.length}`],
+                ]) as Array<readonly ['packers' | 'shippers', string]>
           ).map(([key, label]) => (
             <button
               key={key}
               type="button"
               onClick={() => setTab(key)}
-              className={cn('rounded-md px-2.5 py-1 transition', tab === key ? 'bg-white text-[#2c2416] shadow-sm' : 'text-[#6b5d4f] hover:text-[#2c2416]')}
+              className={cn('rounded-md px-2.5 py-1 transition', tab === key ? 'bg-[var(--lv-card)] text-[var(--lv-ink)] shadow-sm' : 'text-[var(--lv-muted)] hover:text-[var(--lv-ink)]')}
             >
               {label}
             </button>
@@ -102,15 +107,15 @@ export function TeamPanel({
                   style={{ animationDelay: `${index * 45}ms` }}
                   className={cn(
                     styles.enter,
-                    'group relative overflow-hidden rounded-xl border bg-white p-2.5 transition hover:shadow-md',
-                    packer.current?.verifyIssue ? 'border-rose-200' : slow || idle !== null ? 'border-amber-200 bg-amber-50/40' : 'border-[#efe4d6]',
+                    'group relative overflow-hidden rounded-xl border bg-[var(--lv-card)] p-2.5 transition hover:shadow-md',
+                    packer.current?.verifyIssue ? 'border-rose-200' : slow || idle !== null ? 'border-amber-200 bg-amber-50/40' : 'border-[var(--lv-line2)]',
                   )}
                 >
                   <div className="flex items-center gap-2.5">
                     <span
                       className={cn(
                         'relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-black',
-                        packer.current ? 'bg-emerald-100 text-emerald-800' : 'bg-[#f5ebe0] text-[#8b6f47]',
+                        packer.current ? 'bg-emerald-100 text-emerald-800' : 'bg-[var(--lv-chip)] text-[#8b6f47]',
                       )}
                     >
                       {initials(packer.name)}
@@ -123,13 +128,13 @@ export function TeamPanel({
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-bold text-[#2c2416]">{packer.name}</span>
+                        <span className="truncate text-sm font-bold text-[var(--lv-ink)]">{packer.name}</span>
                         {packer.current?.verifyIssue && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-600" />}
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-[#6b5d4f]">
+                      <div className="flex items-center gap-2 text-[11px] text-[var(--lv-muted)]">
                         {packer.current ? (
                           <>
-                            <span dir="ltr" className="font-mono font-bold text-[#2c2416]">#{packer.current.orderNumber}</span>
+                            <span dir="ltr" className="font-mono font-bold text-[var(--lv-ink)]">#{packer.current.orderNumber}</span>
                             {packer.current.minutes !== null && (
                               <span className={cn('flex items-center gap-0.5 rounded px-1', slow ? 'bg-amber-100 font-bold text-amber-800' : '')}>
                                 <Timer className="h-3 w-3" /> {packer.current.minutes} د
@@ -149,28 +154,28 @@ export function TeamPanel({
                       </div>
                     </div>
                     <div className="text-left">
-                      <div className="text-lg leading-none font-black text-[#2c2416]">
+                      <div className="text-lg leading-none font-black text-[var(--lv-ink)]">
                         <AnimatedNumber value={packer.completedToday} />
                       </div>
-                      <div className="text-[10px] text-[#6b5d4f]">
+                      <div className="text-[10px] text-[var(--lv-muted)]">
                         {packer.perHour ?? '—'}/س{scanRate !== null ? ` · مسح ${scanRate}%` : ''}
                       </div>
                     </div>
                   </div>
                   <div className="mt-2 flex items-center gap-2">
-                    <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[#f3eadf]">
+                    <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--lv-track)]">
                       <span
                         className="absolute inset-y-0 right-0 rounded-full bg-gradient-to-l from-[#8b6f47] to-[#c9a97a]"
                         style={{ width: `${(packer.completedToday / maxDone) * 100}%`, transition: 'width 900ms cubic-bezier(0.22,1,0.36,1)' }}
                       />
                       {packer.current && <span className={cn('absolute inset-0', styles.sheen)} />}
                     </div>
-                    {(packer.current || packer.next) && (
+                    {!kiosk && (packer.current || packer.next) && (
                       <button
                         type="button"
                         disabled={busy === `release-${packer.userId}`}
                         onClick={() => onRelease(packer)}
-                        className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg border border-[#efe4d6] px-2.5 py-1 text-[11px] font-semibold text-[#6b5d4f] transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 active:scale-95 disabled:opacity-40"
+                        className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg border border-[var(--lv-line2)] px-2.5 py-1 text-[11px] font-semibold text-[var(--lv-muted)] transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 active:scale-95 disabled:opacity-40"
                       >
                         <UserX className="h-3.5 w-3.5" /> إرجاع طلباته
                       </button>
@@ -191,24 +196,24 @@ export function TeamPanel({
             <li
               key={shipper.name}
               style={{ animationDelay: `${index * 45}ms` }}
-              className={cn(styles.enter, 'rounded-xl border border-[#efe4d6] bg-white p-2.5')}
+              className={cn(styles.enter, 'rounded-xl border border-[var(--lv-line2)] bg-[var(--lv-card)] p-2.5')}
             >
               <div className="flex items-center gap-2.5">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-100 text-xs font-black text-sky-800">
                   {initials(shipper.name)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-[#2c2416]">{shipper.name}</p>
-                  <p className="text-[11px] text-[#6b5d4f]">
+                  <p className="truncate text-sm font-bold text-[var(--lv-ink)]">{shipper.name}</p>
+                  <p className="text-[11px] text-[var(--lv-muted)]">
                     آخر بوليصة منذ {since(shipper.lastPrintedAt)}
                     {shipper.medianGapSeconds !== null ? ` · وتيرة ${shipper.medianGapSeconds} ث` : ''}
                   </p>
                 </div>
-                <span className="text-lg font-black text-[#2c2416]">
+                <span className="text-lg font-black text-[var(--lv-ink)]">
                   <AnimatedNumber value={shipper.printedToday} />
                 </span>
               </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#f3eadf]">
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--lv-track)]">
                 <span
                   className="block h-full rounded-full bg-gradient-to-l from-sky-600 to-sky-300"
                   style={{ width: `${(shipper.printedToday / maxPrinted) * 100}%`, transition: 'width 900ms cubic-bezier(0.22,1,0.36,1)' }}

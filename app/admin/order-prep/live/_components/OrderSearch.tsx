@@ -99,9 +99,9 @@ export function OrderSearch({ threshold, onOpen }: { threshold: number; onOpen: 
       </span>
 
       {open && query.trim() && items && (
-        <div className="absolute inset-x-0 top-12 z-50 max-h-96 overflow-y-auto rounded-2xl border border-[#e3d5c3] bg-white p-1.5 text-[#2c2416] shadow-2xl">
+        <div className="absolute inset-x-0 top-12 z-50 max-h-96 overflow-y-auto rounded-2xl border border-[var(--lv-line)] bg-[var(--lv-card)] p-1.5 text-[var(--lv-ink)] shadow-2xl">
           {items.length === 0 ? (
-            <p className="p-4 text-center text-sm text-[#6b5d4f]">لم نجد طلباً بهذا البحث</p>
+            <p className="p-4 text-center text-sm text-[var(--lv-muted)]">لم نجد طلباً بهذا البحث</p>
           ) : (
             items.map((item) => {
               const meta = item.diagnosis.category ? CATEGORY_META[item.diagnosis.category] : null;
@@ -110,7 +110,7 @@ export function OrderSearch({ threshold, onOpen }: { threshold: number; onOpen: 
                   key={item.key}
                   type="button"
                   onClick={() => pick(item.orderId)}
-                  className="flex w-full items-center gap-2.5 rounded-xl p-2 text-right transition hover:bg-[#f5ebe0]"
+                  className="flex w-full items-center gap-2.5 rounded-xl p-2 text-right transition hover:bg-[var(--lv-chip)]"
                 >
                   <span
                     className={cn(
@@ -124,9 +124,9 @@ export function OrderSearch({ threshold, onOpen }: { threshold: number; onOpen: 
                         #{item.orderNumber ?? item.orderId}
                       </span>
                       {item.kind === 'return' && <span className="rounded-full bg-fuchsia-100 px-1.5 text-[10px] text-fuchsia-700">مرتجع</span>}
-                      {item.customerName && <span className="truncate text-xs text-[#6b5d4f]">{item.customerName}</span>}
+                      {item.customerName && <span className="truncate text-xs text-[var(--lv-muted)]">{item.customerName}</span>}
                     </span>
-                    <span className="block truncate text-[11px] text-[#6b5d4f]">{item.diagnosis.reason}</span>
+                    <span className="block truncate text-[11px] text-[var(--lv-muted)]">{item.diagnosis.reason}</span>
                   </span>
                   {item.diagnosis.stuck ? (
                     <span className={cn('shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold', meta?.chip ?? 'bg-amber-100 text-amber-900')}>
