@@ -14,6 +14,7 @@ import {
   outcomeTargetStatusId,
 } from './problem-rules';
 import { placedAtCutoff, riyadhStartOfDayUtc, toSqlTimestamp } from './riyadh-time';
+import { lockPrepQueue } from './claim-lock';
 import { getPrepSettings, type PrepSettings } from './settings';
 import { NEW_ORDER_STATUS_ID } from './sync-rules';
 import { loadLastStops, type StopReason } from './stop-reason';
@@ -71,7 +72,9 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Orders a packer may be given: "طلب جديد", paid, untouched, not blocked.
+ * Orders a packer may be given: "طلب جديد", paid, untouched, not blocked, and
+ * not being changed by their customer right now (CustomerOrderChange hold), and
+ * not waiting for its customer to complete the shipping info (ShippingInfoRequest).
  * A replacement order the returns app created waits until its return passed
  * inspection (exchangeOrderHoldActive) — the Salla hold status alone can lag the
  * payment webhook by a few seconds. Fully covered replacements stay "pending
@@ -102,6 +105,14 @@ function eligibleWhere(ctx: QueueContext): Prisma.Sql {
       WHERE e."merchantId" = s."merchantId" AND e."orderId" = s."orderId" AND e."resolvedAt" IS NULL
     )
     AND NOT EXISTS (SELECT 1 FROM "OrderDoNotShipFlag" d WHERE d."merchantId" = s."merchantId" AND d."orderId" = s."orderId")
+    AND NOT EXISTS (
+      SELECT 1 FROM "CustomerOrderChange" c
+      WHERE c."merchantId" = s."merchantId" AND c."orderId" = s."orderId" AND c."holdActive" = true
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM "ShippingInfoRequest" si
+      WHERE si."merchantId" = s."merchantId" AND si."orderId" = s."orderId" AND si."holdActive" = true
+    )
     AND NOT (s."orderId" = ANY(${ctx.violatorIds}::text[]))
   `;
 }
@@ -150,7 +161,7 @@ async function pickOrderIds(
 }
 
 async function lockQueue(tx: Tx) {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`order-prep-claim:${MERCHANT_ID}`}))::text`;
+  await lockPrepQueue(tx, MERCHANT_ID);
 }
 
 /** Drops v2 claims whose lease ran out; v1 rows (no lease) are never touched. */
@@ -350,6 +361,34 @@ async function findOwnRow(tx: Tx, user: PrepUser, assignmentId: string, orderId:
 async function isOrderFree(tx: Tx, ctx: QueueContext, orderId: string) {
   const ids = await pickOrderIds(tx, ctx, { limit: 1, only: [orderId] });
   return ids.length === 1;
+}
+
+/**
+ * Runs `work` only if no packer holds the order and the queue could still hand
+ * it out, under the same lock packers claim with. `work` must insert the
+ * CustomerOrderChange hold row, which takes the order out of the queue in the
+ * same transaction: after it commits, the order cannot be claimed.
+ *
+ * Expired leases are deliberately not cleared first. A packer whose lease
+ * lapsed may still be standing at the shelf with the parcel, so the customer
+ * loses to any claim row.
+ */
+export async function withCustomerHold<T>(
+  orderId: string,
+  work: (tx: Tx) => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; reason: 'not_free' }> {
+  const ctx = await loadQueueContext();
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await lockQueue(tx);
+      if (!(await isOrderFree(tx, ctx, orderId))) return { ok: false as const, reason: 'not_free' as const };
+      return { ok: true as const, value: await work(tx) };
+    }, TX_OPTIONS);
+  } catch (error) {
+    // The partial unique index on active holds: another change got there first.
+    if (isUniqueViolation(error)) return { ok: false, reason: 'not_free' };
+    throw error;
+  }
 }
 
 function withItemChecks(orderData: Prisma.JsonValue, checks: ItemCheck[], shortages: ProblemItem[]) {

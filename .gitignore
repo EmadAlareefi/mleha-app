@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Local operational imports (upload through the size-guide dashboard)
 /sizes.xlsx
+
+# Local script logs (contain customer phone numbers)
+scripts/output/

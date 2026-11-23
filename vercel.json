@@ -50,6 +50,14 @@
     {
       "path": "/api/shipping-v2/reconcile",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/order-manage/worker",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/shipping-info/worker",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

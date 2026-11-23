@@ -19,6 +19,7 @@ import {
 } from '@/app/lib/order-prep-salla-status';
 import { checkOrderPromoLimit, getPromoProductIds } from '@/app/lib/promo-limit';
 import { getViolatingPromoOrderIds } from '@/app/lib/promo-limit-monitor';
+import { lockPrepQueue } from '@/app/lib/order-prep/claim-lock';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
 const SALLA_API_BASE = 'https://api.salla.dev/admin/v2';
@@ -234,7 +235,7 @@ export async function assignOldestOrderToUser(
     ...[...promoWindow].sort((a, b) => (promoRanks.get(extractOrderId(a) || '') ?? 2) - (promoRanks.get(extractOrderId(b) || '') ?? 2)),
   ];
 
-  const [existingAssignments, existingShipments, escalatedOrders] = await Promise.all([
+  const [existingAssignments, existingShipments, escalatedOrders, shippingInfoHolds] = await Promise.all([
     prisma.orderPrepAssignment.findMany({
       where: { merchantId: MERCHANT_ID, orderId: { in: orderIds } },
       select: { orderId: true },
@@ -251,16 +252,22 @@ export async function assignOldestOrderToUser(
       },
       select: { orderId: true },
     }),
+    // International orders waiting for their customer to complete the shipping info.
+    prisma.shippingInfoRequest.findMany({
+      where: { merchantId: MERCHANT_ID, orderId: { in: orderIds }, holdActive: true },
+      select: { orderId: true },
+    }),
   ]);
 
   const assignedIds = new Set(existingAssignments.map((record) => record.orderId));
   const shippedIds = new Set(existingShipments.map((record) => record.orderId));
   const escalatedIds = new Set(escalatedOrders.map((record) => record.orderId));
+  const shippingInfoHeldIds = new Set(shippingInfoHolds.map((record) => record.orderId));
   const promoViolatorIds = await promoViolatorsPromise;
 
   for (const order of orderedCandidates) {
     const orderId = extractOrderId(order);
-    if (!orderId || assignedIds.has(orderId) || escalatedIds.has(orderId)) {
+    if (!orderId || assignedIds.has(orderId) || escalatedIds.has(orderId) || shippingInfoHeldIds.has(orderId)) {
       continue;
     }
 
@@ -329,6 +336,19 @@ export async function assignOldestOrderToUser(
           await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`order-prep-assign:${user.id}`}))::text`;
           const heldNow = await findHeldAssignment(user.id, tx);
           if (heldNow) return { kind: 'held' as const, record: heldNow };
+          // Same lock customer self-service takes before holding an order, so
+          // an order the customer is changing is never handed to a packer.
+          await lockPrepQueue(tx, MERCHANT_ID);
+          const customerHold = await tx.customerOrderChange.findFirst({
+            where: { merchantId: MERCHANT_ID, orderId, holdActive: true },
+            select: { id: true },
+          });
+          if (customerHold) return { kind: 'customer_hold' as const };
+          const shippingInfoHold = await tx.shippingInfoRequest.findFirst({
+            where: { merchantId: MERCHANT_ID, orderId, holdActive: true },
+            select: { id: true },
+          });
+          if (shippingInfoHold) return { kind: 'customer_hold' as const };
           const created = await tx.orderPrepAssignment.create({
             data: {
               merchantId: MERCHANT_ID,
@@ -345,6 +365,10 @@ export async function assignOldestOrderToUser(
         { maxWait: 10_000, timeout: 15_000 },
       );
       if (outcome.kind === 'held') return serializeAssignment(outcome.record);
+      if (outcome.kind === 'customer_hold') {
+        log.info('Skipping order held by its customer', { orderId });
+        continue;
+      }
       const assignment = outcome.record;
 
       log.info('Assigned new Salla order to user', {

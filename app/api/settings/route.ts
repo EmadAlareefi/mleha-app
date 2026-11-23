@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 
     // Get all settings
     const settings = await prisma.settings.findMany({
-      where: { NOT: { key: { startsWith: EXPENSE_CREDENTIAL_SETTINGS_PREFIX } } },
+      where: { NOT: [{ key: { startsWith: EXPENSE_CREDENTIAL_SETTINGS_PREFIX } }, { key: { startsWith: 'lock:' } }] },
       orderBy: { key: 'asc' },
     });
 

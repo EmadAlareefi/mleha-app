@@ -20,6 +20,7 @@ import {
 import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import { detectInternationalOrder } from '@/app/lib/order-destination';
 import { promoLimitBlock } from '@/app/lib/promo-limit';
+import { CUSTOMER_HOLD_MESSAGE, isOrderHeldByCustomer } from '@/app/lib/order-manage/hold';
 import { normalizePhoneWithDialCode } from '@/app/lib/phone';
 
 const SHIPPING_PRINTER_OVERRIDES: Record<string, number> = {
@@ -271,6 +272,9 @@ export async function POST(request: NextRequest) {
         { success: false, code: 'do_not_ship', error: 'هذا الطلب موقوف عن الشحن (لا تشحن). راجع المشرف.' },
         { status: 409 }
       );
+    }
+    if (await isOrderHeldByCustomer(String(body.merchantId), String(order.id))) {
+      return NextResponse.json({ success: false, code: 'customer_hold', error: CUSTOMER_HOLD_MESSAGE }, { status: 409 });
     }
 
     // Extract shipping information

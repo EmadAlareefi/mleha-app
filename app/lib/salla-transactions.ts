@@ -108,6 +108,15 @@ export function setSallaTransactionsTransport(value: SallaTransport | null) {
   transport = value ?? productionTransport;
 }
 
+/**
+ * One Salla Merchant API call through the shared transport (and its test
+ * hook). Throws SallaCallError; `outcomeUnknown` marks a write that may have
+ * happened and must not be sent again automatically.
+ */
+export function callSalla(merchantId: string, method: string, path: string, body?: unknown): Promise<any> {
+  return transport.call(merchantId, method, path, body);
+}
+
 export const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
 export async function listOrderTransactions(merchantId: string, orderId: string): Promise<SallaTransaction[]> {

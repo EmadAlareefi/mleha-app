@@ -324,6 +324,30 @@ export function getVisibleDashboardServices({
       accentClass: categoryAccentMap.orders,
       priority: 78,
     });
+    dashboardServices.push({
+      key: 'customer-order-changes',
+      sourceKey: 'admin-order-prep',
+      title: 'تعديلات العملاء على الطلبات',
+      description: 'إلغاءات وتعديلات العملاء، الاسترجاع اليدوي، وإعدادات الخدمة',
+      href: '/admin/order-prep/customer-changes',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: ClipboardCheck,
+      accentClass: categoryAccentMap.orders,
+      priority: 76,
+    });
+    dashboardServices.push({
+      key: 'international-shipping-info',
+      sourceKey: 'admin-order-prep',
+      title: 'بيانات الشحن الدولي الناقصة',
+      description: 'طلبات دولية موقوفة حتى تستكمل العميلة الاسم الثلاثي والعنوان، مع الإعدادات',
+      href: '/admin/order-prep/shipping-info',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: MapPin,
+      accentClass: categoryAccentMap.orders,
+      priority: 75,
+    });
   }
 
   if (affiliateName) {

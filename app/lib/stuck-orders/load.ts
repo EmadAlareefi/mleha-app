@@ -68,8 +68,10 @@ export async function loadSnapshots(orderIds: string[]): Promise<OrderSnapshot[]
       orderBy: { receivedAt: 'asc' },
     }),
     prisma.orderDoNotShipFlag.findMany({ where }),
-    // Customer self-service holds (CustomerOrderChange) are not released yet.
-    Promise.resolve([] as { orderId: string; kind: string; state: string; createdAt: Date }[]),
+    prisma.customerOrderChange.findMany({
+      where: { ...where, holdActive: true },
+      select: { orderId: true, kind: true, state: true, createdAt: true },
+    }),
   ]);
 
   const one = <T extends { orderId: string }>(rows: T[]) => new Map(rows.map((row) => [row.orderId, row]));

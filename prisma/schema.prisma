@@ -2483,3 +2483,104 @@ model HermesAuditLog {
   @@index([createdAt])
   @@index([action, createdAt])
 }
+
+/// Customer order self-service: one row per sign-in attempt on /my-order — the
+/// one-time code sent to the order's mobile, then the session it opens.
+model CustomerOrderAccess {
+  id               String    @id @default(cuid())
+  merchantId       String
+  orderId          String
+  orderNumber      String?
+  channel          String // 'whatsapp' | 'sms'
+  /// HMAC of the code; the code itself is never stored.
+  codeHash         String
+  codeExpiresAt    DateTime
+  attempts         Int       @default(0)
+  verifiedAt       DateTime?
+  /// SHA-256 of the session cookie value.
+  sessionTokenHash String?   @unique
+  sessionExpiresAt DateTime?
+  revokedAt        DateTime?
+  ipHash           String?
+  createdAt        DateTime  @default(now())
+
+  @@index([merchantId, orderId, createdAt])
+  @@index([ipHash, createdAt])
+}
+
+/// Customer order self-service: one row per customer action (cancel, address,
+/// swap, items). It is the audit log, and while `holdActive` is true it is the
+/// hold that keeps the order away from packers and shippers. A partial unique
+/// index (migration SQL only) allows one active hold per order.
+model CustomerOrderChange {
+  id                  String    @id @default(cuid())
+  merchantId          String
+  orderId             String
+  orderNumber         String?
+  kind                String // cancel | address | swap | items
+  state               String    @default("held") // held | applying | awaiting_payment | completed | failed | needs_staff
+  holdActive          Boolean   @default(true)
+  idempotencyKey      String    @unique
+  accessId            String?
+  ipHash              String?
+  request             Json
+  before              Json?
+  after               Json?
+  steps               Json?
+  writeStatus         String    @default("none") // none | requested | done | failed | unknown
+  lastError           String?   @db.Text
+  paymentMethod       String?
+  amountDelta         Decimal?  @db.Decimal(12, 2)
+  currency            String?
+  refundStatus        String    @default("none") // none | not_needed | requested | refunded | manual | failed | unknown
+  refundAmount        Decimal?  @db.Decimal(12, 2)
+  refundTransactionId String?
+  refundedAt          DateTime?
+  refundError         String?   @db.Text
+  paymentStatus       String?
+  paymentUrl          String?
+  paymentExpiresAt    DateTime?
+  resolvedById        String?
+  resolvedByName      String?
+  resolvedAt          DateTime?
+  staffNote           String?   @db.Text
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  completedAt         DateTime?
+
+  @@index([merchantId, orderId])
+  @@index([state, updatedAt])
+  @@index([refundStatus, createdAt])
+}
+
+/// International order held until the customer completes its shipping info
+/// (3-part name, district, street) through a signed link sent on WhatsApp.
+/// While holdActive is true the order stays out of the prep queue.
+model ShippingInfoRequest {
+  id               String    @id @default(cuid())
+  merchantId       String
+  orderId          String
+  orderNumber      String?
+  status           String    @default("pending") // pending | applied | failed | released | cancelled
+  holdActive       Boolean   @default(true)
+  missingFields    String[]
+  country          String?
+  customerPhone    String?
+  customerName     String?
+  originalStatusId String?
+  holdStatusSet    Boolean   @default(false)
+  sentAt           DateTime?
+  sendError        String?   @db.Text
+  reminderSentAt   DateTime?
+  submittedAt      DateTime?
+  submittedData    Json?
+  attempts         Int       @default(0)
+  appliedAt        DateTime?
+  lastError        String?   @db.Text
+  resolvedByName   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([merchantId, orderId])
+  @@index([status, createdAt])
+}

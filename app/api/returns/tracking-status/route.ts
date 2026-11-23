@@ -5,6 +5,8 @@ import { syncReturnShipment } from '@/app/lib/returns/return-shipment-sync';
 
 export const runtime = 'nodejs';
 
+const WAYBILL_STUCK_AFTER_MS = 2 * 60 * 1000;
+
 /**
  * GET /api/returns/tracking-status
  *
@@ -63,7 +65,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ready: true, trackingNumber: sync.trackingNumber });
     }
 
-    return NextResponse.json({ ready: false, trackingNumber: null });
+    // Salla normally issues the waybill within a minute or two. Past the
+    // threshold the customer is told plainly instead of watching a spinner, and
+    // staff get a log line to chase; polling here keeps retrying the sync.
+    const stuck = Date.now() - returnRequest.createdAt.getTime() > WAYBILL_STUCK_AFTER_MS;
+    if (stuck) {
+      log.warn('Return waybill not issued yet', {
+        returnRequestId: returnRequest.id,
+        orderNumber: returnRequest.orderNumber,
+        minutes: Math.round((Date.now() - returnRequest.createdAt.getTime()) / 60000),
+      });
+    }
+    return NextResponse.json({ ready: false, trackingNumber: null, stuck });
   } catch (error) {
     log.error('Error checking return tracking status', { error });
     return NextResponse.json(

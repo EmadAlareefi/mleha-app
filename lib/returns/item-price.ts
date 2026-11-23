@@ -97,3 +97,15 @@ export function getReturnLineAmount(
   const quantity = Number.isFinite(returnQuantity) ? Math.max(0, returnQuantity) : 0;
   return roundCurrency(getOrderItemUnitPrice(item) * quantity);
 }
+
+/**
+ * List price of one unit before any discount (tax included), for display next
+ * to the net price when a coupon or offer brought the paid price down.
+ */
+export function getOrderItemUnitListPrice(item: PricedOrderItem | null | undefined): number {
+  if (!item) return 0;
+  const priceWithoutTax = toAmount(item.amounts?.price_without_tax?.amount);
+  const tax = toAmount(item.amounts?.tax?.amount);
+  if (priceWithoutTax === null && tax === null) return getOrderItemUnitPrice(item);
+  return roundCurrency(Math.max(0, (priceWithoutTax ?? 0) + (tax ?? 0)));
+}

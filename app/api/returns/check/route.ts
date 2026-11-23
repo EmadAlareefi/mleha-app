@@ -1,6 +1,7 @@
 import { ONE_RIYAL_OFFER_ERROR } from '@/lib/returns/categories';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import type { Prisma } from '@prisma/client';
 import { log } from '@/app/lib/logger';
 import { getSallaOrder, getSallaOrderShipments } from '@/app/lib/salla-api';
 import { extractTrackingFromShipment } from '@/app/lib/salla-shipment';
@@ -16,6 +17,7 @@ import { extractAppliedCouponCodes } from '@/app/lib/returns/exchange-order';
 import { loadPieceRules, toPublicPieces } from '@/app/lib/returns/piece-context';
 import { isPhoneProofRequired, orderBelongsToPhone } from '@/app/lib/returns/customer-phone';
 import { isRateLimited } from '@/app/lib/returns/public-rate-limit';
+import { returnStatusPath } from '@/app/lib/returns/status-token';
 
 export const runtime = 'nodejs';
 
@@ -38,6 +40,43 @@ function toPublicItem(item: Record<string, unknown>) {
   return Object.fromEntries(PUBLIC_ITEM_FIELDS.map((key) => [key, item[key] ?? null]));
 }
 
+type ReturnWithItems = Prisma.ReturnRequestGetPayload<{ include: { items: true } }>;
+
+/** The customer-safe view of one of their requests. */
+function toPublicReturn(ret: ReturnWithItems) {
+  return {
+    id: ret.id,
+    type: ret.type,
+    status: ret.status,
+    reason: ret.reason,
+    reasonDetails: ret.reasonDetails,
+    smsaTrackingNumber: ret.smsaTrackingNumber,
+    totalRefundAmount: ret.totalRefundAmount,
+    couponAmount: ret.couponAmount,
+    returnFee: ret.returnFee,
+    shippingAmount: ret.shippingAmount,
+    currency: ret.currency,
+    feeExchangeRate: ret.feeExchangeRate,
+    feeExchangeRateSource: ret.feeExchangeRateSource,
+    createdAt: ret.createdAt,
+    statusUrl: returnStatusPath(ret.id),
+    items: ret.items.map((item) => toPublicItem(item as unknown as Record<string, unknown>)),
+  };
+}
+
+/**
+ * The order's open requests. Listed before the window and category checks so a
+ * customer who already sent a request keeps her tracking link and cancel
+ * button after the return window has closed.
+ */
+async function findOpenReturns(merchantId: string, orderId: string) {
+  return prisma.returnRequest.findMany({
+    where: { merchantId, orderId, status: { notIn: ['cancelled', 'rejected'] } },
+    include: { items: true },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 /**
  * POST /api/returns/check
  *
@@ -47,7 +86,10 @@ function toPublicItem(item: Record<string, unknown>) {
  */
 export async function POST(request: NextRequest) {
   if (isRateLimited(request, 'returns-check', 30)) {
-    return NextResponse.json({ error: 'طلبات كثيرة، حاول مرة أخرى بعد قليل' }, { status: 429 });
+    return NextResponse.json(
+      { error: 'محاولات كثيرة، يرجى المحاولة بعد دقيقة', errorCode: 'RATE_LIMITED', retryAfterSeconds: 60 },
+      { status: 429, headers: { 'Retry-After': '60' } },
+    );
   }
 
   try {
@@ -97,6 +139,18 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    const openReturns = await findOpenReturns(merchantId, String(orderId));
+    /** A blocking answer, unless the customer already has a request to follow. */
+    const blockedUnlessOpen = (blockBody: Record<string, unknown>) =>
+      openReturns.length > 0
+        ? NextResponse.json({
+            hasExistingReturns: true,
+            returns: openReturns.map(toPublicReturn),
+            canCreateNew: false,
+            pieces: [],
+          })
+        : NextResponse.json(blockBody, { status: 400 });
+
     // One Salla round-trip per product for categories, shared with the per-piece rules.
     const pieceRules = await loadPieceRules(merchantId, order);
     const windowOverride = pieceRules.windowOverride;
@@ -107,12 +161,12 @@ export async function POST(request: NextRequest) {
         orderId,
         orderDateCandidates: deliveryDateResult.fallbackCandidates,
       });
-      return NextResponse.json({
+      return blockedUnlessOpen({
         error: 'لا يمكن التحقق من تاريخ الطلب',
         errorCode: 'MISSING_ORDER_DATE',
         message: 'لم يتم العثور على تاريخ وصول الشحنة للتحقق من صلاحية الإرجاع.',
         canCreateNew: false,
-      }, { status: 400 });
+      });
     }
 
     const productIds = getProductIdsForOrderItems(order.items || []);
@@ -121,23 +175,23 @@ export async function POST(request: NextRequest) {
     const outletProductIds = getOutletProductIds(categoriesByProductId);
     const oneRiyalProductIds = getOneRiyalOfferProductIds(categoriesByProductId);
     if (productIds.length > 0 && productIds.every((productId) => oneRiyalProductIds.has(productId))) {
-      return NextResponse.json({
+      return blockedUnlessOpen({
         error: ONE_RIYAL_OFFER_ERROR,
         errorCode: 'ONE_RIYAL_OFFER_NOT_RETURNABLE',
         message: 'جميع منتجات هذا الطلب من عرض الريال الواحد، ولا يمكن إنشاء طلب إرجاع أو استبدال لها.',
         canCreateNew: false,
-      }, { status: 400 });
+      });
     }
     const fullyBlockedDiscountProductIds = new Set(
       Array.from(discountedProductIds).filter((productId) => !outletProductIds.has(productId))
     );
     if (productIds.length > 0 && productIds.every((productId) => fullyBlockedDiscountProductIds.has(productId))) {
-      return NextResponse.json({
+      return blockedUnlessOpen({
         error: 'منتجات التخفيضات غير قابلة للإرجاع أو الاستبدال',
         errorCode: 'DISCOUNTED_CATEGORY_NOT_RETURNABLE',
         message: 'جميع منتجات هذا الطلب ضمن فئات التخفيضات، ولا يمكن إنشاء طلب إرجاع أو استبدال لها.',
         canCreateNew: false,
-      }, { status: 400 });
+      });
     }
 
     // Evaluate the return window per item using each product's own category, so evening
@@ -162,7 +216,7 @@ export async function POST(request: NextRequest) {
         policyWindowHours: orderPolicy.windowHours,
       });
 
-      return NextResponse.json({
+      return blockedUnlessOpen({
         error: 'انتهت مدة الإرجاع المسموحة',
         errorCode: 'RETURN_PERIOD_EXPIRED',
         message: orderPolicy.message,
@@ -170,7 +224,7 @@ export async function POST(request: NextRequest) {
         deliveryDate: deliveryDateResult.date!.toISOString(),
         deliveryDateSource: deliveryDateResult.source,
         canCreateNew: false,
-      }, { status: 400 });
+      });
     }
 
     // Check if multiple requests are allowed
@@ -280,23 +334,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       hasExistingReturns: true,
-      returns: existingReturns.map(ret => ({
-        id: ret.id,
-        type: ret.type,
-        status: ret.status,
-        reason: ret.reason,
-        reasonDetails: ret.reasonDetails,
-        smsaTrackingNumber: ret.smsaTrackingNumber,
-        totalRefundAmount: ret.totalRefundAmount,
-        couponAmount: ret.couponAmount,
-        returnFee: ret.returnFee,
-        shippingAmount: ret.shippingAmount,
-        currency: ret.currency,
-        feeExchangeRate: ret.feeExchangeRate,
-        feeExchangeRateSource: ret.feeExchangeRateSource,
-        createdAt: ret.createdAt,
-        items: ret.items.map((item) => toPublicItem(item as unknown as Record<string, unknown>)),
-      })),
+      returns: existingReturns.map(toPublicReturn),
       // Category label per product, already loaded for the per-piece rules;
       // saves the page one Salla call per product.
       itemCategories: Object.fromEntries(
