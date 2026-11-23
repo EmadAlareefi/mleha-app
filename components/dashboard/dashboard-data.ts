@@ -24,6 +24,7 @@ import {
   ReceiptText,
   ScanSearch,
   Search,
+  SearchX,
   Settings,
   ShoppingBag,
   Target,
@@ -336,6 +337,18 @@ export function getVisibleDashboardServices({
         priority: 77,
       });
     }
+    dashboardServices.push({
+      key: 'stuck-orders',
+      sourceKey: 'admin-order-prep',
+      title: 'الطلبات العالقة',
+      description: 'طلبات توقفت في المستودع لأيام: أين توقفت ولماذا، مع البحث عن أي طلب',
+      href: '/admin/order-prep/stuck',
+      category: 'orders',
+      categoryLabel: categoryLabels.orders,
+      Icon: SearchX,
+      accentClass: categoryAccentMap.orders,
+      priority: 77,
+    });
   }
 
   if (affiliateName) {
