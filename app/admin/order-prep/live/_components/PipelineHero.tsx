@@ -1,14 +1,17 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { ClipboardList, PackageCheck, Printer, ScanLine, Ticket, type LucideIcon } from 'lucide-react';
+import { ChartColumn, ChevronUp, ClipboardList, PackageCheck, Printer, ScanLine, Ticket, type LucideIcon } from 'lucide-react';
 import type { BoardData } from '@/app/lib/order-prep/board';
+import type { HourlyThroughput } from '@/app/lib/order-prep/hourly';
 import type { ShippingBoardData } from '@/app/lib/shipping/board';
 import { formatAgeAr, orderAgeMs } from '@/app/lib/order-prep/riyadh-time';
 import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
 import { AnimatedNumber, Ring, Sparkline } from './primitives';
 import { clearTime } from '../_lib/metrics';
+import { HourlyChart } from './HourlyChart';
+import { useUrlParam } from './useUrlParam';
 
 type Stage = {
   key: string;
@@ -29,12 +32,18 @@ export function PipelineHero({
   shipping,
   history,
   stale,
+  hourly,
+  hourlyError,
 }: {
   board: BoardData | null;
   shipping: ShippingBoardData | null;
   history: { waiting: number[]; awaitingLabel: number[]; packed: number[] };
   stale?: string | null;
+  hourly: HourlyThroughput | null;
+  hourlyError: string | null;
 }) {
+  const [hourlyParam, setHourlyParam] = useUrlParam('hourly', '1');
+  const showHourly = hourlyParam !== '0';
   const s = shipping?.byState ?? {};
   const awaitingLabel = shipping ? (s.queued ?? 0) + (s.creating ?? 0) + (s.awaiting_label ?? 0) : null;
   const oldestAge = board ? orderAgeMs(board.stats.oldestPlacedAt) : null;
@@ -202,6 +211,29 @@ export function PipelineHero({
           })}
         </ol>
       </div>
+
+      {showHourly ? (
+        <div className={cn(styles.enter, 'relative mt-4')} style={{ animationDelay: '480ms' }}>
+          <button
+            type="button"
+            onClick={() => setHourlyParam('0')}
+            aria-label="إخفاء الإنتاجية بالساعة"
+            title="إخفاء الإنتاجية بالساعة"
+            className="absolute top-2 left-2 z-10 rounded-md p-1 text-white/40 transition hover:bg-white/10 hover:text-white"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+          <HourlyChart hourly={hourly} error={hourlyError} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setHourlyParam(null)}
+          className="mt-3 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold text-white/50 transition hover:bg-white/10 hover:text-white"
+        >
+          <ChartColumn className="h-3.5 w-3.5" /> اليوم ساعة بساعة
+        </button>
+      )}
     </section>
   );
 }

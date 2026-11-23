@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BoardData } from '@/app/lib/order-prep/board';
+import type { HourlyThroughput } from '@/app/lib/order-prep/hourly';
 import type { ShippingBoardData } from '@/app/lib/shipping/board';
 import type { StuckOrdersResult } from '@/app/lib/stuck-orders/types';
 
 const FAST_MS = 15_000;
 const STUCK_MS = 60_000;
+const HOURLY_MS = 5 * 60_000;
 const HISTORY = 40;
 
 type Source<T> = { data: T | null; error: string | null; loading: boolean; at: number | null };
@@ -28,6 +30,7 @@ export function useLiveData(threshold: number) {
   const [board, setBoard] = useState<Source<BoardData>>(empty);
   const [shipping, setShipping] = useState<Source<ShippingBoardData>>(empty);
   const [stuck, setStuck] = useState<Source<StuckOrdersResult>>(empty);
+  const [hourly, setHourly] = useState<Source<HourlyThroughput>>(empty);
   const [canManageShipping, setCanManageShipping] = useState(false);
   const [history, setHistory] = useState<{ waiting: number[]; awaitingLabel: number[]; packed: number[] }>({
     waiting: [],
@@ -67,19 +70,30 @@ export function useLiveData(threshold: number) {
     }
   }, []);
 
-  const loadStuck = useCallback(async () => {
+  /** `fresh` skips the server's 45 s cache (the manual refresh button). */
+  const loadStuck = useCallback(async (fresh = false) => {
     setStuck((prev) => ({ ...prev, loading: true }));
     try {
-      const body = await getJson(`/api/admin/stuck-orders?threshold=${thresholdRef.current}`);
+      const body = await getJson(`/api/admin/stuck-orders?threshold=${thresholdRef.current}${fresh ? '&fresh=1' : ''}`);
       setStuck({ data: body.result as StuckOrdersResult, error: null, loading: false, at: Date.now() });
     } catch (err) {
       setStuck((prev) => ({ ...prev, loading: false, error: err instanceof Error ? err.message : 'تعذر تحميل الطلبات العالقة' }));
     }
   }, []);
 
+  const loadHourly = useCallback(async () => {
+    setHourly((prev) => ({ ...prev, loading: true }));
+    try {
+      const body = await getJson('/api/order-prep/v2/hourly');
+      setHourly({ data: body.hourly as HourlyThroughput, error: null, loading: false, at: Date.now() });
+    } catch (err) {
+      setHourly((prev) => ({ ...prev, loading: false, error: err instanceof Error ? err.message : 'تعذر تحميل الإنتاجية بالساعة' }));
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([loadBoard(), loadShipping(), loadStuck()]);
-  }, [loadBoard, loadShipping, loadStuck]);
+    await Promise.all([loadBoard(), loadShipping(), loadStuck(true), loadHourly()]);
+  }, [loadBoard, loadShipping, loadStuck, loadHourly]);
   const refreshAllRef = useRef(refreshAll);
   refreshAllRef.current = refreshAll;
 
@@ -109,6 +123,14 @@ export function useLiveData(threshold: number) {
     return () => window.clearInterval(timer);
   }, [loadStuck, threshold]);
 
+  useEffect(() => {
+    void loadHourly();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadHourly();
+    }, HOURLY_MS);
+    return () => window.clearInterval(timer);
+  }, [loadHourly]);
+
   const lastAt = Math.max(board.at ?? 0, shipping.at ?? 0, stuck.at ?? 0) || null;
   const anyError = board.error || shipping.error || stuck.error;
   const loading = board.loading || shipping.loading || stuck.loading;
@@ -117,6 +139,7 @@ export function useLiveData(threshold: number) {
     board,
     shipping,
     stuck,
+    hourly,
     canManageShipping,
     history,
     lastAt,
@@ -125,6 +148,7 @@ export function useLiveData(threshold: number) {
     loadBoard,
     loadShipping,
     loadStuck,
+    loadHourly,
     refreshAll,
   };
 }
