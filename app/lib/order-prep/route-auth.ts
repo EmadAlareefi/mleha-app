@@ -53,7 +53,7 @@ export async function requireBoardUser(): Promise<{ actor: { id: string | null; 
 }
 
 /**
- * Shipping board (/admin/order-prep/shipping): its own shipping-board
+ * Shipping view of the live dashboard (/admin/order-prep/live): its own shipping-board
  * permission, or the whole admin-order-prep area. Only the latter may change
  * the global shipping switches or see the prep board's analytics.
  */

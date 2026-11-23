@@ -17,6 +17,16 @@ const nextConfig = {
       },
     ],
   },
+  async redirects() {
+    // The prep board, shipping board and stuck-orders pages were merged into the
+    // live dashboard; old bookmarks on warehouse screens land there. Redirects run
+    // before middleware, so shipping-board users are not refused on the old URL.
+    return ['board', 'shipping', 'stuck'].map((page) => ({
+      source: `/admin/order-prep/${page}`,
+      destination: '/admin/order-prep/live',
+      permanent: false,
+    }));
+  },
   async headers() {
     return [
       {

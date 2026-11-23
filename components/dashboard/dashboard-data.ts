@@ -24,7 +24,6 @@ import {
   ReceiptText,
   ScanSearch,
   Search,
-  SearchX,
   Settings,
   ShoppingBag,
   Target,
@@ -308,27 +307,11 @@ export function getVisibleDashboardServices({
 
   const dashboardServices = visibleServices.map(mapServiceDefinition);
 
-  // Shipping-only users get the live dashboard's shipping view.
-  if (
-    visibleServices.some((service) => service.key === 'shipping-board') &&
-    !visibleServices.some((service) => service.key === 'admin-order-prep')
-  ) {
-    dashboardServices.push({
-      key: 'warehouse-live',
-      sourceKey: 'shipping-board',
-      title: 'مركز قيادة الشحن',
-      description: 'شاشة كاملة مباشرة: المتبقي للشحن، الأعطال، الشاحنون، والإنتاجية بالساعة',
-      href: '/admin/order-prep/live',
-      category: 'orders',
-      categoryLabel: categoryLabels.orders,
-      Icon: Warehouse,
-      accentClass: categoryAccentMap.orders,
-      priority: 78,
-    });
-  }
-
   // The packing board lives under /admin/order-prep and shares its permission.
   if (visibleServices.some((service) => service.key === 'admin-order-prep')) {
+    // Their warehouse tile already includes the shipping view; don't show it twice.
+    const shippingIndex = dashboardServices.findIndex((service) => service.key === 'shipping-board');
+    if (shippingIndex !== -1) dashboardServices.splice(shippingIndex, 1);
     dashboardServices.push({
       key: 'warehouse-live',
       sourceKey: 'admin-order-prep',
@@ -340,45 +323,6 @@ export function getVisibleDashboardServices({
       Icon: Warehouse,
       accentClass: categoryAccentMap.orders,
       priority: 78,
-    });
-    dashboardServices.push({
-      key: 'order-prep-board',
-      sourceKey: 'admin-order-prep',
-      title: 'لوحة التجهيز المباشرة',
-      description: 'الطابور، المجهزون، المشاكل، ومزامنة سلة لحظة بلحظة',
-      href: '/admin/order-prep/board',
-      category: 'orders',
-      categoryLabel: categoryLabels.orders,
-      Icon: ClipboardCheck,
-      accentClass: categoryAccentMap.orders,
-      priority: 77,
-    });
-    // Users with the shipping-board permission already get it as its own tile.
-    if (!visibleServices.some((service) => service.key === 'shipping-board')) {
-      dashboardServices.push({
-        key: 'shipping-board',
-        sourceKey: 'admin-order-prep',
-        title: 'لوحة الشحن المباشرة',
-        description: 'الطلبات المجهزة بانتظار البوليصة، الأعطال، ووتيرة الشحن',
-        href: '/admin/order-prep/shipping',
-        category: 'orders',
-        categoryLabel: categoryLabels.orders,
-        Icon: Truck,
-        accentClass: categoryAccentMap.orders,
-        priority: 77,
-      });
-    }
-    dashboardServices.push({
-      key: 'stuck-orders',
-      sourceKey: 'admin-order-prep',
-      title: 'الطلبات العالقة',
-      description: 'طلبات توقفت في المستودع لأيام: أين توقفت ولماذا، مع البحث عن أي طلب',
-      href: '/admin/order-prep/stuck',
-      category: 'orders',
-      categoryLabel: categoryLabels.orders,
-      Icon: SearchX,
-      accentClass: categoryAccentMap.orders,
-      priority: 77,
     });
   }
 

@@ -1068,10 +1068,10 @@ export default function AdminOrderPrepPage() {
     <AppPageShell title="إدارة طلبات التحضير" subtitle="لوحة تحكم المسؤول">
       <div className="space-y-6">
           <a
-            href="/admin/order-prep/board"
+            href="/admin/order-prep/live"
             className="flex items-center justify-between rounded-xl border-2 border-emerald-500 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900"
           >
-            <span>لوحة المشرف الجديدة: قائمة الانتظار، المجهِّزون، الاستثناءات، ومزامنة سلة</span>
+            <span>مركز قيادة المستودع: التجهيز والشحن والطلبات العالقة والتنبيهات في شاشة واحدة</span>
             <span aria-hidden>←</span>
           </a>
           <Card>

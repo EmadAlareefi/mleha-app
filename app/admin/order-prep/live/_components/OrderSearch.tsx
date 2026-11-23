@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
 import type { StuckItem } from '@/app/lib/stuck-orders/types';
 import { cn } from '@/lib/utils';
-import { CATEGORY_META, formatAge } from '@/app/admin/order-prep/stuck/_components/labels';
+import { CATEGORY_META, formatAge } from './labels';
 
 /** Find any order (number, waybill, phone, name) and open its journey. Press / to focus. */
 export function OrderSearch({ threshold, onOpen }: { threshold: number; onOpen: (orderId: string) => void }) {
