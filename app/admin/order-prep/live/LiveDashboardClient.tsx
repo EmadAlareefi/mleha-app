@@ -9,11 +9,12 @@ import type { BoardPacker } from '@/app/lib/order-prep/board';
 import type { PrepSettings } from '@/app/lib/order-prep/settings';
 import type { ShippingBoardData } from '@/app/lib/shipping/board';
 import { DEFAULT_THRESHOLD_HOURS, parseThreshold } from '@/app/lib/stuck-orders/threshold';
-import type { ActionTarget, StuckItem } from '@/app/lib/stuck-orders/types';
+import type { ActionTarget, JourneyStaff, StuckItem } from '@/app/lib/stuck-orders/types';
 import { cn } from '@/lib/utils';
 import { AnalyticsSection } from '@/app/admin/order-prep/_components/analytics/AnalyticsSection';
 import { ACTION_META } from './_components/labels';
 import { OrderJourneySheet } from './_components/OrderJourneySheet';
+import { ViolationDialog, type ViolationInput, type ViolationTarget } from './_components/ViolationDialog';
 import styles from './live.module.css';
 import { AlertsPanel, type AlertAction } from './_components/AlertsPanel';
 import { interventionKeys, newKeys } from './_lib/metrics';
@@ -72,6 +73,7 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [sheetKey, setSheetKey] = useState(0);
+  const [violation, setViolation] = useState<ViolationTarget | null>(null);
   const [now, setNow] = useState<number | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
 
@@ -194,10 +196,13 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
 
   /** POST an action, toast the outcome, refresh what it touched. */
   const post = useCallback(
-    async (key: string, url: string, body: unknown, success?: string, after: Array<() => Promise<void>> = []) => {
+    async (key: string, url: string, body: unknown, success?: string, after: Array<() => Promise<void>> = [], method: 'POST' | 'DELETE' = 'POST') => {
       setBusy(key);
       try {
-        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const response =
+          method === 'DELETE'
+            ? await fetch(url, { method })
+            : await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) throw new Error(data.error || data.message || 'تعذر تنفيذ الإجراء');
         toast({ description: data.message || success || 'تم' });
@@ -213,6 +218,17 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
     },
     [toast],
   );
+
+  /** «طلب مميز»: flag puts the order first in the prep queue. */
+  const onPriority = (item: StuckItem, flag: boolean) =>
+    void (flag
+      ? post(`priority:${item.orderId}`, '/api/order-prep/v2/priority', { orderId: item.orderId }, undefined, [live.loadBoard])
+      : post(`priority:${item.orderId}`, `/api/order-prep/v2/priority?orderId=${encodeURIComponent(item.orderId)}`, null, undefined, [live.loadBoard], 'DELETE'));
+
+  const onViolationSubmit = async (input: ViolationInput) => {
+    const ok = await post('violation', '/api/user-recognition', { ...input, kind: 'PENALTY' }, `سُجّلت المخالفة على ${violation?.staff.name ?? 'المستخدم'}`);
+    if (ok) setViolation(null);
+  };
 
   const prepAction = (key: string, body: Record<string, unknown>, success: string) =>
     post(key, '/api/order-prep/v2/board/actions', body, success, [live.loadBoard, live.loadStuck]);
@@ -574,6 +590,8 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
         busy={busy !== null}
         onClose={() => setOpenOrderId(null)}
         onAction={onStuckAction}
+        onPriority={onPriority}
+        onViolation={(staff: JourneyStaff, orderNumber: string) => setViolation({ staff, orderNumber })}
         onCopy={(text) =>
           void navigator.clipboard?.writeText(text).then(
             () => toast({ description: `نُسخ ${text}` }),
@@ -582,6 +600,13 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
         }
       />
       )}
+
+      <ViolationDialog
+        target={violation}
+        busy={busy === 'violation'}
+        onCancel={() => setViolation(null)}
+        onSubmit={(input) => void onViolationSubmit(input)}
+      />
 
       <ConfirmationDialog
         open={Boolean(confirm)}

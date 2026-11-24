@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ClipboardCheck, Copy, ExternalLink, Hand, Loader2, Truck, Undo2 } from 'lucide-react';
+import { Copy, ExternalLink, Hand, Loader2, ShieldAlert, Undo2, UserRound, Zap } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import type { ActionTarget, OrderJourney, StuckItem } from '@/app/lib/stuck-orders/types';
+import type { ActionTarget, JourneyStaff, OrderJourney, StuckItem } from '@/app/lib/stuck-orders/types';
 import { sallaOrderUrl } from '@/lib/salla-admin-url';
 import { cn } from '@/lib/utils';
 import { ACTION_META, CATEGORY_META, formatAge, formatDate } from './labels';
@@ -19,7 +19,14 @@ type Props = {
   onClose: () => void;
   onAction: (item: StuckItem, target: ActionTarget) => void;
   onCopy: (text: string) => void;
+  /** Flag (true) or unflag (false) the order as «طلب مميز». */
+  onPriority: (item: StuckItem, flag: boolean) => void;
+  onViolation: (staff: JourneyStaff, orderNumber: string) => void;
 };
+
+const ROLE_LABEL: Record<JourneyStaff['role'], string> = { packer: 'جهّز الطلب', printer: 'طبع البوليصة' };
+// The flag only matters while the order waits for a packer.
+const PRE_PREP_STAGES = new Set(['placed']);
 
 const TONE_DOT: Record<string, string> = {
   neutral: 'bg-stone-400',
@@ -29,7 +36,7 @@ const TONE_DOT: Record<string, string> = {
 };
 
 /** Everything about one order: the diagnosis, what to do, and every event in order. */
-export function OrderJourneySheet({ orderId, threshold, refreshKey, busy, onClose, onAction, onCopy }: Props) {
+export function OrderJourneySheet({ orderId, threshold, refreshKey, busy, onClose, onAction, onCopy, onPriority, onViolation }: Props) {
   const [journey, setJourney] = useState<OrderJourney | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,10 +141,15 @@ export function OrderJourneySheet({ orderId, threshold, refreshKey, busy, onClos
               )}
             </section>
 
+            <PrioritySection
+              priority={journey!.priority}
+              notYetPacked={PRE_PREP_STAGES.has(diagnosis!.stage)}
+              busy={busy}
+              onToggle={(flag) => onPriority(item, flag)}
+            />
+
             <section className="grid grid-cols-2 gap-2 text-sm">
               <QuickLink href={sallaOrderUrl(item.orderId)} external Icon={ExternalLink} label="فتح في سلة" />
-              <QuickLink href="/admin/order-prep/shipping" Icon={Truck} label="لوحة الشحن" />
-              <QuickLink href="/admin/order-prep/board" Icon={ClipboardCheck} label="لوحة التجهيز" />
               {journey!.returns.length > 0 && (
                 <QuickLink href={`/returns-management?open=${journey!.returns[0].returnId}`} Icon={Undo2} label="المرتجع" />
               )}
@@ -158,6 +170,31 @@ export function OrderJourneySheet({ orderId, threshold, refreshKey, busy, onClos
                 <p className="mt-1">{ret.diagnosis.reason}</p>
               </div>
             ))}
+
+            {journey!.staff.length > 0 && (
+              <section>
+                <h3 className="mb-2 text-sm font-bold">فريق الطلب</h3>
+                <ul className="space-y-2">
+                  {journey!.staff.map((person) => (
+                    <li key={person.userId} className="flex items-center justify-between gap-2 rounded-xl border bg-card px-3 py-2 text-sm">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate font-bold">{person.name}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">{ROLE_LABEL[person.role]}</span>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onViolation(person, item.orderNumber ?? item.orderId)}
+                        className="flex shrink-0 items-center gap-1 rounded-lg border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5" /> تسجيل مخالفة
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <section>
               <h3 className="mb-3 text-sm font-bold">مسار الطلب</h3>
@@ -190,7 +227,53 @@ export function OrderJourneySheet({ orderId, threshold, refreshKey, busy, onClos
   );
 }
 
-function QuickLink({ href, label, Icon, external }: { href: string; label: string; Icon: typeof Truck; external?: boolean }) {
+function PrioritySection({
+  priority,
+  notYetPacked,
+  busy,
+  onToggle,
+}: {
+  priority: OrderJourney['priority'];
+  notYetPacked: boolean;
+  busy: boolean;
+  onToggle: (flag: boolean) => void;
+}) {
+  // Once packing has started the flag no longer changes anything; only offer to clear it.
+  if (!priority && !notYetPacked) return null;
+  return (
+    <section
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-2xl border p-3 text-sm',
+        priority ? 'border-amber-300 bg-amber-50' : 'bg-card',
+      )}
+    >
+      <div className="min-w-0">
+        <p className="flex items-center gap-1.5 font-bold">
+          <Zap className={cn('h-4 w-4', priority ? 'fill-amber-400 text-amber-500' : 'text-muted-foreground')} />
+          {priority ? 'طلب مميز' : 'طلب عادي'}
+        </p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {priority
+            ? `يُجهّز قبل غيره · ${[priority.createdByName, formatDate(priority.createdAt)].filter(Boolean).join(' · ')}`
+            : 'التمييز يضعه أول طابور التجهيز'}
+        </p>
+      </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onToggle(!priority)}
+        className={cn(
+          'shrink-0 rounded-lg px-3 py-2 text-xs font-bold shadow-sm disabled:opacity-50',
+          priority ? 'border bg-white text-stone-700 hover:bg-stone-50' : 'bg-amber-500 text-white hover:bg-amber-600',
+        )}
+      >
+        {priority ? 'إلغاء التمييز' : 'تمييز كطلب مميز'}
+      </button>
+    </section>
+  );
+}
+
+function QuickLink({ href, label, Icon, external }: { href: string; label: string; Icon: typeof ExternalLink; external?: boolean }) {
   const className = 'flex items-center justify-center gap-1.5 rounded-xl border bg-card px-3 py-2 font-medium hover:bg-muted';
   return external ? (
     <a href={href} target="_blank" rel="noreferrer" className={className}>

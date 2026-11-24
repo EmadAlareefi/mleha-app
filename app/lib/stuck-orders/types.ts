@@ -48,6 +48,7 @@ export type OrderSnapshot = {
   trackingNumber: string | null;
   prep: {
     status: string;
+    userId: string;
     userName: string;
     assignedAt: string;
     startedAt: string | null;
@@ -87,6 +88,7 @@ export type OrderSnapshot = {
     creatingAt: string | null;
     labelReadyAt: string | null;
     printedAt: string | null;
+    printedById: string | null;
     printedByName: string | null;
     updatedAt: string;
   } | null;
@@ -180,8 +182,16 @@ export type JourneyEvent = {
   tone: 'neutral' | 'good' | 'warn' | 'bad';
 };
 
+/** Warehouse staff who handled the order (for logging a violation against them). */
+export type JourneyStaff = { userId: string; name: string; role: 'packer' | 'printer' };
+
+/** The order is marked «طلب مميز»: the prep queue serves it first. */
+export type JourneyPriority = { createdAt: string; createdByName: string | null; reason: string | null };
+
 export type OrderJourney = {
   item: StuckItem;
   events: JourneyEvent[];
   returns: StuckItem[];
+  staff: JourneyStaff[];
+  priority: JourneyPriority | null;
 };

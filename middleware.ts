@@ -117,7 +117,6 @@ const SERVICE_PATHS = new Map<ServiceKey, RegExp[]>([
     'admin-order-prep',
     [
       /^\/admin\/order-prep(\/.*)?$/,
-      /^\/api\/admin\/order-assignments(\/.*)?$/,
       /^\/api\/promo-limit\/order-check$/,
     ],
   ],

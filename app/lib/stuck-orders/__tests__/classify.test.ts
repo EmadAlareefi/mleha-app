@@ -37,6 +37,7 @@ const order = (patch: Partial<OrderSnapshot> = {}): OrderSnapshot => ({
 
 const prepDone = (hours: number) => ({
   status: 'completed',
+  userId: 'u1',
   userName: 'مجهز',
   assignedAt: ago(hours + 1),
   startedAt: ago(hours + 1),
@@ -55,6 +56,7 @@ const task = (state: string, patch: Partial<NonNullable<OrderSnapshot['task']>> 
   creatingAt: null,
   labelReadyAt: null,
   printedAt: null,
+  printedById: null,
   printedByName: null,
   updatedAt: ago(1),
   ...patch,
@@ -112,7 +114,7 @@ test('a claim held too long → prep_abandoned', () => {
     order({
       statusSlug: 'under_review',
       statusCustomId: String(STATUS_IDS.NEW_ORDER),
-      prep: { status: 'preparing', userName: 'سارة', assignedAt: ago(30), startedAt: ago(30), completedAt: null, verifyIssue: null },
+      prep: { status: 'preparing', userId: 'u2', userName: 'سارة', assignedAt: ago(30), startedAt: ago(30), completedAt: null, verifyIssue: null },
     }),
     opts,
   );

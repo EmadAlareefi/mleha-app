@@ -5,6 +5,7 @@ import { findOrderIdByCode } from '@/app/lib/shipping/station';
 import { buildJourney, classifyOrder, classifyReturn, reachedStages, type ClassifyOptions } from './classify';
 import type {
   CategorySummary,
+  JourneyStaff,
   OrderJourney,
   OrderSnapshot,
   ReturnSnapshot,
@@ -44,7 +45,7 @@ export async function loadSnapshots(orderIds: string[]): Promise<OrderSnapshot[]
     }),
     prisma.orderPrepAssignment.findMany({
       where,
-      select: { orderId: true, status: true, userName: true, assignedAt: true, startedAt: true, completedAt: true, verifyIssue: true },
+      select: { orderId: true, status: true, userId: true, userName: true, assignedAt: true, startedAt: true, completedAt: true, verifyIssue: true },
     }),
     prisma.orderPrepEscalation.findMany({ where, orderBy: { createdAt: 'asc' } }),
     prisma.orderPrepSallaSync.findMany({ where, orderBy: { createdAt: 'asc' } }),
@@ -132,6 +133,7 @@ export async function loadSnapshots(orderIds: string[]): Promise<OrderSnapshot[]
       prep: prep
         ? {
             status: prep.status,
+            userId: prep.userId,
             userName: prep.userName,
             assignedAt: prep.assignedAt.toISOString(),
             startedAt: iso(prep.startedAt),
@@ -173,6 +175,7 @@ export async function loadSnapshots(orderIds: string[]): Promise<OrderSnapshot[]
             creatingAt: iso(task.creatingAt),
             labelReadyAt: iso(task.labelReadyAt),
             printedAt: iso(task.printedAt),
+            printedById: task.printedById,
             printedByName: task.printedByName,
             updatedAt: task.updatedAt.toISOString(),
           }
@@ -422,5 +425,29 @@ export async function loadOrderJourney(orderId: string, thresholdHours: number, 
   const opts: ClassifyOptions = { nowMs, thresholdMs: thresholdHours * 3_600_000 };
   const [snapshot] = await loadSnapshots([orderId]);
   if (!snapshot) return null;
-  return { item: orderItem(snapshot, opts), events: buildJourney(snapshot), returns: await returnsFor([orderId], opts) };
+  const [returns, priority] = await Promise.all([
+    returnsFor([orderId], opts),
+    prisma.highPriorityOrder.findUnique({
+      where: { merchantId_orderId: { merchantId: MERCHANT_ID, orderId } },
+      select: { createdAt: true, createdByName: true, reason: true },
+    }),
+  ]);
+  return {
+    item: orderItem(snapshot, opts),
+    events: buildJourney(snapshot),
+    returns,
+    staff: journeyStaff(snapshot),
+    priority: priority ? { ...priority, createdAt: priority.createdAt.toISOString() } : null,
+  };
+}
+
+/** The packer and the label printer, once each (the same person can do both). */
+function journeyStaff(snapshot: OrderSnapshot): JourneyStaff[] {
+  const staff: JourneyStaff[] = [];
+  if (snapshot.prep) staff.push({ userId: snapshot.prep.userId, name: snapshot.prep.userName, role: 'packer' });
+  const task = snapshot.task;
+  if (task?.printedById && !staff.some((person) => person.userId === task.printedById)) {
+    staff.push({ userId: task.printedById, name: task.printedByName || 'الشاحن', role: 'printer' });
+  }
+  return staff;
 }

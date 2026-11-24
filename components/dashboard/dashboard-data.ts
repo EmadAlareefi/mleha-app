@@ -2,7 +2,6 @@ import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
   Banknote,
-  BarChart3,
   Bell,
   Boxes,
   Calculator,
@@ -38,7 +37,6 @@ import {
   Printer,
   Scale,
   Ruler,
-  Satellite,
   Scissors,
   Star,
 } from 'lucide-react';
@@ -112,7 +110,6 @@ const serviceCategoryMap: Partial<Record<ServiceKey, DashboardCategoryId>> = {
   'order-prep': 'orders',
   'order-shortages': 'orders',
   'order-shipping': 'orders',
-  'order-monitor': 'orders',
   'admin-order-prep': 'orders',
   'shipping-board': 'orders',
   'order-invoice-search': 'orders',
@@ -166,8 +163,7 @@ const serviceIconMap: Partial<Record<ServiceKey, LucideIcon>> = {
   'order-prep': ClipboardList,
   'order-shortages': AlertTriangle,
   'order-shipping': Truck,
-  'order-monitor': Satellite,
-  'admin-order-prep': BarChart3,
+  'admin-order-prep': Warehouse,
   'shipping-board': Truck,
   warehouse: Package,
   'local-shipping': Truck,
@@ -235,7 +231,7 @@ const priorityMap: Partial<Record<ServiceKey, number>> = {
   'returns-management': 88,
   invoices: 84,
   'order-reports': 80,
-  'admin-order-prep': 76,
+  'admin-order-prep': 78,
   'shipping-board': 77,
   'cod-tracker': 72,
   'fabric-management': 70,
@@ -307,23 +303,11 @@ export function getVisibleDashboardServices({
 
   const dashboardServices = visibleServices.map(mapServiceDefinition);
 
-  // The packing board lives under /admin/order-prep and shares its permission.
+  // admin-order-prep's own tile opens the live dashboard; its other pages share the permission.
   if (visibleServices.some((service) => service.key === 'admin-order-prep')) {
-    // Their warehouse tile already includes the shipping view; don't show it twice.
+    // That tile already includes the shipping view; don't show it twice.
     const shippingIndex = dashboardServices.findIndex((service) => service.key === 'shipping-board');
     if (shippingIndex !== -1) dashboardServices.splice(shippingIndex, 1);
-    dashboardServices.push({
-      key: 'warehouse-live',
-      sourceKey: 'admin-order-prep',
-      title: 'مركز قيادة المستودع',
-      description: 'شاشة كاملة مباشرة: التجهيز والشحن والطلبات العالقة والتنبيهات في مكان واحد',
-      href: '/admin/order-prep/live',
-      category: 'orders',
-      categoryLabel: categoryLabels.orders,
-      Icon: Warehouse,
-      accentClass: categoryAccentMap.orders,
-      priority: 78,
-    });
     dashboardServices.push({
       key: 'customer-order-changes',
       sourceKey: 'admin-order-prep',

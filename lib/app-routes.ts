@@ -36,7 +36,6 @@ export const APP_PAGE_SEGMENTS: ReadonlySet<string> = new Set([
   'my-recognition',
   'order-history',
   'order-invoice-search',
-  'order-monitor',
   'order-prep',
   'order-reports',
   'order-shipping',
