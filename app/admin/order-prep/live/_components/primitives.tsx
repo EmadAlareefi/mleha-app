@@ -128,16 +128,9 @@ export function Panel({
   const { kiosk } = useLiveMode();
   const bodyRef = useAutoScroll(kiosk);
   const expand = useExpandable();
-  const ToggleIcon = expand.expanded ? Minimize2 : Maximize2;
   return (
     <>
-    {expand.expanded && (
-      <>
-        {/* Keeps the card's place in the grid while it floats full screen. */}
-        <div ref={expand.placeholderRef} aria-hidden className="shrink-0" style={{ height: expand.size?.height, width: '100%' }} />
-        <div ref={expand.backdropRef} aria-hidden onClick={expand.close} className="fixed inset-0 z-50 bg-[#1f1912]/45 backdrop-blur-[6px]" />
-      </>
-    )}
+    <ExpandStage expand={expand} />
     <section
       ref={expand.sectionRef}
       style={{ animationDelay: `${delay}ms` } as CSSProperties}
@@ -171,25 +164,7 @@ export function Panel({
         )}
         <div className="mr-auto flex items-center gap-1.5">
           {actions}
-          <button
-            ref={expand.buttonRef}
-            type="button"
-            onClick={expand.toggle}
-            aria-expanded={expand.expanded}
-            aria-label={expand.expanded ? `تصغير «${title}» (Esc)` : `عرض «${title}» بملء الشاشة`}
-            title={expand.expanded ? 'تصغير (Esc)' : 'ملء الشاشة'}
-            className={cn(
-              'group/expand relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--lv-faint)] transition duration-200',
-              'hover:scale-110 hover:bg-[var(--lv-chip)] hover:text-[#8b6f47] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#e8c896] focus-visible:outline-none',
-              actions ? 'mr-0.5' : '',
-              expand.expanded && 'bg-[var(--lv-chip)] text-[#8b6f47]',
-            )}
-          >
-            <ToggleIcon
-              key={expand.expanded ? 'min' : 'max'}
-              className={cn('h-4 w-4 transition-transform duration-300 group-hover/expand:rotate-90', styles.iconSwap)}
-            />
-          </button>
+          <ExpandButton expand={expand} title={title} className={actions ? 'mr-0.5' : undefined} />
         </div>
       </header>
       {stale && (
@@ -201,6 +176,43 @@ export function Panel({
       <div ref={bodyRef} data-panel-body className={cn('min-h-0 flex-1 overflow-y-auto', styles.scroll, stale && 'opacity-60 saturate-50', bodyClassName)}>{children}</div>
     </section>
     </>
+  );
+}
+
+type Expand = ReturnType<typeof useExpandable>;
+
+/** While a card floats full screen: a placeholder holding its slot, and the dimmed backdrop behind it. */
+export function ExpandStage({ expand }: { expand: Expand }) {
+  if (!expand.expanded) return null;
+  return (
+    <>
+      <div ref={expand.placeholderRef} aria-hidden className="shrink-0" style={{ height: expand.size?.height, width: '100%' }} />
+      <div ref={expand.backdropRef} aria-hidden onClick={expand.close} className="fixed inset-0 z-50 bg-[#1f1912]/45 backdrop-blur-[6px]" />
+    </>
+  );
+}
+
+/** The ⤢ / ⤡ toggle at the end of a card's header. `dark` is for the dark hero band. */
+export function ExpandButton({ expand, title, dark, className }: { expand: Expand; title: string; dark?: boolean; className?: string }) {
+  const Icon = expand.expanded ? Minimize2 : Maximize2;
+  return (
+    <button
+      ref={expand.buttonRef}
+      type="button"
+      onClick={expand.toggle}
+      aria-expanded={expand.expanded}
+      aria-label={expand.expanded ? `تصغير «${title}» (Esc)` : `عرض «${title}» بملء الشاشة`}
+      title={expand.expanded ? 'تصغير (Esc)' : 'ملء الشاشة'}
+      className={cn(
+        'group/expand relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition duration-200 hover:scale-110 active:scale-95 focus-visible:ring-2 focus-visible:ring-[#e8c896] focus-visible:outline-none',
+        dark
+          ? cn('text-white/45 hover:bg-white/10 hover:text-white', expand.expanded && 'bg-white/10 text-white')
+          : cn('text-[var(--lv-faint)] hover:bg-[var(--lv-chip)] hover:text-[#8b6f47]', expand.expanded && 'bg-[var(--lv-chip)] text-[#8b6f47]'),
+        className,
+      )}
+    >
+      <Icon key={expand.expanded ? 'min' : 'max'} className={cn('h-4 w-4 transition-transform duration-300 group-hover/expand:rotate-90', styles.iconSwap)} />
+    </button>
   );
 }
 

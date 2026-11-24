@@ -8,7 +8,8 @@ import type { ShippingBoardData } from '@/app/lib/shipping/board';
 import { formatAgeAr, orderAgeMs } from '@/app/lib/order-prep/riyadh-time';
 import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
-import { AnimatedNumber, Ring, Sparkline } from './primitives';
+import { AnimatedNumber, ExpandButton, ExpandStage, Ring, Sparkline } from './primitives';
+import { useExpandable } from './useExpandable';
 import { clearTime } from '../_lib/metrics';
 import { HourlyChart } from './HourlyChart';
 import { useUrlParam } from './useUrlParam';
@@ -47,6 +48,8 @@ export function PipelineHero({
   const shippingOnly = scope === 'shipping';
   const [hourlyParam, setHourlyParam] = useUrlParam('hourly', '1');
   const showHourly = hourlyParam !== '0';
+  const expand = useExpandable();
+  const big = expand.expanded;
   const s = shipping?.byState ?? {};
   const awaitingLabel = shipping ? (s.queued ?? 0) + (s.creating ?? 0) + (s.awaiting_label ?? 0) : null;
   const oldestAge = board ? orderAgeMs(board.stats.oldestPlacedAt) : null;
@@ -114,7 +117,23 @@ export function PipelineHero({
   const etas = shippingOnly ? etasAll.filter((entry) => entry.key !== 'prep') : etasAll;
 
   return (
-    <section className={cn(styles.hero, styles.enter, 'relative overflow-hidden rounded-3xl p-4 text-white shadow-[0_20px_50px_-20px_rgba(36,28,20,0.7)] xl:p-5')}>
+    <>
+    <ExpandStage expand={expand} />
+    <section
+      ref={expand.sectionRef}
+      aria-label={big ? 'مسار الطلبات' : undefined}
+      className={cn(
+        styles.hero,
+        styles.enter,
+        styles.scroll,
+        'rounded-3xl text-white',
+        big
+          ? 'fixed inset-2 z-50 flex flex-col justify-center overflow-y-auto p-5 pl-14 shadow-[0_40px_120px_-30px_rgba(0,0,0,0.8)] sm:inset-4 xl:inset-8 xl:p-10 xl:pl-16'
+          : 'relative overflow-hidden p-4 shadow-[0_20px_50px_-20px_rgba(36,28,20,0.7)] xl:p-5 xl:pl-12',
+      )}
+    >
+      {/* Top-left is the end corner in RTL; the band keeps a gutter there on wide screens. */}
+      <ExpandButton expand={expand} title="مسار الطلبات" dark className={cn('absolute z-10', big ? 'top-3 left-3 xl:top-5 xl:left-5' : 'top-2.5 left-2.5')} />
       {stale && (
         <p role="status" className="mb-3 flex items-center gap-1.5 rounded-xl bg-amber-400/15 px-3 py-1.5 text-[11px] font-semibold text-amber-100 ring-1 ring-amber-300/30">
           <span className="h-1.5 w-1.5 rounded-full bg-amber-300" /> {stale}
@@ -196,7 +215,7 @@ export function PipelineHero({
                     <span className="text-[11px] font-bold text-white/50 tabular-nums">{index + 1}</span>
                     {stage.trend && <span className="mr-auto hidden opacity-80 2xl:inline"><Sparkline values={stage.trend} /></span>}
                   </div>
-                  <div className="mt-2 text-3xl leading-none font-black xl:text-4xl">
+                  <div className={cn('mt-2 leading-none font-black transition-[font-size] duration-500', big ? 'text-5xl xl:text-7xl' : 'text-3xl xl:text-4xl')}>
                     {stage.value === null ? <span className="text-white/30">—</span> : <AnimatedNumber value={stage.value} />}
                   </div>
                   <p className="mt-1.5 text-xs font-bold text-white/85">{stage.label}</p>
@@ -231,7 +250,7 @@ export function PipelineHero({
           >
             <ChevronUp className="h-3.5 w-3.5" />
           </button>
-          <HourlyChart hourly={hourly} error={hourlyError} />
+          <HourlyChart hourly={hourly} error={hourlyError} barHeight={big ? 200 : undefined} />
         </div>
       ) : (
         <button
@@ -243,5 +262,6 @@ export function PipelineHero({
         </button>
       )}
     </section>
+    </>
   );
 }

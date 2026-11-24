@@ -32,6 +32,7 @@ export function useExpandable() {
   const backdropRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const animating = useRef(false);
+  const restRadius = useRef('16px');
   const unlock = useRef<(() => void) | null>(null);
 
   const lockScroll = () => {
@@ -50,6 +51,7 @@ export function useExpandable() {
     lockScroll();
     const rect = section.getBoundingClientRect();
     const from = boxOf(rect);
+    restRadius.current = getComputedStyle(section).borderRadius;
     flushSync(() => {
       setSize({ width: rect.width, height: rect.height });
       setExpanded(true);
@@ -62,7 +64,7 @@ export function useExpandable() {
     animating.current = true;
     const morph = section.animate(
       [
-        { ...px(from), borderRadius: '16px' },
+        { ...px(from), borderRadius: restRadius.current },
         { ...px(to), borderRadius: radius },
       ],
       { duration: OPEN_MS, easing: EASE },
@@ -93,7 +95,7 @@ export function useExpandable() {
     const morph = section.animate(
       [
         { ...px(from), borderRadius: getComputedStyle(section).borderRadius },
-        { ...px(to), borderRadius: '16px' },
+        { ...px(to), borderRadius: restRadius.current },
       ],
       { duration: CLOSE_MS, easing: EASE, fill: 'forwards' },
     );

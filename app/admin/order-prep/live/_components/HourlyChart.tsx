@@ -16,7 +16,7 @@ const hourLabel = (hour: number) => (hour === 0 ? '12ุต' : hour < 12 ? `${hour}ุ
  * packed (bronze), waybills printed (green), and yesterday's packed at the
  * same hour (tick). Hour 0 sits on the right, matching the page's RTL flow.
  */
-export function HourlyChart({ hourly, error }: { hourly: HourlyThroughput | null; error: string | null }) {
+export function HourlyChart({ hourly, error, barHeight = 64 }: { hourly: HourlyThroughput | null; error: string | null; barHeight?: number }) {
   const [hover, setHover] = useState<number | null>(null);
 
   if (!hourly) {
@@ -32,7 +32,7 @@ export function HourlyChart({ hourly, error }: { hourly: HourlyThroughput | null
   const packedCmp = compareSoFar(today.packed, yesterday.packed, currentHour);
   const printedCmp = compareSoFar(today.printed, yesterday.printed, currentHour);
   const shown = hover ?? currentHour;
-  const BAR_H = 64;
+  const BAR_H = barHeight;
 
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-white/[0.04] p-3 ring-1 ring-white/10 lg:flex-row lg:items-stretch">
