@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { NextResponse, after } from 'next/server';
 import { log } from '@/app/lib/logger';
 import {
@@ -8,7 +9,9 @@ import {
 } from '@/app/lib/order-prep/priority-catalog';
 import {
   getPriorityConfig,
+  loadResolveSources,
   resolvePriority,
+  ruleState,
   sanitizePriorityConfig,
   savePriorityConfig,
 } from '@/app/lib/order-prep/priority-rules';
@@ -24,21 +27,27 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 async function preview(rawConfig: unknown) {
-  const catalog = await readPriorityCatalog();
-  const resolved = resolvePriority(sanitizePriorityConfig(rawConfig), catalog, Date.now());
+  const config = sanitizePriorityConfig(rawConfig);
+  const nowMs = Date.now();
+  const resolved = resolvePriority(config, await loadResolveSources(config.rules, nowMs), nowMs);
   const result = await previewQueue(resolved);
-  return { ...result, emptyRules: resolved.empty };
+  return {
+    ...result,
+    emptyRules: resolved.empty,
+    /** live / off / expired / outside_window, per rule, right now (Riyadh time). */
+    ruleStates: Object.fromEntries(config.rules.map((rule) => [rule.id, ruleState(rule, nowMs)])),
+  };
 }
 
-/** Carrier names seen on recent orders, busiest first, for the shipping-company picker. */
-async function recentCompanies(): Promise<string[]> {
-  const rows = await prisma.$queryRaw<Array<{ company: string }>>`
-    SELECT "fulfillmentCompany" AS "company"
+/** Busiest values of a column on recent orders, for the pickers. */
+async function recentValues(column: 'fulfillmentCompany' | 'customerCity' | 'paymentMethod', limit: number): Promise<string[]> {
+  const rows = await prisma.$queryRaw<Array<{ value: string }>>`
+    SELECT ${Prisma.raw(`"${column}"`)} AS "value"
     FROM "SallaOrder"
-    WHERE "merchantId" = ${MERCHANT_ID} AND "fulfillmentCompany" IS NOT NULL AND "fulfillmentCompany" <> ''
+    WHERE "merchantId" = ${MERCHANT_ID} AND ${Prisma.raw(`"${column}"`)} IS NOT NULL AND ${Prisma.raw(`"${column}"`)} <> ''
       AND "placedAt" > now() - interval '60 days'
-    GROUP BY 1 ORDER BY count(*) DESC LIMIT 30`;
-  return rows.map((row) => row.company);
+    GROUP BY 1 ORDER BY count(*) DESC LIMIT ${limit}`;
+  return rows.map((row) => row.value);
 }
 
 /** Priority tab of the warehouse dashboard: rules, campaign mode, pickers' data, live preview. */
@@ -46,12 +55,15 @@ export async function GET() {
   const auth = await requireBoardUser();
   if ('response' in auth) return auth.response;
   try {
-    const [config, settings, catalog, rebuilding, companies] = await Promise.all([
+    const [config, settings, catalog, rebuilding, companies, cities, paymentMethods] = await Promise.all([
       getPriorityConfig({ fresh: true }),
       getPrepSettings({ fresh: true }),
       readPriorityCatalog({ fresh: true }),
       isPriorityCatalogRebuilding(),
-      recentCompanies(),
+      recentValues('fulfillmentCompany', 30),
+      // Profile cities share the shipping address's spelling; good enough as suggestions.
+      recentValues('customerCity', 60),
+      recentValues('paymentMethod', 20),
     ]);
     const stale = !catalog || Date.now() - catalog.at > CATALOG_STALE_MS;
     if (stale && !rebuilding) after(() => rebuildPriorityCatalog());
@@ -65,6 +77,8 @@ export async function GET() {
         categories: catalog?.categories ?? [],
       },
       companies,
+      cities,
+      paymentMethods,
       preview: await preview(config),
     });
   } catch (error) {

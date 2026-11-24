@@ -16,15 +16,15 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import type { CatalogCategory } from '@/app/lib/order-prep/priority-catalog';
-import type { PriorityConfig, PriorityRule, QueueSort } from '@/app/lib/order-prep/priority-rules';
+import type { PriorityConfig, PriorityRule, QueueSort, RuleState } from '@/app/lib/order-prep/priority-rules';
 import type { QueuePreview } from '@/app/lib/order-prep/queue';
 import type { PriorityMode } from '@/app/lib/order-prep/settings';
 import { cn } from '@/lib/utils';
 import { EmptyNote, Panel, PanelSkeleton } from './primitives';
-import { describeMatch, field, KIND_LABEL, PriorityRuleEditor } from './PriorityRuleEditor';
+import { describeMatch, describeSchedule, field, KIND_LABEL, PriorityRuleEditor } from './PriorityRuleEditor';
 
 type Campaign = { priorityMode: PriorityMode; promoAgingHours: number };
-type Preview = QueuePreview & { emptyRules: string[] };
+type Preview = QueuePreview & { emptyRules: string[]; ruleStates: Record<string, RuleState> };
 type FlaggedOrder = {
   orderId: string;
   orderNumber: string | null;
@@ -38,6 +38,8 @@ type Loaded = {
   campaign: Campaign;
   catalog: { at: number | null; rebuilding: boolean; categories: CatalogCategory[] };
   companies: string[];
+  cities: string[];
+  paymentMethods: string[];
   preview: Preview;
 };
 type Draft = { rules: PriorityRule[]; sort: QueueSort; maxWaitHours: number; campaign: Campaign };
@@ -269,6 +271,8 @@ export function PriorityView() {
                       initial={rule}
                       categories={loaded.catalog.categories}
                       companies={loaded.companies}
+                      cities={loaded.cities}
+                      paymentMethods={loaded.paymentMethods}
                       catalogReady={!!loaded.catalog.at}
                       onSave={upsertRule}
                       onCancel={() => setEditing(null)}
@@ -280,6 +284,7 @@ export function PriorityView() {
                     rule={rule}
                     position={index + 1}
                     count={preview?.ruleCounts[rule.id]}
+                    state={preview?.ruleStates?.[rule.id]}
                     empty={preview?.emptyRules.includes(rule.id) ?? false}
                     first={index === 0}
                     last={index === draft.rules.length - 1}
@@ -297,6 +302,8 @@ export function PriorityView() {
                 initial={null}
                 categories={loaded.catalog.categories}
                 companies={loaded.companies}
+                cities={loaded.cities}
+                paymentMethods={loaded.paymentMethods}
                 catalogReady={!!loaded.catalog.at}
                 onSave={upsertRule}
                 onCancel={() => setEditing(null)}
@@ -446,6 +453,7 @@ function RuleCard({
   rule,
   position,
   count,
+  state,
   empty,
   first,
   last,
@@ -457,6 +465,8 @@ function RuleCard({
   rule: PriorityRule;
   position: number;
   count: number | undefined;
+  /** From the server's preview (Riyadh time); absent while it loads. */
+  state: RuleState | undefined;
   empty: boolean;
   first: boolean;
   last: boolean;
@@ -465,14 +475,17 @@ function RuleCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const expired = !!rule.expiresAt && new Date(rule.expiresAt).getTime() <= Date.now();
+  const expired = state === 'expired' || (!!rule.expiresAt && new Date(rule.expiresAt).getTime() <= Date.now());
+  const outside = state === 'outside_window';
+  const live = rule.enabled && !expired && !outside;
+  const schedule = describeSchedule(rule);
   const boost = rule.effect === 'boost';
   return (
     <li
       className={cn(
         'flex items-start gap-3 rounded-xl border bg-[var(--lv-card)] p-3 transition',
         boost ? 'border-emerald-200' : 'border-sky-200',
-        (!rule.enabled || expired) && 'opacity-55',
+        !live && 'opacity-55',
       )}
     >
       <div className="flex flex-col items-center gap-0.5">
@@ -493,12 +506,17 @@ function RuleCard({
           <span className="min-w-0 truncate text-sm font-bold text-[var(--lv-ink)]">{describeMatch(rule)}</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[var(--lv-muted)]">
-          {empty && rule.enabled && !expired ? (
+          {empty && live ? (
             <span className="font-bold text-amber-700">لا يطابق أي منتج — حدّث التصنيفات من سلة</span>
           ) : (
-            count !== undefined && rule.enabled && !expired && <span className="font-bold tabular-nums">يطابق {count} طلب في الانتظار</span>
+            count !== undefined && live && <span className="font-bold tabular-nums">يطابق {count} طلب في الانتظار</span>
+          )}
+          {live && count === undefined && state === 'live' && (rule.kind === 'city' || rule.kind === 'destination') && (
+            <span className="tabular-nums">لا طلبات منتظرة تطابقها الآن</span>
           )}
           {expired && <span className="font-bold text-rose-600">انتهت</span>}
+          {outside && rule.enabled && !expired && <span className="font-bold text-amber-700">خارج وقتها الآن</span>}
+          {schedule && <span>⏱ {schedule}</span>}
           {rule.expiresAt && !expired && <span>تنتهي {dateTime.format(new Date(rule.expiresAt))}</span>}
           {rule.note && <span>· {rule.note}</span>}
         </div>
