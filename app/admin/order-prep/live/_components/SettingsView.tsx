@@ -5,6 +5,7 @@ import { ClipboardList, Truck } from 'lucide-react';
 import type { BoardData } from '@/app/lib/order-prep/board';
 import type { PrepSettings } from '@/app/lib/order-prep/settings';
 import type { ShippingBoardData } from '@/app/lib/shipping/board';
+import { BIG_PICKUP_THRESHOLD_RANGE } from '@/app/lib/shipping/pickup';
 import { cn } from '@/lib/utils';
 import { Panel, PanelSkeleton } from './primitives';
 
@@ -112,6 +113,12 @@ export function SettingsView({
               disabled={busy === 'ship-settings'}
               onChange={(value) => onShippingSetting({ v2Enabled: value })}
             />
+            <PickupThreshold
+              key={shipping.settings.bigPickupThreshold}
+              value={shipping.settings.bigPickupThreshold}
+              disabled={busy === 'ship-settings'}
+              onSave={(value) => onShippingSetting({ bigPickupThreshold: value })}
+            />
           </div>
         )}
       </Panel>
@@ -154,5 +161,48 @@ function Switch({
         />
       </span>
     </button>
+  );
+}
+
+/** «Call the carrier for a big truck» once one carrier expects this many parcels. */
+function PickupThreshold({ value, disabled, onSave }: { value: number; disabled: boolean; onSave: (value: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  const parsed = Number(draft);
+  const valid =
+    Number.isInteger(parsed) && parsed >= BIG_PICKUP_THRESHOLD_RANGE.min && parsed <= BIG_PICKUP_THRESHOLD_RANGE.max;
+  const dirty = valid && parsed !== value;
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (dirty) onSave(parsed);
+      }}
+      className="rounded-xl border border-[var(--lv-line)] bg-[var(--lv-card)] p-3"
+    >
+      <label className="block space-y-1.5 text-sm">
+        <span className="font-bold">حد الدفعة الكبيرة للتنبيه (شحنة)</span>
+        <span className="block text-xs text-[var(--lv-muted)]">
+          عندما تتوقع شركة شحن هذا العدد أو أكثر، تنبّه لوحة «المتبقي للشحن» للاتصال بها وطلب شاحنة كبيرة.
+        </span>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={BIG_PICKUP_THRESHOLD_RANGE.min}
+            max={BIG_PICKUP_THRESHOLD_RANGE.max}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            className={cn(field, 'max-w-32', !valid && 'border-rose-300')}
+          />
+          <button
+            type="submit"
+            disabled={disabled || !dirty}
+            className="rounded-xl bg-[var(--lv-strong)] px-4 text-sm font-bold text-[var(--lv-strong-ink)] transition disabled:opacity-40"
+          >
+            حفظ
+          </button>
+        </div>
+      </label>
+    </form>
   );
 }

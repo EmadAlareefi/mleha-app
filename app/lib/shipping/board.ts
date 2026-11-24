@@ -36,6 +36,11 @@ export type CompanyBacklogRow = {
   labelReady: number;
   /** Task failed or blocked. */
   problem: number;
+  /** Still waiting and placed more than 24h / 48h ago. */
+  late24h: number;
+  late48h: number;
+  /** Labels printed since Riyadh midnight for this carrier. */
+  printedToday: number;
   oldestAt: string | null;
 };
 
@@ -107,7 +112,7 @@ export async function getShippingBoard(): Promise<ShippingBoardData> {
       `,
       prisma.shippingTask.count({ where: { merchantId: MERCHANT_ID, printedAt: { gte: startOfDay } } }),
       prisma.shippingTask.count({ where: { merchantId: MERCHANT_ID, printedAt: { gte: hourAgo } } }),
-      getCompanyBacklog(),
+      getCompanyBacklog(startOfDay),
       prisma.$queryRaw<Array<{ name: string; printed: number; median_gap: number | null; last_at: Date | null }>>`
         WITH p AS (
           SELECT coalesce("printedByName", '—') AS name, "printedAt",
@@ -170,57 +175,71 @@ export async function getShippingBoard(): Promise<ShippingBoardData> {
  * "in progress" in Salla, plus fresh waybills not yet printed, whose label
  * hasn't been printed (new station or old page).
  */
-async function getCompanyBacklog(): Promise<CompanyBacklogRow[]> {
-  const rows = await prisma.$queryRaw<
-    Array<{
-      company: string;
-      total: number;
-      in_prep: number;
-      on_hold: number;
-      awaiting_label: number;
-      label_ready: number;
-      problem: number;
-      oldest_at: Date | null;
-    }>
-  >`
-    WITH b AS (
-      SELECT
-        coalesce(nullif(trim(o."fulfillmentCompany"), ''), ${UNKNOWN_COMPANY}) AS company,
-        CASE
-          WHEN o."statusCustomId" = ${NEW_ORDER_STATUS_ID} THEN 'in_prep'
-          WHEN o."statusSlug" = 'under_review' THEN 'on_hold'
-          WHEN t.state IN ('failed', 'blocked') THEN 'problem'
-          WHEN t.state = 'label_ready' THEN 'label_ready'
-          ELSE 'awaiting_label'
-        END AS bucket,
-        coalesce(o."placedAt", o."createdAt") AS at
-      FROM "SallaOrder" o
-      LEFT JOIN "ShippingTask" t ON t."merchantId" = o."merchantId" AND t."orderId" = o."orderId"
-      LEFT JOIN "SallaShipment" s ON s."merchantId" = o."merchantId" AND s."orderId" = o."orderId"
-      WHERE o."merchantId" = ${MERCHANT_ID}
-        AND coalesce(s."labelPrinted", false) = false
-        AND (
-          (o."statusSlug" IN ('under_review', 'in_progress') AND (t.state IS NULL OR t.state NOT IN ('printed', 'cancelled')))
-          -- Creating the waybill moves the order to "تم التنفيذ" in Salla before
-          -- the label is printed. Older open tasks there were shipped outside the station.
-          OR (
-            o."statusSlug" = 'completed'
-            AND t.state IN ('queued', 'creating', 'awaiting_label', 'label_ready', 'failed', 'blocked')
-            AND t."createdAt" > now() - interval '72 hours'
+async function getCompanyBacklog(startOfDay: Date): Promise<CompanyBacklogRow[]> {
+  const [rows, printedRows] = await Promise.all([
+    prisma.$queryRaw<
+      Array<{
+        company: string;
+        total: number;
+        in_prep: number;
+        on_hold: number;
+        awaiting_label: number;
+        label_ready: number;
+        problem: number;
+        late_24h: number;
+        late_48h: number;
+        oldest_at: Date | null;
+      }>
+    >`
+      WITH b AS (
+        SELECT
+          coalesce(nullif(trim(o."fulfillmentCompany"), ''), ${UNKNOWN_COMPANY}) AS company,
+          CASE
+            WHEN o."statusCustomId" = ${NEW_ORDER_STATUS_ID} THEN 'in_prep'
+            WHEN o."statusSlug" = 'under_review' THEN 'on_hold'
+            WHEN t.state IN ('failed', 'blocked') THEN 'problem'
+            WHEN t.state = 'label_ready' THEN 'label_ready'
+            ELSE 'awaiting_label'
+          END AS bucket,
+          coalesce(o."placedAt", o."createdAt") AS at
+        FROM "SallaOrder" o
+        LEFT JOIN "ShippingTask" t ON t."merchantId" = o."merchantId" AND t."orderId" = o."orderId"
+        LEFT JOIN "SallaShipment" s ON s."merchantId" = o."merchantId" AND s."orderId" = o."orderId"
+        WHERE o."merchantId" = ${MERCHANT_ID}
+          AND coalesce(s."labelPrinted", false) = false
+          AND (
+            (o."statusSlug" IN ('under_review', 'in_progress') AND (t.state IS NULL OR t.state NOT IN ('printed', 'cancelled')))
+            -- Creating the waybill moves the order to "تم التنفيذ" in Salla before
+            -- the label is printed. Older open tasks there were shipped outside the station.
+            OR (
+              o."statusSlug" = 'completed'
+              AND t.state IN ('queued', 'creating', 'awaiting_label', 'label_ready', 'failed', 'blocked')
+              AND t."createdAt" > now() - interval '72 hours'
+            )
           )
-        )
-    )
-    SELECT company,
-      count(*)::int AS total,
-      count(*) FILTER (WHERE bucket = 'in_prep')::int AS in_prep,
-      count(*) FILTER (WHERE bucket = 'on_hold')::int AS on_hold,
-      count(*) FILTER (WHERE bucket = 'awaiting_label')::int AS awaiting_label,
-      count(*) FILTER (WHERE bucket = 'label_ready')::int AS label_ready,
-      count(*) FILTER (WHERE bucket = 'problem')::int AS problem,
-      min(at) AS oldest_at
-    FROM b GROUP BY company ORDER BY total DESC, company
-  `;
-  return rows.map((row) => ({
+      )
+      SELECT company,
+        count(*)::int AS total,
+        count(*) FILTER (WHERE bucket = 'in_prep')::int AS in_prep,
+        count(*) FILTER (WHERE bucket = 'on_hold')::int AS on_hold,
+        count(*) FILTER (WHERE bucket = 'awaiting_label')::int AS awaiting_label,
+        count(*) FILTER (WHERE bucket = 'label_ready')::int AS label_ready,
+        count(*) FILTER (WHERE bucket = 'problem')::int AS problem,
+        count(*) FILTER (WHERE at <= now() - interval '24 hours')::int AS late_24h,
+        count(*) FILTER (WHERE at <= now() - interval '48 hours')::int AS late_48h,
+        min(at) AS oldest_at
+      FROM b GROUP BY company ORDER BY total DESC, company
+    `,
+    prisma.$queryRaw<Array<{ company: string; printed: number }>>`
+      SELECT coalesce(nullif(trim(o."fulfillmentCompany"), ''), ${UNKNOWN_COMPANY}) AS company, count(*)::int AS printed
+      FROM "ShippingTask" t
+      LEFT JOIN "SallaOrder" o ON o."merchantId" = t."merchantId" AND o."orderId" = t."orderId"
+      WHERE t."merchantId" = ${MERCHANT_ID} AND t."printedAt" >= ${startOfDay}
+      GROUP BY 1
+    `,
+  ]);
+  const printed = new Map(printedRows.map((row) => [row.company, row.printed]));
+  const result: CompanyBacklogRow[] = rows.map((row) => ({
     company: row.company,
     total: row.total,
     inPrep: row.in_prep,
@@ -228,8 +247,30 @@ async function getCompanyBacklog(): Promise<CompanyBacklogRow[]> {
     awaitingLabel: row.awaiting_label,
     labelReady: row.label_ready,
     problem: row.problem,
+    late24h: row.late_24h,
+    late48h: row.late_48h,
+    printedToday: printed.get(row.company) ?? 0,
     oldestAt: row.oldest_at ? row.oldest_at.toISOString() : null,
   }));
+  // Carriers finished for now but busy today still get a row, after the ones with work left.
+  const seen = new Set(result.map((row) => row.company));
+  const done = printedRows
+    .filter((row) => !seen.has(row.company) && row.printed > 0)
+    .sort((a, b) => b.printed - a.printed)
+    .map((row) => ({
+      company: row.company,
+      total: 0,
+      inPrep: 0,
+      onHold: 0,
+      awaitingLabel: 0,
+      labelReady: 0,
+      problem: 0,
+      late24h: 0,
+      late48h: 0,
+      printedToday: row.printed,
+      oldestAt: null,
+    }));
+  return [...result, ...done];
 }
 
 /** Supervisor: try again (failed / blocked / stuck) — the order goes back to "create". */

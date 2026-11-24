@@ -278,9 +278,12 @@ export function Sparkline({ values, color = '#e8c896', width = 88, height = 26 }
 export function StackBar({
   segments,
   className,
+  showValues,
 }: {
   segments: Array<{ key: string; value: number; color: string; label: string }>;
   className?: string;
+  /** Print each segment's count inside it when the segment is wide enough to hold it. */
+  showValues?: boolean;
 }) {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
   return (
@@ -291,9 +294,15 @@ export function StackBar({
             <span
               key={segment.key}
               title={`${segment.label}: ${segment.value}`}
-              className={cn('h-full first:rounded-r-full last:rounded-l-full', segment.color)}
+              className={cn(
+                'h-full first:rounded-r-full last:rounded-l-full',
+                showValues && 'flex items-center justify-center overflow-hidden text-[10px] leading-none font-black text-white tabular-nums',
+                segment.color,
+              )}
               style={{ width: `${(segment.value / total) * 100}%`, transition: 'width 800ms cubic-bezier(0.22, 1, 0.36, 1)' }}
-            />
+            >
+              {showValues && segment.value / total >= 0.12 ? segment.value : null}
+            </span>
           ) : null,
         )}
     </div>

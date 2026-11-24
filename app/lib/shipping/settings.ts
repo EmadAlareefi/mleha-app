@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { log } from '@/app/lib/logger';
+import { BIG_PICKUP_THRESHOLD_RANGE } from '@/app/lib/shipping/pickup';
 
 /**
  * Shipping v2 switches, stored in the Settings table and read through a short
@@ -11,14 +12,27 @@ export type ShippingSettings = {
   v2Enabled: boolean;
   /** Create the Salla shipment in the background right after packing. */
   precreateEnabled: boolean;
+  /** Parcels expected for one carrier at which the dashboard says «call them for a big truck». */
+  bigPickupThreshold: number;
 };
 
 export const SHIPPING_SETTING_KEYS = {
   v2Enabled: 'shipping.v2_enabled',
   precreateEnabled: 'shipping.precreate_enabled',
+  bigPickupThreshold: 'shipping.big_pickup_threshold',
 } as const;
 
-export const DEFAULT_SHIPPING_SETTINGS: ShippingSettings = { v2Enabled: false, precreateEnabled: false };
+export const DEFAULT_SHIPPING_SETTINGS: ShippingSettings = {
+  v2Enabled: false,
+  precreateEnabled: false,
+  bigPickupThreshold: BIG_PICKUP_THRESHOLD_RANGE.default,
+};
+
+const parseThreshold = (value: string | undefined) => {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed)) return BIG_PICKUP_THRESHOLD_RANGE.default;
+  return Math.min(BIG_PICKUP_THRESHOLD_RANGE.max, Math.max(BIG_PICKUP_THRESHOLD_RANGE.min, parsed));
+};
 
 const isOn = (value: string | undefined) => {
   const normalized = value?.trim().toLowerCase();
@@ -29,6 +43,7 @@ export function parseShippingSettings(values: Record<string, string | undefined>
   return {
     v2Enabled: isOn(values[SHIPPING_SETTING_KEYS.v2Enabled]),
     precreateEnabled: isOn(values[SHIPPING_SETTING_KEYS.precreateEnabled]),
+    bigPickupThreshold: parseThreshold(values[SHIPPING_SETTING_KEYS.bigPickupThreshold]),
   };
 }
 
@@ -36,6 +51,15 @@ export function sanitizeShippingSettingsPatch(patch: Record<string, unknown>): P
   const result: Partial<ShippingSettings> = {};
   if (typeof patch.v2Enabled === 'boolean') result.v2Enabled = patch.v2Enabled;
   if (typeof patch.precreateEnabled === 'boolean') result.precreateEnabled = patch.precreateEnabled;
+  const threshold = patch.bigPickupThreshold;
+  if (
+    typeof threshold === 'number' &&
+    Number.isInteger(threshold) &&
+    threshold >= BIG_PICKUP_THRESHOLD_RANGE.min &&
+    threshold <= BIG_PICKUP_THRESHOLD_RANGE.max
+  ) {
+    result.bigPickupThreshold = threshold;
+  }
   return result;
 }
 
@@ -61,7 +85,7 @@ export async function getShippingSettings(options: { fresh?: boolean } = {}): Pr
 }
 
 export async function updateShippingSettings(patch: Partial<ShippingSettings>): Promise<ShippingSettings> {
-  const entries = Object.entries(patch) as Array<[keyof ShippingSettings, boolean]>;
+  const entries = Object.entries(patch) as Array<[keyof ShippingSettings, boolean | number]>;
   await prisma.$transaction(
     entries.map(([field, value]) =>
       prisma.settings.upsert({
