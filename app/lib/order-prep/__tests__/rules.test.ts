@@ -104,13 +104,11 @@ test('settings parse with safe defaults and validated updates', () => {
     'order_prep.promo_aging_hours': '72',
     'order_prep.scan_mode': 'required',
     'order_prep.lease_minutes': '1',
-    'order_prep.v2_enabled': 'true',
   });
   assert.equal(parsed.priorityMode, 'regular_first');
   assert.equal(parsed.promoAgingHours, 72);
   assert.equal(parsed.scanMode, 'required');
   assert.equal(parsed.leaseMinutes, 3);
-  assert.equal(parsed.v2Enabled, true);
   assert.equal(parsePrepSettings({ 'order_prep.priority_mode': 'nonsense' }).priorityMode, 'oldest_first');
   assert.deepEqual(sanitizePrepSettingsPatch({ priorityMode: 'x', promoAgingHours: 0, leaseMinutes: 20, v2Enabled: 'yes' }), {
     leaseMinutes: 20,

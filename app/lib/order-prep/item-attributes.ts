@@ -1,7 +1,6 @@
 /**
  * Reading line items, size, colour and options out of Salla order payloads.
- * Moved from the old prep page (app/order-prep/legacy/OrderPrepClient.tsx) so
- * the server builds the packer's view once, and so it can be tested.
+ * The server builds the packer's view once with these, so it can be tested.
  */
 
 type AnyRecord = Record<string, any>;

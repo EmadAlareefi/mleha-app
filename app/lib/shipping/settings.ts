@@ -3,13 +3,11 @@ import { log } from '@/app/lib/logger';
 import { BIG_PICKUP_THRESHOLD_RANGE } from '@/app/lib/shipping/pickup';
 
 /**
- * Shipping v2 switches, stored in the Settings table and read through a short
+ * Shipping settings, stored in the Settings table and read through a short
  * cache (same pattern as app/lib/order-prep/settings.ts).
  */
 
 export type ShippingSettings = {
-  /** Serve the new station at /order-shipping (the old page stays at ?v=1). */
-  v2Enabled: boolean;
   /** Create the Salla shipment in the background right after packing. */
   precreateEnabled: boolean;
   /** Parcels expected for one carrier at which the dashboard says «call them for a big truck». */
@@ -17,13 +15,11 @@ export type ShippingSettings = {
 };
 
 export const SHIPPING_SETTING_KEYS = {
-  v2Enabled: 'shipping.v2_enabled',
   precreateEnabled: 'shipping.precreate_enabled',
   bigPickupThreshold: 'shipping.big_pickup_threshold',
 } as const;
 
 export const DEFAULT_SHIPPING_SETTINGS: ShippingSettings = {
-  v2Enabled: false,
   precreateEnabled: false,
   bigPickupThreshold: BIG_PICKUP_THRESHOLD_RANGE.default,
 };
@@ -41,7 +37,6 @@ const isOn = (value: string | undefined) => {
 
 export function parseShippingSettings(values: Record<string, string | undefined>): ShippingSettings {
   return {
-    v2Enabled: isOn(values[SHIPPING_SETTING_KEYS.v2Enabled]),
     precreateEnabled: isOn(values[SHIPPING_SETTING_KEYS.precreateEnabled]),
     bigPickupThreshold: parseThreshold(values[SHIPPING_SETTING_KEYS.bigPickupThreshold]),
   };
@@ -49,7 +44,6 @@ export function parseShippingSettings(values: Record<string, string | undefined>
 
 export function sanitizeShippingSettingsPatch(patch: Record<string, unknown>): Partial<ShippingSettings> {
   const result: Partial<ShippingSettings> = {};
-  if (typeof patch.v2Enabled === 'boolean') result.v2Enabled = patch.v2Enabled;
   if (typeof patch.precreateEnabled === 'boolean') result.precreateEnabled = patch.precreateEnabled;
   const threshold = patch.bigPickupThreshold;
   if (

@@ -17,8 +17,6 @@ export type PrepSettings = {
   promoAgingHours: number;
   scanMode: ScanMode;
   leaseMinutes: number;
-  /** Serve the new page at /order-prep (the old one stays at ?v=1). */
-  v2Enabled: boolean;
 };
 
 export const PREP_SETTING_KEYS = {
@@ -26,7 +24,6 @@ export const PREP_SETTING_KEYS = {
   promoAgingHours: 'order_prep.promo_aging_hours',
   scanMode: 'order_prep.scan_mode',
   leaseMinutes: 'order_prep.lease_minutes',
-  v2Enabled: 'order_prep.v2_enabled',
 } as const;
 
 export const DEFAULT_PREP_SETTINGS: PrepSettings = {
@@ -34,7 +31,6 @@ export const DEFAULT_PREP_SETTINGS: PrepSettings = {
   promoAgingHours: 48,
   scanMode: 'optional',
   leaseMinutes: 15,
-  v2Enabled: false,
 };
 
 const clampInt = (raw: string | undefined, fallback: number, min: number, max: number) => {
@@ -47,13 +43,11 @@ const clampInt = (raw: string | undefined, fallback: number, min: number, max: n
 export function parsePrepSettings(values: Record<string, string | undefined>): PrepSettings {
   const priority = values[PREP_SETTING_KEYS.priorityMode];
   const scan = values[PREP_SETTING_KEYS.scanMode];
-  const v2 = values[PREP_SETTING_KEYS.v2Enabled]?.trim().toLowerCase();
   return {
     priorityMode: priority === 'regular_first' ? 'regular_first' : 'oldest_first',
     promoAgingHours: clampInt(values[PREP_SETTING_KEYS.promoAgingHours], DEFAULT_PREP_SETTINGS.promoAgingHours, 1, 24 * 30),
     scanMode: scan === 'required' || scan === 'off' ? scan : 'optional',
     leaseMinutes: clampInt(values[PREP_SETTING_KEYS.leaseMinutes], DEFAULT_PREP_SETTINGS.leaseMinutes, 3, 120),
-    v2Enabled: v2 === 'true' || v2 === '1',
   };
 }
 
@@ -70,7 +64,6 @@ export function sanitizePrepSettingsPatch(patch: Record<string, unknown>): Parti
   if (Number.isInteger(hours) && hours >= 1 && hours <= 24 * 30) result.promoAgingHours = hours;
   const lease = Number(patch.leaseMinutes);
   if (Number.isInteger(lease) && lease >= 3 && lease <= 120) result.leaseMinutes = lease;
-  if (typeof patch.v2Enabled === 'boolean') result.v2Enabled = patch.v2Enabled;
   return result;
 }
 

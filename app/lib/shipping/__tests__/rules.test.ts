@@ -87,14 +87,14 @@ test('backoff grows and honours Retry-After', () => {
 });
 
 test('settings parse and sanitize', () => {
-  assert.deepEqual(parseShippingSettings({}), { v2Enabled: false, precreateEnabled: false, bigPickupThreshold: 50 });
+  assert.deepEqual(parseShippingSettings({}), { precreateEnabled: false, bigPickupThreshold: 50 });
   assert.deepEqual(
-    parseShippingSettings({ 'shipping.v2_enabled': 'true', 'shipping.precreate_enabled': '1', 'shipping.big_pickup_threshold': '80' }),
-    { v2Enabled: true, precreateEnabled: true, bigPickupThreshold: 80 },
+    parseShippingSettings({ 'shipping.precreate_enabled': '1', 'shipping.big_pickup_threshold': '80' }),
+    { precreateEnabled: true, bigPickupThreshold: 80 },
   );
   assert.equal(parseShippingSettings({ 'shipping.big_pickup_threshold': 'abc' }).bigPickupThreshold, 50);
   assert.equal(parseShippingSettings({ 'shipping.big_pickup_threshold': '2' }).bigPickupThreshold, 5);
-  assert.deepEqual(sanitizeShippingSettingsPatch({ v2Enabled: true, precreateEnabled: 'yes', other: 1 }), { v2Enabled: true });
+  assert.deepEqual(sanitizeShippingSettingsPatch({ v2Enabled: true, precreateEnabled: 'yes', other: 1 }), {});
   assert.deepEqual(sanitizeShippingSettingsPatch({ bigPickupThreshold: 120 }), { bigPickupThreshold: 120 });
   assert.deepEqual(sanitizeShippingSettingsPatch({ bigPickupThreshold: 3 }), {});
   assert.deepEqual(sanitizeShippingSettingsPatch({ bigPickupThreshold: '60' }), {});

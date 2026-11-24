@@ -4,40 +4,19 @@ export const fetchCache = 'force-no-store';
 
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
-import { AppPageShell } from '@/components/dashboard/app-page-shell';
 import { authOptions } from '@/app/lib/auth';
 import { hasServiceAccess } from '@/app/lib/service-access';
 import { getStateForUser } from '@/app/lib/order-prep/queue';
 import { getPrepSettings } from '@/app/lib/order-prep/settings';
 import { prisma } from '@/lib/prisma';
-import OrderPrepClient from './legacy/OrderPrepClient';
 import PrepApp from './_components/PrepApp';
 
 /**
- * /order-prep serves the new packing page when `order_prep.v2_enabled` is on
- * (or with ?v=2 for a pilot); ?v=1 keeps the old page reachable meanwhile.
- * The new page renders the packer's current orders on the server — no claim,
- * no Salla call — so the first paint already shows the order.
+ * /order-prep: the packing page. It renders the packer's current orders on the
+ * server — no claim, no Salla call — so the first paint already shows the order.
  */
-export default async function OrderPrepPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const params = await searchParams;
-  const version = typeof params.v === 'string' ? params.v : null;
+export default async function OrderPrepPage() {
   const settings = await getPrepSettings();
-  const useV2 = version === '2' || (settings.v2Enabled && version !== '1');
-
-  if (!useV2) {
-    return (
-      <AppPageShell title="تجهيز الطلبات" subtitle="إدارة تجهيز الطلبات ومتابعة حالة المنتجات">
-        <div className="mx-auto w-full max-w-7xl">
-          <OrderPrepClient />
-        </div>
-      </AppPageShell>
-    );
-  }
 
   const session = await getServerSession(authOptions);
   const sessionUserId = (session?.user as { id?: string } | undefined)?.id;

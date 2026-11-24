@@ -24,7 +24,7 @@ export function SettingsView({
   canManageShipping: boolean;
   busy: string | null;
   /** Only the fields this view edits: queue order and campaign mode live on the «الأولويات» tab. */
-  onSavePrep: (patch: Pick<PrepSettings, 'scanMode' | 'leaseMinutes' | 'v2Enabled'>) => Promise<boolean>;
+  onSavePrep: (patch: Pick<PrepSettings, 'scanMode' | 'leaseMinutes'>) => Promise<boolean>;
   onShippingSetting: (patch: Partial<ShippingBoardData['settings']>) => void;
 }) {
   const [draft, setDraft] = useState<PrepSettings | null>(null);
@@ -63,20 +63,12 @@ export function SettingsView({
               </label>
             </div>
             <p className="mt-3 text-xs text-[var(--lv-muted)]">ترتيب الطابور ووضع الحملة انتقلا إلى تبويب «الأولويات».</p>
-            <div className="mt-4">
-              <Switch
-                label="تفعيل صفحة التجهيز الجديدة لكل المجهِّزين"
-                hint="الصفحة القديمة تبقى على ‎/order-prep?v=1"
-                value={settings.v2Enabled}
-                onChange={(value) => setDraft({ ...settings, v2Enabled: value })}
-              />
-            </div>
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
                 disabled={!draft || busy === 'settings'}
                 onClick={async () => {
-                  if (draft && (await onSavePrep({ scanMode: draft.scanMode, leaseMinutes: draft.leaseMinutes, v2Enabled: draft.v2Enabled }))) setDraft(null);
+                  if (draft && (await onSavePrep({ scanMode: draft.scanMode, leaseMinutes: draft.leaseMinutes }))) setDraft(null);
                 }}
                 className="rounded-xl bg-[#8b6f47] px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#765d3a] disabled:opacity-40"
               >
@@ -105,13 +97,6 @@ export function SettingsView({
               value={shipping.settings.precreateEnabled}
               disabled={busy === 'ship-settings'}
               onChange={(value) => onShippingSetting({ precreateEnabled: value })}
-            />
-            <Switch
-              label="صفحة الشحن الجديدة للجميع"
-              hint="الصفحة القديمة تبقى متاحة على /order-shipping?v=1"
-              value={shipping.settings.v2Enabled}
-              disabled={busy === 'ship-settings'}
-              onChange={(value) => onShippingSetting({ v2Enabled: value })}
             />
             <PickupThreshold
               key={shipping.settings.bigPickupThreshold}
