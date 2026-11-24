@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { Maximize2, Minimize2, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import styles from '../live.module.css';
 import { useLiveMode } from './LiveMode';
+import { useExpandable } from './useExpandable';
 
 export { since, staleNote } from '../_lib/metrics';
 
@@ -126,12 +127,27 @@ export function Panel({
 }) {
   const { kiosk } = useLiveMode();
   const bodyRef = useAutoScroll(kiosk);
+  const expand = useExpandable();
+  const ToggleIcon = expand.expanded ? Minimize2 : Maximize2;
   return (
+    <>
+    {expand.expanded && (
+      <>
+        {/* Keeps the card's place in the grid while it floats full screen. */}
+        <div ref={expand.placeholderRef} aria-hidden className="shrink-0" style={{ height: expand.size?.height, width: '100%' }} />
+        <div ref={expand.backdropRef} aria-hidden onClick={expand.close} className="fixed inset-0 z-50 bg-[#1f1912]/45 backdrop-blur-[6px]" />
+      </>
+    )}
     <section
+      ref={expand.sectionRef}
       style={{ animationDelay: `${delay}ms` } as CSSProperties}
+      aria-label={expand.expanded ? title : undefined}
       className={cn(
         styles.enter,
-        'flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--lv-line)] bg-[var(--lv-panel)] shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_24px_-12px_rgba(59,47,34,0.25)] backdrop-blur',
+        'flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--lv-line)] shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_24px_-12px_rgba(59,47,34,0.25)] backdrop-blur',
+        expand.expanded
+          ? 'fixed inset-2 z-50 rounded-3xl bg-[var(--lv-panel-solid)] shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_40px_120px_-30px_rgba(31,25,18,0.75)] sm:inset-4 xl:inset-8'
+          : 'h-full bg-[var(--lv-panel)]',
         tone === 'danger' && 'border-rose-200',
         className,
       )}
@@ -153,7 +169,28 @@ export function Panel({
             {count}
           </span>
         )}
-        <div className="mr-auto flex items-center gap-1.5">{actions}</div>
+        <div className="mr-auto flex items-center gap-1.5">
+          {actions}
+          <button
+            ref={expand.buttonRef}
+            type="button"
+            onClick={expand.toggle}
+            aria-expanded={expand.expanded}
+            aria-label={expand.expanded ? `تصغير «${title}» (Esc)` : `عرض «${title}» بملء الشاشة`}
+            title={expand.expanded ? 'تصغير (Esc)' : 'ملء الشاشة'}
+            className={cn(
+              'group/expand relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--lv-faint)] transition duration-200',
+              'hover:scale-110 hover:bg-[var(--lv-chip)] hover:text-[#8b6f47] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#e8c896] focus-visible:outline-none',
+              actions ? 'mr-0.5' : '',
+              expand.expanded && 'bg-[var(--lv-chip)] text-[#8b6f47]',
+            )}
+          >
+            <ToggleIcon
+              key={expand.expanded ? 'min' : 'max'}
+              className={cn('h-4 w-4 transition-transform duration-300 group-hover/expand:rotate-90', styles.iconSwap)}
+            />
+          </button>
+        </div>
       </header>
       {stale && (
         <p role="status" className="flex shrink-0 items-center gap-1.5 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-[11px] font-semibold text-amber-900">
@@ -161,8 +198,9 @@ export function Panel({
           {stale}
         </p>
       )}
-      <div ref={bodyRef} className={cn('min-h-0 flex-1 overflow-y-auto', styles.scroll, stale && 'opacity-60 saturate-50', bodyClassName)}>{children}</div>
+      <div ref={bodyRef} data-panel-body className={cn('min-h-0 flex-1 overflow-y-auto', styles.scroll, stale && 'opacity-60 saturate-50', bodyClassName)}>{children}</div>
     </section>
+    </>
   );
 }
 
