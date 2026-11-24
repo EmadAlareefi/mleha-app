@@ -22,7 +22,8 @@ export function SettingsView({
   shipping: ShippingBoardData | null;
   canManageShipping: boolean;
   busy: string | null;
-  onSavePrep: (settings: PrepSettings) => Promise<boolean>;
+  /** Only the fields this view edits: queue order and campaign mode live on the «الأولويات» tab. */
+  onSavePrep: (patch: Pick<PrepSettings, 'scanMode' | 'leaseMinutes' | 'v2Enabled'>) => Promise<boolean>;
   onShippingSetting: (patch: Partial<ShippingBoardData['settings']>) => void;
 }) {
   const [draft, setDraft] = useState<PrepSettings | null>(null);
@@ -36,28 +37,6 @@ export function SettingsView({
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-1.5 text-sm">
-                <span className="font-bold">ترتيب القائمة</span>
-                <select
-                  value={settings.priorityMode}
-                  onChange={(event) => setDraft({ ...settings, priorityMode: event.target.value as PrepSettings['priorityMode'] })}
-                  className={field}
-                >
-                  <option value="oldest_first">الأقدم أولاً (الافتراضي)</option>
-                  <option value="regular_first">وضع الحملة: الطلبات العادية قبل عرض الريال</option>
-                </select>
-              </label>
-              <label className="space-y-1.5 text-sm">
-                <span className="font-bold">في وضع الحملة: يتقدّم طلب العرض بعد (ساعة)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={720}
-                  value={settings.promoAgingHours}
-                  onChange={(event) => setDraft({ ...settings, promoAgingHours: Number(event.target.value) })}
-                  className={field}
-                />
-              </label>
               <label className="space-y-1.5 text-sm">
                 <span className="font-bold">مسح الباركود</span>
                 <select
@@ -82,6 +61,7 @@ export function SettingsView({
                 />
               </label>
             </div>
+            <p className="mt-3 text-xs text-[var(--lv-muted)]">ترتيب الطابور ووضع الحملة انتقلا إلى تبويب «الأولويات».</p>
             <div className="mt-4">
               <Switch
                 label="تفعيل صفحة التجهيز الجديدة لكل المجهِّزين"
@@ -95,7 +75,7 @@ export function SettingsView({
                 type="button"
                 disabled={!draft || busy === 'settings'}
                 onClick={async () => {
-                  if (draft && (await onSavePrep(draft))) setDraft(null);
+                  if (draft && (await onSavePrep({ scanMode: draft.scanMode, leaseMinutes: draft.leaseMinutes, v2Enabled: draft.v2Enabled }))) setDraft(null);
                 }}
                 className="rounded-xl bg-[#8b6f47] px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#765d3a] disabled:opacity-40"
               >

@@ -951,6 +951,14 @@ export interface SallaProductSummary {
   lastUpdatedAt?: string | null;
   variations?: SallaProductVariation[];
   options?: SallaProductOption[];
+  /** Store categories the product is listed in (Salla includes them in product listings). */
+  categories?: SallaProductCategory[];
+}
+
+export interface SallaProductCategory {
+  id: string;
+  name: string;
+  parentId: string | null;
 }
 
 export interface SallaProductOptionValue {
@@ -1343,6 +1351,15 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
       : undefined;
   const variations = normalizeProductVariations(product);
   const options = normalizeProductOptions(product);
+  const categories: SallaProductCategory[] = Array.isArray(product?.categories)
+    ? product.categories.flatMap((category: Record<string, any>) => {
+        const id = category?.id;
+        const categoryName = typeof category?.name === 'string' ? category.name.trim() : '';
+        if ((typeof id !== 'number' && typeof id !== 'string') || !categoryName) return [];
+        const parent = category?.parent_id;
+        return [{ id: String(id), name: categoryName, parentId: parent && String(parent) !== '0' ? String(parent) : null }];
+      })
+    : [];
 
   return {
     id: rawId ?? Date.now(),
@@ -1357,6 +1374,7 @@ function normalizeProduct(product: Record<string, any>): SallaProductSummary {
     lastUpdatedAt,
     variations,
     options,
+    categories,
   };
 }
 

@@ -16,6 +16,18 @@ import {
 import { placedAtCutoff, riyadhStartOfDayUtc, toSqlTimestamp } from './riyadh-time';
 import { lockPrepQueue } from './claim-lock';
 import { getPrepSettings, type PrepSettings } from './settings';
+import {
+  agedSql,
+  guardActive,
+  loadResolvedPriority,
+  NO_PRIORITY,
+  priorityHeadSql,
+  prioritySortSql,
+  ruleMatchSql,
+  ruleTierSql,
+  SAR_TOTAL_SQL,
+  type ResolvedPriority,
+} from './priority-rules';
 import { NEW_ORDER_STATUS_ID } from './sync-rules';
 import { loadLastStops, type StopReason } from './stop-reason';
 import type {
@@ -52,15 +64,19 @@ export type QueueContext = {
   promoIds: string[];
   violatorIds: string[];
   nowMs: number;
+  /** Supervisor priority rules (priority-rules.ts); absent = none. */
+  priority?: ResolvedPriority;
 };
 
 async function loadQueueContext(): Promise<QueueContext> {
-  const [settings, promoIds, violators] = await Promise.all([
+  const nowMs = Date.now();
+  const [settings, promoIds, violators, priority] = await Promise.all([
     getPrepSettings(),
     getPromoProductIds(MERCHANT_ID).catch((): string[] => []),
     getViolatingPromoOrderIds(MERCHANT_ID).catch(() => new Set<string>()),
+    loadResolvedPriority(nowMs),
   ]);
-  return { settings, promoIds, violatorIds: [...violators], nowMs: Date.now() };
+  return { settings, promoIds, violatorIds: [...violators], nowMs, priority };
 }
 
 const leaseUntil = (ctx: QueueContext) => new Date(ctx.nowMs + ctx.settings.leaseMinutes * 60_000);
@@ -117,22 +133,31 @@ function eligibleWhere(ctx: QueueContext): Prisma.Sql {
   `;
 }
 
-/**
- * High-priority flag first; in campaign mode, promo orders younger than the
- * age cap go after regular ones; then oldest first.
- */
-function priorityOrder(ctx: QueueContext): Prisma.Sql {
-  const campaign = ctx.settings.priorityMode === 'regular_first' && ctx.promoIds.length > 0;
-  // Left out entirely outside campaign mode: a bare constant in ORDER BY would
-  // be read by Postgres as a column position.
-  const promoLane = campaign
-    ? Prisma.sql`CASE WHEN s."placedAt" > ${toSqlTimestamp(placedAtCutoff(ctx.settings.promoAgingHours, ctx.nowMs))}::timestamp
+function campaignActive(ctx: QueueContext): boolean {
+  return ctx.settings.priorityMode === 'regular_first' && ctx.promoIds.length > 0;
+}
+
+/** 1 for a promo order still inside the campaign age cap (goes after regular orders). */
+function promoLaneSql(ctx: QueueContext): Prisma.Sql {
+  return Prisma.sql`CASE WHEN s."placedAt" > ${toSqlTimestamp(placedAtCutoff(ctx.settings.promoAgingHours, ctx.nowMs))}::timestamp
         AND EXISTS (
           SELECT 1 FROM "SallaOrderItem" i
           WHERE i."merchantId" = s."merchantId" AND i."orderId" = s."orderId" AND i."productId" = ANY(${ctx.promoIds}::text[])
-        ) THEN 1 ELSE 0 END ASC,`
-    : Prisma.empty;
-  return Prisma.sql`(hp."id" IS NULL) ASC, ${promoLane} s."placedAt" ASC NULLS LAST, s."orderId" ASC`;
+        ) THEN 1 ELSE 0 END`;
+}
+
+/**
+ * High-priority flag first; then the supervisor's priority rules (max-wait
+ * guard, rule tier — see priority-rules.ts); in campaign mode, promo orders
+ * younger than the age cap go after regular ones; then the chosen sort
+ * (oldest first by default).
+ */
+function priorityOrder(ctx: QueueContext): Prisma.Sql {
+  const priority = ctx.priority ?? NO_PRIORITY;
+  // Pieces are left out entirely when off: a bare constant in ORDER BY would
+  // be read by Postgres as a column position.
+  const promoLane = campaignActive(ctx) ? Prisma.sql`${promoLaneSql(ctx)} ASC,` : Prisma.empty;
+  return Prisma.sql`(hp."id" IS NULL) ASC, ${priorityHeadSql(priority, ctx.nowMs)} ${promoLane} ${prioritySortSql(priority.sort)}, s."orderId" ASC`;
 }
 
 /** The queue pick, oldest eligible first (exported for tests and EXPLAIN checks). */
@@ -749,4 +774,103 @@ export async function findUnverifiedClaims(userId: string): Promise<Array<{ id: 
     select: { id: true, status: true },
     take: 3,
   });
+}
+
+export type QueuePreviewRow = {
+  orderId: string;
+  orderNumber: string | null;
+  customerName: string | null;
+  placedAt: string | null;
+  totalSar: number | null;
+  company: string | null;
+  flagged: boolean;
+  aged: boolean;
+  promo: boolean;
+  /** Id of the rule that set the order's tier; null when no rule matched. */
+  ruleId: string | null;
+};
+
+export type QueuePreview = {
+  total: number;
+  flagged: number;
+  aged: number;
+  /** Waiting orders each live rule matches (an order can match more than one). */
+  ruleCounts: Record<string, number>;
+  rows: QueuePreviewRow[];
+};
+
+/**
+ * The next `limit` orders packers would get under `priority` (the saved rules,
+ * or a draft from the editor), with why each one sits where it does. Uses the
+ * same WHERE and ORDER BY as the real pick; held claims are not counted.
+ */
+export async function previewQueue(priority: ResolvedPriority, limit = 25): Promise<QueuePreview> {
+  const base = await loadQueueContext();
+  const ctx: QueueContext = { ...base, priority };
+  const tier = ruleTierSql(priority);
+  const guard = guardActive(priority);
+  const campaign = campaignActive(ctx);
+  const from = Prisma.sql`
+    FROM "SallaOrder" s
+    LEFT JOIN "HighPriorityOrder" hp ON hp."merchantId" = s."merchantId" AND hp."orderId" = s."orderId"
+    WHERE ${eligibleWhere(ctx)}`;
+
+  const counts = priority.rules.map((rule, index) =>
+    Prisma.sql`count(*) FILTER (WHERE ${ruleMatchSql(rule.match)})::int AS ${Prisma.raw(`"r${index}"`)}`,
+  );
+  const [countRow] = await prisma.$queryRaw<Array<Record<string, number>>>(Prisma.sql`
+    SELECT count(*)::int AS "total",
+      count(hp."id")::int AS "flagged",
+      ${guard ? Prisma.sql`count(*) FILTER (WHERE ${agedSql(priority, ctx.nowMs)})::int` : Prisma.sql`0`} AS "aged"
+      ${counts.length ? Prisma.sql`, ${Prisma.join(counts, ', ')}` : Prisma.empty}
+    ${from}`);
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      orderId: string;
+      orderNumber: string | null;
+      customerName: string | null;
+      placedAt: Date | null;
+      totalSar: Prisma.Decimal | null;
+      company: string | null;
+      flagged: boolean;
+      aged: boolean;
+      promo: number;
+      tier: number | null;
+    }>
+  >(Prisma.sql`
+    SELECT s."orderId", s."orderNumber", s."customerName", s."placedAt",
+      ${SAR_TOTAL_SQL} AS "totalSar",
+      s."fulfillmentCompany" AS "company",
+      (hp."id" IS NOT NULL) AS "flagged",
+      ${guard ? Prisma.sql`COALESCE(${agedSql(priority, ctx.nowMs)}, false)` : Prisma.sql`false`} AS "aged",
+      ${campaign ? promoLaneSql(ctx) : Prisma.sql`0`} AS "promo",
+      ${tier ?? Prisma.sql`NULL::int`} AS "tier"
+    ${from}
+    ORDER BY ${priorityOrder(ctx)}
+    LIMIT ${limit}`);
+
+  const boosts = priority.rules.filter((rule) => rule.effect === 'boost').length;
+  const ruleForTier = (value: number | null): string | null => {
+    if (value === null || value === boosts) return null;
+    return priority.rules[value < boosts ? value : value - 1]?.id ?? null;
+  };
+  return {
+    total: countRow?.total ?? 0,
+    flagged: countRow?.flagged ?? 0,
+    aged: countRow?.aged ?? 0,
+    ruleCounts: Object.fromEntries(priority.rules.map((rule, index) => [rule.id, countRow?.[`r${index}`] ?? 0])),
+    rows: rows.map((row) => ({
+      orderId: row.orderId,
+      orderNumber: row.orderNumber,
+      customerName: row.customerName,
+      placedAt: row.placedAt ? row.placedAt.toISOString() : null,
+      totalSar: row.totalSar === null ? null : Number(row.totalSar),
+      company: row.company,
+      flagged: row.flagged,
+      aged: row.aged,
+      promo: Number(row.promo) === 1,
+      ruleId: ruleForTier(row.tier === null ? null : Number(row.tier)),
+    })),
+  };
 }

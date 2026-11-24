@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Activity, BarChart3, Expand, House, Loader2, Moon, MonitorCheck, MonitorOff, RefreshCcw, Settings2, Shrink, Sun, SunMoon, Tv, Volume2, VolumeX, X } from 'lucide-react';
+import { Activity, BarChart3, Expand, House, ListOrdered, Loader2, Moon, MonitorCheck, MonitorOff, RefreshCcw, Settings2, Shrink, Sun, SunMoon, Tv, Volume2, VolumeX, X } from 'lucide-react';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import type { BoardPacker } from '@/app/lib/order-prep/board';
@@ -22,6 +22,7 @@ import { BacklogPanel } from './_components/BacklogPanel';
 import { OrderSearch } from './_components/OrderSearch';
 import { PipelineHero } from './_components/PipelineHero';
 import { LiveDot, staleNote } from './_components/primitives';
+import { PriorityView } from './_components/PriorityView';
 import { SettingsView } from './_components/SettingsView';
 import { StuckPanel } from './_components/StuckPanel';
 import { TeamPanel } from './_components/TeamPanel';
@@ -33,7 +34,7 @@ import { LiveModeContext, type LiveScope } from './_components/LiveMode';
 const FRESH_MS = 12_000;
 const BASE_TITLE = 'مركز قيادة المستودع';
 
-type View = 'live' | 'analytics' | 'settings';
+type View = 'live' | 'analytics' | 'priority' | 'settings';
 
 type Confirm = { title: string; message: string; label: string; danger?: boolean; run: () => Promise<unknown> };
 
@@ -58,7 +59,7 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
   const { board, shipping, stuck } = live;
   const [rawView, setViewParam] = useUrlParam('view', 'live');
   // TV mode is the live view only; shipping-only users have no settings to change.
-  const view: View = kiosk ? 'live' : rawView === 'analytics' || (rawView === 'settings' && full) ? rawView : 'live';
+  const view: View = kiosk ? 'live' : rawView === 'analytics' || ((rawView === 'settings' || rawView === 'priority') && full) ? rawView : 'live';
   const setView = (next: View) => setViewParam(next);
   const [openParam, setOpenParam] = useUrlParam('open');
   // The order journey reads the stuck-orders API, which needs prep-admin access.
@@ -163,12 +164,13 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
     else void document.documentElement.requestFullscreen?.().catch(() => undefined);
   }, []);
 
-  // Keyboard: 1/2/3 switch views, R refresh, F full screen, M sound. "/" (search) lives in OrderSearch.
+  // Keyboard: 1/2/3/4 switch views, R refresh, F full screen, M sound. "/" (search) lives in OrderSearch.
   const shortcuts = useRef<Record<string, () => void>>({});
   shortcuts.current = {
     '1': () => !kiosk && setView('live'),
     '2': () => !kiosk && setView('analytics'),
     '3': () => !kiosk && full && setView('settings'),
+    '4': () => !kiosk && full && setView('priority'),
     r: () => void live.refreshAll(),
     f: toggleFullscreen,
     m: () => chime.setEnabled(!chime.enabled),
@@ -301,7 +303,7 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
     });
   };
 
-  const savePrep = (settings: PrepSettings) => prepAction('settings', { action: 'save_settings', settings }, 'حُفظت الإعدادات');
+  const savePrep = (settings: Partial<PrepSettings>) => prepAction('settings', { action: 'save_settings', settings }, 'حُفظت الإعدادات');
   const shippingSetting = (patch: Partial<ShippingBoardData['settings']>) =>
     void post('ship-settings', '/api/shipping-v2/board/actions', { action: 'settings', settings: patch }, undefined, [live.loadShipping]);
 
@@ -328,9 +330,10 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
   const VIEWS_ALL: Array<{ key: View; label: string; Icon: typeof Activity; shortcut: string }> = [
     { key: 'live', label: 'مباشر', Icon: Activity, shortcut: '1' },
     { key: 'analytics', label: 'التحليلات', Icon: BarChart3, shortcut: '2' },
+    { key: 'priority', label: 'الأولويات', Icon: ListOrdered, shortcut: '4' },
     { key: 'settings', label: 'الإعدادات', Icon: Settings2, shortcut: '3' },
   ];
-  const VIEWS = full ? VIEWS_ALL : VIEWS_ALL.filter((entry) => entry.key !== 'settings');
+  const VIEWS = full ? VIEWS_ALL : VIEWS_ALL.filter((entry) => entry.key !== 'settings' && entry.key !== 'priority');
 
   const onBulkRetry = (kind: 'sync' | 'shipping', count: number) =>
     setConfirm(
@@ -569,6 +572,8 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
             </div>
           </div>
         )}
+
+        {view === 'priority' && <PriorityView />}
 
         {view === 'settings' && (
           <SettingsView
