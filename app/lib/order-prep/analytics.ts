@@ -16,6 +16,10 @@ export const PREP_METRICS: MetricDef[] = [
   { key: 'pack', label: 'وقت التجهيز للطلب', breakSec: 1800, slowSec: 300 },
   { key: 'age', label: 'عمر الطلب عند التجهيز', breakSec: Number.MAX_SAFE_INTEGER },
   { key: 'toPrinted', label: 'من التجهيز حتى طباعة البوليصة', breakSec: Number.MAX_SAFE_INTEGER },
+  // The order's life in stages (the report's "where does the time go").
+  { key: 'queue', label: 'الانتظار حتى بدء التجهيز', breakSec: Number.MAX_SAFE_INTEGER, slowSec: 86_400 },
+  { key: 'toLabel', label: 'من التجهيز حتى جاهزية البوليصة', breakSec: Number.MAX_SAFE_INTEGER, slowSec: 3_600 },
+  { key: 'labelToPrint', label: 'من جاهزية البوليصة حتى طباعتها', breakSec: Number.MAX_SAFE_INTEGER, slowSec: 3 * 3_600 },
 ];
 
 type PrepFactRow = {
@@ -44,7 +48,44 @@ type ProblemRow = {
   resolvedAt: Date | null;
 };
 
-const REASONS: Record<string, string> = {
+type ShortageRow = {
+  orderId: string;
+  orderNumber: string | null;
+  sku: string;
+  normalizedSku: string;
+  itemName: string | null;
+  reason: string | null;
+  resolution: string | null;
+  reportedByName: string | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+};
+
+type ReturnRow = {
+  orderId: string;
+  orderNumber: string | null;
+  reason: string;
+  type: string;
+  status: string;
+  reasonDetails: string | null;
+  createdAt: Date;
+  packer: string | null;
+  completedAt: Date;
+};
+
+export const SHORTAGE_REASONS: Record<string, string> = {
+  not_found: 'غير موجود',
+  damaged: 'تالف',
+  coming_soon: 'سيتوفر قريباً',
+  other: 'أخرى',
+};
+
+const RETURN_REASON_LABELS: Record<string, string> = {
+  wrong_item: 'منتج خاطئ',
+  defective: 'معيب / تالف',
+};
+
+export const REASONS: Record<string, string> = {
   missing_items: 'نقص (X4)',
   coming_soon: 'سيتوفر قريباً',
   manual_review: 'مراجعة',
@@ -52,7 +93,7 @@ const REASONS: Record<string, string> = {
 };
 
 async function loadPrepFacts(period: Period): Promise<Facts> {
-  const [rows, problems] = await Promise.all([
+  const [rows, problems, shortages, returns] = await Promise.all([
     prisma.$queryRaw<PrepFactRow[]>`
       SELECT a."orderId", a."orderNumber", a."userName", a."assignedAt", a."startedAt", a."completedAt", a."scanMethod",
         (SELECT count(*)::int FROM "OrderPrepUnavailableItem" u
@@ -82,6 +123,34 @@ async function loadPrepFacts(period: Period): Promise<Facts> {
       },
       orderBy: { createdAt: 'desc' },
     }) as Promise<ProblemRow[]>,
+    prisma.orderPrepUnavailableItem.findMany({
+      where: { merchantId: MERCHANT_ID, createdAt: { gte: period.from, lt: period.to } },
+      select: {
+        orderId: true,
+        orderNumber: true,
+        sku: true,
+        normalizedSku: true,
+        itemName: true,
+        reason: true,
+        resolution: true,
+        reportedByName: true,
+        createdAt: true,
+        resolvedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    }) as Promise<ShortageRow[]>,
+    // Returns on the orders packed in this period, traced to their packer. Lags:
+    // a customer files the return days after the order arrives.
+    prisma.$queryRaw<ReturnRow[]>`
+      SELECT r."orderId", r."orderNumber", r.reason, r.type, r.status, r."reasonDetails", r."createdAt",
+        a."userName" AS "packer", a."completedAt"
+      FROM "OrderPrepAssignment" a
+      JOIN "ReturnRequest" r ON r."merchantId" = a."merchantId" AND r."orderId" = a."orderId"
+      WHERE a."merchantId" = ${MERCHANT_ID}
+        AND a.status = 'completed'
+        AND a."completedAt" >= ${period.from} AND a."completedAt" < ${period.to}
+        AND r.status NOT IN ('cancelled', 'rejected')
+    `,
   ]);
 
   const facts: FactRow[] = rows.map((row) => {
@@ -94,10 +163,14 @@ async function loadPrepFacts(period: Period): Promise<Facts> {
       person: row.userName?.trim() || null,
       at: row.completedAt,
       scanMethod: row.scanMethod,
+      shortages: row.shortages,
       metrics: {
         pack: secondsBetween(row.startedAt, row.completedAt),
         age: secondsBetween(placed, row.completedAt),
         toPrinted: secondsBetween(row.completedAt, row.printedAt),
+        queue: secondsBetween(placed, row.startedAt ?? row.assignedAt),
+        toLabel: secondsBetween(row.completedAt, row.labelReadyAt),
+        labelToPrint: secondsBetween(row.labelReadyAt, row.printedAt),
       },
       tags,
       timeline: [
@@ -119,13 +192,58 @@ async function loadPrepFacts(period: Period): Promise<Facts> {
     metrics: {},
     tags: [REASONS[row.reason] ?? row.reason, row.resolvedAt ? 'مُعالج' : 'مفتوح'],
     note: row.notes,
+    reason: row.reason,
+    resolvedAt: row.resolvedAt,
     timeline: [
       { label: 'سُجّلت المشكلة', at: row.createdAt.toISOString(), by: row.createdByName },
       { label: 'عولجت', at: row.resolvedAt?.toISOString() ?? null },
     ],
   }));
 
-  return { rows: facts, lists: { problems: { label: 'المشاكل المسجلة', rows: problemRows } } };
+  const shortageRows: FactRow[] = shortages.map((row) => ({
+    orderId: row.orderId,
+    orderNumber: row.orderNumber || row.orderId,
+    person: row.reportedByName?.trim() || null,
+    at: row.createdAt,
+    metrics: {},
+    reason: row.reason ?? 'not_found',
+    sku: row.normalizedSku || row.sku,
+    itemName: row.itemName,
+    resolvedAt: row.resolvedAt,
+    tags: [row.sku, SHORTAGE_REASONS[row.reason ?? 'not_found'] ?? row.reason ?? '—', row.resolvedAt ? 'مُغلق' : 'مفتوح'],
+    note: row.itemName,
+    timeline: [
+      { label: 'أُبلغ عن النقص', at: row.createdAt.toISOString(), by: row.reportedByName },
+      { label: 'أُغلق', at: row.resolvedAt?.toISOString() ?? null },
+    ],
+  }));
+
+  const returnRow = (row: ReturnRow): FactRow => ({
+    orderId: row.orderId,
+    orderNumber: row.orderNumber || row.orderId,
+    person: row.packer?.trim() || null,
+    at: row.createdAt,
+    metrics: {},
+    reason: row.reason,
+    tags: [RETURN_REASON_LABELS[row.reason] ?? row.reason, row.type === 'exchange' ? 'استبدال' : 'إرجاع'],
+    note: row.reasonDetails,
+    timeline: [
+      { label: 'تم التجهيز', at: row.completedAt.toISOString(), by: row.packer },
+      { label: 'طلب العميل الإرجاع', at: row.createdAt.toISOString() },
+    ],
+  });
+  const returnsOf = (reason: string) => returns.filter((row) => row.reason === reason).map(returnRow);
+
+  return {
+    rows: facts,
+    lists: {
+      problems: { label: 'المشاكل المسجلة', rows: problemRows },
+      shortages: { label: 'النقص المُبلغ عنه', rows: shortageRows },
+      returns: { label: 'مرتجعات الطلبات المجهزة', rows: returns.map(returnRow) },
+      returns_wrong_item: { label: 'مرتجع: منتج خاطئ', rows: returnsOf('wrong_item') },
+      returns_defective: { label: 'مرتجع: معيب / تالف', rows: returnsOf('defective') },
+    },
+  };
 }
 
 export function getPrepFacts(period: Period) {

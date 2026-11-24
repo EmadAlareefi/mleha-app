@@ -3,6 +3,7 @@ import { log } from '@/app/lib/logger';
 import { drill } from '@/app/lib/analytics/engine';
 import { getOrderItemsDetail } from '@/app/lib/analytics/order-items';
 import { resolvePeriod } from '@/app/lib/analytics/period';
+import { getWarehouseReport } from '@/app/lib/analytics/report-data';
 import type { DrillFilter } from '@/app/lib/analytics/types';
 import { PREP_METRICS, getPrepAnalytics, getPrepFacts } from '@/app/lib/order-prep/analytics';
 import { requireShippingBoardUser } from '@/app/lib/order-prep/route-auth';
@@ -16,7 +17,14 @@ export const dynamic = 'force-dynamic';
  *   ?kind=prep|shipping&view=summary&preset=today|yesterday|7d|custom&from&to
  *   …&view=orders&metric&subset&bucket&person&sort&offset — the orders behind a number
  *   ?view=items&orderId — one order's items
+ *   ?view=report&preset… — the full warehouse report (prep admins)
  */
+const numberParam = (value: string | null) => {
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 export async function GET(request: Request) {
   const auth = await requireShippingBoardUser();
   if ('response' in auth) return auth.response;
@@ -32,6 +40,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: Boolean(detail), detail, error: detail ? undefined : 'الطلب غير موجود' });
     }
 
+    if (view === 'report') {
+      if (!auth.isPrepAdmin) return NextResponse.json({ success: false, error: 'ليست لديك صلاحية للوصول' }, { status: 403 });
+      const report = await getWarehouseReport(resolvePeriod({ preset: param('preset'), from: param('from'), to: param('to') }));
+      return NextResponse.json({ success: true, report });
+    }
+
     const kind = param('kind') === 'shipping' ? 'shipping' : 'prep';
     // shipping-board users see the shipping analytics only.
     if (kind === 'prep' && !auth.isPrepAdmin) {
@@ -45,6 +59,9 @@ export async function GET(request: Request) {
         subset: param('subset') ?? undefined,
         bucket: param('bucket') ?? undefined,
         person: param('person') ?? undefined,
+        sku: param('sku') ?? undefined,
+        minSec: numberParam(param('minSec')),
+        maxSec: numberParam(param('maxSec')),
       };
       const facts = kind === 'prep' ? await getPrepFacts(period) : await getShippingFacts(period);
       const result = drill(facts, kind === 'prep' ? PREP_METRICS : SHIPPING_METRICS, filter, {

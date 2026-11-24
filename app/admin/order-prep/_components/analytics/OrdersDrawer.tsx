@@ -49,6 +49,9 @@ export function OrdersDrawer({
         if (request.filter.subset) params.set('subset', request.filter.subset);
         if (request.filter.bucket) params.set('bucket', request.filter.bucket);
         if (request.filter.person) params.set('person', request.filter.person);
+        if (request.filter.sku) params.set('sku', request.filter.sku);
+        if (request.filter.minSec !== undefined) params.set('minSec', String(request.filter.minSec));
+        if (request.filter.maxSec !== undefined) params.set('maxSec', String(request.filter.maxSec));
         params.set('sort', sort);
         params.set('offset', String(offset));
         const response = await fetch(`/api/order-prep/v2/analytics?${params}`, { cache: 'no-store' });

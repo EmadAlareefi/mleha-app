@@ -5,10 +5,15 @@ export type AnalyticsKind = 'prep' | 'shipping';
 /** What a clicked number stands for: a metric, and which of its orders. */
 export type DrillFilter = {
   metric: string;
-  /** all | slow | breaks | scanned | manual | bucket */
+  /** all | slow | breaks | scanned | manual | bucket | range */
   subset?: string;
   bucket?: string;
   person?: string;
+  /** Plain lists only: rows of one SKU. */
+  sku?: string;
+  /** subset 'range': minSec ≤ value < maxSec (no maxSec = open-ended). */
+  minSec?: number;
+  maxSec?: number;
 };
 
 export type AnalyticsTile = {

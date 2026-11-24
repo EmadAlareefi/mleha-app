@@ -23,6 +23,7 @@ import { OrderSearch } from './_components/OrderSearch';
 import { PipelineHero } from './_components/PipelineHero';
 import { LiveDot, staleNote } from './_components/primitives';
 import { PriorityView } from './_components/PriorityView';
+import { ReportView } from './_components/report/ReportView';
 import { SettingsView } from './_components/SettingsView';
 import { StuckPanel } from './_components/StuckPanel';
 import { TeamPanel } from './_components/TeamPanel';
@@ -558,20 +559,14 @@ export default function LiveDashboardClient({ scope = 'full' }: { scope?: LiveSc
           </>
         )}
 
-        {view === 'analytics' && (
-          <div className={cn('grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto pb-4', full && '2xl:grid-cols-2', styles.scroll)}>
-            {full && (
-              <div className="space-y-2">
-                <h2 className="px-1 text-sm font-black text-[var(--lv-ink)]">التجهيز</h2>
-                <AnalyticsSection kind="prep" />
-              </div>
-            )}
-            <div className="space-y-2">
-              <h2 className="px-1 text-sm font-black text-[var(--lv-ink)]">الشحن</h2>
+        {view === 'analytics' &&
+          (full ? (
+            <ReportView shipping={shipping.data} />
+          ) : (
+            <div className={cn('min-h-0 flex-1 overflow-y-auto pb-4', styles.scroll)}>
               <AnalyticsSection kind="shipping" />
             </div>
-          </div>
-        )}
+          ))}
 
         {view === 'priority' && <PriorityView />}
 

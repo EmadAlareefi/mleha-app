@@ -18,6 +18,8 @@ export const SHIPPING_METRICS: MetricDef[] = [
   { key: 'labelWait', label: 'من طلب الشحنة حتى وصول البوليصة', breakSec: Number.MAX_SAFE_INTEGER },
   { key: 'readyToPrint', label: 'من جاهزية البوليصة حتى طباعتها', breakSec: Number.MAX_SAFE_INTEGER },
   { key: 'packedToPrinted', label: 'من التجهيز حتى طباعة البوليصة', breakSec: Number.MAX_SAFE_INTEGER },
+  // Customer's view: order placed → waybill printed. Over 24h misses the promise («slow» = late).
+  { key: 'placedToPrinted', label: 'من وصول الطلب حتى طباعة البوليصة', breakSec: Number.MAX_SAFE_INTEGER, slowSec: 86_400 },
 ];
 
 type ShipFactRow = {
@@ -79,11 +81,13 @@ async function loadShippingFacts(period: Period): Promise<Facts> {
       orderNumber: row.orderNumber || row.orderId,
       person: row.printedBy?.trim() || null,
       at: row.printedAt,
+      courier: row.courierName?.trim() || null,
       metrics: {
         gap: typeof row.gap === 'number' ? row.gap : null,
         labelWait: secondsBetween(row.creatingAt, row.creatingAt ? labelAt : null),
         readyToPrint: secondsBetween(labelAt, row.printedAt),
         packedToPrinted: secondsBetween(row.packedAt, row.printedAt),
+        placedToPrinted: secondsBetween(placed, row.printedAt),
       },
       tags,
       timeline: [

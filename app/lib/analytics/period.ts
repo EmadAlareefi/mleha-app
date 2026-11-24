@@ -1,11 +1,11 @@
 import { RIYADH_OFFSET_MS } from '@/app/lib/order-prep/riyadh-time';
 
-/** Report periods in Riyadh days: today, yesterday, last 7 days, or a date range. */
+/** Report periods in Riyadh days: today, yesterday, last 7 / 30 days, this month, or a date range. */
 
 export type Period = { from: Date; to: Date; label: string; key: string };
 
 const DAY_MS = 86_400_000;
-const MAX_DAYS = 31;
+const MAX_DAYS = 92;
 
 /** UTC instant of Riyadh midnight for the Riyadh calendar day containing `ms`. */
 function riyadhMidnight(ms: number): number {
@@ -31,6 +31,13 @@ export function resolvePeriod(
       return { from: new Date(today - DAY_MS), to: new Date(today), label: 'أمس', key: 'yesterday' };
     case '7d':
       return { from: new Date(today - 6 * DAY_MS), to: new Date(nowMs), label: 'آخر 7 أيام', key: '7d' };
+    case '30d':
+      return { from: new Date(today - 29 * DAY_MS), to: new Date(nowMs), label: 'آخر 30 يوماً', key: '30d' };
+    case 'month': {
+      // Riyadh calendar month: step back from today's midnight to the 1st.
+      const dayOfMonth = new Date(today + RIYADH_OFFSET_MS).getUTCDate();
+      return { from: new Date(today - (dayOfMonth - 1) * DAY_MS), to: new Date(nowMs), label: 'هذا الشهر', key: 'month' };
+    }
     case 'custom': {
       const from = parseDay(params.from ?? null);
       const toDay = parseDay(params.to ?? null) ?? from;
@@ -49,4 +56,24 @@ export function resolvePeriod(
     }
   }
   return { from: new Date(today), to: new Date(nowMs), label: 'اليوم', key: 'today' };
+}
+
+/**
+ * The period just before, shifted by whole days so the same hours line up:
+ * "today until 3pm" compares with "yesterday until 3pm".
+ */
+export function previousPeriod(period: Period): Period {
+  const days = Math.max(1, Math.ceil((period.to.getTime() - period.from.getTime()) / DAY_MS - 1e-9));
+  const shift = days * DAY_MS;
+  return {
+    from: new Date(period.from.getTime() - shift),
+    to: new Date(period.to.getTime() - shift),
+    label: days === 1 ? 'اليوم السابق' : `الـ ${days} يوماً السابقة`,
+    key: `prev:${period.key}`,
+  };
+}
+
+/** Number of Riyadh days the period touches (at least 1). */
+export function periodDays(period: { from: Date; to: Date }): number {
+  return Math.max(1, Math.ceil((period.to.getTime() - period.from.getTime()) / DAY_MS - 1e-9));
 }

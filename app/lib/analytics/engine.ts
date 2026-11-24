@@ -21,6 +21,15 @@ export type FactRow = {
   at: Date | null;
   metrics: Record<string, number | null>;
   scanMethod?: string | null;
+  /** Carrier of the printed label (shipping facts). */
+  courier?: string | null;
+  /** Items the packer reported missing on this order (prep facts). */
+  shortages?: number;
+  /** Plain-list rows: the coded reason, the SKU and when the issue closed. */
+  reason?: string | null;
+  sku?: string | null;
+  itemName?: string | null;
+  resolvedAt?: Date | null;
   tags: string[];
   note?: string | null;
   timeline: TimelineStep[];
@@ -39,6 +48,7 @@ const PAGE = 100;
 
 function matches(row: FactRow, filter: DrillFilter, def: MetricDef | undefined): boolean {
   if (filter.person && (row.person ?? '—') !== filter.person) return false;
+  if (filter.sku && row.sku !== filter.sku) return false;
   const value = def ? row.metrics[def.key] : null;
   switch (filter.subset) {
     case 'scanned':
@@ -51,6 +61,10 @@ function matches(row: FactRow, filter: DrillFilter, def: MetricDef | undefined):
       return def ? typeof value === 'number' && value > (def.slowSec ?? def.breakSec) && value <= def.breakSec : false;
     case 'bucket':
       return def && filter.bucket ? typeof value === 'number' && bucketOf(value, def.breakSec) === filter.bucket : false;
+    case 'range':
+      return def
+        ? typeof value === 'number' && value >= (filter.minSec ?? 0) && (filter.maxSec === undefined || value < filter.maxSec)
+        : false;
     case 'measured':
       return def ? typeof value === 'number' : true;
     default:

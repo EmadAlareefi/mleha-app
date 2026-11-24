@@ -50,7 +50,7 @@ test('resolvePeriod uses Riyadh days', () => {
   const custom = resolvePeriod({ preset: 'custom', from: '2026-11-01', to: '2026-11-03' }, now);
   assert.equal(custom.from.toISOString(), '2026-10-31T21:00:00.000Z');
   assert.equal(custom.to.toISOString(), '2026-11-03T21:00:00.000Z');
-  // Ranges are capped at 31 days.
+  // Ranges are capped at 92 days.
   const long = resolvePeriod({ preset: 'custom', from: '2026-01-01', to: '2026-11-01' }, now);
-  assert.equal((long.to.getTime() - long.from.getTime()) / 86_400_000, 31);
+  assert.equal((long.to.getTime() - long.from.getTime()) / 86_400_000, 92);
 });
