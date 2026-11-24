@@ -40,9 +40,25 @@ type ShipFactRow = {
 
 const LOOKBACK_MS = 12 * 3_600_000;
 
+/** An order that left the warehouse without a station print of a Salla label. */
+type OutsideRow = {
+  orderId: string;
+  orderNumber: string | null;
+  at: Date;
+  person: string | null;
+  courierName: string | null;
+  kind: 'local' | 'outside';
+  packedAt: Date | null;
+  packer: string | null;
+  placedAt: Date | null;
+};
+
+// Order statuses that prove the parcel left the warehouse.
+const LEFT_SLUGS = ['shipped', 'delivering', 'delivered', 'restoring', 'restored'];
+
 async function loadShippingFacts(period: Period): Promise<Facts> {
   const lookback = new Date(period.from.getTime() - LOOKBACK_MS);
-  const [rows, failed] = await Promise.all([
+  const [rows, failed, outside] = await Promise.all([
     prisma.$queryRaw<ShipFactRow[]>`
       WITH printed AS (
         SELECT s."merchantId", s."orderId", s."orderNumber", s."labelPrintedByName" AS "printedBy", s."labelPrintedAt" AS "printedAt",
@@ -67,6 +83,34 @@ async function loadShippingFacts(period: Period): Promise<Facts> {
       where: { merchantId: MERCHANT_ID, state: { in: ['failed', 'blocked'] }, updatedAt: { gte: period.from, lt: period.to } },
       orderBy: { updatedAt: 'desc' },
     }),
+    // Orders that ship without a station print of a Salla label, so they still
+    // count as shipped: our own agents (printed at the station, no Salla label),
+    // DHL labels made and printed by hand in Salla, and Salla labels printed
+    // elsewhere for orders that have since left (status shipped and beyond).
+    prisma.$queryRaw<OutsideRow[]>`
+      SELECT t."orderId", t."orderNumber", t."printedAt" AS "at", t."printedByName" AS "person", 'مندوب' AS "courierName", 'local' AS "kind",
+        a."completedAt" AS "packedAt", a."userName" AS "packer", o."placedAt"
+      FROM "ShippingTask" t
+      LEFT JOIN "OrderPrepAssignment" a ON a."merchantId" = t."merchantId" AND a."orderId" = t."orderId" AND a.status = 'completed'
+      LEFT JOIN "SallaOrder" o ON o."merchantId" = t."merchantId" AND o."orderId" = t."orderId"
+      WHERE t."merchantId" = ${MERCHANT_ID} AND t.method = 'local'
+        AND t."printedAt" >= ${period.from} AND t."printedAt" < ${period.to}
+        AND NOT EXISTS (
+          SELECT 1 FROM "SallaShipment" sp WHERE sp."merchantId" = t."merchantId" AND sp."orderId" = t."orderId" AND sp."labelPrintedAt" IS NOT NULL
+        )
+      UNION ALL
+      SELECT s."orderId", s."orderNumber", coalesce(t."labelReadyAt", s."createdAt") AS "at", NULL AS "person", s."courierName", 'outside' AS "kind",
+        a."completedAt" AS "packedAt", a."userName" AS "packer", o."placedAt"
+      FROM "SallaShipment" s
+      JOIN "SallaOrder" o ON o."merchantId" = s."merchantId" AND o."orderId" = s."orderId"
+      LEFT JOIN "ShippingTask" t ON t."merchantId" = s."merchantId" AND t."orderId" = s."orderId"
+      LEFT JOIN "OrderPrepAssignment" a ON a."merchantId" = s."merchantId" AND a."orderId" = s."orderId" AND a.status = 'completed'
+      WHERE s."merchantId" = ${MERCHANT_ID}
+        AND s."labelPrintedAt" IS NULL
+        AND coalesce(t."labelReadyAt", s."createdAt") >= ${period.from} AND coalesce(t."labelReadyAt", s."createdAt") < ${period.to}
+        AND coalesce(o."statusSlug", '') <> 'canceled'
+        AND (s."courierName" ILIKE '%DHL%' OR t.method = 'international' OR o."statusSlug" = ANY(${LEFT_SLUGS}))
+    `,
   ]);
 
   const facts: FactRow[] = rows.map((row) => {
@@ -100,6 +144,31 @@ async function loadShippingFacts(period: Period): Promise<Facts> {
     };
   });
 
+  for (const row of outside) {
+    const placed = row.placedAt;
+    facts.push({
+      orderId: row.orderId,
+      orderNumber: row.orderNumber || row.orderId,
+      person: row.person?.trim() || null,
+      at: row.at,
+      courier: row.courierName?.trim() || null,
+      outside: row.kind === 'outside',
+      metrics: {
+        gap: null,
+        labelWait: null,
+        readyToPrint: null,
+        packedToPrinted: secondsBetween(row.packedAt, row.at),
+        placedToPrinted: secondsBetween(placed, row.at),
+      },
+      tags: [row.courierName || '—', row.kind === 'local' ? 'مندوب' : 'بوليصة خارج المحطة'],
+      timeline: [
+        { label: 'وصل الطلب', at: placed?.toISOString() ?? null },
+        { label: 'تم التجهيز', at: row.packedAt?.toISOString() ?? null, by: row.packer },
+        { label: row.kind === 'local' ? 'طُبعت ورقة المندوب' : 'صدرت البوليصة (خارج المحطة)', at: row.at.toISOString(), by: row.person },
+      ],
+    });
+  }
+
   const failedRows: FactRow[] = failed.map((task) => ({
     orderId: task.orderId,
     orderNumber: task.orderNumber || task.orderId,
@@ -127,6 +196,8 @@ export function getShippingFacts(period: Period) {
 export async function getShippingAnalytics(period: Period): Promise<AnalyticsSummary> {
   const facts = await getShippingFacts(period);
   const [gapDef, waitDef, readyDef, packedDef] = SHIPPING_METRICS;
+  // Labels issued outside the station have no shipper; keep them out of the people table.
+  const stationRows = facts.rows.filter((row) => !row.outside);
   const gap = summarize(facts.rows.map((row) => row.metrics.gap), gapDef.breakSec);
   const wait = summarize(facts.rows.map((row) => row.metrics.labelWait), waitDef.breakSec);
   const ready = summarize(facts.rows.map((row) => row.metrics.readyToPrint), readyDef.breakSec);
@@ -135,7 +206,13 @@ export async function getShippingAnalytics(period: Period): Promise<AnalyticsSum
   const failed = facts.lists.failed.rows.length;
 
   const tiles: AnalyticsTile[] = [
-    { key: 'printed', label: 'بوالص مطبوعة', value: String(facts.rows.length), filter: { metric: 'gap', subset: 'all' } },
+    {
+      key: 'printed',
+      label: 'طلبات شُحنت',
+      value: String(facts.rows.length),
+      sub: facts.rows.length > stationRows.length ? `${facts.rows.length - stationRows.length} ببوليصة خارج المحطة` : undefined,
+      filter: { metric: 'gap', subset: 'all' },
+    },
     {
       key: 'avg',
       label: 'متوسط وقت الشاحن للطلب',
@@ -188,6 +265,6 @@ export async function getShippingAnalytics(period: Period): Promise<AnalyticsSum
     mainMetricLabel: gapDef.label,
     tiles,
     buckets: bucketsFor(facts.rows, gapDef),
-    people: peopleFor(facts.rows, gapDef),
+    people: peopleFor(stationRows, gapDef),
   };
 }

@@ -302,9 +302,9 @@ export function buildReport(inputs: ReportInputs, previousInputs: ReportInputs |
       format: 'count',
       better: 'up',
       sub: `${round(core.printed / days)} يومياً · ${core.packed} مجهّزة`,
-      hint: 'البوالص المطبوعة في الفترة (كل الصفحات).',
+      hint: 'طلبات خرجت من المستودع: بوالص طُبعت في المحطة، وطلبات المندوب، وبوالص DHL وغيرها التي صدرت وطُبعت خارج المحطة.',
       series: printedSeries,
-      drill: ship('البوالص المطبوعة', { metric: 'gap', subset: 'all' }),
+      drill: ship('الطلبات المشحونة', { metric: 'gap', subset: 'all' }),
     },
     {
       key: 'placed',
@@ -435,7 +435,12 @@ export function buildReport(inputs: ReportInputs, previousInputs: ReportInputs |
     shortages: shortageBy.get(name) ?? 0,
     wrongItems: wrongBy.get(name) ?? 0,
   }));
-  const shippers = team(shipping.rows, 'gap', SHIP_BREAK_SEC, buckets);
+  const shippers = team(
+    shipping.rows.filter((row) => !row.outside && row.person),
+    'gap',
+    SHIP_BREAK_SEC,
+    buckets,
+  );
 
   // Exceptions.
   const problems = prep.lists.problems?.rows ?? [];

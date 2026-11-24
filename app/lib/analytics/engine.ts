@@ -23,6 +23,8 @@ export type FactRow = {
   scanMethod?: string | null;
   /** Carrier of the printed label (shipping facts). */
   courier?: string | null;
+  /** Shipped with a label issued outside the station (DHL by hand, printed elsewhere): no shipper. */
+  outside?: boolean;
   /** Items the packer reported missing on this order (prep facts). */
   shortages?: number;
   /** Plain-list rows: the coded reason, the SKU and when the issue closed. */

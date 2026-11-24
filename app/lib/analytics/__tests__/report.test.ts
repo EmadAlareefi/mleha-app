@@ -181,3 +181,12 @@ test('range drill selects the age bucket', () => {
   const result = drill(inputs().shipping, SHIPPING_METRICS, bucket.drill.filter);
   assert.deepEqual(result.rows.map((row) => row.orderNumber), ['s2']);
 });
+
+test('labels issued outside the station count as shipped but not as a shipper', () => {
+  const outside = { ...shipRow(9, '', 3 * H, 'DHL Express'), person: null, outside: true, metrics: { gap: null, placedToPrinted: 3 * H, packedToPrinted: 600, labelWait: null } };
+  const base = inputs();
+  const report = buildReport({ ...base, shipping: { ...base.shipping, rows: [...base.shipping.rows, outside] } }, null, NOW);
+  assert.equal(report.kpis.find((entry) => entry.key === 'printed')!.value, 5);
+  assert.deepEqual(report.team.shippers.map((row) => row.name), ['خالد']);
+  assert.ok(report.carriers.some((row) => row.name === 'DHL Express'));
+});
