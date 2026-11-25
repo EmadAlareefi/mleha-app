@@ -570,8 +570,8 @@ export async function reportProblem(
   if (!outcome) {
     return { ok: false, status: 400, error: { code: 'invalid', message: 'حدد المنتج وسبب المشكلة' } };
   }
-  if (outcome === 'refund' && !input.note?.trim()) {
-    return { ok: false, status: 400, error: { code: 'invalid', message: 'اكتب سبب إيقاف الطلب (X4)' } };
+  if (input.items.some((item) => item.reason === 'other') && !input.note?.trim()) {
+    return { ok: false, status: 400, error: { code: 'invalid', message: 'اكتب وصف المشكلة' } };
   }
   if (outcome === 'partial') {
     return completeAssignment(user, {

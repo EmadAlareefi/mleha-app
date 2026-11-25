@@ -41,9 +41,11 @@ export function ProblemSheet({
     .filter((item) => reasons[item.index])
     .map((item) => ({ index: item.index, sku: item.sku, name: item.name, reason: reasons[item.index] }));
   const outcome = decideProblemOutcome(items.length, problems);
-  // "Other" needs words; so does every stop to X4, so the next person sees why.
-  const needsNote = outcome === 'refund' || problems.some((item) => item.reason === 'other');
-  const canSubmit = problems.length > 0 && (!needsNote || note.trim().length > 0);
+  // Only "Other" needs words: the other reasons already say what is wrong
+  // (the X4 note lists each item with its reason).
+  const needsNote = problems.some((item) => item.reason === 'other');
+  const missingNote = needsNote && note.trim().length === 0;
+  const canSubmit = problems.length > 0 && !missingNote;
 
   return (
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
@@ -100,11 +102,13 @@ export function ProblemSheet({
             onChange={(event) => setNote(event.target.value)}
             maxLength={400}
             rows={2}
-            placeholder={
-              outcome === 'refund' ? 'سبب إيقاف الطلب (مطلوب)' : needsNote ? 'اكتب المشكلة (مطلوب)' : 'ملاحظة للمشرف (اختياري)'
-            }
-            className="w-full rounded-xl border bg-background p-3 text-sm"
+            placeholder={needsNote ? 'اكتب المشكلة (مطلوب)' : 'ملاحظة للمشرف (اختياري)'}
+            className={cn(
+              'w-full rounded-xl border bg-background p-3 text-sm',
+              missingNote && 'border-2 border-red-500 placeholder:text-red-600',
+            )}
           />
+          {missingNote && <p className="text-sm font-semibold text-red-600">اكتب وصف المشكلة في الخانة أعلاه لتفعيل زر التأكيد.</p>}
 
           {outcome && (
             <p className="rounded-xl bg-muted p-3 text-sm font-semibold text-foreground">{OUTCOME_LABELS[outcome]}</p>
