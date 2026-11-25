@@ -81,6 +81,14 @@ const PUBLIC_PATHS = [
 // expiring HMAC signature. Admin invoice pages remain session-protected.
 const PUBLIC_PATTERNS: RegExp[] = [];
 
+// Expenses integration: GET/POST on exactly /api/expenses with a bearer key skips
+// the session check; the route verifies EXPENSES_API_KEY itself (wrong key → 401).
+// /api/expenses/[id] (approve / edit / delete) still needs a staff session.
+const isExpenseApiKeyRequest = (req: { method: string; nextUrl: { pathname: string }; headers: Headers }) =>
+  req.nextUrl.pathname.replace(/\/$/, '') === '/api/expenses' &&
+  (req.method === 'GET' || req.method === 'POST') &&
+  /^bearer(\s|$)/i.test(req.headers.get('authorization') || '');
+
 const isPublicPath = (pathname: string) =>
   PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
@@ -327,7 +335,7 @@ export default withAuth(
     const path = req.nextUrl.pathname;
 
     // Skip auth logic for explicitly public paths
-    if (isPublicPath(path)) {
+    if (isPublicPath(path) || isExpenseApiKeyRequest(req)) {
       return NextResponse.next();
     }
 
@@ -381,7 +389,7 @@ export default withAuth(
   {
     callbacks: {
       authorized: ({ req, token }) => {
-        if (isPublicPath(req.nextUrl.pathname)) {
+        if (isPublicPath(req.nextUrl.pathname) || isExpenseApiKeyRequest(req)) {
           return true;
         }
         return !!token;

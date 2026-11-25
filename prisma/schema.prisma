@@ -1768,6 +1768,8 @@ model Expense {
   adInvoice AdImportedInvoice?
   source String @default("manual")
   id String @id @default(cuid())
+  // Caller-supplied id from the API-key integration; blocks duplicate inserts.
+  externalId String? @unique
 
   // Basic info
   merchantId  String // Salla merchant ID

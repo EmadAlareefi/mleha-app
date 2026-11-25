@@ -18,6 +18,20 @@ export function cronAuthorized(request: Request) {
   const expected = Buffer.from(`Bearer ${secret}`);
   return !!secret && received.length === expected.length && timingSafeEqual(received, expected);
 }
+/**
+ * Bearer key for the external "maleha" integration on /api/expenses (GET + POST only).
+ * 'none' = no bearer header (fall back to the staff session); 'invalid' = wrong
+ * key or key not configured; 'valid' = matches EXPENSES_API_KEY.
+ */
+export const EXPENSES_API_CREATOR = 'maleha';
+export function expenseApiKeyAuth(request: Request): 'none' | 'valid' | 'invalid' {
+  const header = request.headers.get('authorization') || '';
+  if (!/^bearer(\s|$)/i.test(header)) return 'none';
+  const secret = process.env.EXPENSES_API_KEY;
+  const received = Buffer.from(header.replace(/^bearer\s+/i, '').trim());
+  const expected = Buffer.from(secret || '');
+  return !!secret && received.length === expected.length && timingSafeEqual(received, expected) ? 'valid' : 'invalid';
+}
 export function errorResponse(error: unknown) {
   if (error instanceof ExpenseError) return NextResponse.json({ error: error.message }, { status: error.status });
   // Do not return or log provider payloads, credentials, or database connection details.
