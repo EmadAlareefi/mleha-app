@@ -327,7 +327,7 @@ export function PriorityView() {
         </Panel>
 
         <Panel title="الترتيب العام" Icon={ArrowDown} className="h-auto shrink-0" bodyClassName="overflow-visible p-4">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="space-y-1.5 text-sm">
               <span className="font-bold">داخل كل مستوى، رتّب حسب</span>
               <select value={draft.sort} onChange={(event) => update({ sort: event.target.value as QueueSort })} className={field}>

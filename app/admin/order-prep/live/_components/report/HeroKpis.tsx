@@ -21,7 +21,7 @@ export function HeroKpis({ report, backlog, onDrill }: { report: WarehouseReport
 
   return (
     <section className={cn(styles.hero, styles.enter, 'overflow-hidden rounded-3xl p-4 text-white shadow-xl ring-1 ring-black/10 sm:p-5')}>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
         {/* The promise */}
         <button
           type="button"
@@ -50,7 +50,7 @@ export function HeroKpis({ report, backlog, onDrill }: { report: WarehouseReport
           ))}
           <div
             title="المتبقي الآن (لم يُجهز + بانتظار البوليصة + جاهزة للطباعة + أعطال) مقسوماً على ما نشحنه يومياً في هذه الفترة."
-            className="rounded-2xl bg-white/[0.06] p-3 ring-1 ring-white/10"
+            className="min-w-0 rounded-2xl bg-white/[0.06] p-3 ring-1 ring-white/10"
           >
             <p className="text-[11px] font-semibold text-white/60">أيام لتصفية المتراكم</p>
             <p className={cn('mt-1 text-2xl font-black tabular-nums', daysToClear !== null && daysToClear > 1.5 ? 'text-amber-300' : 'text-white')}>
@@ -83,7 +83,7 @@ function Tile({ kpi, previousLabel, onDrill }: { kpi: ReportKpi; previousLabel: 
       )}
     >
       <p className="truncate text-[11px] font-semibold text-white/60">{kpi.label}</p>
-      <div className="mt-1 flex items-end justify-between gap-2">
+      <div className="mt-1 flex flex-wrap items-end justify-between gap-x-2 gap-y-1">
         <p className="text-2xl font-black tabular-nums">{formatValue(kpi.value, kpi.format)}</p>
         <Sparkline values={kpi.series} width={64} height={22} color="#e8c896" />
       </div>

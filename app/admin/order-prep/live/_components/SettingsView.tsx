@@ -37,7 +37,7 @@ export function SettingsView({
           <PanelSkeleton />
         ) : (
           <>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <label className="space-y-1.5 text-sm">
                 <span className="font-bold">مسح الباركود</span>
                 <select

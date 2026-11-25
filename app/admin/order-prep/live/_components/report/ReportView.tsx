@@ -115,7 +115,7 @@ export function ReportView({ shipping }: { shipping: ShippingBoardData | null })
           ))}
         </div>
         {preset === 'custom' && (
-          <span className="flex items-center gap-1 text-xs">
+          <span className="flex flex-wrap items-center gap-1 text-xs">
             <input
               type="date"
               value={from}
@@ -158,7 +158,7 @@ export function ReportView({ shipping }: { shipping: ShippingBoardData | null })
       )}
 
       {!report ? (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="h-56 animate-pulse rounded-3xl bg-[#3b2f22]/80 xl:col-span-2" />
           <PanelSkeleton rows={5} />
           <PanelSkeleton rows={5} />
@@ -169,7 +169,7 @@ export function ReportView({ shipping }: { shipping: ShippingBoardData | null })
 
           <Insights insights={report.insights} onDrill={setDrill} onTarget={scrollTo} />
 
-          <div className="grid gap-4 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
             <Section id="flow" className="xl:col-span-3">
               <Panel title="التوازن بين الوارد والصادر" Icon={TrendingUp} delay={80}>
                 <div className="p-3">
@@ -186,7 +186,7 @@ export function ReportView({ shipping }: { shipping: ShippingBoardData | null })
             </Section>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
             <Section id="age" className="xl:col-span-2">
               <Panel title="عمر الطلب عند الشحن" Icon={Clock4} delay={180}>
                 <div className="p-3">
@@ -212,7 +212,7 @@ export function ReportView({ shipping }: { shipping: ShippingBoardData | null })
           </Section>
 
           <Section id="quality">
-            <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
               <Panel title="أخطاء التجهيز (من المرتجعات)" Icon={ShieldCheck} count={report.quality.wrongItem + report.quality.defective} delay={300}>
                 <PackingErrors report={report} onDrill={setDrill} />
               </Panel>
@@ -248,7 +248,7 @@ export function ReportView({ shipping }: { shipping: ShippingBoardData | null })
 
 function Section({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
   return (
-    <div id={`report-${id}`} className={cn('scroll-mt-16', className)}>
+    <div id={`report-${id}`} className={cn('min-w-0 scroll-mt-16', className)}>
       {children}
     </div>
   );
@@ -269,7 +269,7 @@ function Insights({ insights, onDrill, onTarget }: { insights: Insight[]; onDril
       <h2 className="flex items-center gap-2 px-1 text-sm font-black text-[var(--lv-ink)]">
         <Lightbulb className="h-4 w-4 text-[#8b6f47]" /> ماذا نفعل الآن؟
       </h2>
-      <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 2xl:grid-cols-3">
         {insights.map((insight) => {
           const tone = TONES[insight.tone];
           const clickable = Boolean(insight.drill || insight.target);

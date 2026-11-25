@@ -184,7 +184,7 @@ export function PriorityRuleEditor({
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Segmented
           label="الإجراء"
           value={effect}
@@ -334,7 +334,7 @@ export function PriorityRuleEditor({
         )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="space-y-1.5 text-sm">
           <span className="font-bold">ملاحظة (اختياري)</span>
           <input value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} placeholder="مثال: حملة اليوم الوطني" className={field} />

@@ -199,7 +199,7 @@ export function StageBreakdown({ report, onDrill }: { report: WarehouseReport; o
                 {index + 1}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-sm font-extrabold text-[var(--lv-ink)]">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-extrabold text-[var(--lv-ink)]">
                   {stage.label}
                   {stage.key === slowest && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-800">عنق الزجاجة</span>}
                 </span>
