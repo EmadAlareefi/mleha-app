@@ -96,13 +96,20 @@ export const isInternationalOrder = (order: any): boolean => {
     ...collectCountryCandidates(order.billing_address),
   ];
 
+  // The customer profile's free-text country is often a city ("الخرج") while
+  // its country_code is reliable, so the code alone decides when present.
   const fallbackCandidates: string[] = [];
   if (order.customer && typeof order.customer === 'object') {
-    fallbackCandidates.push(
-      order.customer.country,
-      order.customer.country_en,
-      order.customer.country_ar,
-    );
+    const code = normalizeCountryString(order.customer.country_code);
+    if (code) {
+      fallbackCandidates.push(code);
+    } else {
+      fallbackCandidates.push(
+        order.customer.country,
+        order.customer.country_en,
+        order.customer.country_ar,
+      );
+    }
   }
 
   const candidateValues = addressCandidates.length > 0 ? addressCandidates : fallbackCandidates;
