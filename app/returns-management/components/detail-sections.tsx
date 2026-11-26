@@ -9,7 +9,7 @@ import ShipmentTrackingSummary from '@/components/local-shipping/ShipmentTrackin
 import { STATUS_LABELS } from '@/app/lib/returns/status';
 import { summarizeRequestMoney } from '@/lib/returns/money-summary';
 import { RETURN_REASON_LABELS } from '@/lib/returns/reasons';
-import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import { resolveReturnLiveStatus } from '@/lib/shipment-live-status';
 import { buildTrackingUrl } from '@/lib/tracking-url';
 import { detectShipmentCompany, SHIPMENT_COMPANIES } from '@/lib/shipment-detector';
 import type { ReturnStage } from '@/lib/returns/workflow';
@@ -223,7 +223,7 @@ export function ShipmentSection({ request, actions }: { request: ReturnRequest; 
   const trackingLink = trackingNumber
     ? buildTrackingUrl(request.smsaAwbNumber || trackingNumber, company.id, request.smsaResponse?.labelUrl || request.returnLabelUrl)
     : null;
-  const live = request.smsaLiveStatus;
+  const live = resolveReturnLiveStatus(request.smsaLiveStatus, company.id);
 
   const labelAction = (action: keyof typeof LABEL_ACTIONS) => {
     const run = () =>
@@ -271,7 +271,7 @@ export function ShipmentSection({ request, actions }: { request: ReturnRequest; 
       </p>
       <p className="text-xs text-muted-foreground">
         {live
-          ? `${resolveMajorSmsaStatus(live) || live.description || live.code || ''}${live.city ? ` • ${live.city}` : ''}${live.timestamp ? ` • ${formatDateTime(live.timestamp)}` : ''}`
+          ? `${live.carrierLabel}: ${live.label || ''}${live.detail ? ` (${live.detail})` : ''}${live.city ? ` • ${live.city}` : ''}${live.timestamp ? ` • ${formatDateTime(live.timestamp)}` : ''}`
           : 'لا يوجد تحديث من شركة الشحن حتى الآن'}
       </p>
       {request.localShipments?.map((shipment) => <ShipmentTrackingSummary key={shipment.id} shipment={shipment} />)}

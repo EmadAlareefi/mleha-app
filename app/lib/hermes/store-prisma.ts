@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { ajexCallbackIdsFor, ajexTrackingHistory } from '@/app/lib/ajex-tracking';
+import { loadAjexTrackingHistory } from '@/app/lib/ajex-tracking-store';
 import { resolveAjexStatusLabel } from '@/lib/ajex-status';
 import type {
   CarrierEventRow,
@@ -224,44 +224,23 @@ async function loadSmsaEvents(trackingNumbers: string[]): Promise<CarrierEventRo
   );
 }
 
-/**
- * AJEX has no scan table: every verified callback is kept in WebhookLog
- * (`event = 'ajex.tracking'`), so the movement history is rebuilt from there.
- * Only tracking fields are read; POD urls and payload extras are not exposed.
- */
 async function loadAjexEvents(trackingNumbers: string[]): Promise<CarrierEventRow[]> {
-  const idsByTracking = new Map(trackingNumbers.map((tn) => [tn, ajexCallbackIdsFor(tn)]));
-  const ids = [...new Set([...idsByTracking.values()].flat())].filter((id) => id.startsWith('AJ'));
-  if (ids.length === 0) return [];
-  const rows = await prisma.$queryRaw<{ json: unknown }[]>`
-    SELECT jsonb_build_object(
-             'trackingId', w.json->'trackingId', 'statusCode', w.json->'statusCode', 'status', w.json->'status',
-             'eventTime', w.json->'eventTime', 'timezone', w.json->'timezone', 'location', w.json->'location',
-             'failureReason', w.json->'failureReason'
-           ) AS json
-    FROM "WebhookLog" w
-    WHERE w.event = 'ajex.tracking' AND w.json->>'trackingId' = ANY(${ids})
-    LIMIT 500`;
-  const history = ajexTrackingHistory(rows.map((row) => row.json));
-  return trackingNumbers.flatMap((trackingNumber) => {
-    const ids = new Set(idsByTracking.get(trackingNumber));
-    return history
-      .filter((event) => ids.has(event.trackingId.toUpperCase()))
-      .slice(-100)
-      .map((event) => {
-        const code = Number.parseInt(event.status.code ?? '', 10);
-        const label = resolveAjexStatusLabel(Number.isNaN(code) ? null : code) ?? event.status.description;
-        const reason = event.status.failureReason ?? null;
-        return {
-          trackingNumber,
-          scanType: event.status.code ?? null,
-          description: reason && reason !== label ? [label, reason].filter(Boolean).join(' — ') : label ?? null,
-          city: event.status.city ?? null,
-          scanDateTime: event.eventAt.toISOString(),
-          scanTimeZone: event.status.timezone ?? null,
-        };
-      });
-  });
+  const histories = await loadAjexTrackingHistory(trackingNumbers);
+  return [...histories].flatMap(([trackingNumber, events]) =>
+    events.slice(-100).map((event) => {
+      const code = Number.parseInt(event.status.code ?? '', 10);
+      const label = resolveAjexStatusLabel(Number.isNaN(code) ? null : code) ?? event.status.description ?? null;
+      const reason = event.status.failureReason ?? null;
+      return {
+        trackingNumber,
+        scanType: event.status.code ?? null,
+        description: reason && reason !== label ? [label, reason].filter(Boolean).join(' — ') : label,
+        city: event.status.city ?? null,
+        scanDateTime: event.eventAt.toISOString(),
+        scanTimeZone: event.status.timezone ?? null,
+      };
+    })
+  );
 }
 
 export const prismaHermesStore: HermesStore = {

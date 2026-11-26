@@ -1,3 +1,4 @@
+import { isAjexDeliveredCode } from '@/lib/ajex-status';
 /**
  * One derived stage per return request, shared by the management UI, the
  * auto-progress cron and the processing endpoint so they never disagree.
@@ -58,7 +59,11 @@ export function carrierDelivered(live: unknown): boolean {
   if (!live || typeof live !== 'object') return false;
   const status = live as CarrierLiveStatus;
   if (status.delivered === true) return true;
-  if (String(status.code || '').trim().toUpperCase() === 'DL') return true;
+  const code = String(status.code || '').trim().toUpperCase();
+  // AJEX codes are numeric and only 604 is a delivery: its wording for 609
+  // ("RTO Delivered", back to the sender) must not count as received.
+  if (/^\d+$/.test(code)) return isAjexDeliveredCode(Number(code));
+  if (code === 'DL') return true;
   const description = String(status.description || '').toLowerCase();
   return description.includes('delivered') || description.includes('تم التسليم');
 }

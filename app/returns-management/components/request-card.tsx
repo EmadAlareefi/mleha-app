@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { CONDITION_LABELS } from '@/app/lib/returns/inspection';
 import { TYPE_COLORS, typeLabel } from '@/app/lib/returns/status';
 import { summarizeRequestMoney } from '@/lib/returns/money-summary';
-import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import { resolveReturnLiveStatus } from '@/lib/shipment-live-status';
 import { STAGE_LABELS, type ReturnStage } from '@/lib/returns/workflow';
 import { cn } from '@/lib/utils';
 import { daysSince, EXCHANGE_PAYMENT_LABELS, formatDate, formatMoney, OVERRIDE_SCOPE_LABELS, type ReturnRequest } from './types';
@@ -45,7 +45,7 @@ interface RequestCardProps {
 
 export function RequestCard({ request, selected, selectable, busy, onToggleSelect, onOpen, onProcess }: RequestCardProps) {
   const money = summarizeRequestMoney(request);
-  const carrierLabel = resolveMajorSmsaStatus(request.smsaLiveStatus) || request.smsaLiveStatus?.description;
+  const carrierLabel = resolveReturnLiveStatus(request.smsaLiveStatus, request.smsaResponse?.provider?.trim().toLowerCase())?.label;
   const age = daysSince(request.receivedAt || request.createdAt);
   const inspected = request.items.filter((item) => item.conditionStatus).length;
   const stage = request.stage;

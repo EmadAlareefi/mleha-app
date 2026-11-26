@@ -12,6 +12,8 @@ import { hasServiceAccess } from '@/app/lib/service-access';
 import type { ServiceKey } from '@/app/lib/service-definitions';
 import { serializeLocalShipment } from '@/app/lib/local-shipping/serializer';
 import { resolveMajorSmsaStatus } from '@/lib/smsa-status';
+import { resolveMajorAjexStatus } from '@/lib/ajex-status';
+import { loadAjexTrackingHistory } from '@/app/lib/ajex-tracking-store';
 import type { SmsaLiveStatus } from '@/types/smsa';
 
 const MERCHANT_ID = process.env.NEXT_PUBLIC_MERCHANT_ID || '1696031053';
@@ -1601,6 +1603,14 @@ async function findSmsaLiveStatusForShipment(shipment: any) {
   };
 }
 
+async function findAjexLiveStatusForShipment(shipment: any) {
+  const trackingNumber = stringFromValue(shipment.trackingNumber);
+  if (!trackingNumber) return null;
+  const events = (await loadAjexTrackingHistory([trackingNumber])).get(trackingNumber);
+  const latest = events?.[events.length - 1];
+  return latest ? { status: latest.status, updatedAt: latest.eventAt } : null;
+}
+
 function extractAjexDeliveryStatus(shipmentData: any) {
   const delivery = shipmentData?.delivery || shipmentData?.shipment || shipmentData?.tracking || shipmentData?.data || {};
   const scans = [
@@ -1663,6 +1673,22 @@ async function buildCarrierDeliveryStatus(shipment: any) {
   }
 
   if (isAjexShipment(shipment)) {
+    // Same as SMSA: prefer the carrier's own feed (stored AJEX callbacks) over
+    // the status Salla copied into the shipment, which stops at label creation.
+    const live = await findAjexLiveStatusForShipment(shipment);
+    if (live) {
+      return toDeliveryStatusPayload({
+        carrier: 'ajex',
+        label: resolveMajorAjexStatus(live.status) || formatDeliveryStatus(shipment.status),
+        code: live.status.code || null,
+        description: live.status.failureReason || live.status.description || null,
+        city: live.status.city || null,
+        timestamp: live.status.timestamp || null,
+        updatedAt: live.updatedAt,
+        source: 'ajex-webhook',
+      });
+    }
+
     const ajexStatus = extractAjexDeliveryStatus(shipment.shipmentData as any);
     const label = formatDeliveryStatus(ajexStatus.status) || formatDeliveryStatus(shipment.status);
 

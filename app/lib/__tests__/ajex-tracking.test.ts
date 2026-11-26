@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyAjexTrackingToShipments } from '../ajex-shipment-tracking';
 import { ajexCallbackIdsFor, ajexTrackingHistory, normalizeAjexTrackingEvent } from '../ajex-tracking';
-import { resolveShipmentLiveStatus } from '@/lib/shipment-live-status';
+import { resolveReturnLiveStatus, resolveShipmentLiveStatus } from '@/lib/shipment-live-status';
 
 const delivered = {
   status: 'Delivered', statusCode: 604, trackingId: 'AJA100018430897',
@@ -113,4 +113,13 @@ test('ajexTrackingHistory orders callbacks and drops retried duplicates', () => 
     { status: 'no tracking id' },
   ]);
   assert.deepEqual(history.map((event) => event.status.code), ['200', '112', '604']);
+});
+
+test('resolveReturnLiveStatus reads AJEX callbacks stored on a return with AJEX labels', () => {
+  const ajex = resolveReturnLiveStatus({ trackingId: 'AJA1', code: '112', description: 'Consignee Contacted' });
+  assert.equal(ajex?.carrier, 'ajex');
+  assert.equal(ajex?.label, 'تم التواصل مع العميل');
+  const smsa = resolveReturnLiveStatus({ awb: '2900', code: 'DL', description: 'Delivered' });
+  assert.equal(smsa?.carrier, 'smsa');
+  assert.equal(smsa?.label, 'تم التسليم');
 });

@@ -15,6 +15,7 @@ import { syncFailedExchangePieceFlag } from '@/app/lib/returns/exchange-order-fl
 import { repriceRequest } from '@/app/lib/returns/reprice';
 import { RECEIVABLE_STATUSES } from '@/lib/returns/workflow';
 import { extractGeneratedReturnTrackingNumbers } from '@/app/lib/returns/salla-return-tracking';
+import { ajexCallbackIdsFor } from '@/app/lib/ajex-tracking';
 import {
   extractSmsaReturnOrderReference,
   hasSallaReturnShipmentMarker,
@@ -61,6 +62,10 @@ const buildFilters = (raw: {
 
   const pushTracking = (value: string) => {
     const compact = value.replace(/\s+/g, '');
+    // An AJEX piece barcode (AJA…001) belongs to the stored shipment id (AJA…).
+    for (const shipmentId of ajexCallbackIdsFor(compact).slice(1)) {
+      filters.push({ smsaTrackingNumber: { equals: shipmentId, mode: 'insensitive' } });
+    }
     filters.push(
       { smsaTrackingNumber: value },
       { smsaTrackingNumber: { equals: value, mode: 'insensitive' } },
@@ -153,6 +158,7 @@ const buildTrackingLookupValues = (...values: Array<string | null | undefined>) 
     const compact = normalized.replace(/\s+/g, '');
     if (compact) {
       candidates.add(compact);
+      ajexCallbackIdsFor(compact).forEach((id) => candidates.add(id));
     }
 
     const fromUrl = extractTrackingFromUrl(normalized);

@@ -74,3 +74,21 @@ export const resolveShipmentLiveStatus = (
 
   return null;
 };
+
+/**
+ * Return requests keep one `smsaLiveStatus` column for every carrier: AJEX
+ * callbacks land there too. AJEX entries carry `trackingId` (SMSA ones `awb`),
+ * so the payload itself says which classification to read it with.
+ */
+export const resolveReturnLiveStatus = (
+  live: SmsaLiveStatus | AjexLiveStatus | null | undefined,
+  carrierId?: string | null
+): ShipmentLiveStatusView | null => {
+  if (!live) return null;
+  const isAjex = carrierId === 'ajex' || ('trackingId' in live && !('awb' in live && live.awb));
+  return resolveShipmentLiveStatus(
+    isAjex
+      ? { company: 'ajex', ajexLiveStatus: live as AjexLiveStatus }
+      : { company: 'smsa', smsaLiveStatus: live as SmsaLiveStatus }
+  );
+};

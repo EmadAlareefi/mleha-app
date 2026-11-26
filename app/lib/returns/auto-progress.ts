@@ -44,10 +44,20 @@ export async function applyAjexEventToReturns(trackingId: string, status: { deli
   const where: Prisma.ReturnRequestWhereInput = {
     smsaTrackingNumber: { startsWith: trackingId, mode: 'insensitive' },
   };
-  await prisma.returnRequest.updateMany({
-    where,
-    data: { smsaLiveStatus: status as Prisma.InputJsonValue, smsaLiveStatusUpdatedAt: new Date() },
+  // Callbacks can arrive out of order; like warehouse shipments, an older event
+  // must not overwrite a newer status already on the return.
+  const eventAt = Date.parse(String(status.timestamp ?? ''));
+  const current = await prisma.returnRequest.findMany({ where, select: { id: true, smsaLiveStatus: true } });
+  const fresh = current.filter((row) => {
+    const prev = Date.parse(String((row.smsaLiveStatus as { timestamp?: unknown } | null)?.timestamp ?? ''));
+    return Number.isNaN(eventAt) || Number.isNaN(prev) || prev <= eventAt;
   });
+  if (fresh.length > 0) {
+    await prisma.returnRequest.updateMany({
+      where: { id: { in: fresh.map((row) => row.id) } },
+      data: { smsaLiveStatus: status as Prisma.InputJsonValue, smsaLiveStatusUpdatedAt: new Date() },
+    });
+  }
   if (status.delivered) await markReturnsReceived(where, 'ajex-webhook');
 }
 
