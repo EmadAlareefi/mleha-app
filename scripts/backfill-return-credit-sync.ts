@@ -101,13 +101,22 @@ async function main() {
     return;
   }
 
+  // One statement per batch: row-by-row updates over the pooler take hours.
+  const BATCH = 1000;
   let written = 0;
-  for (const { id, credit } of toMark) {
+  for (let start = 0; start < toMark.length; start += BATCH) {
+    const batch = toMark.slice(start, start + BATCH);
     written += await prisma.$executeRaw`
-      UPDATE "ReturnRequest"
-      SET "erpCreditSyncedAt" = ${credit.syncedAt}, "erpCreditInvoiceId" = ${credit.erpInvoiceId}
-      WHERE "id" = ${id} AND "erpCreditSyncedAt" IS NULL
+      UPDATE "ReturnRequest" AS r
+      SET "erpCreditSyncedAt" = v.synced_at, "erpCreditInvoiceId" = v.invoice_id
+      FROM unnest(
+        ${batch.map((row) => row.id)}::text[],
+        ${batch.map((row) => row.credit.syncedAt.toISOString())}::timestamptz[],
+        ${batch.map((row) => row.credit.erpInvoiceId)}::text[]
+      ) AS v(id, synced_at, invoice_id)
+      WHERE r."id" = v.id AND r."erpCreditSyncedAt" IS NULL
     `;
+    console.log(`  ${Math.min(start + BATCH, toMark.length)}/${toMark.length}`);
   }
   console.log(`Marked ${written} requests.`);
 }
