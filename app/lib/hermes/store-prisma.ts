@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { ajexCallbackIdsFor, ajexTrackingHistory } from '@/app/lib/ajex-tracking';
+import { resolveAjexStatusLabel } from '@/lib/ajex-status';
 import type {
   CarrierEventRow,
   CredentialRecord,
@@ -29,7 +31,7 @@ import type {
  * parameters (Prisma.sql / ORM filters); nothing is string-concatenated.
  * Every business query is filtered by `merchantId`, except lookups keyed by
  * identifiers that were themselves read from merchant-scoped rows
- * (warehouse scans and SMSA events by tracking number, webhook events by
+ * (warehouse scans and SMSA/AJEX events by tracking number, webhook events by
  * Salla order id).
  */
 
@@ -197,6 +199,70 @@ const REPORT_COLUMNS = Prisma.sql`
           THEN (o."rawOrder"->>'is_pending_payment')::boolean END) END AS "isPendingPayment",
   CASE WHEN o."factsComputedAt" IS NOT NULL THEN o."exchangeRate" ELSE o."rawOrder"->'exchange_rate' END AS "exchangeRate",
   o."customerId", o."customerName", o."customerCity", o."customerCountry", o."fulfillmentCompany", o."campaignSource"`;
+
+async function loadSmsaEvents(trackingNumbers: string[]): Promise<CarrierEventRow[]> {
+  const shipments = await prisma.smsaWebhookShipment.findMany({
+    where: { awb: { in: trackingNumbers } },
+    select: {
+      awb: true,
+      // receivedBy (a person's name) is deliberately not selected.
+      scans: {
+        select: { scanType: true, scanDescription: true, city: true, scanDateTime: true, scanTimeZone: true },
+        take: 100,
+      },
+    },
+  });
+  return shipments.flatMap((shipment) =>
+    shipment.scans.map((scan) => ({
+      trackingNumber: shipment.awb,
+      scanType: scan.scanType,
+      description: scan.scanDescription,
+      city: scan.city,
+      scanDateTime: scan.scanDateTime,
+      scanTimeZone: scan.scanTimeZone,
+    }))
+  );
+}
+
+/**
+ * AJEX has no scan table: every verified callback is kept in WebhookLog
+ * (`event = 'ajex.tracking'`), so the movement history is rebuilt from there.
+ * Only tracking fields are read; POD urls and payload extras are not exposed.
+ */
+async function loadAjexEvents(trackingNumbers: string[]): Promise<CarrierEventRow[]> {
+  const idsByTracking = new Map(trackingNumbers.map((tn) => [tn, ajexCallbackIdsFor(tn)]));
+  const ids = [...new Set([...idsByTracking.values()].flat())].filter((id) => id.startsWith('AJ'));
+  if (ids.length === 0) return [];
+  const rows = await prisma.$queryRaw<{ json: unknown }[]>`
+    SELECT jsonb_build_object(
+             'trackingId', w.json->'trackingId', 'statusCode', w.json->'statusCode', 'status', w.json->'status',
+             'eventTime', w.json->'eventTime', 'timezone', w.json->'timezone', 'location', w.json->'location',
+             'failureReason', w.json->'failureReason'
+           ) AS json
+    FROM "WebhookLog" w
+    WHERE w.event = 'ajex.tracking' AND w.json->>'trackingId' = ANY(${ids})
+    LIMIT 500`;
+  const history = ajexTrackingHistory(rows.map((row) => row.json));
+  return trackingNumbers.flatMap((trackingNumber) => {
+    const ids = new Set(idsByTracking.get(trackingNumber));
+    return history
+      .filter((event) => ids.has(event.trackingId.toUpperCase()))
+      .slice(-100)
+      .map((event) => {
+        const code = Number.parseInt(event.status.code ?? '', 10);
+        const label = resolveAjexStatusLabel(Number.isNaN(code) ? null : code) ?? event.status.description;
+        const reason = event.status.failureReason ?? null;
+        return {
+          trackingNumber,
+          scanType: event.status.code ?? null,
+          description: reason && reason !== label ? [label, reason].filter(Boolean).join(' — ') : label ?? null,
+          city: event.status.city ?? null,
+          scanDateTime: event.eventAt.toISOString(),
+          scanTimeZone: event.status.timezone ?? null,
+        };
+      });
+  });
+}
 
 export const prismaHermesStore: HermesStore = {
   async findCredentialByKeyId(keyId): Promise<CredentialRecord | null> {
@@ -456,27 +522,8 @@ export const prismaHermesStore: HermesStore = {
 
   async loadCarrierEvents(trackingNumbers): Promise<CarrierEventRow[]> {
     if (trackingNumbers.length === 0) return [];
-    const shipments = await prisma.smsaWebhookShipment.findMany({
-      where: { awb: { in: trackingNumbers } },
-      select: {
-        awb: true,
-        // receivedBy (a person's name) is deliberately not selected.
-        scans: {
-          select: { scanType: true, scanDescription: true, city: true, scanDateTime: true, scanTimeZone: true },
-          take: 100,
-        },
-      },
-    });
-    return shipments.flatMap((shipment) =>
-      shipment.scans.map((scan) => ({
-        trackingNumber: shipment.awb,
-        scanType: scan.scanType,
-        description: scan.scanDescription,
-        city: scan.city,
-        scanDateTime: scan.scanDateTime,
-        scanTimeZone: scan.scanTimeZone,
-      }))
-    );
+    const [smsa, ajex] = await Promise.all([loadSmsaEvents(trackingNumbers), loadAjexEvents(trackingNumbers)]);
+    return [...smsa, ...ajex];
   },
 
   async loadReportOrders(merchantId, range: UtcRange): Promise<ReportOrderRow[]> {

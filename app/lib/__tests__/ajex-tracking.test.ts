@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyAjexTrackingToShipments } from '../ajex-shipment-tracking';
-import { normalizeAjexTrackingEvent } from '../ajex-tracking';
+import { ajexCallbackIdsFor, ajexTrackingHistory, normalizeAjexTrackingEvent } from '../ajex-tracking';
 import { resolveShipmentLiveStatus } from '@/lib/shipment-live-status';
 
 const delivered = {
@@ -94,4 +94,23 @@ test('shows the failure reason as detail and never repeats the carrier wording',
   });
   assert.equal(ok?.label, 'تم التسليم');
   assert.equal(ok?.detail, null);
+});
+
+test('ajexCallbackIdsFor maps a piece barcode to its shipment id', () => {
+  assert.deepEqual(ajexCallbackIdsFor('AJA100021598854'), ['AJA100021598854']);
+  assert.deepEqual(ajexCallbackIdsFor(' aja100021598854001 '), ['AJA100021598854001', 'AJA100021598854']);
+  assert.deepEqual(ajexCallbackIdsFor(''), []);
+});
+
+test('ajexTrackingHistory orders callbacks and drops retried duplicates', () => {
+  const base = { trackingId: 'AJA100021604618', referenceId: 'R1', timezone: 'GMT+3' };
+  const history = ajexTrackingHistory([
+    { ...base, statusCode: 604, status: 'Delivered', eventTime: 1795698991139 },
+    { ...base, statusCode: 200, status: 'Pickup Scheduled', eventTime: 1795698968121 },
+    { ...base, statusCode: 604, status: 'Delivered', eventTime: 1795698991139 },
+    { ...base, statusCode: 112, status: 'Consignee Contacted', eventTime: 1795698969806 },
+    null,
+    { status: 'no tracking id' },
+  ]);
+  assert.deepEqual(history.map((event) => event.status.code), ['200', '112', '604']);
 });

@@ -87,3 +87,30 @@ export const ajexShipmentMatchFilter = (trackingId: string) => ({
     mode: 'insensitive' as const,
   },
 });
+
+/**
+ * Callback `trackingId`s a stored tracking number can match: the shipment id
+ * itself, plus the shipment id behind a piece barcode (`AJA…001` → `AJA…`).
+ */
+export const ajexCallbackIdsFor = (trackingNumber: string): string[] => {
+  const value = trackingNumber.trim().toUpperCase();
+  if (!value) return [];
+  const piece = /^(AJ[A-Z]?\d{12})\d{3}$/.exec(value);
+  return piece ? [value, piece[1]] : [value];
+};
+
+/**
+ * Turns stored AJEX callback payloads into a de-duplicated, time-ordered
+ * movement history (AJEX retries callbacks, so the same event can arrive twice).
+ */
+export const ajexTrackingHistory = (payloads: unknown[]): AjexTrackingEvent[] => {
+  const seen = new Map<string, AjexTrackingEvent>();
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+    const event = normalizeAjexTrackingEvent(payload as Record<string, unknown>);
+    if (!event) continue;
+    const key = `${event.trackingId.toUpperCase()}|${event.status.code ?? ''}|${event.eventAt.getTime()}`;
+    if (!seen.has(key)) seen.set(key, event);
+  }
+  return [...seen.values()].sort((a, b) => a.eventAt.getTime() - b.eventAt.getTime());
+};

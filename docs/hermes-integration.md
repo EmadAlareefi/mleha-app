@@ -32,7 +32,9 @@ Hermes gateway ──HTTPS + Bearer key──▶ /api/integrations/hermes/*  (Ne
 - **Data source.** Salla orders mirrored in `SallaOrder` / `SallaOrderItem` by
   webhooks and the scheduled sync. Shipments come from `SallaShipment`
   (labels), `Shipment` (warehouse scans plus SMSA/AJEX live status),
-  `LocalShipment` (own couriers) and `SmsaWebhookShipment` (carrier events).
+  `LocalShipment` (own couriers), `SmsaWebhookShipment` (SMSA carrier events)
+  and the stored AJEX callbacks in `WebhookLog` (`event = 'ajex.tracking'`,
+  AJEX carrier events).
   Returns come from `ReturnRequest`. The status timeline comes from
   `WebhookEvent`, using status and time only.
 - **Existing rules reused:**
