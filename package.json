@@ -49,7 +49,7 @@
     "test:shipping-v2": "node --test --import tsx app/lib/shipping/__tests__/*.test.ts",
     "test:board-analytics": "node --test --import tsx app/lib/analytics/__tests__/*.test.ts",
     "test:local-shipping-location": "node --test --import tsx app/lib/__tests__/local-shipping-location.test.ts",
-    "test:ajex": "node --test --import tsx app/lib/__tests__/ajex-webhook.test.ts app/lib/__tests__/ajex-tracking.test.ts app/lib/__tests__/ajex-api.test.ts",
+    "test:ajex": "node --test --import tsx app/lib/__tests__/carrier-movements.test.ts app/lib/__tests__/ajex-webhook.test.ts app/lib/__tests__/ajex-tracking.test.ts app/lib/__tests__/ajex-api.test.ts",
     "test:expenses": "node --test --import tsx app/lib/expenses/__tests__/*.test.ts",
     "test:hermes": "node --test --import tsx app/lib/hermes/__tests__/*.test.ts",
     "test:erp-refunds": "node --test --import tsx app/lib/__tests__/erp-refund-invoice.test.ts",

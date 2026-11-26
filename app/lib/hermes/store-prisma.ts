@@ -1,7 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { loadAjexTrackingHistory } from '@/app/lib/ajex-tracking-store';
-import { resolveAjexStatusLabel } from '@/lib/ajex-status';
+import { loadCarrierMovements } from '@/app/lib/carrier-movements';
 import type {
   CarrierEventRow,
   CredentialRecord,
@@ -199,49 +198,6 @@ const REPORT_COLUMNS = Prisma.sql`
           THEN (o."rawOrder"->>'is_pending_payment')::boolean END) END AS "isPendingPayment",
   CASE WHEN o."factsComputedAt" IS NOT NULL THEN o."exchangeRate" ELSE o."rawOrder"->'exchange_rate' END AS "exchangeRate",
   o."customerId", o."customerName", o."customerCity", o."customerCountry", o."fulfillmentCompany", o."campaignSource"`;
-
-async function loadSmsaEvents(trackingNumbers: string[]): Promise<CarrierEventRow[]> {
-  const shipments = await prisma.smsaWebhookShipment.findMany({
-    where: { awb: { in: trackingNumbers } },
-    select: {
-      awb: true,
-      // receivedBy (a person's name) is deliberately not selected.
-      scans: {
-        select: { scanType: true, scanDescription: true, city: true, scanDateTime: true, scanTimeZone: true },
-        take: 100,
-      },
-    },
-  });
-  return shipments.flatMap((shipment) =>
-    shipment.scans.map((scan) => ({
-      trackingNumber: shipment.awb,
-      scanType: scan.scanType,
-      description: scan.scanDescription,
-      city: scan.city,
-      scanDateTime: scan.scanDateTime,
-      scanTimeZone: scan.scanTimeZone,
-    }))
-  );
-}
-
-async function loadAjexEvents(trackingNumbers: string[]): Promise<CarrierEventRow[]> {
-  const histories = await loadAjexTrackingHistory(trackingNumbers);
-  return [...histories].flatMap(([trackingNumber, events]) =>
-    events.slice(-100).map((event) => {
-      const code = Number.parseInt(event.status.code ?? '', 10);
-      const label = resolveAjexStatusLabel(Number.isNaN(code) ? null : code) ?? event.status.description ?? null;
-      const reason = event.status.failureReason ?? null;
-      return {
-        trackingNumber,
-        scanType: event.status.code ?? null,
-        description: reason && reason !== label ? [label, reason].filter(Boolean).join(' — ') : label,
-        city: event.status.city ?? null,
-        scanDateTime: event.eventAt.toISOString(),
-        scanTimeZone: event.status.timezone ?? null,
-      };
-    })
-  );
-}
 
 export const prismaHermesStore: HermesStore = {
   async findCredentialByKeyId(keyId): Promise<CredentialRecord | null> {
@@ -501,8 +457,19 @@ export const prismaHermesStore: HermesStore = {
 
   async loadCarrierEvents(trackingNumbers): Promise<CarrierEventRow[]> {
     if (trackingNumbers.length === 0) return [];
-    const [smsa, ajex] = await Promise.all([loadSmsaEvents(trackingNumbers), loadAjexEvents(trackingNumbers)]);
-    return [...smsa, ...ajex];
+    const movements = await loadCarrierMovements(trackingNumbers);
+    return movements.map((event) => ({
+      trackingNumber: event.trackingNumber,
+      scanType: event.code,
+      // SMSA keeps its own wording; AJEX gets the Arabic label (+ failure reason).
+      description:
+        event.carrier === 'ajex'
+          ? [event.label, event.failureReason !== event.label ? event.failureReason : null].filter(Boolean).join(' — ') || null
+          : event.description,
+      city: event.city,
+      scanDateTime: event.at ?? event.atRaw,
+      scanTimeZone: event.timezone,
+    }));
   },
 
   async loadReportOrders(merchantId, range: UtcRange): Promise<ReportOrderRow[]> {

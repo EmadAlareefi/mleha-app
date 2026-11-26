@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ShipmentTrackingSummary from '@/components/local-shipping/ShipmentTrackingSummary';
+import { CarrierMovementLog } from '@/components/shipping/CarrierMovementLog';
 import { STATUS_LABELS } from '@/app/lib/returns/status';
 import { summarizeRequestMoney } from '@/lib/returns/money-summary';
 import { RETURN_REASON_LABELS } from '@/lib/returns/reasons';
@@ -274,6 +275,7 @@ export function ShipmentSection({ request, actions }: { request: ReturnRequest; 
           ? `${live.carrierLabel}: ${live.label || ''}${live.detail ? ` (${live.detail})` : ''}${live.city ? ` • ${live.city}` : ''}${live.timestamp ? ` • ${formatDateTime(live.timestamp)}` : ''}`
           : 'لا يوجد تحديث من شركة الشحن حتى الآن'}
       </p>
+      {(company.id === 'smsa' || company.id === 'ajex') && <CarrierMovementLog trackingNumber={trackingNumber} />}
       {request.localShipments?.map((shipment) => <ShipmentTrackingSummary key={shipment.id} shipment={shipment} />)}
       {request.returnLabelNotificationError && (
         <p className="text-xs text-red-600">خطأ الإرسال: {request.returnLabelNotificationError}</p>

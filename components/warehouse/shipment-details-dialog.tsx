@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { resolveShipmentLiveStatus } from '@/lib/shipment-live-status';
+import { CarrierMovementLog } from '@/components/shipping/CarrierMovementLog';
 
 interface ShipmentDetailsDialogProps {
   open: boolean;
@@ -159,6 +160,10 @@ export function ShipmentDetailsDialog({
                 )}
               </div>
             ) : null}
+
+            {(shipment.company === 'smsa' || shipment.company === 'ajex' || liveStatus) && (
+              <CarrierMovementLog trackingNumber={shipment.trackingNumber} className="rounded-2xl" />
+            )}
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
