@@ -1043,6 +1043,10 @@ model ReturnRequest {
   erpFeeInvoiceId String?
   erpFeeSyncedAt  DateTime?
   erpFeeSyncError String?   @db.Text
+  // ERP credit note (type 26) that reversed this request's pieces. One order
+  // can get several credit notes, one per batch of requests.
+  erpCreditInvoiceId String?
+  erpCreditSyncedAt  DateTime?
 
   // Admin notes
   // Processing (refund / restock / coupon) — see app/lib/returns/process-return.ts

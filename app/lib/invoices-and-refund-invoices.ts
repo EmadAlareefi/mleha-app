@@ -31,6 +31,7 @@ import {
   isPotentialRefundStatus,
 } from '@/lib/refund-status';
 import { riyadhDayEnd, riyadhDayStart } from '@/app/lib/order-prep/riyadh-time';
+import { getRequestCreditAmounts, isCreditedPiece } from '@/lib/returns/erp-credit';
 
 export type PendingERPOrderRowStatus = 'ready' | 'error' | 'synced' | 'internal-transfer';
 export type PendingERPRefundRowStatus = 'ready' | 'error' | 'waiting';
@@ -396,43 +397,61 @@ function forceRefundOrder(order: SallaOrder): SallaOrder {
 
 const activeReturnRequestSelect = {
   id: true,
+  type: true,
+  createdAt: true,
   returnFee: true,
   feeExchangeRate: true,
   shippingAmount: true,
+  refundStatus: true,
+  refundedAmount: true,
+  couponAmountOverride: true,
+  erpCreditSyncedAt: true,
   erpFeeSyncedAt: true,
   erpFeeSyncError: true,
   items: {
-    select: { productName: true, productSku: true, quantity: true, price: true },
+    select: {
+      productName: true,
+      productSku: true,
+      quantity: true,
+      price: true,
+      type: true,
+      refundIncluded: true,
+    },
   },
 } satisfies Prisma.ReturnRequestSelect;
 
 type ActiveReturnRequest = Prisma.ReturnRequestGetPayload<{ select: typeof activeReturnRequestSelect }>;
 
+// Returns, exchanges and mixed requests all send pieces back, so each one is
+// reversed in ERP for its own pieces only.
 const activeReturnRequestWhere = {
-  type: 'return',
+  type: { in: ['return', 'exchange', 'mixed'] },
   status: { notIn: ['rejected', 'cancelled'] },
 } satisfies Prisma.ReturnRequestWhereInput;
 
 /**
- * Active return requests of an order and what the customer got back: the
- * returned items plus the original shipping. Empty items mean no return
- * request (e.g. a cancellation), which is credited as a full reversal.
+ * Requests of an order not yet reversed in ERP, and their pieces. `hasRequests`
+ * tells a cancellation (no request at all: full reversal) from an order whose
+ * requests were all credited already.
  */
 async function getOrderReturnRefund(order: SallaOrder): Promise<{
+  hasRequests: boolean;
   requests: ActiveReturnRequest[];
   returnedItems: ERPReturnedItem[];
   returnedShipping: number;
 }> {
-  const requests = await prisma.returnRequest.findMany({
+  const allRequests = await prisma.returnRequest.findMany({
     where: {
       ...activeReturnRequestWhere,
       merchantId: order.merchantId,
       orderId: order.orderId,
     },
     select: activeReturnRequestSelect,
+    orderBy: { createdAt: 'asc' },
   });
+  const requests = allRequests.filter((request) => !request.erpCreditSyncedAt);
 
-  const items = requests.flatMap((request) => request.items);
+  const items = requests.flatMap((request) => request.items.filter(isCreditedPiece));
   const missingSku = items.filter((item) => !item.productSku?.trim());
   if (missingSku.length > 0) {
     throw new InvoicesAndRefundInvoicesError(
@@ -443,24 +462,45 @@ async function getOrderReturnRefund(order: SallaOrder): Promise<{
     );
   }
 
+  for (const request of requests) {
+    const amounts = getRequestCreditAmounts(request);
+    if (amounts.customerValue > amounts.credited + 0.05) {
+      throw new InvoicesAndRefundInvoicesError(
+        `ما حصل عليه العميل (${amounts.customerValue.toFixed(2)}) أكبر من قيمة القطع المرتجعة والشحن (${amounts.credited.toFixed(2)}). راجع طلب الإرجاع وسجّل المرتجع يدوياً في ERP.`,
+        409
+      );
+    }
+  }
+
   return {
-    requests: items.length > 0 ? requests : [],
-    returnedItems: items.map((item) => ({ sku: item.productSku!.trim(), quantity: item.quantity })),
+    hasRequests: allRequests.length > 0,
+    requests,
+    returnedItems: items.map((item) => ({
+      sku: item.productSku!.trim(),
+      quantity: item.quantity,
+      price: Number(item.price),
+    })),
     returnedShipping: requests.reduce((total, request) => total + Number(request.shippingAmount ?? 0), 0),
   };
 }
 
+async function markRequestsCredited(requests: ActiveReturnRequest[], erpInvoiceId: string): Promise<void> {
+  if (requests.length === 0) {
+    return;
+  }
+  await prisma.returnRequest.updateMany({
+    where: { id: { in: requests.map((request) => request.id) } },
+    data: { erpCreditInvoiceId: erpInvoiceId, erpCreditSyncedAt: new Date() },
+  });
+}
+
 /**
- * Return fee in SAR, capped at what the request credits (items + shipping):
- * the customer's refund never goes below zero, so neither does the fee's base.
+ * Return fee in SAR: what was kept from the customer, i.e. credited value minus
+ * the refund and coupon they received. A waived fee posts nothing.
  */
 function getReturnFeeSar(request: ActiveReturnRequest): number {
   const rate = Number(request.feeExchangeRate) > 0 ? Number(request.feeExchangeRate) : 1;
-  const credited =
-    request.items.reduce((total, item) => total + Number(item.price) * item.quantity, 0) +
-    Number(request.shippingAmount ?? 0);
-  const fee = Math.min(Number(request.returnFee ?? 0), Math.max(credited, 0));
-  return Math.round(fee * rate * 100) / 100;
+  return Math.round(getRequestCreditAmounts(request).fee * rate * 100) / 100;
 }
 
 /**
@@ -923,6 +963,71 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
   );
 
   const refundOrderSyncRecords = await listERPRefundOrderSyncRecords(refundOrders.map((order) => order.id));
+  const uncreditedRequests = refundOrders.length
+    ? await prisma.returnRequest.findMany({
+        where: {
+          ...activeReturnRequestWhere,
+          erpCreditSyncedAt: null,
+          orderId: { in: refundOrders.map((order) => order.orderId) },
+        },
+        select: { merchantId: true, orderId: true },
+      })
+    : [];
+  const ordersWithUncreditedRequests = new Set(
+    uncreditedRequests.map((request) => `${request.merchantId}:${request.orderId}`)
+  );
+  // A return or exchange added after the order's credit note posted.
+  const buildAdditionalReturnRow = (
+    order: (typeof refundOrders)[number],
+    hasSaleInvoiceSync: boolean,
+    supportedCurrency: boolean
+  ): PendingERPRefundRow[] => {
+    if (!ordersWithUncreditedRequests.has(`${order.merchantId}:${order.orderId}`)) {
+      return [];
+    }
+    const queueStatus = mapRefundQueueStatus(null, {
+      allowDirectOrderSync: true,
+      hasSaleInvoiceSync,
+      supportedCurrency,
+      currencyMessage: buildUnsupportedERPCurrencyMessage(order.currency),
+    });
+    return [
+      {
+        id: `order:${order.id}:additional`,
+        merchantId: order.merchantId,
+        orderRecordId: order.id,
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        orderStatusSlug: order.statusSlug,
+        orderStatusName: order.statusName,
+        paymentStatus: order.paymentStatus,
+        paymentMethod: order.paymentMethod,
+        currency: order.currency,
+        totalAmount: order.totalAmount != null ? Number(order.totalAmount) : null,
+        customerName: order.customerName,
+        customerMobile: order.customerMobile,
+        placedAt: order.placedAt?.toISOString() ?? null,
+        refundInvoiceRecordId: null,
+        refundInvoiceId: null,
+        refundInvoiceNumber: null,
+        refundInvoiceStatus: null,
+        refundInvoicePaymentStatus: null,
+        refundInvoiceIssueDate: null,
+        refundSource: 'order',
+        refundSourceLabel: getRefundSourceLabel('order'),
+        returnRequestId: null,
+        erpSyncedAt: null,
+        erpSyncError: null,
+        erpSyncAttempts: 0,
+        queueStatus: queueStatus.queueStatus,
+        queueStatusLabel: queueStatus.canSync ? 'مرتجع إضافي جاهز للإرسال' : queueStatus.queueStatusLabel,
+        queueStatusMessage: queueStatus.canSync
+          ? 'سبق إرسال إشعار دائن لهذا الطلب، ويوجد طلب إرجاع أو استبدال لاحق لم يُرسل بعد.'
+          : queueStatus.queueStatusMessage,
+        canSync: queueStatus.canSync,
+      },
+    ];
+  };
   const refundOrderSyncByOrderRecordId = new Map(
     refundOrderSyncRecords.map((record) => [record.orderRecordId, record])
   );
@@ -991,7 +1096,7 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
 
     if (!hasInvoiceEvidence) {
       if (hasCompletedRefundSync(orderSyncRecord)) {
-        return [];
+        return buildAdditionalReturnRow(order, hasSaleInvoiceSync, supportedCurrency);
       }
 
       const queueStatus = mapRefundQueueStatus(orderSyncRecord, {
@@ -1044,7 +1149,7 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
 
     let inheritedOrderSyncState = false;
 
-    return pendingLinkedInvoices.flatMap((linkedInvoice) => {
+    const invoiceRows = pendingLinkedInvoices.flatMap<PendingERPRefundRow>((linkedInvoice) => {
       const effectiveSyncState: RefundSyncStateRecord =
         shouldInheritOrderSyncState && !inheritedOrderSyncState && orderSyncRecord
           ? {
@@ -1114,6 +1219,14 @@ async function listPendingERPRefunds(dateRange: DateRangeInput = {}): Promise<Pe
         },
       ];
     });
+
+    const everyInvoiceCredited =
+      linkedInvoices.every((invoice) => hasCompletedRefundSync(invoice)) ||
+      hasCompletedRefundSync(orderSyncRecord);
+    if (invoiceRows.length === 0 && everyInvoiceCredited) {
+      return buildAdditionalReturnRow(order, hasSaleInvoiceSync, supportedCurrency);
+    }
+    return invoiceRows;
   });
 
   const invoiceOnlyRows = refundInvoices.flatMap<PendingERPRefundRow>((invoice) => {
@@ -1508,35 +1621,43 @@ async function syncPendingRefund(input: {
     throw new InvoicesAndRefundInvoicesError(currencyBlockReason, 400);
   }
 
-  if (invoice?.erpSyncedAt) {
-    return {
-      queueType: 'refund',
-      alreadyRecorded: true,
-      erpInvoiceId: '',
-      message: 'تم إرسال فاتورة المرتجع هذه إلى ERP مسبقاً.',
-      orderId: order.orderId,
-      orderNumber: order.orderNumber,
-      invoiceId: invoice.invoiceId,
-      invoiceNumber: invoice.invoiceNumber,
-    };
+  const returnRefund = await getOrderReturnRefund(order);
+  const base = {
+    queueType: 'refund' as const,
+    orderId: order.orderId,
+    orderNumber: order.orderNumber,
+    invoiceId: invoice?.invoiceId ?? null,
+    invoiceNumber: invoice?.invoiceNumber ?? null,
+  };
+
+  const orderAlreadyCredited =
+    Boolean(invoice?.erpSyncedAt) ||
+    Boolean(
+      orderSyncRecord?.erpSyncedAt &&
+        !orderSyncRecord.erpSyncError &&
+        (!invoice || (!invoice.erpSyncedAt && !invoice.erpSyncError))
+    );
+
+  if (returnRefund.requests.length > 0 && returnRefund.returnedItems.length === 0) {
+    throw new InvoicesAndRefundInvoicesError(
+      'كل قطع طلب الإرجاع مستبعدة من الاسترداد، فلا يوجد ما يُرسل إلى ERP. سجّل المرتجع يدوياً إن لزم.',
+      409
+    );
   }
 
+  // Nothing left to credit: the order was reversed already and every return or
+  // exchange request on it is covered by an earlier credit note.
   if (
-    orderSyncRecord?.erpSyncedAt &&
-    !orderSyncRecord.erpSyncError &&
-    (!invoice || (!invoice.erpSyncedAt && !invoice.erpSyncError))
+    (orderAlreadyCredited || returnRefund.hasRequests) &&
+    returnRefund.returnedItems.length === 0
   ) {
     return {
-      queueType: 'refund',
+      ...base,
       alreadyRecorded: true,
-      erpInvoiceId: orderSyncRecord.erpInvoiceId || '',
-      message: invoice
-        ? 'تم إرسال هذا المرتجع إلى ERP مسبقاً من بيانات الطلب قبل وصول فاتورة المرتجع من سلة.'
+      erpInvoiceId: orderSyncRecord?.erpInvoiceId || '',
+      message: invoice?.erpSyncedAt
+        ? 'تم إرسال فاتورة المرتجع هذه إلى ERP مسبقاً.'
         : 'تم إرسال هذا المرتجع إلى ERP مسبقاً من بيانات الطلب.',
-      orderId: order.orderId,
-      orderNumber: order.orderNumber,
-      invoiceId: invoice?.invoiceId ?? null,
-      invoiceNumber: invoice?.invoiceNumber ?? null,
     };
   }
 
@@ -1547,8 +1668,10 @@ async function syncPendingRefund(input: {
     );
   }
 
-  const returnRefund = await getOrderReturnRefund(order);
-  const refundDate = invoice?.issueDate ?? new Date();
+  // A later return on an order that already has a credit note posts its own
+  // credit note and leaves the earlier sync records alone.
+  const isAdditionalCredit = orderAlreadyCredited;
+  const refundDate = isAdditionalCredit ? new Date() : invoice?.issueDate ?? new Date();
   const payload = await transformOrderToERPInvoice(forceRefundOrder(order), {
     returnedItems: returnRefund.returnedItems.length > 0 ? returnRefund.returnedItems : undefined,
     returnedShipping: returnRefund.returnedShipping,
@@ -1558,11 +1681,14 @@ async function syncPendingRefund(input: {
   const result = await postInvoiceToERP(payload);
 
   if (!result.success) {
-    if (invoice) {
+    const error = result.error || result.message || 'Unknown error';
+    if (isAdditionalCredit) {
+      // Keep the earlier credit note's records; the row stays in the queue.
+    } else if (invoice) {
       await prisma.sallaInvoice.update({
         where: { id: invoice.id },
         data: {
-          erpSyncError: result.error || result.message || 'Unknown error',
+          erpSyncError: error,
           erpSyncAttempts: {
             increment: 1,
           },
@@ -1575,7 +1701,7 @@ async function syncPendingRefund(input: {
         order,
         erpInvoiceId: null,
         erpSyncedAt: null,
-        erpSyncError: result.error || result.message || 'Unknown error',
+        erpSyncError: error,
       });
     }
 
@@ -1593,9 +1719,13 @@ async function syncPendingRefund(input: {
     );
   }
 
+  await markRequestsCredited(returnRefund.requests, erpInvoiceId);
+
   const syncedAt = new Date();
 
-  if (invoice) {
+  if (isAdditionalCredit) {
+    // Earlier credit note records stay as they are.
+  } else if (invoice) {
     await prisma.sallaInvoice.update({
       where: { id: invoice.id },
       data: {
@@ -1620,16 +1750,16 @@ async function syncPendingRefund(input: {
   const feeSync = await syncReturnFeeInvoices(order, returnRefund.requests, refundDate);
 
   return {
-    queueType: 'refund',
+    ...base,
     alreadyRecorded: false,
     erpInvoiceId,
-    message: [result.message || 'تم إرسال المرتجع إلى ERP بنجاح.', describeFeeSync(feeSync)]
+    message: [
+      result.message || 'تم إرسال المرتجع إلى ERP بنجاح.',
+      isAdditionalCredit ? 'هذا مرتجع إضافي على طلب له إشعار دائن سابق.' : '',
+      describeFeeSync(feeSync),
+    ]
       .filter(Boolean)
       .join(' '),
-    orderId: order.orderId,
-    orderNumber: order.orderNumber,
-    invoiceId: invoice?.invoiceId ?? null,
-    invoiceNumber: invoice?.invoiceNumber ?? null,
   };
 }
 
